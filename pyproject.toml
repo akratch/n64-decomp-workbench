@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "n64-decomp-workbench"
+version = "0.1.0"
+description = "Portable MIPS object comparison and IDO ugen instrumentation tools"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "CC0-1.0" }
+authors = [{ name = "DKR decompilation contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Compilers",
+]
+
+[project.scripts]
+decomp-workbench = "decomp_workbench.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
