@@ -1,0 +1,6 @@
+CSAVE bitpos=279 kind=1 dtype=13 unk1C=81 adjsave=2.500000 unk23=0
+CUP bitpos=279 reg=24 cs=1 cost=100.000000
+CUP bitpos=279 reg=30 cs=2 cost=20.000000
+CSAVE bitpos=281 kind=1 dtype=13 unk1C=30 adjsave=3.000000 unk23=0
+CUP bitpos=281 reg=24 cs=1 cost=15.000000
+[CDX] p1dec proc=3 web=9 sym=7 class=2 save=3.5 nocs=2 totalsave=7.0 bestcost=4.0 bestcolor=30 decision=color forced=-2

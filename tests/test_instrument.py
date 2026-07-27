@@ -1,4 +1,4 @@
-"""Tests for behavior-neutral ugen source instrumentation."""
+"""Tests for opt-in ugen source instrumentation."""
 
 from __future__ import annotations
 

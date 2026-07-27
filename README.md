@@ -1,112 +1,224 @@
-# Decomp Workbench
+# N64 Decomp Workbench
 
-`decomp-workbench` packages the reusable parts of the compiler-oracle and
-instrumentation workflow used to finish Diddy Kong Racing's Adventure One.
-It is intentionally project-agnostic:
+Small, composable tools for the point where a decompilation is structurally
+close but compiler behavior is still deciding the last instructions.
 
-- compare two MIPS objects at exact, opcode, normalized, and register levels;
-- rank a directory of candidate objects against one target;
-- compile and rank source candidates with any compiler command;
-- add opt-in call and register-free-list tracing to a statically recompiled
-  IDO `ugen.c`.
+The workbench grew out of the final matching work on four large or stubborn
+Diddy Kong Racing functions. The public package keeps the reusable parts:
+relocation-aware comparison, repeatable candidate campaigns, compiler trace
+analysis, guarded static-recomp instrumentation, and retained-pass replay.
+The DKR-specific material is presented as worked examples rather than as
+general rules about IDO or proof of the historical source.
 
-The package contains no ROM data, target objects, compiler binaries, or
-function-specific candidates. The original DKR experiments and compiler
-patches are preserved separately on the fork's
-`archive/decomp-research-2026-07-26` branch.
+The repository contains no ROMs, extracted target objects, proprietary
+compiler binaries, or complete copied translation units.
+
+## Start here
+
+| I want to… | Start with |
+|---|---|
+| Check whether two MIPS objects match | [Object comparison](docs/object-comparison.md) |
+| Explore the included fixtures without a toolchain | [Five-minute tour](#five-minute-tour) |
+| Compile and rank many source candidates | [Campaigns](docs/campaigns.md) |
+| Understand a register-only mismatch | [Trace analysis](docs/trace-analysis.md) |
+| See why tracing uopt helped in practice | [Track renderer example](case-studies/trackbg-globalcolor.md) |
+| Reconstruct a temp-register FIFO | [Plane physics example](case-studies/racer-fifo.md) |
+| Inspect or perturb the ugen→as1 boundary | [Menu example](case-studies/menu-pass-replay.md) |
+| Instrument a static recompile of IDO | [Compiler instrumentation](docs/compiler-instrumentation.md) |
+| Browse everything evaluated for extraction | [Historical tooling inventory](docs/historical-tooling-inventory.md) |
+| Understand what “exact” does and does not mean | [Scope and claims](docs/scope-and-claims.md) |
+| Find the origin of an included technique | [Provenance](docs/provenance.md) |
+| See release-level changes | [Changelog](CHANGELOG.md) |
 
 ## Install
 
-Python 3.10 or newer is required. From this directory:
+Python 3.10 or newer is required. The core package uses only the standard
+library.
 
 ```sh
-python3 -m pip install .
-```
-
-For development:
-
-```sh
+cd tools/decomp-workbench
 python3 -m pip install -e .
-python3 -m unittest discover -s tests
+decomp-workbench --help
 ```
 
-## Compare objects
+Run the test suite:
 
 ```sh
-decomp-workbench compare target.o candidate.o \
-  --symbol func_80049794 \
-  --objdump ../../tools/binutils/mips64-elf-objdump
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Add `--json` for machine-readable output, `--show-diff` to print localized
-register differences, or `--fail-on-mismatch` for CI.
+## Five-minute tour
 
-The reported `normalized_distance` ignores branch target addresses, immediate
-values, and stack offsets. It is a useful structural signal, not a proof of
-equivalence. `word_mismatches == 0` is the exact-match check.
+These examples use retained text fixtures and synthetic traces, so they do not
+require a ROM, IDO, or MIPS binutils.
 
-## Rank retained objects
+### 1. Compare two relocated instruction streams
 
 ```sh
-decomp-workbench rank target.o /tmp/candidate-*.o \
-  --symbol func_80049794 --limit 20
+decomp-workbench compare-dumps \
+  examples/fixtures/target.objdump \
+  examples/fixtures/relocated-match.objdump \
+  --fail-on-mismatch
 ```
 
-Candidates are ordered by exact word mismatch count, normalized distance,
-register mismatch count, and instruction-count delta.
+The raw words differ in a `jal` target and a `lui` immediate, but both fields
+have matching relocation records. The workbench masks only the
+linker-controlled bits and reports `words=0 raw=2`.
 
-## Compile and rank sources
-
-Use `{source}` and `{output}` placeholders in a compiler command. The command
-is split without invoking a shell.
+Now expose a real register difference:
 
 ```sh
-decomp-workbench compile-rank target.o candidates/*.c \
-  --symbol func_80049794 \
-  --compile-command './compile.sh {source} -o {output}'
+decomp-workbench compare-dumps \
+  examples/fixtures/target.objdump \
+  examples/fixtures/register-mismatch.objdump \
+  --show-diff
 ```
 
-Failed compilations are retained in the report instead of aborting the whole
-sweep. Use `--keep-objects DIR` to retain successful objects.
+This reports one word, normalized, register, and FP-register mismatch.
 
-## Instrument a recompiled ugen
+### 2. Replay a traced temp-register FIFO
 
 ```sh
-decomp-workbench instrument-ugen ugen.c ugen.traced.c
-cc -O2 -o cc-traced ugen.traced.c
-DKWB_UGEN_TRACE=1 ./cc-traced ...
+decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
+  --registers t6,t7,t8 \
+  --show-events \
+  --fail-on-violation
 ```
 
-The generated source is behavior-neutral while tracing is disabled. With
-`DKWB_UGEN_TRACE=1`, it prints:
+Leading append events seed the queue. The report checks every later allocation
+against the FIFO head and assigns stable logical value identities (`v1`,
+`v2`, …) to the physical register events.
 
-- `DKWB-CALL` entries and exits for the selected recompiled functions;
-- `DKWB-FREELIST` events for known GP-register allocation/free-list helpers.
-
-Restrict call tracing with a regular expression:
+### 3. Rank globalcolor live ranges
 
 ```sh
-decomp-workbench instrument-ugen ugen.c ugen.traced.c \
-  --functions '^(f_(alloc|free|add_to|remove_from|move_to).*)$'
+decomp-workbench trace-globalcolor \
+  examples/traces/globalcolor.log \
+  --dtype 13
 ```
 
-The instrumenter targets the C output produced by static recompilation, where
-functions use names such as `f_alloc_reg`. It refuses to instrument the same
-file twice and reports how many functions and free-list hooks it added.
+This parses the retained `CSAVE`/`CUP` format and the later `[CDX]` records
+emitted by the included profile. The historical field name `unk1C` is
+presented as `weight`; the raw value is retained and the documentation does
+not claim a broader semantic interpretation than the experiments established.
 
-## Research lessons retained in the tool
+### 4. Inspect alias decisions
 
-The original campaigns showed that a single raw instruction-difference score
-is too coarse late in a match. Useful oracles form a ladder:
+```sh
+decomp-workbench trace-alias \
+  examples/traces/alias.log \
+  --show-queries
+```
 
-1. instruction count and exact word mismatches;
-2. opcode and normalized structural distance;
-3. integer and floating-point register mismatch ranges;
-4. stack frame, spill offsets, and register-use counts;
-5. compiler allocator/free-list traces when source-level searches plateau.
+This separates retained, direct, and fresh base paths and summarizes the
+descriptor types and outcomes of each observed alias query. The fixture is
+synthetic; the field names mirror the pinned instrumentation profile.
 
-The `func_8008FF1C` match also demonstrated that alias provenance and literal
-loop bounds can change uopt scheduling: direct array indexing let uopt prove a
-store could not alias another global, and the literal inner bound preserved
-strength reduction. Those observations belong in research notes and tools,
-not as permanent function-specific source comments.
+## Command map
+
+| Command | Purpose |
+|---|---|
+| `compare` | Disassemble and compare two objects |
+| `compare-dumps` | Compare redistributable GNU objdump text |
+| `rank` | Rank prebuilt candidate objects |
+| `compile-rank` | Simple sequential compile-and-rank loop |
+| `campaign` | Parallel compilation with caching and a JSONL ledger |
+| `trace-summary` | Count events, registers, and source lines |
+| `trace-alias` | Summarize uopt base provenance and alias decisions |
+| `trace-fifo` | Validate and reconstruct a FIFO register class |
+| `trace-globalcolor` | Summarize uopt allocation costs and decisions |
+| `instrument-ugen` | Add opt-in call/free-list hooks to generated `ugen.c` |
+| `instrument-uopt` | Compose compatible pinned uopt profiles |
+| `instrument-uopt-globalcolor` | Apply the hash-pinned IDO 5.3 uopt profile |
+| `instrument-uopt-alias` | Apply the hash-pinned alias trace profile |
+| `replay-as1` | Edit a retained ugen listing and rerun as0/as1 |
+
+Every reporting command supports JSON where machine-readable output is useful.
+Compiler commands are tokenized with `shlex` and run without a shell.
+
+## How the pieces fit
+
+```text
+source candidates
+       │
+       ▼
+ campaign ──────► candidate objects ──────► compare / asm-differ
+                                                │
+                         structural plateau ────┘
+                                                ▼
+                                      uopt / ugen traces
+                                      │       │       │
+                                      ▼       ▼       ▼
+                                  coloring  aliases  FIFO replay
+                                      │       │       │
+                                      └───────┼───────┘
+                                              ▼
+                                    focused source change
+
+retained ugen listing ──► replay-as1 ──► causal pass-boundary experiment
+```
+
+The intended workflow is to use the least invasive oracle that answers the
+current question. Compiler modification is a late diagnostic step, not the
+default matching technique.
+
+## Worked examples
+
+The case studies emphasize the tool and the evidence it exposed:
+
+1. [Globalcolor tracing exposed an expression-order tie](case-studies/trackbg-globalcolor.md).
+2. [Penalty buckets prevented a useful candidate from being discarded](case-studies/objects-structural-score.md).
+3. [A physical register trace became a logical event schedule](case-studies/racer-fifo.md).
+4. [Pass replay identified one missing `.noalias` directive](case-studies/menu-pass-replay.md).
+
+Each example separates observed facts, the diagnostic intervention, the
+source change that eventually matched, and the limits of the conclusion.
+
+## Repository map
+
+```text
+src/decomp_workbench/       installable Python package
+tests/                      standard-library unit tests
+examples/fixtures/          redistributable objdump text
+examples/traces/            small synthetic trace fixtures
+case-studies/               four DKR worked examples
+docs/                       task-oriented guides and reference
+research-archive/           index to preserved raw experiments
+```
+
+The large historical campaign—hundreds of variants, reports, and
+function-specific scripts—remains available on the DKR Git branch
+`archive/decomp-research-2026-07-26`. It is intentionally not mixed into the
+public API.
+
+## Instrumentation safety
+
+Tracing a compiler can perturb the compiler. Treat this as a testable property,
+not an assumption:
+
+1. Build the unmodified pass and the instrumented pass.
+2. Run both with every workbench environment variable unset.
+3. Compare the target object, already-matching collateral objects, and the
+   complete ROM or binary.
+4. Enable one known trace as a positive control.
+5. Use behavior-changing controls such as `CDX_FORCE` only as causal probes.
+
+The uopt profile is pinned to the SHA-256 of one generated IDO 5.3 `uopt.c`
+and refuses other source by default. See
+[compiler instrumentation](docs/compiler-instrumentation.md) for the exact
+upstream revision and validation checklist.
+
+## Project status
+
+This branch is the curated successor to `decomp-workbench-v0.1.0`. The
+relocation comparator, campaign preparation, trace parsers, FIFO model,
+listing mutation, and instrumentation anchor checks have synthetic tests.
+Actual IDO and whole-ROM fidelity checks require user-supplied toolchain and
+game inputs and are therefore documented integration gates, not claims made by
+the redistributable unit suite.
+
+## License
+
+Original workbench code, fixtures, and documentation are dedicated to the
+public domain under [CC0 1.0 Universal](LICENSE.md). Third-party tools and
+user-supplied compiler or game inputs retain their own terms.

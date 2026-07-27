@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import shutil
@@ -13,13 +14,37 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
-from .compare import compare_objects
+from . import __version__
+from .campaign import render_compile_command as render_campaign_command
+from .campaign import run_campaign
+from .compare import compare_instructions, compare_objects
+from .globalcolor import parse_globalcolor_trace
 from .instrument import instrument_ugen
+from .instrument_alias import instrument_uopt_alias
+from .instrument_profiles import (
+    SUPPORTED_PROFILES,
+    instrument_uopt_profiles,
+)
+from .instrument_uopt import instrument_uopt_globalcolor
 from .model import Comparison, CompileResult, display_path
+from .objdump import parse_disassembly
+from .pass_replay import ListingEdit, replay_as1
+from .trace import (
+    alias_trace_summary,
+    parse_integer,
+    parse_register,
+    parse_trace,
+    register_name,
+    replay_fifo,
+    trace_summary,
+)
 
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--symbol", help="disassemble only this symbol")
+    parser.add_argument(
+        "--section", default=".text", help="object section (default: .text)"
+    )
     parser.add_argument("--objdump", help="path to a GNU-compatible objdump")
     parser.add_argument("--json", action="store_true", help="emit JSON")
 
@@ -27,6 +52,7 @@ def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
 def comparison_line(item: Comparison) -> str:
     return (
         f"words={item.word_mismatches:4d} "
+        f"raw={item.raw_word_mismatches:4d} "
         f"norm={item.normalized_distance:4d} "
         f"regs={item.register_mismatches:4d} "
         f"fp={item.fp_register_mismatches:4d} "
@@ -37,12 +63,17 @@ def comparison_line(item: Comparison) -> str:
 
 
 def compare_command(args: argparse.Namespace) -> int:
-    comparison = compare_objects(
-        args.target,
-        args.candidate,
-        objdump=args.objdump,
-        symbol=args.symbol,
-    )
+    try:
+        comparison = compare_objects(
+            args.target,
+            args.candidate,
+            objdump=args.objdump,
+            symbol=args.symbol,
+            section=args.section,
+        )
+    except (OSError, RuntimeError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
     else:
@@ -51,6 +82,61 @@ def compare_command(args: argparse.Namespace) -> int:
             f"register ranges: {comparison.register_mismatch_ranges or 'none'}"
         )
         print(f"FP ranges: {comparison.fp_mismatch_ranges or 'none'}")
+        if comparison.relocation_metadata_mismatches:
+            print(
+                "relocation metadata mismatches: "
+                f"{comparison.relocation_metadata_mismatches}"
+            )
+        if comparison.unknown_relocations:
+            print(
+                "unknown relocations (not masked): "
+                + ", ".join(comparison.unknown_relocations)
+            )
+        if args.show_diff:
+            for item in comparison.register_diff:
+                print(f"\n[{item['index']}] target    {item['target']}")
+                print(f"    candidate {item['candidate']}")
+    return 1 if args.fail_on_mismatch and not comparison.exact else 0
+
+
+def compare_dumps_command(args: argparse.Namespace) -> int:
+    try:
+        target_text = Path(args.target).read_text(encoding="utf-8")
+        candidate_text = Path(args.candidate).read_text(encoding="utf-8")
+    except OSError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    target = parse_disassembly(target_text, symbol=args.symbol)
+    candidate = parse_disassembly(candidate_text, symbol=args.symbol)
+    if not target or not candidate:
+        print(
+            "error: both files must contain GNU-style objdump instruction lines",
+            file=sys.stderr,
+        )
+        return 2
+    comparison = compare_instructions(
+        target,
+        candidate,
+        target_name=display_path(args.target),
+        candidate_name=display_path(args.candidate),
+        symbol=args.symbol,
+        target_text=target_text,
+        candidate_text=candidate_text,
+    )
+    if args.json:
+        print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
+    else:
+        print(comparison_line(comparison))
+        if comparison.relocation_metadata_mismatches:
+            print(
+                "relocation metadata mismatches: "
+                f"{comparison.relocation_metadata_mismatches}"
+            )
+        if comparison.unknown_relocations:
+            print(
+                "unknown relocations (not masked): "
+                + ", ".join(comparison.unknown_relocations)
+            )
         if args.show_diff:
             for item in comparison.register_diff:
                 print(f"\n[{item['index']}] target    {item['target']}")
@@ -69,6 +155,7 @@ def rank_command(args: argparse.Namespace) -> int:
                     candidate,
                     objdump=args.objdump,
                     symbol=args.symbol,
+                    section=args.section,
                 )
             )
         except (OSError, RuntimeError) as error:
@@ -100,15 +187,7 @@ def rank_command(args: argparse.Namespace) -> int:
 def render_compile_command(template: str, source: Path, output: Path) -> list[str]:
     """Render a compiler command without invoking a shell."""
 
-    parts = shlex.split(template)
-    if not any("{source}" in part for part in parts):
-        raise ValueError("--compile-command must contain {source}")
-    if not any("{output}" in part for part in parts):
-        raise ValueError("--compile-command must contain {output}")
-    return [
-        part.replace("{source}", str(source)).replace("{output}", str(output))
-        for part in parts
-    ]
+    return render_campaign_command(template, source, output)
 
 
 def compile_sources(
@@ -118,6 +197,7 @@ def compile_sources(
     template: str,
     objdump: str | None,
     symbol: str | None,
+    section: str,
     keep_objects: str | None,
 ) -> list[CompileResult]:
     """Compile and compare source candidates."""
@@ -146,6 +226,7 @@ def compile_sources(
                     output,
                     objdump=objdump,
                     symbol=symbol,
+                    section=section,
                 )
                 comparison.candidate = display_path(source)
                 if keep_dir:
@@ -174,9 +255,10 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             template=args.compile_command,
             objdump=args.objdump,
             symbol=args.symbol,
+            section=args.section,
             keep_objects=args.keep_objects,
         )
-    except ValueError as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     successes = [item for item in results if item.comparison is not None]
@@ -204,6 +286,75 @@ def compile_rank_command(args: argparse.Namespace) -> int:
     return 0 if successes else 1
 
 
+def parse_environment(values: list[str]) -> dict[str, str]:
+    """Parse explicit NAME=VALUE compiler environment entries."""
+
+    result: dict[str, str] = {}
+    for value in values:
+        name, separator, content = value.partition("=")
+        if (
+            not separator
+            or not name
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+        ):
+            raise ValueError(f"invalid environment entry: {value!r}")
+        result[name] = content
+    return result
+
+
+def campaign_command(args: argparse.Namespace) -> int:
+    try:
+        environment = parse_environment(args.env)
+        results, duplicates = run_campaign(
+            args.sources,
+            target=args.target,
+            template=args.compile_command,
+            cache_dir=args.cache_dir,
+            ledger=args.ledger,
+            jobs=args.jobs,
+            objdump=args.objdump,
+            symbol=args.symbol,
+            section=args.section,
+            environment=environment,
+            keep_objects=args.keep_objects,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    shown = results[: args.limit] if args.limit else results
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "schema": "decomp-workbench-campaign-v1",
+                    "unique_candidates": len(results),
+                    "source_files": sum(len(items) for items in duplicates.values()),
+                    "results": [item.as_dict() for item in shown],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        for rank, result in enumerate(shown, 1):
+            if result.comparison:
+                cache = "cache" if result.cached else "built"
+                print(
+                    f"{rank:3d} {comparison_line(result.comparison)} "
+                    f"[{cache} {result.duration_seconds:.2f}s]"
+                )
+            else:
+                detail = result.stderr.strip().splitlines()
+                message = detail[-1] if detail else f"exit {result.returncode}"
+                print(f"FAIL {result.source}: {message}", file=sys.stderr)
+        duplicate_count = sum(len(items) - 1 for items in duplicates.values())
+        if duplicate_count:
+            print(f"deduplicated {duplicate_count} identical source file(s)")
+        if args.ledger:
+            print(f"ledger: {Path(args.ledger).resolve()}")
+    return 0 if any(item.comparison for item in results) else 1
+
+
 def instrument_command(args: argparse.Namespace) -> int:
     source_path = Path(args.input)
     output_path = Path(args.output)
@@ -218,10 +369,11 @@ def instrument_command(args: argparse.Namespace) -> int:
             source_path.read_text(encoding="utf-8"),
             function_pattern=args.functions,
         )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(result.source, encoding="utf-8")
     except (OSError, ValueError, re.error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    output_path.write_text(result.source, encoding="utf-8")
     print(
         f"instrumented {result.functions} functions and "
         f"{result.free_list_hooks} free-list hooks -> {output_path}"
@@ -229,12 +381,327 @@ def instrument_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def instrument_uopt_command(args: argparse.Namespace) -> int:
+    source_path = Path(args.input)
+    output_path = Path(args.output)
+    if source_path.resolve() == output_path.resolve() and not args.in_place:
+        print(
+            "error: input and output are identical; pass --in-place to confirm",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        result = instrument_uopt_globalcolor(
+            source_path.read_text(encoding="utf-8"),
+            allow_unverified_source=args.allow_unverified_source,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(result.source, encoding="utf-8")
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(
+        f"instrumented {result.trace_points} globalcolor sites "
+        f"using {result.profile} -> {output_path}"
+    )
+    return 0
+
+
+def instrument_alias_command(args: argparse.Namespace) -> int:
+    source_path = Path(args.input)
+    output_path = Path(args.output)
+    if source_path.resolve() == output_path.resolve() and not args.in_place:
+        print(
+            "error: input and output are identical; pass --in-place to confirm",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        result = instrument_uopt_alias(
+            source_path.read_text(encoding="utf-8"),
+            allow_unverified_source=args.allow_unverified_source,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(result.source, encoding="utf-8")
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(
+        f"instrumented {result.trace_points} alias-decision sites "
+        f"using {result.profile} -> {output_path}"
+    )
+    return 0
+
+
+def instrument_profiles_command(args: argparse.Namespace) -> int:
+    source_path = Path(args.input)
+    output_path = Path(args.output)
+    if source_path.resolve() == output_path.resolve() and not args.in_place:
+        print(
+            "error: input and output are identical; pass --in-place to confirm",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        result = instrument_uopt_profiles(
+            source_path.read_text(encoding="utf-8"),
+            args.profile,
+            allow_unverified_source=args.allow_unverified_source,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(result.source, encoding="utf-8")
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(
+        f"instrumented {result.trace_points} sites from "
+        f"{', '.join(result.profiles)} using {result.profile} -> {output_path}"
+    )
+    return 0
+
+
+def trace_summary_command(args: argparse.Namespace) -> int:
+    try:
+        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    summary = trace_summary(events)
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"events: {summary['events']}")
+        for action, count in summary["actions"].items():
+            print(f"  {action:18s} {count}")
+        if summary["registers"]:
+            print(
+                "registers: "
+                + " ".join(
+                    f"{name}={count}"
+                    for name, count in summary["registers"].items()
+                )
+            )
+    return 0 if events else 1
+
+
+def trace_alias_command(args: argparse.Namespace) -> int:
+    try:
+        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    report = alias_trace_summary(events)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(
+            f"base-events={report['base_events']} "
+            f"alias-queries={report['alias_queries']}"
+        )
+        for label, key in (
+            ("base paths", "base_paths"),
+            ("base types", "base_types"),
+            ("results", "query_results"),
+            ("left types", "left_types"),
+            ("right types", "right_types"),
+        ):
+            values = report[key]
+            assert isinstance(values, dict)
+            if values:
+                print(
+                    f"{label}: "
+                    + " ".join(
+                        f"{name}={count}"
+                        for name, count in values.items()
+                    )
+                )
+        if args.show_queries:
+            for event in events:
+                if event.action != "alias-query":
+                    continue
+                left = event.fields.get("left_type", "?")
+                right = event.fields.get("right_type", "?")
+                result = event.fields.get("result", "?")
+                register = (
+                    register_name(event.register)
+                    if event.register is not None
+                    else "-"
+                )
+                print(
+                    f"line={event.index:<5d} reg={register:>3s} "
+                    f"{left:>8s} ↔ {right:<8s} {result}"
+                )
+    return 0 if report["events"] else 1
+
+
+def parse_register_list(value: str | None) -> list[int] | None:
+    if value is None:
+        return None
+    return [
+        parse_register(item)
+        for item in value.split(",")
+        if item.strip()
+    ]
+
+
+def trace_fifo_command(args: argparse.Namespace) -> int:
+    try:
+        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+        initial = parse_register_list(args.initial)
+        selected = parse_register_list(args.registers)
+        list_address = (
+            parse_integer(args.list_address) if args.list_address else None
+        )
+        if args.list_address and list_address is None:
+            raise ValueError(
+                f"invalid list address: {args.list_address!r}"
+            )
+        report = replay_fifo(
+            events,
+            initial_queue=initial,
+            registers=set(selected) if selected is not None else None,
+            list_address=list_address,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        print(
+            "initial: "
+            + " ".join(register_name(item) for item in report.initial_queue)
+        )
+        print(
+            "allocations: "
+            + " ".join(register_name(item) for item in report.allocations)
+        )
+        print(
+            "final: "
+            + " ".join(register_name(item) for item in report.final_queue)
+        )
+        print(
+            f"logical values: "
+            f"{sum(event.action == 'allocate' for event in report.logical_events)} "
+            f"max-live={report.max_live}"
+        )
+        for violation in report.violations:
+            print(f"VIOLATION {violation}", file=sys.stderr)
+        if args.show_events:
+            for event in report.logical_events:
+                print(
+                    f"{event.action:8s} v{event.value:<4d} "
+                    f"{register_name(event.register):>3s} "
+                    f"source={event.source_line or '-':>5} "
+                    f"trace={event.trace_line}"
+                )
+    return 1 if args.fail_on_violation and not report.valid else 0
+
+
+def trace_globalcolor_command(args: argparse.Namespace) -> int:
+    try:
+        report = parse_globalcolor_trace(
+            Path(args.trace).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    selected = report.ranked(dtype=args.dtype, limit=args.top)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "live_ranges": [item.as_dict() for item in selected],
+                    "decisions": [
+                        item.as_dict() for item in report.decisions
+                    ],
+                    "unparsed_diagnostic_lines": (
+                        report.unparsed_diagnostic_lines
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        for item in selected:
+            costs = sorted(
+                item.finite_costs, key=lambda entry: entry.cost
+            )
+            best = (
+                f"r{costs[0].register}:{costs[0].cost:g}"
+                if costs
+                else "-"
+            )
+            print(
+                f"bitpos={item.bitpos:5d} dtype={item.dtype:2d} "
+                f"weight={item.weight:5d} "
+                f"adjsave={item.adjusted_save:11g} "
+                f"total={item.total_save:13g} best={best}"
+            )
+        print(
+            f"live-ranges={len(report.live_ranges)} "
+            f"decisions={len(report.decisions)} "
+            f"unparsed={len(report.unparsed_diagnostic_lines)}"
+        )
+    return 0 if report.live_ranges or report.decisions else 1
+
+
+def parse_listing_edit(value: str, position: str) -> ListingEdit:
+    pattern, separator, text = value.partition("=")
+    if not separator or not pattern:
+        raise ValueError(
+            f"--insert-{position} expects REGEX=TEXT: {value!r}"
+        )
+    return ListingEdit(position=position, pattern=pattern, text=text)
+
+
+def replay_as1_command(args: argparse.Namespace) -> int:
+    try:
+        edits = [
+            *(
+                parse_listing_edit(value, "before")
+                for value in args.insert_before
+            ),
+            *(
+                parse_listing_edit(value, "after")
+                for value in args.insert_after
+            ),
+        ]
+        result = replay_as1(
+            args.listing,
+            args.output,
+            as0_template=args.as0_command,
+            as1_template=args.as1_command,
+            edits=edits,
+            allow_multiple=args.allow_multiple,
+            keep_work=args.keep_work,
+        )
+    except (OSError, RuntimeError, ValueError, re.error) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result.__dict__, indent=2, sort_keys=True))
+    else:
+        print(f"as0: {shlex.join(result.as0_command)}")
+        print(f"as1: {shlex.join(result.as1_command)}")
+        print(f"object: {result.output}")
+        if result.retained_directory:
+            print(f"retained: {result.retained_directory}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="decomp-workbench",
-        description="MIPS object oracles and IDO ugen instrumentation",
+        description=(
+            "MIPS object comparison, candidate campaigns, compiler traces, "
+            "and pass replay"
+        ),
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     compare_parser = commands.add_parser("compare", help="compare two objects")
@@ -244,6 +711,18 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--show-diff", action="store_true")
     compare_parser.add_argument("--fail-on-mismatch", action="store_true")
     compare_parser.set_defaults(handler=compare_command)
+
+    dumps_parser = commands.add_parser(
+        "compare-dumps",
+        help="compare retained GNU objdump text without object files",
+    )
+    dumps_parser.add_argument("target")
+    dumps_parser.add_argument("candidate")
+    dumps_parser.add_argument("--symbol")
+    dumps_parser.add_argument("--json", action="store_true")
+    dumps_parser.add_argument("--show-diff", action="store_true")
+    dumps_parser.add_argument("--fail-on-mismatch", action="store_true")
+    dumps_parser.set_defaults(handler=compare_dumps_command)
 
     rank_parser = commands.add_parser("rank", help="rank candidate objects")
     rank_parser.add_argument("target")
@@ -263,6 +742,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_compare_arguments(compile_parser)
     compile_parser.set_defaults(handler=compile_rank_command)
 
+    campaign_parser = commands.add_parser(
+        "campaign",
+        help="run a parallel, cached candidate campaign",
+    )
+    campaign_parser.add_argument("target")
+    campaign_parser.add_argument("sources", nargs="+")
+    campaign_parser.add_argument("--compile-command", required=True)
+    campaign_parser.add_argument(
+        "--cache-dir", default=".decomp-workbench/cache"
+    )
+    campaign_parser.add_argument("--ledger")
+    campaign_parser.add_argument(
+        "--jobs", type=int, default=max(1, min(8, os.cpu_count() or 1))
+    )
+    campaign_parser.add_argument("--env", action="append", default=[])
+    campaign_parser.add_argument("--keep-objects")
+    campaign_parser.add_argument("--limit", type=int, default=20)
+    add_common_compare_arguments(campaign_parser)
+    campaign_parser.set_defaults(handler=campaign_command)
+
     instrument_parser = commands.add_parser(
         "instrument-ugen", help="instrument statically recompiled ugen C"
     )
@@ -271,6 +770,111 @@ def build_parser() -> argparse.ArgumentParser:
     instrument_parser.add_argument("--functions", default=r"^f_")
     instrument_parser.add_argument("--in-place", action="store_true")
     instrument_parser.set_defaults(handler=instrument_command)
+
+    instrument_uopt_parser = commands.add_parser(
+        "instrument-uopt-globalcolor",
+        help="instrument the pinned IDO 5.3 static-recomp uopt profile",
+    )
+    instrument_uopt_parser.add_argument("input")
+    instrument_uopt_parser.add_argument("output")
+    instrument_uopt_parser.add_argument(
+        "--allow-unverified-source", action="store_true"
+    )
+    instrument_uopt_parser.add_argument("--in-place", action="store_true")
+    instrument_uopt_parser.set_defaults(handler=instrument_uopt_command)
+
+    instrument_alias_parser = commands.add_parser(
+        "instrument-uopt-alias",
+        help="trace base provenance in the pinned IDO 5.3 uopt profile",
+    )
+    instrument_alias_parser.add_argument("input")
+    instrument_alias_parser.add_argument("output")
+    instrument_alias_parser.add_argument(
+        "--allow-unverified-source", action="store_true"
+    )
+    instrument_alias_parser.add_argument("--in-place", action="store_true")
+    instrument_alias_parser.set_defaults(handler=instrument_alias_command)
+
+    instrument_profiles_parser = commands.add_parser(
+        "instrument-uopt",
+        help="apply compatible profiles to the pinned IDO 5.3 uopt source",
+    )
+    instrument_profiles_parser.add_argument("input")
+    instrument_profiles_parser.add_argument("output")
+    instrument_profiles_parser.add_argument(
+        "--profile",
+        action="append",
+        choices=SUPPORTED_PROFILES,
+        required=True,
+        help="profile to apply; repeat for a combined source",
+    )
+    instrument_profiles_parser.add_argument(
+        "--allow-unverified-source", action="store_true"
+    )
+    instrument_profiles_parser.add_argument("--in-place", action="store_true")
+    instrument_profiles_parser.set_defaults(
+        handler=instrument_profiles_command
+    )
+
+    summary_parser = commands.add_parser(
+        "trace-summary", help="summarize ugen diagnostic events"
+    )
+    summary_parser.add_argument("trace")
+    summary_parser.add_argument("--json", action="store_true")
+    summary_parser.set_defaults(handler=trace_summary_command)
+
+    alias_parser = commands.add_parser(
+        "trace-alias",
+        help="summarize profiled uopt base-provenance and alias decisions",
+    )
+    alias_parser.add_argument("trace")
+    alias_parser.add_argument("--show-queries", action="store_true")
+    alias_parser.add_argument("--json", action="store_true")
+    alias_parser.set_defaults(handler=trace_alias_command)
+
+    fifo_parser = commands.add_parser(
+        "trace-fifo", help="replay a traced register free list as a FIFO"
+    )
+    fifo_parser.add_argument("trace")
+    fifo_parser.add_argument(
+        "--initial",
+        help="comma-separated initial queue; inferred from leading appends",
+    )
+    fifo_parser.add_argument(
+        "--registers", help="comma-separated register class to include"
+    )
+    fifo_parser.add_argument(
+        "--list-address", help="only include appends for this list"
+    )
+    fifo_parser.add_argument("--show-events", action="store_true")
+    fifo_parser.add_argument("--json", action="store_true")
+    fifo_parser.add_argument("--fail-on-violation", action="store_true")
+    fifo_parser.set_defaults(handler=trace_fifo_command)
+
+    color_parser = commands.add_parser(
+        "trace-globalcolor",
+        help="summarize uopt CSAVE/CUP and CDX globalcolor traces",
+    )
+    color_parser.add_argument("trace")
+    color_parser.add_argument("--dtype", type=int)
+    color_parser.add_argument("--top", type=int, default=20)
+    color_parser.add_argument("--json", action="store_true")
+    color_parser.set_defaults(handler=trace_globalcolor_command)
+
+    replay_parser = commands.add_parser(
+        "replay-as1",
+        help="edit a retained ugen listing and rerun as0/as1",
+    )
+    replay_parser.add_argument("listing")
+    replay_parser.add_argument("output")
+    replay_parser.add_argument("--as0-command", required=True)
+    replay_parser.add_argument("--as1-command", required=True)
+    replay_parser.add_argument("--insert-before", action="append", default=[])
+    replay_parser.add_argument("--insert-after", action="append", default=[])
+    replay_parser.add_argument("--allow-multiple", action="store_true")
+    replay_parser.add_argument("--keep-work")
+    replay_parser.add_argument("--json", action="store_true")
+    replay_parser.set_defaults(handler=replay_as1_command)
     return parser
 
 

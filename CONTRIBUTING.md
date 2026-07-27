@@ -1,0 +1,49 @@
+# Contributing
+
+Contributions should make a late-stage decompilation investigation easier to
+run, inspect, or reproduce without requiring copyrighted project inputs.
+
+## Development setup
+
+```sh
+python3 -m pip install -e '.[dev]'
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+ruff check .
+```
+
+The core package intentionally uses the Python standard library. Optional
+integrations may have dependencies, but keep them isolated and document their
+failure mode when unavailable.
+
+## Design expectations
+
+- Prefer small commands that compose through files and JSON.
+- Never invoke user-supplied compiler commands through a shell.
+- Keep exact verification separate from heuristic ranking.
+- Refuse unknown generated compiler source instead of silently applying a
+  version-specific patch.
+- Put target-specific search scripts in `research-archive/`, not in the public
+  package.
+- Add a synthetic or redistributable fixture for every parser and model.
+- Record the origin and limits of compiler behavior claims.
+
+## Adding an instrumentation profile
+
+An instrumentation profile must include:
+
+1. Upstream repository and commit.
+2. SHA-256 of the unmodified generated source.
+3. Exact, uniqueness-checked anchors.
+4. A test that rejects a missing or duplicated anchor.
+5. Environment variables and output format.
+6. A disabled-instrumentation fidelity procedure.
+7. Clear separation between tracing and behavior-changing controls.
+
+Do not commit original compiler binaries or generated sources whose
+redistribution terms are unclear.
+
+## Licensing
+
+By contributing original material here, you agree to dedicate it under
+[CC0 1.0 Universal](LICENSE.md). Do not submit third-party material unless its
+terms permit that treatment and its provenance is documented.

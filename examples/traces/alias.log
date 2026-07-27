@@ -1,0 +1,4 @@
+DKWB-BASE ordinal=0 reg=16 kind=3 type=isvar sym=12 addr=268540000 hadbase=0 path=fresh
+DKWB-ALIAS-QUERY ordinal=0 reg=16 result=no-alias left_kind=3 left_type=isvar left_sym=12 left_addr=268540000 right_kind=1 right_type=islda right_sym=44 right_addr=268541024
+DKWB-BASE ordinal=1 reg=17 kind=1 type=islda sym=44 addr=268541024 hadbase=0 path=direct
+DKWB-ALIAS-QUERY ordinal=1 reg=17 result=may-alias left_kind=1 left_type=islda left_sym=44 left_addr=268541024 right_kind=1 right_type=islda right_sym=44 right_addr=268541024

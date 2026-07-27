@@ -1,4 +1,10 @@
-"""Objdump discovery, invocation, and parsing."""
+"""Objdump discovery, invocation, and parsing.
+
+GNU objdump prints relocations on a line following the affected instruction.
+The parser makes those relocations part of the instruction model so comparison
+can ignore only linker-controlled fields instead of broadly masking every
+immediate.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +13,19 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .model import Instruction
+from .model import Instruction, Relocation
 
 
 INSTRUCTION_RE = re.compile(
     r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.+?)\s*$"
+)
+RELOCATION_RE = re.compile(
+    r"^\s*([0-9a-fA-F]+):?\s+"
+    r"(R_MIPS_[A-Za-z0-9_]+)"
+    r"(?:\s+(.+?))?\s*$"
+)
+SYMBOL_RE = re.compile(
+    r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$"
 )
 
 
@@ -39,18 +53,52 @@ def discover_objdump(explicit: str | None = None) -> str:
     )
 
 
-def parse_disassembly(text: str) -> list[Instruction]:
-    """Parse GNU objdump instruction lines."""
+def parse_relocations(text: str) -> dict[int, tuple[Relocation, ...]]:
+    """Parse GNU objdump ``-r`` lines, grouped by section offset."""
 
-    instructions: list[Instruction] = []
+    grouped: dict[int, list[Relocation]] = {}
     for line in text.splitlines():
+        match = RELOCATION_RE.match(line)
+        if not match:
+            continue
+        offset = int(match.group(1), 16)
+        symbol = match.group(3)
+        grouped.setdefault(offset, []).append(
+            Relocation(
+                offset=offset,
+                kind=match.group(2),
+                symbol=symbol.strip() if symbol else None,
+            )
+        )
+    return {offset: tuple(items) for offset, items in grouped.items()}
+
+
+def parse_disassembly(
+    text: str, *, symbol: str | None = None
+) -> list[Instruction]:
+    """Parse GNU objdump instruction lines, optionally for one symbol."""
+
+    relocations = parse_relocations(text)
+    instructions: list[Instruction] = []
+    selected = symbol is None
+    for line in text.splitlines():
+        symbol_match = SYMBOL_RE.match(line)
+        if symbol_match:
+            selected = (
+                symbol is None or symbol_match.group("name") == symbol
+            )
+            continue
+        if not selected:
+            continue
         match = INSTRUCTION_RE.match(line)
         if match:
+            address = int(match.group(1), 16)
             instructions.append(
                 Instruction(
-                    address=int(match.group(1), 16),
+                    address=address,
                     word=match.group(2).lower(),
                     assembly=match.group(3).strip(),
+                    relocations=relocations.get(address, ()),
                 )
             )
     return instructions
@@ -61,11 +109,12 @@ def dump_object(
     *,
     objdump: str | None = None,
     symbol: str | None = None,
+    section: str = ".text",
 ) -> tuple[str, list[Instruction]]:
     """Disassemble an object and return raw text plus parsed instructions."""
 
     executable = discover_objdump(objdump)
-    command = [executable, "-d", str(path)]
+    command = [executable, "-d", "-r", "-z", "-j", section, str(path)]
     if symbol:
         command.append(f"--disassemble={symbol}")
     result = subprocess.run(

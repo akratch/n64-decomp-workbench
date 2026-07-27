@@ -31,7 +31,9 @@ static int dkwb_trace_state = -1;
 static int dkwb_trace_depth;
 static int dkwb_trace_on(void) {
     if (dkwb_trace_state < 0) {
-        dkwb_trace_state = getenv("DKWB_UGEN_TRACE") != NULL;
+        const char *value = getenv("DKWB_UGEN_TRACE");
+        dkwb_trace_state =
+            value != NULL && *value != '\0' && *value != '0';
     }
     return dkwb_trace_state;
 }

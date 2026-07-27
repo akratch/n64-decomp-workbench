@@ -9,7 +9,7 @@ from decomp_workbench.compare import (
     mismatch_ranges,
     normalize_instruction,
 )
-from decomp_workbench.objdump import parse_disassembly
+from decomp_workbench.objdump import parse_disassembly, parse_relocations
 
 
 TARGET = """
@@ -28,6 +28,22 @@ CANDIDATE = """
    c: 10000005  b 24 <demo+0x24>
 """
 
+RELOC_TARGET = """
+00000000 <demo>:
+   0: 0c123456  jal 48d158 <callee>
+                        0: R_MIPS_26 callee
+   4: 3c010123  lui $at,0x123
+                        4: R_MIPS_HI16 global
+"""
+
+RELOC_CANDIDATE = """
+00000000 <demo>:
+   0: 0c000000  jal 0 <callee>
+                        0: R_MIPS_26 callee
+   4: 3c010000  lui $at,0x0
+                        4: R_MIPS_HI16 global
+"""
+
 
 class CompareTests(unittest.TestCase):
     def test_parse_and_normalize(self) -> None:
@@ -42,6 +58,40 @@ class CompareTests(unittest.TestCase):
             normalize_instruction(instructions[3].assembly),
             "b ADDR",
         )
+        self.assertEqual(
+            normalize_instruction("addiu $t0,$t0,-1"),
+            "addiu t0,t0,IMM",
+        )
+
+    def test_filters_retained_dump_by_symbol(self) -> None:
+        text = (
+            "00000000 <first>:\n"
+            "   0: 03e00008  jr $ra\n"
+            "00000004 <second>:\n"
+            "   4: 00000000  nop\n"
+        )
+        selected = parse_disassembly(text, symbol="second")
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].address, 4)
+
+    def test_selected_symbol_owns_frame_metric(self) -> None:
+        text = (
+            "00000000 <first>:\n"
+            "   0: 27bdffe0  addiu $sp,$sp,-32\n"
+            "00000004 <second>:\n"
+            "   4: 27bdffc0  addiu $sp,$sp,-64\n"
+        )
+        selected = parse_disassembly(text, symbol="second")
+        result = compare_instructions(
+            selected,
+            selected,
+            target_name="target",
+            candidate_name="candidate",
+            symbol="second",
+            target_text=text,
+            candidate_text=text,
+        )
+        self.assertEqual(result.candidate_frame_size, -64)
 
     def test_comparison_layers(self) -> None:
         target = parse_disassembly(TARGET)
@@ -56,6 +106,7 @@ class CompareTests(unittest.TestCase):
             candidate_text=CANDIDATE,
         )
         self.assertEqual(result.word_mismatches, 4)
+        self.assertEqual(result.raw_word_mismatches, 4)
         self.assertEqual(result.opcode_mismatches, 0)
         self.assertEqual(result.normalized_distance, 1)
         self.assertEqual(result.fp_register_mismatches, 1)
@@ -63,6 +114,72 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.target_frame_size, -32)
         self.assertEqual(result.candidate_frame_size, -48)
         self.assertFalse(result.exact)
+
+    def test_relocation_fields_are_masked_precisely(self) -> None:
+        target = parse_disassembly(RELOC_TARGET)
+        candidate = parse_disassembly(RELOC_CANDIDATE)
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertEqual(result.raw_word_mismatches, 2)
+        self.assertEqual(result.word_mismatches, 0)
+        self.assertTrue(result.exact)
+        self.assertEqual(
+            [item.kind for item in target[0].relocations],
+            ["R_MIPS_26"],
+        )
+
+    def test_unknown_relocation_cannot_claim_exact(self) -> None:
+        target = parse_disassembly(
+            """
+   0: 00000000  nop
+                        0: R_MIPS_FUTURE symbol
+"""
+        )
+        candidate = parse_disassembly(
+            """
+   0: 00000000  nop
+                        0: R_MIPS_FUTURE symbol
+"""
+        )
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertEqual(result.word_mismatches, 0)
+        self.assertEqual(result.unknown_relocations, ["R_MIPS_FUTURE"])
+        self.assertFalse(result.exact)
+
+    def test_missing_relocation_cannot_claim_exact(self) -> None:
+        target = parse_disassembly(
+            "  0: 0c001234 jal 48d0 <callee>\n"
+            "  0: R_MIPS_26 callee\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 0c005678 jal 159e0 <callee>\n"
+        )
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertEqual(result.word_mismatches, 0)
+        self.assertEqual(result.relocation_metadata_mismatches, 1)
+        self.assertFalse(result.exact)
+
+    def test_parse_relocations(self) -> None:
+        relocations = parse_relocations(RELOC_TARGET)
+        self.assertEqual(relocations[0][0].symbol, "callee")
+        self.assertEqual(relocations[4][0].kind, "R_MIPS_HI16")
 
     def test_ranges(self) -> None:
         self.assertEqual(mismatch_ranges([]), [])

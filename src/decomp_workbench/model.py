@@ -8,16 +8,30 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class Relocation:
+    """One relocation attached to an instruction word."""
+
+    offset: int
+    kind: str
+    symbol: str | None = None
+
+
+@dataclass(frozen=True)
 class Instruction:
     """One instruction parsed from objdump output."""
 
     address: int
     word: str
     assembly: str
+    relocations: tuple[Relocation, ...] = ()
 
     @property
     def opcode(self) -> str:
         return self.assembly.split(maxsplit=1)[0] if self.assembly else ""
+
+    @property
+    def word_value(self) -> int:
+        return int(self.word, 16)
 
 
 @dataclass
@@ -30,7 +44,10 @@ class Comparison:
     target_instructions: int
     candidate_instructions: int
     instruction_delta: int
+    raw_word_mismatches: int
     word_mismatches: int
+    relocation_metadata_mismatches: int
+    unknown_relocations: list[str]
     opcode_mismatches: int
     normalized_distance: int
     register_mismatches: int
@@ -42,6 +59,7 @@ class Comparison:
     candidate_fp_register_uses: dict[str, int]
     candidate_stack_offsets: dict[int, int]
     candidate_sha1: str
+    candidate_sha256: str
     exact: bool
     error: str | None = None
     register_diff: list[dict[str, Any]] = field(default_factory=list)
@@ -50,9 +68,11 @@ class Comparison:
         return asdict(self)
 
     @property
-    def sort_key(self) -> tuple[int, int, int, int, str]:
+    def sort_key(self) -> tuple[int, int, int, int, int, int, str]:
         return (
             self.word_mismatches,
+            len(self.unknown_relocations),
+            self.relocation_metadata_mismatches,
             self.normalized_distance,
             self.register_mismatches,
             abs(self.instruction_delta),
@@ -71,6 +91,9 @@ class CompileResult:
     stderr: str
     object_path: str | None
     comparison: Comparison | None
+    cache_key: str = ""
+    cached: bool = False
+    duration_seconds: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
