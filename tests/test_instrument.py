@@ -6,7 +6,6 @@ import unittest
 
 from decomp_workbench.instrument import MARKER, instrument_ugen
 
-
 SOURCE = """\
 #include "header.h"
 static uint32_t f_alloc_reg(uint8_t *mem, uint32_t sp, uint32_t a0) {

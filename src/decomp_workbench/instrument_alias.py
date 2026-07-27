@@ -7,10 +7,9 @@ from dataclasses import dataclass
 
 from .instrument_uopt import IDO_53_V12_SHA256
 
-
 MARKER = "DKWB_UOPT_ALIAS_TRACE_V1"
 
-HEADER = r'''
+HEADER = r"""
 /* DKWB_UOPT_ALIAS_TRACE_V1
  * Trace-only hooks for the pinned IDO 5.3 static-recomp uopt profile.
  * Disabled unless DKWB_UOPT_ALIAS_TRACE is present in the environment.
@@ -40,7 +39,7 @@ static const char *dkwb_alias_kind(uint32_t kind) {
     default: return "unknown";
     }
 }
-'''
+"""
 
 
 @dataclass(frozen=True)
@@ -98,7 +97,7 @@ def instrument_uopt_alias(
         "    uint32_t dkwb_right = MEM_U32(sp + 44);\n"
         "    fprintf(stderr, "
         '"DKWB-ALIAS-QUERY ordinal=%lu reg=%u result=%s '
-        'left_kind=%u left_type=%s left_sym=%u left_addr=%u '
+        "left_kind=%u left_type=%s left_sym=%u left_addr=%u "
         'right_kind=%u right_type=%s right_sym=%u right_addr=%u\\n",\n'
         "        dkwb_alias_query_ordinal++, "
         "dkwb_alias_current_register,\n"

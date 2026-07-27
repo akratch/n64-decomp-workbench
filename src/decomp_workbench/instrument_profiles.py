@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from .instrument_alias import instrument_uopt_alias
 from .instrument_uopt import IDO_53_V12_SHA256, instrument_uopt_globalcolor
-
 
 SUPPORTED_PROFILES = ("alias", "globalcolor")
 
@@ -52,22 +51,22 @@ def instrument_uopt_profiles(
         )
 
     # A fixed order makes repeated invocations and source diffs reproducible.
-    ordered = tuple(
-        profile for profile in SUPPORTED_PROFILES if profile in requested
-    )
+    ordered = tuple(profile for profile in SUPPORTED_PROFILES if profile in requested)
     instrumented = source
     trace_points = 0
     for profile in ordered:
         if profile == "alias":
-            result = instrument_uopt_alias(
+            alias_result = instrument_uopt_alias(
                 instrumented, allow_unverified_source=True
             )
+            instrumented = alias_result.source
+            trace_points += alias_result.trace_points
         else:
-            result = instrument_uopt_globalcolor(
+            globalcolor_result = instrument_uopt_globalcolor(
                 instrumented, allow_unverified_source=True
             )
-        instrumented = result.source
-        trace_points += result.trace_points
+            instrumented = globalcolor_result.source
+            trace_points += globalcolor_result.trace_points
 
     return UoptProfilesResult(
         source=instrumented,

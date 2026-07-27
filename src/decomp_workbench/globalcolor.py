@@ -6,18 +6,23 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
-
+FLOAT_PATTERN = (
+    r"(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    r"|[-+]?(?:inf|nan))"
+)
 CSAVE_RE = re.compile(
     r"^CSAVE\s+bitpos=(?P<bitpos>\d+)\s+"
     r"kind=(?P<kind>\d+)\s+dtype=(?P<dtype>\d+)\s+"
     r"unk1C=(?P<weight>-?\d+)\s+"
-    r"adjsave=(?P<adjusted_save>[-+0-9.eE]+)\s+"
-    r"unk23=(?P<flag>\d+)"
+    rf"adjsave=(?P<adjusted_save>{FLOAT_PATTERN})\s+"
+    r"unk23=(?P<flag>\d+)",
+    re.IGNORECASE,
 )
 CUP_RE = re.compile(
     r"^CUP\s+bitpos=(?P<bitpos>\d+)\s+"
     r"reg=(?P<register>-?\d+)\s+cs=(?P<color_class>-?\d+)\s+"
-    r"cost=(?P<cost>[-+0-9.eE]+)"
+    rf"cost=(?P<cost>{FLOAT_PATTERN})",
+    re.IGNORECASE,
 )
 CDX_RE = re.compile(r"^\[CDX\]\s+(?P<phase>\S+)\s+(?P<fields>.*)$")
 FIELD_RE = re.compile(r"([A-Za-z0-9_]+)=([^\s]+)")
@@ -30,6 +35,13 @@ class ColorCost:
     register: int
     color_class: int
     cost: float
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "register": self.register,
+            "color_class": self.color_class,
+            "cost": serialize_float(self.cost),
+        }
 
 
 @dataclass
@@ -52,17 +64,20 @@ class LiveRange:
 
     @property
     def finite_costs(self) -> list[ColorCost]:
-        return [
-            item for item in self.color_costs if math.isfinite(item.cost)
-        ]
+        return [item for item in self.color_costs if math.isfinite(item.cost)]
 
     def as_dict(self) -> dict[str, object]:
-        result = asdict(self)
-        result["total_save"] = self.total_save
-        result["finite_color_costs"] = [
-            asdict(item) for item in self.finite_costs
-        ]
-        return result
+        return {
+            "bitpos": self.bitpos,
+            "kind": self.kind,
+            "dtype": self.dtype,
+            "weight": self.weight,
+            "adjusted_save": serialize_float(self.adjusted_save),
+            "flag": self.flag,
+            "color_costs": [item.as_dict() for item in self.color_costs],
+            "total_save": serialize_float(self.total_save),
+            "finite_color_costs": [item.as_dict() for item in self.finite_costs],
+        }
 
 
 @dataclass(frozen=True)
@@ -94,18 +109,30 @@ class GlobalColorTrace:
             if dtype is None or item.dtype == dtype
         ]
         selected.sort(
-            key=lambda item: (-item.total_save, item.bitpos)
+            key=lambda item: (
+                math.isnan(item.total_save),
+                -item.total_save if not math.isnan(item.total_save) else 0.0,
+                item.bitpos,
+            )
         )
         return selected[:limit] if limit else selected
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "live_ranges": [
-                item.as_dict() for item in self.ranked()
-            ],
+            "live_ranges": [item.as_dict() for item in self.ranked()],
             "decisions": [item.as_dict() for item in self.decisions],
             "unparsed_diagnostic_lines": self.unparsed_diagnostic_lines,
         }
+
+
+def serialize_float(value: float) -> float | str:
+    """Return finite values as numbers and non-finite values as JSON strings."""
+
+    if math.isfinite(value):
+        return value
+    if math.isnan(value):
+        return "nan"
+    return "inf" if value > 0 else "-inf"
 
 
 def parse_globalcolor_trace(text: str) -> GlobalColorTrace:
@@ -153,9 +180,7 @@ def parse_globalcolor_trace(text: str) -> GlobalColorTrace:
                     phase=decision.group("phase"),
                     fields={
                         key: value
-                        for key, value in FIELD_RE.findall(
-                            decision.group("fields")
-                        )
+                        for key, value in FIELD_RE.findall(decision.group("fields"))
                     },
                     raw=raw,
                 )
@@ -164,10 +189,8 @@ def parse_globalcolor_trace(text: str) -> GlobalColorTrace:
         if line.startswith(("CSAVE", "CUP", "[CDX]")):
             unparsed.append(raw)
 
-    for bitpos, costs in pending_costs.items():
-        unparsed.append(
-            f"CUP records for bitpos={bitpos} appeared without CSAVE"
-        )
+    for bitpos in pending_costs:
+        unparsed.append(f"CUP records for bitpos={bitpos} appeared without CSAVE")
     return GlobalColorTrace(
         live_ranges=live_ranges,
         decisions=decisions,

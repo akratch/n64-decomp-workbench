@@ -5,10 +5,10 @@ not a catalog of universal source-matching tricks.
 
 | Function | Plateau | Tool that changed the investigation | Final source lever |
 |---|---|---|---|
-| `trackbg_render_flashy` | FP register tie | uopt globalcolor trace | Expression-table order and a few explicit expression forms |
-| `func_80017A18` | Misleading scalar score | Exact asm-differ penalty buckets | Treat stores as compiler spills; reorder interpolation deltas |
-| `func_80049794` | 19 register-only words in 2,625 instructions | ugen event trace, force oracle, FIFO schedule model | Split a shift into its own statement |
-| `func_8008FF1C` | One store scheduled in the wrong slot | Retained listing and as1 replay | Preserve alias provenance with direct indexing |
+| [`trackbg_render_flashy`](trackbg-globalcolor.md) | FP register tie | uopt globalcolor trace | Expression-table order and a few explicit expression forms |
+| [`func_80017A18`](objects-structural-score.md) | Misleading scalar score | Exact asm-differ penalty buckets | Treat stores as compiler spills; reorder interpolation deltas |
+| [`func_80049794`](racer-fifo.md) | 19 register-only words in 2,625 instructions | ugen event trace, force oracle, FIFO schedule model | Split a shift into its own statement |
+| [`func_8008FF1C`](menu-pass-replay.md) | One store scheduled in the wrong slot | Retained listing and as1 replay | Preserve alias provenance with direct indexing |
 
 Read each example in this order:
 

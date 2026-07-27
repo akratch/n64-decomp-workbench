@@ -13,7 +13,16 @@
   including safe profile composition and alias-state reports.
 - Added retained ugen→as1 listing replay.
 - Added four DKR case studies, task-oriented guides, a 38-item historical
-  tooling inventory, CC0 licensing, and clean-wheel validation.
+  tooling inventory, an evidence-bounded lessons guide, CC0 licensing, and
+  clean-wheel validation.
+- Added Python 3.10–3.14 CI, strict type checks, formatter enforcement, and
+  release-distribution smoke tests.
+- Fixed list-address filtering in FIFO replay and accepted non-finite
+  globalcolor costs emitted by compiler diagnostics.
+- Corrected the phase-two globalcolor web identifier used by decision logs and
+  force controls, and required force controls to select one procedure.
+- Added a reproducible instrumentation fidelity microcase and release
+  validation record.
 
 ## 0.1.0 — 2026-07-26
 

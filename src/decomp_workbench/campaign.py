@@ -11,14 +11,13 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .compare import compare_objects
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
-
 
 LEDGER_SCHEMA = "decomp-workbench-campaign-v1"
 
@@ -33,9 +32,7 @@ class Candidate:
     provenance: dict[str, object]
 
 
-def render_compile_command(
-    template: str, source: Path, output: Path
-) -> list[str]:
+def render_compile_command(template: str, source: Path, output: Path) -> list[str]:
     """Render a compiler command without invoking a shell."""
 
     parts = shlex.split(template)
@@ -63,8 +60,11 @@ def executable_identity(command: list[str]) -> dict[str, str | None]:
     """Record the directly invoked compiler or wrapper when available."""
 
     executable = command[0]
-    resolved = shutil.which(executable)
-    if resolved is None:
+    discovered = shutil.which(executable)
+    resolved: str | None
+    if discovered is not None:
+        resolved = str(Path(discovered).expanduser().resolve())
+    else:
         path = Path(executable).expanduser()
         resolved = str(path.resolve()) if path.is_file() else None
     digest = file_sha256(Path(resolved)) if resolved else None
@@ -92,9 +92,7 @@ def candidate_key(
         section=section,
         objdump=objdump,
     )
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -112,9 +110,9 @@ def candidate_provenance(
 
     return {
         "schema": LEDGER_SCHEMA,
-        "source": display_path(source),
+        "source": str(source.expanduser().resolve()),
         "source_sha256": file_sha256(source),
-        "target": display_path(target),
+        "target": str(target.expanduser().resolve()),
         "target_sha256": file_sha256(target),
         "command": command,
         "compiler": executable_identity(command),
@@ -155,9 +153,9 @@ def prepare_candidates(
             section=section,
             objdump=objdump,
         )
-        encoded = json.dumps(
-            provenance, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        encoded = json.dumps(provenance, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
         key = hashlib.sha256(encoded).hexdigest()
         duplicate_sources.setdefault(key, []).append(display_path(source))
         if key in seen:
@@ -194,13 +192,9 @@ def _compile_candidate(
     command: list[str]
 
     if cached:
-        command = render_compile_command(
-            template, candidate.source, cached_object
-        )
+        command = render_compile_command(template, candidate.source, cached_object)
     else:
-        with tempfile.TemporaryDirectory(
-            prefix="decomp-workbench-campaign-"
-        ) as temp:
+        with tempfile.TemporaryDirectory(prefix="decomp-workbench-campaign-") as temp:
             temporary_object = Path(temp) / "candidate.o"
             command = render_compile_command(
                 template, candidate.source, temporary_object
@@ -312,9 +306,7 @@ def run_campaign(
     objdump_path = discover_objdump(objdump)
     cache_path = Path(cache_dir).expanduser().resolve()
     cache_path.mkdir(parents=True, exist_ok=True)
-    keep_path = (
-        Path(keep_objects).expanduser().resolve() if keep_objects else None
-    )
+    keep_path = Path(keep_objects).expanduser().resolve() if keep_objects else None
     if keep_path:
         keep_path.mkdir(parents=True, exist_ok=True)
     ledger_path = Path(ledger).expanduser().resolve() if ledger else None

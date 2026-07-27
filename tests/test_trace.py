@@ -12,7 +12,6 @@ from decomp_workbench.trace import (
     trace_summary,
 )
 
-
 TRACE = """\
 noise from the compiler
 CODEX-UGEN-APPEND line=182 list=10019da4 reg=14
@@ -56,10 +55,30 @@ class TraceTests(unittest.TestCase):
 
     def test_reports_fifo_violation(self) -> None:
         report = replay_fifo(
-            parse_trace(TRACE.replace("serial=1 line=700 reg=14", "serial=1 line=700 reg=15"))
+            parse_trace(
+                TRACE.replace(
+                    "serial=1 line=700 reg=14",
+                    "serial=1 line=700 reg=15",
+                )
+            )
         )
         self.assertFalse(report.valid)
         self.assertIn("FIFO head was t6", report.violations[0])
+
+    def test_list_filter_keeps_allocations_and_matching_appends(self) -> None:
+        events = parse_trace(
+            "CODEX-UGEN-APPEND list=0x1000 reg=14\n"
+            "CODEX-UGEN-APPEND list=0x2000 reg=15\n"
+            "CODEX-UGEN-ALLOC serial=1 reg=14\n"
+            "CODEX-UGEN-APPEND reg=14\n"
+            "CODEX-UGEN-APPEND list=0x1000 reg=14\n"
+        )
+        report = replay_fifo(events, list_address=0x1000)
+        self.assertTrue(report.valid, report.violations)
+        self.assertEqual(report.initial_queue, [14])
+        self.assertEqual(report.allocations, [14])
+        self.assertEqual(report.final_queue, [14])
+        self.assertEqual(report.ignored_events, 2)
 
     def test_summary_and_register_names(self) -> None:
         summary = trace_summary(parse_trace(TRACE))
@@ -80,6 +99,27 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(report["base_paths"], {"fresh": 1})
         self.assertEqual(report["query_results"], {"no-alias": 1})
         self.assertEqual(report["registers"], {"s0": 2})
+
+    def test_normalizes_generic_freelist_events(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ALLOC reg=8\n"
+            "DKWB-FREELIST ADD reg=9\n"
+            "DKWB-FREELIST FREE reg=10\n"
+            "DKWB-FREELIST FORCE_FREE reg=11\n"
+            "DKWB-FREELIST REMOVE reg=12\n"
+            "DKWB-FREELIST MOVE_END reg=13\n"
+        )
+        self.assertEqual(
+            [event.action for event in events],
+            [
+                "allocate",
+                "append",
+                "append",
+                "append",
+                "remove",
+                "move-end",
+            ],
+        )
 
 
 if __name__ == "__main__":

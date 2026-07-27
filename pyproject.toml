@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,16 +11,31 @@ requires-python = ">=3.10"
 license = "CC0-1.0"
 license-files = ["LICENSE.md"]
 authors = [{ name = "DKR decompilation contributors" }]
+keywords = ["decompilation", "ido", "mips", "n64", "reverse-engineering"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Compilers",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.9"]
+dev = [
+    "bandit>=1.9",
+    "build>=1.2",
+    "check-wheel-contents>=0.6",
+    "codespell>=2.4",
+    "mypy>=1.14",
+    "ruff>=0.9",
+    "twine>=6",
+]
 
 [project.scripts]
 decomp-workbench = "decomp_workbench.cli:main"
@@ -28,6 +43,24 @@ decomp-workbench = "decomp_workbench.cli:main"
 [project.urls]
 Repository = "https://github.com/akratch/Diddy-Kong-Racing"
 Issues = "https://github.com/akratch/Diddy-Kong-Racing/issues"
+Documentation = "https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/README.md"
+Changelog = "https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+decomp_workbench = ["py.typed"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.codespell]
+ignore-words-list = "disjointness,dout"

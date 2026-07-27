@@ -6,9 +6,10 @@ remains a project-specific experiment in the preserved archive.
 
 The inventory is intentionally broader than the command list. “Archive” means
 the mechanism or evidence is retained on
-`archive/decomp-research-2026-07-26`, not that its original hard-coded script
-is a portable API. “External gate” means the workbench documents the check but
-cannot ship the required game or compiler input.
+[`archive/decomp-research-2026-07-26`](https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26),
+not that its original hard-coded script is a portable API. “External gate”
+means the workbench documents the check but cannot ship the required game or
+compiler input.
 
 ## Comparison and search
 
@@ -159,9 +160,9 @@ cannot ship the required game or compiler input.
     relevant to code generation separately.
 38. **Negative-result ledgers and falsifiable closure notes — archive.**
     Reports preserve tested families, controls, counterexamples, withdrawn
-    claims, and precise reopen criteria. They are useful audit evidence, but
-    the public workbench leads with operational examples rather than a
-    “lessons learned” narrative.
+    claims, and precise reopen criteria. They are useful audit evidence; the
+    reusable conclusions are summarized separately as
+    [campaign lessons](lessons-learned.md).
 
 ## Extraction policy
 

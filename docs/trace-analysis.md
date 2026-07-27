@@ -53,7 +53,11 @@ The replay:
    already-live register, and empty-queue allocation.
 
 Use `--initial t6,t7,t8,...` when the trace begins after queue initialization.
-Use `--json` when another solver will consume the logical schedule.
+Addresses accept decimal, `0x`-prefixed hexadecimal, or bare hexadecimal when
+the value contains `a`–`f`; prefix digit-only hexadecimal values with `0x`.
+When `--list-address` is set, the replay keeps allocation records, which may
+not carry a list address, and accepts append records only from the selected
+list. Use `--json` when another solver will consume the logical schedule.
 
 ### Why logical identities matter
 
@@ -82,7 +86,9 @@ Supported formats:
 The report computes the campaign’s historical `total_save` metric as
 `adjusted_save × weight`. Names such as `weight`, `kind`, and `flag` are
 descriptive handles for fields in the generated source, not a promise that
-their semantics are stable across IDO versions.
+their semantics are stable across IDO versions. Non-finite diagnostic values
+are represented as `"inf"`, `"-inf"`, or `"nan"` in JSON rather than emitted
+as non-standard numeric tokens.
 
 ## Trace comparison discipline
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 MARKER = "DKWB_UGEN_INSTRUMENTATION_V1"
 FUNCTION_RE = re.compile(
     r"^(?P<header>static\s+[^\n;{}]+?\s+(?P<name>f_[A-Za-z0-9_]+)"

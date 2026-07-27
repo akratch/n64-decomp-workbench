@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 from decomp_workbench.globalcolor import parse_globalcolor_trace
-
 
 TRACE = """\
 CSAVE bitpos=279 kind=1 dtype=13 unk1C=81 adjsave=2.5 unk23=0
@@ -33,6 +33,27 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(decision.phase, "p1dec")
         self.assertEqual(decision.fields["web"], "9")
         self.assertEqual(report.unparsed_diagnostic_lines, [])
+
+    def test_accepts_nonfinite_compiler_cost(self) -> None:
+        report = parse_globalcolor_trace(
+            "CSAVE bitpos=1 kind=1 dtype=13 unk1C=1 "
+            "adjsave=1e+03 unk23=0\n"
+            "CUP bitpos=1 reg=2 cs=3 cost=inf\n"
+        )
+        item = report.live_ranges[1]
+        self.assertEqual(item.total_save, 1000.0)
+        self.assertEqual(item.finite_costs, [])
+        self.assertEqual(report.unparsed_diagnostic_lines, [])
+        payload = report.as_dict()
+        self.assertEqual(item.color_costs[0].as_dict()["cost"], "inf")
+        json.dumps(payload, allow_nan=False)
+
+    def test_ranks_nan_save_last(self) -> None:
+        report = parse_globalcolor_trace(
+            "CSAVE bitpos=1 kind=1 dtype=13 unk1C=1 adjsave=nan unk23=0\n"
+            "CSAVE bitpos=2 kind=1 dtype=13 unk1C=1 adjsave=2.0 unk23=0\n"
+        )
+        self.assertEqual([item.bitpos for item in report.ranked()], [2, 1])
 
 
 if __name__ == "__main__":

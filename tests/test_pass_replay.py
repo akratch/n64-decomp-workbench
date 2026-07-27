@@ -9,10 +9,9 @@ from pathlib import Path
 from decomp_workbench.pass_replay import (
     ListingEdit,
     apply_listing_edits,
-    replay_as1,
     render_stage_command,
+    replay_as1,
 )
-
 
 LISTING = """\
 \tsw\t$2,0($16)
@@ -43,11 +42,7 @@ class PassReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "matched 2 times"):
             apply_listing_edits(
                 "same\nsame\n",
-                [
-                    ListingEdit(
-                        position="before", pattern="^same$", text="new"
-                    )
-                ],
+                [ListingEdit(position="before", pattern="^same$", text="new")],
             )
 
     def test_renders_as0_command(self) -> None:
@@ -72,6 +67,17 @@ class PassReplayTests(unittest.TestCase):
                 symtab=Path("replay.T"),
                 output=Path("replay.o"),
                 stage="as1",
+            )
+
+    def test_rejects_unknown_stage(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported pass stage"):
+            render_stage_command(
+                "tool {listing}",
+                listing=Path("replay.s"),
+                binasm=Path("replay.G"),
+                symtab=Path("replay.T"),
+                output=Path("replay.o"),
+                stage="link",
             )
 
     def test_refuses_listing_as_object_output(self) -> None:

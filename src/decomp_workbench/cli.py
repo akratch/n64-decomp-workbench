@@ -11,8 +11,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Iterable
+from typing import cast
 
 from . import __version__
 from .campaign import render_compile_command as render_campaign_command
@@ -57,7 +58,7 @@ def comparison_line(item: Comparison) -> str:
         f"regs={item.register_mismatches:4d} "
         f"fp={item.fp_register_mismatches:4d} "
         f"insns={item.candidate_instructions:4d} "
-        f"frame={str(item.candidate_frame_size):>5s} "
+        f"frame={item.candidate_frame_size!s:>5s} "
         f"sha1={item.candidate_sha1} {item.candidate}"
     )
 
@@ -78,9 +79,7 @@ def compare_command(args: argparse.Namespace) -> int:
         print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
     else:
         print(comparison_line(comparison))
-        print(
-            f"register ranges: {comparison.register_mismatch_ranges or 'none'}"
-        )
+        print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
         print(f"FP ranges: {comparison.fp_mismatch_ranges or 'none'}")
         if comparison.relocation_metadata_mismatches:
             print(
@@ -109,8 +108,10 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
     target = parse_disassembly(target_text, symbol=args.symbol)
     candidate = parse_disassembly(candidate_text, symbol=args.symbol)
     if not target or not candidate:
+        detail = f" for symbol {args.symbol!r}" if args.symbol else ""
         print(
-            "error: both files must contain GNU-style objdump instruction lines",
+            "error: both files must contain GNU-style objdump instruction "
+            f"lines{detail}",
             file=sys.stderr,
         )
         return 2
@@ -120,8 +121,6 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         target_name=display_path(args.target),
         candidate_name=display_path(args.candidate),
         symbol=args.symbol,
-        target_text=target_text,
-        candidate_text=candidate_text,
     )
     if args.json:
         print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
@@ -176,9 +175,9 @@ def rank_command(args: argparse.Namespace) -> int:
     else:
         for rank, item in enumerate(limited, 1):
             print(f"{rank:3d} {comparison_line(item)}")
-        for error in errors:
+        for failure in errors:
             print(
-                f"ERROR {error['candidate']}: {error['error']}",
+                f"ERROR {failure['candidate']}: {failure['error']}",
                 file=sys.stderr,
             )
     return 0 if comparisons else 1
@@ -261,10 +260,12 @@ def compile_rank_command(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    successes = [item for item in results if item.comparison is not None]
-    successes.sort(key=lambda item: item.comparison.sort_key)  # type: ignore[union-attr]
+    successes = [
+        (item, item.comparison) for item in results if item.comparison is not None
+    ]
+    successes.sort(key=lambda item: item[1].sort_key)
     failures = [item for item in results if item.comparison is None]
-    ordered = successes + failures
+    ordered = [item for item, _ in successes] + failures
     if args.limit:
         ordered = ordered[: args.limit]
     if args.json:
@@ -276,9 +277,8 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             )
         )
     else:
-        for rank, result in enumerate(successes[: args.limit or None], 1):
-            assert result.comparison is not None
-            print(f"{rank:3d} {comparison_line(result.comparison)}")
+        for rank, (_, comparison) in enumerate(successes[: args.limit or None], 1):
+            print(f"{rank:3d} {comparison_line(comparison)}")
         for result in failures:
             detail = result.stderr.strip().splitlines()
             message = detail[-1] if detail else f"exit {result.returncode}"
@@ -477,8 +477,7 @@ def trace_summary_command(args: argparse.Namespace) -> int:
             print(
                 "registers: "
                 + " ".join(
-                    f"{name}={count}"
-                    for name, count in summary["registers"].items()
+                    f"{name}={count}" for name, count in summary["registers"].items()
                 )
             )
     return 0 if events else 1
@@ -498,22 +497,17 @@ def trace_alias_command(args: argparse.Namespace) -> int:
             f"base-events={report['base_events']} "
             f"alias-queries={report['alias_queries']}"
         )
-        for label, key in (
-            ("base paths", "base_paths"),
-            ("base types", "base_types"),
-            ("results", "query_results"),
-            ("left types", "left_types"),
-            ("right types", "right_types"),
+        for label, values in (
+            ("base paths", report["base_paths"]),
+            ("base types", report["base_types"]),
+            ("results", report["query_results"]),
+            ("left types", report["left_types"]),
+            ("right types", report["right_types"]),
         ):
-            values = report[key]
-            assert isinstance(values, dict)
             if values:
                 print(
                     f"{label}: "
-                    + " ".join(
-                        f"{name}={count}"
-                        for name, count in values.items()
-                    )
+                    + " ".join(f"{name}={count}" for name, count in values.items())
                 )
         if args.show_queries:
             for event in events:
@@ -523,9 +517,7 @@ def trace_alias_command(args: argparse.Namespace) -> int:
                 right = event.fields.get("right_type", "?")
                 result = event.fields.get("result", "?")
                 register = (
-                    register_name(event.register)
-                    if event.register is not None
-                    else "-"
+                    register_name(event.register) if event.register is not None else "-"
                 )
                 print(
                     f"line={event.index:<5d} reg={register:>3s} "
@@ -537,11 +529,7 @@ def trace_alias_command(args: argparse.Namespace) -> int:
 def parse_register_list(value: str | None) -> list[int] | None:
     if value is None:
         return None
-    return [
-        parse_register(item)
-        for item in value.split(",")
-        if item.strip()
-    ]
+    return [parse_register(item) for item in value.split(",") if item.strip()]
 
 
 def trace_fifo_command(args: argparse.Namespace) -> int:
@@ -549,13 +537,9 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
         events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
         initial = parse_register_list(args.initial)
         selected = parse_register_list(args.registers)
-        list_address = (
-            parse_integer(args.list_address) if args.list_address else None
-        )
+        list_address = parse_integer(args.list_address) if args.list_address else None
         if args.list_address and list_address is None:
-            raise ValueError(
-                f"invalid list address: {args.list_address!r}"
-            )
+            raise ValueError(f"invalid list address: {args.list_address!r}")
         report = replay_fifo(
             events,
             initial_queue=initial,
@@ -569,17 +553,13 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     else:
         print(
-            "initial: "
-            + " ".join(register_name(item) for item in report.initial_queue)
+            "initial: " + " ".join(register_name(item) for item in report.initial_queue)
         )
         print(
             "allocations: "
             + " ".join(register_name(item) for item in report.allocations)
         )
-        print(
-            "final: "
-            + " ".join(register_name(item) for item in report.final_queue)
-        )
+        print("final: " + " ".join(register_name(item) for item in report.final_queue))
         print(
             f"logical values: "
             f"{sum(event.action == 'allocate' for event in report.logical_events)} "
@@ -600,9 +580,7 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
 
 def trace_globalcolor_command(args: argparse.Namespace) -> int:
     try:
-        report = parse_globalcolor_trace(
-            Path(args.trace).read_text(encoding="utf-8")
-        )
+        report = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -612,12 +590,8 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             json.dumps(
                 {
                     "live_ranges": [item.as_dict() for item in selected],
-                    "decisions": [
-                        item.as_dict() for item in report.decisions
-                    ],
-                    "unparsed_diagnostic_lines": (
-                        report.unparsed_diagnostic_lines
-                    ),
+                    "decisions": [item.as_dict() for item in report.decisions],
+                    "unparsed_diagnostic_lines": (report.unparsed_diagnostic_lines),
                 },
                 indent=2,
                 sort_keys=True,
@@ -625,14 +599,8 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         )
     else:
         for item in selected:
-            costs = sorted(
-                item.finite_costs, key=lambda entry: entry.cost
-            )
-            best = (
-                f"r{costs[0].register}:{costs[0].cost:g}"
-                if costs
-                else "-"
-            )
+            costs = sorted(item.finite_costs, key=lambda entry: entry.cost)
+            best = f"r{costs[0].register}:{costs[0].cost:g}" if costs else "-"
             print(
                 f"bitpos={item.bitpos:5d} dtype={item.dtype:2d} "
                 f"weight={item.weight:5d} "
@@ -650,23 +618,15 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
 def parse_listing_edit(value: str, position: str) -> ListingEdit:
     pattern, separator, text = value.partition("=")
     if not separator or not pattern:
-        raise ValueError(
-            f"--insert-{position} expects REGEX=TEXT: {value!r}"
-        )
+        raise ValueError(f"--insert-{position} expects REGEX=TEXT: {value!r}")
     return ListingEdit(position=position, pattern=pattern, text=text)
 
 
 def replay_as1_command(args: argparse.Namespace) -> int:
     try:
         edits = [
-            *(
-                parse_listing_edit(value, "before")
-                for value in args.insert_before
-            ),
-            *(
-                parse_listing_edit(value, "after")
-                for value in args.insert_after
-            ),
+            *(parse_listing_edit(value, "before") for value in args.insert_before),
+            *(parse_listing_edit(value, "after") for value in args.insert_after),
         ]
         result = replay_as1(
             args.listing,
@@ -749,9 +709,7 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_parser.add_argument("target")
     campaign_parser.add_argument("sources", nargs="+")
     campaign_parser.add_argument("--compile-command", required=True)
-    campaign_parser.add_argument(
-        "--cache-dir", default=".decomp-workbench/cache"
-    )
+    campaign_parser.add_argument("--cache-dir", default=".decomp-workbench/cache")
     campaign_parser.add_argument("--ledger")
     campaign_parser.add_argument(
         "--jobs", type=int, default=max(1, min(8, os.cpu_count() or 1))
@@ -812,9 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-unverified-source", action="store_true"
     )
     instrument_profiles_parser.add_argument("--in-place", action="store_true")
-    instrument_profiles_parser.set_defaults(
-        handler=instrument_profiles_command
-    )
+    instrument_profiles_parser.set_defaults(handler=instrument_profiles_command)
 
     summary_parser = commands.add_parser(
         "trace-summary", help="summarize ugen diagnostic events"
@@ -880,7 +836,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.handler(args)
+    handler = cast(Callable[[argparse.Namespace], int], args.handler)
+    return handler(args)
 
 
 if __name__ == "__main__":

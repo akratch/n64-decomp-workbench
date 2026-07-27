@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import collections
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Iterable
-
+from typing import TypedDict
 
 FIELD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)=([^\s]+)")
 UGEN_TAG_RE = re.compile(r"^(?:CODEX|DKWB)[-_]([A-Za-z0-9_-]+)")
@@ -47,10 +47,32 @@ MIPS_REGISTERS = {
     "ra": 31,
 }
 REGISTER_NAMES = {
-    number: name
-    for name, number in MIPS_REGISTERS.items()
-    if name != "s8"
+    number: name for name, number in MIPS_REGISTERS.items() if name != "s8"
 }
+
+
+class TraceSummary(TypedDict):
+    """Aggregate counts for a parsed trace."""
+
+    events: int
+    actions: dict[str, int]
+    registers: dict[str, int]
+    source_lines: dict[str, int]
+
+
+class AliasTraceSummary(TypedDict):
+    """Aggregate counts and query records for the alias profile."""
+
+    events: int
+    base_events: int
+    alias_queries: int
+    base_paths: dict[str, int]
+    base_types: dict[str, int]
+    query_results: dict[str, int]
+    left_types: dict[str, int]
+    right_types: dict[str, int]
+    registers: dict[str, int]
+    queries: list[dict[str, object]]
 
 
 def parse_integer(value: str) -> int | None:
@@ -60,9 +82,7 @@ def parse_integer(value: str) -> int | None:
     try:
         return int(cleaned, 0)
     except ValueError:
-        if re.fullmatch(r"[0-9a-fA-F]+", cleaned) and re.search(
-            r"[a-fA-F]", cleaned
-        ):
+        if re.fullmatch(r"[0-9a-fA-F]+", cleaned) and re.search(r"[a-fA-F]", cleaned):
             return int(cleaned, 16)
     return None
 
@@ -114,14 +134,19 @@ def normalize_action(tag: str, fields: dict[str, str]) -> str:
         return "alias-query"
     if upper.endswith("-BASE"):
         return "base"
-    if "ALLOC" in upper or (
-        upper.endswith("FREELIST") and fields.get("_event") == "ALLOC"
-    ):
+    if upper.endswith("FREELIST"):
+        event = fields.get("_event")
+        if event == "ALLOC":
+            return "allocate"
+        if event in {"ADD", "FREE", "FORCE_FREE"}:
+            return "append"
+        if event == "REMOVE":
+            return "remove"
+        if event == "MOVE_END":
+            return "move-end"
+    if "ALLOC" in upper:
         return "allocate"
-    if "APPEND" in upper or (
-        upper.endswith("FREELIST")
-        and fields.get("_event") in {"ADD", "FREE", "FORCE_FREE"}
-    ):
+    if "APPEND" in upper:
         return "append"
     if "REMOVE" in upper or "POP" in upper:
         return "remove"
@@ -171,19 +196,13 @@ def parse_trace(text: str) -> list[TraceEvent]:
                 action=normalize_action(first_token, fields),
                 register=register,
                 source_line=(
-                    parse_integer(source_value)
-                    if source_value is not None
-                    else None
+                    parse_integer(source_value) if source_value is not None else None
                 ),
                 serial=(
-                    parse_integer(serial_value)
-                    if serial_value is not None
-                    else None
+                    parse_integer(serial_value) if serial_value is not None else None
                 ),
                 list_address=(
-                    parse_integer(list_value)
-                    if list_value is not None
-                    else None
+                    parse_integer(list_value) if list_value is not None else None
                 ),
                 fields=fields,
                 raw=raw,
@@ -228,20 +247,12 @@ class FifoReplay:
         return {
             "valid": self.valid,
             "initial_queue": self.initial_queue,
-            "initial_queue_names": [
-                register_name(item) for item in self.initial_queue
-            ],
+            "initial_queue_names": [register_name(item) for item in self.initial_queue],
             "final_queue": self.final_queue,
-            "final_queue_names": [
-                register_name(item) for item in self.final_queue
-            ],
+            "final_queue_names": [register_name(item) for item in self.final_queue],
             "allocations": self.allocations,
-            "allocation_names": [
-                register_name(item) for item in self.allocations
-            ],
-            "logical_events": [
-                event.as_dict() for event in self.logical_events
-            ],
+            "allocation_names": [register_name(item) for item in self.allocations],
+            "logical_events": [event.as_dict() for event in self.logical_events],
             "violations": self.violations,
             "max_live": self.max_live,
             "ignored_events": self.ignored_events,
@@ -286,16 +297,12 @@ def replay_fifo(
         and (registers is None or event.register in registers)
         and (
             list_address is None
-            or event.list_address is None
+            or event.action == "allocate"
             or event.list_address == list_address
         )
     ]
     inferred = initial_queue is None
-    seed = (
-        infer_initial_queue(relevant)
-        if inferred
-        else list(initial_queue or [])
-    )
+    seed = infer_initial_queue(relevant) if inferred else list(initial_queue or [])
     queue = list(seed)
     live: dict[int, int] = {}
     logical: list[LogicalEvent] = []
@@ -306,8 +313,9 @@ def replay_fifo(
     seen_allocation = False
 
     for event in relevant:
-        assert event.register is not None
         register = event.register
+        if register is None:  # Guard the invariant established by filtering.
+            continue
         if event.action == "append" and inferred and not seen_allocation:
             continue
         if event.action == "allocate":
@@ -378,7 +386,7 @@ def replay_fifo(
     )
 
 
-def trace_summary(events: Iterable[TraceEvent]) -> dict[str, object]:
+def trace_summary(events: Iterable[TraceEvent]) -> TraceSummary:
     """Return stable event, register, and source-line histograms."""
 
     materialized = list(events)
@@ -403,26 +411,18 @@ def trace_summary(events: Iterable[TraceEvent]) -> dict[str, object]:
     }
 
 
-def alias_trace_summary(events: Iterable[TraceEvent]) -> dict[str, object]:
+def alias_trace_summary(events: Iterable[TraceEvent]) -> AliasTraceSummary:
     """Summarize the profiled uopt base-provenance and alias decisions."""
 
     materialized = [
-        event
-        for event in events
-        if event.action in {"base", "alias-query"}
+        event for event in events if event.action in {"base", "alias-query"}
     ]
     bases = [event for event in materialized if event.action == "base"]
-    queries = [
-        event for event in materialized if event.action == "alias-query"
-    ]
+    queries = [event for event in materialized if event.action == "alias-query"]
 
-    def count_field(
-        selected: Iterable[TraceEvent], field_name: str
-    ) -> dict[str, int]:
+    def count_field(selected: Iterable[TraceEvent], field_name: str) -> dict[str, int]:
         counts = collections.Counter(
-            event.fields[field_name]
-            for event in selected
-            if field_name in event.fields
+            event.fields[field_name] for event in selected if field_name in event.fields
         )
         return dict(sorted(counts.items()))
 

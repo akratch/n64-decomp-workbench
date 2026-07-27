@@ -6,15 +6,13 @@ import collections
 import difflib
 import hashlib
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from .model import Comparison, Instruction, display_path
 from .objdump import dump_object
 
-
-REGISTER_RE = re.compile(
-    r"\$(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b"
-)
+REGISTER_RE = re.compile(r"\$(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b")
 FP_REGISTER_RE = re.compile(r"\$f\d+\b")
 STACK_OFFSET_RE = re.compile(r"(-?(?:0x[0-9a-fA-F]+|\d+))\(\$?sp\)")
 FRAME_RE = re.compile(
@@ -85,10 +83,10 @@ def mismatch_ranges(indices: list[int]) -> list[tuple[int, int]]:
     return result
 
 
-def positional_mismatches(left: list[str], right: list[str]) -> int:
+def positional_mismatches(left: Sequence[object], right: Sequence[object]) -> int:
     """Count unequal aligned items plus the length difference."""
 
-    return sum(a != b for a, b in zip(left, right)) + abs(
+    return sum(a != b for a, b in zip(left, right, strict=False)) + abs(
         len(left) - len(right)
     )
 
@@ -156,7 +154,7 @@ def relocation_aware_words(
     target_words: list[str] = []
     candidate_words: list[str] = []
     unknown: set[str] = set()
-    for expected, actual in zip(target, candidate):
+    for expected, actual in zip(target, candidate, strict=False):
         expected_mask, expected_unknown = relocation_field_mask(expected)
         actual_mask, actual_unknown = relocation_field_mask(actual)
         unknown.update(expected_unknown)
@@ -184,27 +182,23 @@ def compare_instructions(
     target_name: str,
     candidate_name: str,
     symbol: str | None,
-    target_text: str = "",
-    candidate_text: str = "",
 ) -> Comparison:
     """Compare parsed instruction streams."""
 
     raw_target_words = [item.word for item in target]
     raw_candidate_words = [item.word for item in candidate]
-    target_words, candidate_words, unknown_relocations = (
-        relocation_aware_words(target, candidate)
+    target_words, candidate_words, unknown_relocations = relocation_aware_words(
+        target, candidate
     )
     target_opcodes = [item.opcode for item in target]
     candidate_opcodes = [item.opcode for item in candidate]
     target_normalized = [normalize_instruction(item.assembly) for item in target]
-    candidate_normalized = [
-        normalize_instruction(item.assembly) for item in candidate
-    ]
+    candidate_normalized = [normalize_instruction(item.assembly) for item in candidate]
 
     register_bad: list[int] = []
     fp_bad: list[int] = []
     register_diff: list[dict[str, object]] = []
-    for index, (expected, actual) in enumerate(zip(target, candidate)):
+    for index, (expected, actual) in enumerate(zip(target, candidate, strict=False)):
         expected_registers = REGISTER_RE.findall(expected.assembly)
         actual_registers = REGISTER_RE.findall(actual.assembly)
         expected_fp = FP_REGISTER_RE.findall(expected.assembly)
@@ -227,9 +221,7 @@ def compare_instructions(
     register_count = len(register_bad) + length_extra
     fp_count = len(fp_bad) + length_extra
     exact_mismatches = positional_mismatches(target_words, candidate_words)
-    raw_mismatches = positional_mismatches(
-        raw_target_words, raw_candidate_words
-    )
+    raw_mismatches = positional_mismatches(raw_target_words, raw_candidate_words)
     relocation_mismatches = positional_mismatches(
         [relocation_signature(item) for item in target],
         [relocation_signature(item) for item in candidate],
@@ -246,25 +238,19 @@ def compare_instructions(
         word_mismatches=exact_mismatches,
         relocation_metadata_mismatches=relocation_mismatches,
         unknown_relocations=unknown_relocations,
-        opcode_mismatches=positional_mismatches(
-            target_opcodes, candidate_opcodes
-        ),
-        normalized_distance=sequence_distance(
-            target_normalized, candidate_normalized
-        ),
+        opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
+        normalized_distance=sequence_distance(target_normalized, candidate_normalized),
         register_mismatches=register_count,
         fp_register_mismatches=fp_count,
         register_mismatch_ranges=mismatch_ranges(register_bad),
         fp_mismatch_ranges=mismatch_ranges(fp_bad),
-        target_frame_size=frame_size(
-            "\n".join(item.assembly for item in target)
-        ),
-        candidate_frame_size=frame_size(
-            "\n".join(item.assembly for item in candidate)
-        ),
+        target_frame_size=frame_size("\n".join(item.assembly for item in target)),
+        candidate_frame_size=frame_size("\n".join(item.assembly for item in candidate)),
         candidate_fp_register_uses=fp_uses(candidate),
         candidate_stack_offsets=stack_offsets(candidate),
-        candidate_sha1=hashlib.sha1(candidate_payload).hexdigest()[:12],
+        candidate_sha1=hashlib.sha1(
+            candidate_payload, usedforsecurity=False
+        ).hexdigest()[:12],
         candidate_sha256=hashlib.sha256(candidate_payload).hexdigest(),
         exact=(
             exact_mismatches == 0
@@ -285,10 +271,10 @@ def compare_objects(
 ) -> Comparison:
     """Disassemble and compare two object files."""
 
-    target_text, target_instructions = dump_object(
+    _, target_instructions = dump_object(
         target, objdump=objdump, symbol=symbol, section=section
     )
-    candidate_text, candidate_instructions = dump_object(
+    _, candidate_instructions = dump_object(
         candidate, objdump=objdump, symbol=symbol, section=section
     )
     return compare_instructions(
@@ -297,6 +283,4 @@ def compare_objects(
         target_name=display_path(target),
         candidate_name=display_path(candidate),
         symbol=symbol,
-        target_text=target_text,
-        candidate_text=candidate_text,
     )

@@ -15,18 +15,13 @@ from pathlib import Path
 
 from .model import Instruction, Relocation
 
-
-INSTRUCTION_RE = re.compile(
-    r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.+?)\s*$"
-)
+INSTRUCTION_RE = re.compile(r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.+?)\s*$")
 RELOCATION_RE = re.compile(
     r"^\s*([0-9a-fA-F]+):?\s+"
     r"(R_MIPS_[A-Za-z0-9_]+)"
     r"(?:\s+(.+?))?\s*$"
 )
-SYMBOL_RE = re.compile(
-    r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$"
-)
+SYMBOL_RE = re.compile(r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$")
 
 
 def discover_objdump(explicit: str | None = None) -> str:
@@ -44,7 +39,7 @@ def discover_objdump(explicit: str | None = None) -> str:
             continue
         path = Path(candidate).expanduser()
         if path.is_file():
-            return str(path)
+            return str(path.resolve())
         found = shutil.which(candidate)
         if found:
             return found
@@ -73,9 +68,7 @@ def parse_relocations(text: str) -> dict[int, tuple[Relocation, ...]]:
     return {offset: tuple(items) for offset, items in grouped.items()}
 
 
-def parse_disassembly(
-    text: str, *, symbol: str | None = None
-) -> list[Instruction]:
+def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instruction]:
     """Parse GNU objdump instruction lines, optionally for one symbol."""
 
     relocations = parse_relocations(text)
@@ -84,9 +77,7 @@ def parse_disassembly(
     for line in text.splitlines():
         symbol_match = SYMBOL_RE.match(line)
         if symbol_match:
-            selected = (
-                symbol is None or symbol_match.group("name") == symbol
-            )
+            selected = symbol is None or symbol_match.group("name") == symbol
             continue
         if not selected:
             continue

@@ -7,13 +7,13 @@ DKR decompilation approached its final matching functions in July 2026.
 
 | Git reference | Material |
 |---|---|
-| `tooling/decomp-workbench` / `decomp-workbench-v0.1.0` | First reusable package |
-| `archive/decomp-research-2026-07-26` | Menu and racer reports, variants, traces, scripts, and preserved instrumentation patches |
-| `match-trackbg-render-flashy` | Track renderer and object collision research |
-| `faebc894` | `trackbg_render_flashy` match |
-| `17f4bddd` | `func_80017A18` match |
-| `6c626c9b` | `func_80049794` match |
-| `8131d0da` | `func_8008FF1C` match |
+| [`tooling/decomp-workbench`](https://github.com/akratch/Diddy-Kong-Racing/tree/tooling/decomp-workbench) / `decomp-workbench-v0.1.0` | First reusable package |
+| [`archive/decomp-research-2026-07-26`](https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26) | Menu and racer reports, variants, traces, scripts, and preserved instrumentation patches |
+| [`match-trackbg-render-flashy`](https://github.com/akratch/Diddy-Kong-Racing/tree/match-trackbg-render-flashy) | Track renderer and object collision research |
+| [`faebc894`](https://github.com/akratch/Diddy-Kong-Racing/commit/faebc894b48cddc60fd2ae32acf7fdf3260cad79) | `trackbg_render_flashy` match |
+| [`17f4bddd`](https://github.com/akratch/Diddy-Kong-Racing/commit/17f4bddd9f7f94ba12d1501bf8f85fe8e7e05020) | `func_80017A18` match |
+| [`6c626c9b`](https://github.com/akratch/Diddy-Kong-Racing/commit/6c626c9b797c1241b39b1164c3e1955459778330) | `func_80049794` match |
+| [`8131d0da`](https://github.com/akratch/Diddy-Kong-Racing/commit/8131d0da107d741084107545554570f9c0392c96) | `func_8008FF1C` match |
 
 The raw archive contains hundreds of function-specific experiments. The public
 package extracts recurring mechanisms and leaves the original scripts

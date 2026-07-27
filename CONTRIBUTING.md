@@ -8,7 +8,11 @@ run, inspect, or reproduce without requiring copyrighted project inputs.
 ```sh
 python3 -m pip install -e '.[dev]'
 PYTHONPATH=src python3 -m unittest discover -s tests -v
-ruff check .
+bandit -r src -ll
+codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+ruff check src tests
+ruff format --check src tests
+mypy src tests
 ```
 
 The core package intentionally uses the Python standard library. Optional
@@ -47,3 +51,6 @@ redistribution terms are unclear.
 By contributing original material here, you agree to dedicate it under
 [CC0 1.0 Universal](LICENSE.md). Do not submit third-party material unless its
 terms permit that treatment and its provenance is documented.
+
+Maintainers should complete the [release checklist](docs/release-checklist.md)
+before tagging or publishing a distribution.

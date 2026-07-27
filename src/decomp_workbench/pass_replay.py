@@ -49,20 +49,22 @@ def apply_listing_edits(
         expression = re.compile(edit.pattern, re.MULTILINE)
         matches = list(expression.finditer(result))
         if not matches:
-            raise ValueError(
-                f"listing pattern did not match: {edit.pattern!r}"
-            )
+            raise ValueError(f"listing pattern did not match: {edit.pattern!r}")
         if len(matches) != 1 and not allow_multiple:
             raise ValueError(
                 f"listing pattern matched {len(matches)} times: "
                 f"{edit.pattern!r}; narrow it or pass --allow-multiple"
             )
 
-        def insert(match: re.Match[str]) -> str:
-            line = edit.text
+        def insert(
+            match: re.Match[str],
+            text: str = edit.text,
+            position: str = edit.position,
+        ) -> str:
+            line = text
             if line and not line.endswith("\n"):
                 line += "\n"
-            if edit.position == "before":
+            if position == "before":
                 return line + match.group(0)
             matched = match.group(0)
             separator = "" if matched.endswith("\n") else "\n"
@@ -83,6 +85,8 @@ def render_stage_command(
 ) -> list[str]:
     """Render one pass command without a shell."""
 
+    if stage not in {"as0", "as1"}:
+        raise ValueError(f"unsupported pass stage: {stage!r}")
     values = {
         "{listing}": str(listing),
         "{binasm}": str(binasm),
@@ -90,25 +94,14 @@ def render_stage_command(
         "{object}": str(output),
     }
     parts = shlex.split(template)
-    required = (
-        ("{listing}", "{binasm}")
-        if stage == "as0"
-        else ("{binasm}", "{object}")
-    )
+    required = ("{listing}", "{binasm}") if stage == "as0" else ("{binasm}", "{object}")
     for placeholder in required:
         if not any(placeholder in part for part in parts):
-            raise ValueError(
-                f"{stage} command must contain {placeholder}"
-            )
-    return [
-        _replace_placeholders(part, values)
-        for part in parts
-    ]
+            raise ValueError(f"{stage} command must contain {placeholder}")
+    return [_replace_placeholders(part, values) for part in parts]
 
 
-def _replace_placeholders(
-    value: str, replacements: dict[str, str]
-) -> str:
+def _replace_placeholders(value: str, replacements: dict[str, str]) -> str:
     for old, new in replacements.items():
         value = value.replace(old, new)
     return value
@@ -129,16 +122,10 @@ def replay_as1(
     listing_path = Path(listing).expanduser().resolve()
     output_path = Path(output).expanduser().resolve()
     if output_path == listing_path:
-        raise ValueError(
-            "listing and object output must be different paths"
-        )
+        raise ValueError("listing and object output must be different paths")
     source = listing_path.read_text(encoding="utf-8")
-    edited = apply_listing_edits(
-        source, edits or [], allow_multiple=allow_multiple
-    )
-    retained_path = (
-        Path(keep_work).expanduser().resolve() if keep_work else None
-    )
+    edited = apply_listing_edits(source, edits or [], allow_multiple=allow_multiple)
+    retained_path = Path(keep_work).expanduser().resolve() if keep_work else None
     if retained_path:
         retained_path.mkdir(parents=True, exist_ok=True)
         retained_listing = (retained_path / "replay.s").resolve()
@@ -165,16 +152,12 @@ def replay_as1(
             output=temporary_object,
             stage="as0",
         )
-        as0 = subprocess.run(
-            as0_command, check=False, capture_output=True, text=True
-        )
+        as0 = subprocess.run(as0_command, check=False, capture_output=True, text=True)
         if as0.returncode:
             detail = as0.stderr.strip() or as0.stdout.strip()
             raise RuntimeError(f"as0 failed ({as0.returncode}): {detail}")
         if not binasm.is_file():
-            raise RuntimeError(
-                "as0 succeeded but did not create the {binasm} output"
-            )
+            raise RuntimeError("as0 succeeded but did not create the {binasm} output")
         as1_command = render_stage_command(
             as1_template,
             listing=replay_listing,
@@ -183,16 +166,12 @@ def replay_as1(
             output=temporary_object,
             stage="as1",
         )
-        as1 = subprocess.run(
-            as1_command, check=False, capture_output=True, text=True
-        )
+        as1 = subprocess.run(as1_command, check=False, capture_output=True, text=True)
         if as1.returncode:
             detail = as1.stderr.strip() or as1.stdout.strip()
             raise RuntimeError(f"as1 failed ({as1.returncode}): {detail}")
         if not temporary_object.is_file():
-            raise RuntimeError(
-                "as1 succeeded but did not create the {object} output"
-            )
+            raise RuntimeError("as1 succeeded but did not create the {object} output")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(temporary_object, output_path)
         if retained_path:

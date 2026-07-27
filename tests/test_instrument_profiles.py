@@ -8,7 +8,6 @@ from decomp_workbench.instrument_alias import MARKER as ALIAS_MARKER
 from decomp_workbench.instrument_profiles import instrument_uopt_profiles
 from decomp_workbench.instrument_uopt import MARKER as GLOBALCOLOR_MARKER
 
-
 SOURCE = """\
 #include "header.h"
 static uint32_t f_base_noalias(void) {
@@ -62,9 +61,7 @@ class InstrumentProfilesTests(unittest.TestCase):
 
     def test_rejects_unknown_profile(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown uopt"):
-            instrument_uopt_profiles(
-                SOURCE, ["other"], allow_unverified_source=True
-            )
+            instrument_uopt_profiles(SOURCE, ["other"], allow_unverified_source=True)
 
 
 if __name__ == "__main__":

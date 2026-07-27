@@ -9,7 +9,6 @@ from decomp_workbench.instrument_uopt import (
     instrument_uopt_globalcolor,
 )
 
-
 SOURCE = """\
 static void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {
 }
@@ -43,22 +42,25 @@ class UoptInstrumentationTests(unittest.TestCase):
             instrument_uopt_globalcolor(SOURCE)
 
     def test_instruments_all_profile_anchors(self) -> None:
-        result = instrument_uopt_globalcolor(
-            SOURCE, allow_unverified_source=True
-        )
+        result = instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True)
         self.assertIn(MARKER, result.source)
         self.assertIn("[CDX] p1dec", result.source)
         self.assertIn("[CDX] p2color", result.source)
         self.assertIn("CDX_FORCE", result.source)
+        self.assertIn("CDX_FORCE ignored without CDX_PROC", result.source)
+        self.assertEqual(
+            result.source.count("dkwb_web = (int)MEM_U32(sp + 268)"),
+            2,
+        )
+        self.assertEqual(
+            result.source.count("dkwb_web = (int)MEM_U32(sp + 272)"),
+            2,
+        )
 
     def test_refuses_double_instrumentation(self) -> None:
-        once = instrument_uopt_globalcolor(
-            SOURCE, allow_unverified_source=True
-        ).source
+        once = instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True).source
         with self.assertRaisesRegex(ValueError, "already instrumented"):
-            instrument_uopt_globalcolor(
-                once, allow_unverified_source=True
-            )
+            instrument_uopt_globalcolor(once, allow_unverified_source=True)
 
     def test_refuses_partial_profile(self) -> None:
         with self.assertRaisesRegex(ValueError, "phase-two color"):

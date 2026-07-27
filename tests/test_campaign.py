@@ -7,9 +7,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypedDict
 
 from decomp_workbench.campaign import (
     candidate_key,
+    executable_identity,
     prepare_candidates,
     render_compile_command,
     run_campaign,
@@ -17,7 +19,27 @@ from decomp_workbench.campaign import (
 from decomp_workbench.cli import parse_environment
 
 
+class CampaignArguments(TypedDict):
+    target: Path
+    template: str
+    cache_dir: Path
+    ledger: Path
+    objdump: str
+    symbol: str
+    section: str
+
+
 class CampaignTests(unittest.TestCase):
+    def test_compiler_identity_resolves_relative_executable(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            executable = Path(temp) / "compiler"
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o755)
+            relative = executable.relative_to(Path.cwd())
+            identity = executable_identity([str(relative)])
+            self.assertEqual(identity["resolved"], str(executable.resolve()))
+            self.assertIsNotNone(identity["sha256"])
+
     def test_render_command_does_not_use_a_shell(self) -> None:
         command = render_compile_command(
             "./compile.sh --input {source} --output {output}",
@@ -37,9 +59,7 @@ class CampaignTests(unittest.TestCase):
 
     def test_render_command_requires_both_placeholders(self) -> None:
         with self.assertRaisesRegex(ValueError, r"\{output\}"):
-            render_compile_command(
-                "cc {source}", Path("a.c"), Path("a.o")
-            )
+            render_compile_command("cc {source}", Path("a.c"), Path("a.o"))
 
     def test_candidate_key_tracks_source_and_environment(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -122,12 +142,9 @@ class CampaignTests(unittest.TestCase):
             objdump.chmod(0o755)
             cache = root / "cache"
             ledger = root / "ledger.jsonl"
-            arguments = {
+            arguments: CampaignArguments = {
                 "target": target,
-                "template": (
-                    f"{sys.executable} {compiler} "
-                    "{source} {output}"
-                ),
+                "template": (f"{sys.executable} {compiler} {{source}} {{output}}"),
                 "cache_dir": cache,
                 "ledger": ledger,
                 "objdump": str(objdump),
@@ -136,7 +153,10 @@ class CampaignTests(unittest.TestCase):
             }
             first, _ = run_campaign([source], **arguments)
             second, _ = run_campaign([source], **arguments)
-            self.assertTrue(first[0].comparison.exact)
+            comparison = first[0].comparison
+            if comparison is None:
+                raise AssertionError("campaign did not compare the compiled object")
+            self.assertTrue(comparison.exact)
             self.assertFalse(first[0].cached)
             self.assertTrue(second[0].cached)
             records = [
@@ -148,12 +168,10 @@ class CampaignTests(unittest.TestCase):
                 records[0]["provenance"]["source_sha256"],
                 records[1]["provenance"]["source_sha256"],
             )
-            self.assertEqual(
-                records[0]["provenance"]["section"], ".text"
-            )
+            self.assertEqual(records[0]["provenance"]["section"], ".text")
             self.assertEqual(
                 records[0]["provenance"]["objdump"]["resolved"],
-                str(objdump),
+                str(objdump.resolve()),
             )
 
     def test_parse_environment(self) -> None:

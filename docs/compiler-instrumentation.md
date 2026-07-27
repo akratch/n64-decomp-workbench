@@ -91,10 +91,14 @@ decomp-workbench instrument-uopt-globalcolor \
 | `CDX_LOG=1` | Emit `[CDX]` decision records |
 | `CDX_PROC=N` | Restrict logs and controls to globalcolor invocation `N` |
 | `CDX_OUT=FILE` | Write diagnostics to a file instead of stderr |
-| `CDX_FORCE=w9=c30` | Force web 9 to color 30 |
-| `CDX_FORCE=w9=s` | Force the split/no-color path for web 9 |
+| `CDX_FORCE=w9=c30` | Force web 9 to color 30 for the selected procedure |
+| `CDX_FORCE=w9=s` | Force the split/no-color path for web 9 in the selected procedure |
 
-Multiple force entries are comma-separated.
+Multiple force entries are comma-separated. `CDX_FORCE` is ignored unless
+`CDX_PROC` selects one globalcolor invocation; this prevents an experimental
+choice from being applied to the same web number in unrelated procedures.
+Here `wN` is the allocator bit position printed as `web=N`; `sym` is reported
+separately and is not the force key.
 
 ### Alias and base-provenance profile
 

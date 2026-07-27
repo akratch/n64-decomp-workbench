@@ -11,7 +11,6 @@ from decomp_workbench.compare import (
 )
 from decomp_workbench.objdump import parse_disassembly, parse_relocations
 
-
 TARGET = """
 00000000 <demo>:
    0: 27bdffe0  addiu $sp,$sp,-32
@@ -88,8 +87,6 @@ class CompareTests(unittest.TestCase):
             target_name="target",
             candidate_name="candidate",
             symbol="second",
-            target_text=text,
-            candidate_text=text,
         )
         self.assertEqual(result.candidate_frame_size, -64)
 
@@ -102,8 +99,6 @@ class CompareTests(unittest.TestCase):
             target_name="target.o",
             candidate_name="candidate.o",
             symbol="demo",
-            target_text=TARGET,
-            candidate_text=CANDIDATE,
         )
         self.assertEqual(result.word_mismatches, 4)
         self.assertEqual(result.raw_word_mismatches, 4)
@@ -159,12 +154,9 @@ class CompareTests(unittest.TestCase):
 
     def test_missing_relocation_cannot_claim_exact(self) -> None:
         target = parse_disassembly(
-            "  0: 0c001234 jal 48d0 <callee>\n"
-            "  0: R_MIPS_26 callee\n"
+            "  0: 0c001234 jal 48d0 <callee>\n  0: R_MIPS_26 callee\n"
         )
-        candidate = parse_disassembly(
-            "  0: 0c005678 jal 159e0 <callee>\n"
-        )
+        candidate = parse_disassembly("  0: 0c005678 jal 159e0 <callee>\n")
         result = compare_instructions(
             target,
             candidate,

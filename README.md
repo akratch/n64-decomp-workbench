@@ -17,34 +17,45 @@ compiler binaries, or complete copied translation units.
 
 | I want to… | Start with |
 |---|---|
-| Check whether two MIPS objects match | [Object comparison](docs/object-comparison.md) |
+| Check whether two MIPS objects match | [Object comparison][object-comparison] |
 | Explore the included fixtures without a toolchain | [Five-minute tour](#five-minute-tour) |
-| Compile and rank many source candidates | [Campaigns](docs/campaigns.md) |
-| Understand a register-only mismatch | [Trace analysis](docs/trace-analysis.md) |
-| See why tracing uopt helped in practice | [Track renderer example](case-studies/trackbg-globalcolor.md) |
-| Reconstruct a temp-register FIFO | [Plane physics example](case-studies/racer-fifo.md) |
-| Inspect or perturb the ugen→as1 boundary | [Menu example](case-studies/menu-pass-replay.md) |
-| Instrument a static recompile of IDO | [Compiler instrumentation](docs/compiler-instrumentation.md) |
-| Browse everything evaluated for extraction | [Historical tooling inventory](docs/historical-tooling-inventory.md) |
-| Understand what “exact” does and does not mean | [Scope and claims](docs/scope-and-claims.md) |
-| Find the origin of an included technique | [Provenance](docs/provenance.md) |
-| See release-level changes | [Changelog](CHANGELOG.md) |
+| Compile and rank many source candidates | [Campaigns][campaigns] |
+| Understand a register-only mismatch | [Trace analysis][trace-analysis] |
+| See why tracing uopt helped in practice | [Track renderer example][trackbg-case] |
+| Reconstruct a temp-register FIFO | [Plane physics example][racer-case] |
+| Inspect or perturb the ugen→as1 boundary | [Menu example][menu-case] |
+| Instrument a static recompile of IDO | [Compiler instrumentation][compiler-instrumentation] |
+| Browse everything evaluated for extraction | [Historical tooling inventory][historical-inventory] |
+| Review the practices supported by the four investigations | [Lessons learned][lessons-learned] |
+| Inspect the checks run for this release | [Validation record][validation-record] |
+| Understand what “exact” does and does not mean | [Scope and claims][scope-and-claims] |
+| Find the origin of an included technique | [Provenance][provenance] |
+| See release-level changes | [Changelog][changelog] |
 
 ## Install
 
-Python 3.10 or newer is required. The core package uses only the standard
+Python 3.10 or newer is required. The installed package uses only the standard
 library.
 
+From a DKR source checkout:
+
 ```sh
-cd tools/decomp-workbench
-python3 -m pip install -e .
+python3 -m pip install -e tools/decomp-workbench
 decomp-workbench --help
 ```
 
-Run the test suite:
+After a PyPI release, the package can instead be installed with
+`python3 -m pip install n64-decomp-workbench`.
+
+To work on the package:
 
 ```sh
+cd tools/decomp-workbench
+python3 -m pip install -e ".[dev]"
 PYTHONPATH=src python3 -m unittest discover -s tests -v
+ruff check src tests
+ruff format --check src tests
+mypy src tests
 ```
 
 ## Five-minute tour
@@ -166,10 +177,10 @@ default matching technique.
 
 The case studies emphasize the tool and the evidence it exposed:
 
-1. [Globalcolor tracing exposed an expression-order tie](case-studies/trackbg-globalcolor.md).
-2. [Penalty buckets prevented a useful candidate from being discarded](case-studies/objects-structural-score.md).
-3. [A physical register trace became a logical event schedule](case-studies/racer-fifo.md).
-4. [Pass replay identified one missing `.noalias` directive](case-studies/menu-pass-replay.md).
+1. [Globalcolor tracing exposed an expression-order tie][trackbg-case].
+2. [Penalty buckets prevented a useful candidate from being discarded][objects-case].
+3. [A physical register trace became a logical event schedule][racer-case].
+4. [Pass replay identified one missing `.noalias` directive][menu-case].
 
 Each example separates observed facts, the diagnostic intervention, the
 source change that eventually matched, and the limits of the conclusion.
@@ -188,8 +199,8 @@ research-archive/           index to preserved raw experiments
 
 The large historical campaign—hundreds of variants, reports, and
 function-specific scripts—remains available on the DKR Git branch
-`archive/decomp-research-2026-07-26`. It is intentionally not mixed into the
-public API.
+[`archive/decomp-research-2026-07-26`][research-archive]. It is intentionally
+not mixed into the public API.
 
 ## Instrumentation safety
 
@@ -204,13 +215,13 @@ not an assumption:
 5. Use behavior-changing controls such as `CDX_FORCE` only as causal probes.
 
 The uopt profile is pinned to the SHA-256 of one generated IDO 5.3 `uopt.c`
-and refuses other source by default. See
-[compiler instrumentation](docs/compiler-instrumentation.md) for the exact
+and refuses other source by default. See the
+[compiler instrumentation][compiler-instrumentation] guide for the exact
 upstream revision and validation checklist.
 
 ## Project status
 
-This branch is the curated successor to `decomp-workbench-v0.1.0`. The
+Version 0.2.0 supersedes the initial `decomp-workbench-v0.1.0` snapshot. The
 relocation comparator, campaign preparation, trace parsers, FIFO model,
 listing mutation, and instrumentation anchor checks have synthetic tests.
 Actual IDO and whole-ROM fidelity checks require user-supplied toolchain and
@@ -220,5 +231,22 @@ the redistributable unit suite.
 ## License
 
 Original workbench code, fixtures, and documentation are dedicated to the
-public domain under [CC0 1.0 Universal](LICENSE.md). Third-party tools and
+public domain under [CC0 1.0 Universal][license]. Third-party tools and
 user-supplied compiler or game inputs retain their own terms.
+
+[campaigns]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/campaigns.md
+[changelog]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/CHANGELOG.md
+[compiler-instrumentation]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/compiler-instrumentation.md
+[historical-inventory]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/historical-tooling-inventory.md
+[license]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/LICENSE.md
+[lessons-learned]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/lessons-learned.md
+[menu-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/menu-pass-replay.md
+[object-comparison]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/object-comparison.md
+[objects-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/objects-structural-score.md
+[provenance]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/provenance.md
+[racer-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/racer-fifo.md
+[research-archive]: https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26
+[scope-and-claims]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/scope-and-claims.md
+[trace-analysis]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/trace-analysis.md
+[trackbg-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/trackbg-globalcolor.md
+[validation-record]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/validation-0.2.0.md

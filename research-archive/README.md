@@ -6,7 +6,9 @@ are preserved.
 
 ## Primary archive
 
-Checkout or inspect:
+Check out the
+[`archive/decomp-research-2026-07-26`](https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26)
+branch or inspect individual files:
 
 ```sh
 git show archive/decomp-research-2026-07-26:MENU_FINDINGS.md

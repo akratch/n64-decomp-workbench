@@ -9,7 +9,6 @@ from decomp_workbench.instrument_alias import (
     instrument_uopt_alias,
 )
 
-
 SOURCE = """\
 #include "header.h"
 static uint32_t f_base_noalias(void) {
@@ -32,9 +31,7 @@ class AliasInstrumentationTests(unittest.TestCase):
             instrument_uopt_alias(SOURCE)
 
     def test_instruments_base_and_decision(self) -> None:
-        result = instrument_uopt_alias(
-            SOURCE, allow_unverified_source=True
-        )
+        result = instrument_uopt_alias(SOURCE, allow_unverified_source=True)
         self.assertIn(MARKER, result.source)
         self.assertIn("DKWB-BASE", result.source)
         self.assertIn("DKWB-ALIAS-QUERY", result.source)
