@@ -17,7 +17,7 @@ workbench; compiler and game inputs have separate fidelity gates.
 ```sh
 python -m unittest discover -s tests -v
 bandit -r src -ll
-codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
 actionlint .github/workflows/ci.yml
 ruff check src tests
 ruff format --check src tests

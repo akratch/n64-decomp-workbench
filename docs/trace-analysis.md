@@ -66,10 +66,6 @@ entry queue. Allocation and free events interleave, and later registers may
 already be recycled values. Logical values make the event schedule explicit
 before any inference about source evaluation order.
 
-The [plane physics example](../case-studies/racer-fifo.md) shows how this
-distinction led from an incorrect queue model to a source-level statement
-split.
-
 ## Read globalcolor traces
 
 ```sh
@@ -83,12 +79,9 @@ Supported formats:
 - `[CDX]`: selection, split/color, and force-choice decisions from the
   profiled instrumentation.
 
-The report computes the campaign’s historical `total_save` metric as
-`adjusted_save × weight`. Names such as `weight`, `kind`, and `flag` are
-descriptive handles for fields in the generated source, not a promise that
-their semantics are stable across IDO versions. Non-finite diagnostic values
-are represented as `"inf"`, `"-inf"`, or `"nan"` in JSON rather than emitted
-as non-standard numeric tokens.
+The report computes `total_save` as `adjusted_save × weight`. Field names are
+descriptive handles for the pinned generated source, not stable IDO API names.
+Non-finite values become `"inf"`, `"-inf"`, or `"nan"` in JSON.
 
 ## Trace comparison discipline
 

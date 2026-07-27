@@ -52,13 +52,9 @@ decomp-workbench instrument-ugen ugen.c ugen.traced.c \
   --functions '^(f_(alloc|free|add_to|remove_from|move_to).*)$'
 ```
 
-This generic instrumenter is an entry-level locator. The DKR research used a
-deeper, IDO-5.3-specific profile that also logged queue state, node identity,
-source line, destination hints, and exact append/remove events. The trace
-parser accepts that historical format; the generic instrumenter does not claim
-to recreate every one of those hooks on arbitrary generated source. The call
-frame helper uses the GCC/Clang `cleanup` attribute, so the host compiler must
-support it.
+This is a shallow locator, not a complete allocator profile. The parser also
+accepts deeper `CODEX-*` queue events, but `instrument-ugen` does not emit all
+of them. Its call-frame helper uses the GCC/Clang `cleanup` attribute.
 
 ## Pinned uopt profiles
 

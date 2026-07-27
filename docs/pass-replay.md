@@ -7,15 +7,15 @@ Pass replay asks a causal question without recompiling every earlier stage:
 
 ## Retain the ugen listing
 
-With IDO-style drivers, `-K` retains intermediates and `-S` emits assembly.
-The exact flags vary by project. The DKR 5.3 pipeline used:
+With IDO-style drivers, `-K` commonly retains intermediates and `-S` emits
+assembly. Confirm the flags used by your project:
 
 ```sh
 cc -K -c <project flags> unit.c -o unit.o
 ```
 
-This retained a human-readable `unit.s`, binasm/symbol-table intermediates, and
-the final object.
+You need a human-readable `unit.s`; as0/as1 will recreate the binasm,
+symbol-table, and object outputs.
 
 ## Replay as0 and as1
 
@@ -32,7 +32,7 @@ Commands are tokenized and invoked without a shell. `as0` must contain
 
 ## Make one targeted insertion
 
-The menu experiment inserted a register-pair alias directive before one load:
+For example, insert a register-pair alias directive before one load:
 
 ```sh
 decomp-workbench replay-as1 unit.s candidate.o \
@@ -68,9 +68,5 @@ pipeline itself differs and the causal result is ambiguous.
 
 If one directive produces an exact object, it establishes that the downstream
 pass can account for the observed schedule and that the directive is
-sufficient at that site. It does not establish why the historical compiler
-emitted the directive. That requires tracing or source experiments in the
-earlier pass.
-
-See the [menu worked example](../case-studies/menu-pass-replay.md) for the full
-uopt → ugen → as1 chain.
+sufficient at that site. It does not establish why the earlier pass omitted
+the directive; that requires tracing or source experiments upstream.

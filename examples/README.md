@@ -52,6 +52,6 @@ The fixture exercises fresh and direct base paths plus one `no-alias` and one
 `instrumentation/fidelity-micro.c` is a small, header-free source used to
 check the pinned uopt and generic ugen instrumentation against a real
 static-recompiled IDO 5.3 build. It exercises integer and floating-point live
-ranges, a loop, global memory, and alias queries. The exact release procedure
-and observed controls are in the
-[version 0.2.0 validation record](../docs/validation-0.2.0.md).
+ranges, a loop, global memory, and alias queries. Use it for the positive and
+negative controls in
+[compiler instrumentation](../docs/compiler-instrumentation.md#required-fidelity-gates).

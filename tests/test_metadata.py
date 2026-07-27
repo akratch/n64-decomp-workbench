@@ -18,18 +18,15 @@ class MetadataTests(unittest.TestCase):
         self.assertIsNotNone(match)
         assert match is not None
         self.assertEqual(__version__, match.group(1))
-        tagged_versions = set(
-            re.findall(
-                r"/blob/v(\d+\.\d+\.\d+)/",
-                metadata + (ROOT / "README.md").read_text(encoding="utf-8"),
-            )
-        )
-        self.assertEqual(tagged_versions, {__version__})
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(
             "https://github.com/akratch/n64-decomp-workbench",
             metadata,
         )
+        self.assertIn("/blob/main/docs/README.md", metadata)
         self.assertNotIn("tools/decomp-workbench", metadata)
+        self.assertNotIn("Diddy Kong", readme)
+        self.assertNotIn("case-studies", readme)
 
 
 if __name__ == "__main__":

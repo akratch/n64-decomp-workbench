@@ -42,11 +42,14 @@ from .trace import (
 
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--symbol", help="disassemble only this symbol")
+    parser.add_argument("--symbol", help="compare only this exact symbol")
     parser.add_argument(
         "--section", default=".text", help="object section (default: .text)"
     )
-    parser.add_argument("--objdump", help="path to a GNU-compatible objdump")
+    parser.add_argument(
+        "--objdump",
+        help="GNU-compatible MIPS objdump; auto-detected when omitted",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON")
 
 
@@ -664,101 +667,181 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    compare_parser = commands.add_parser("compare", help="compare two objects")
-    compare_parser.add_argument("target")
-    compare_parser.add_argument("candidate")
+    compare_parser = commands.add_parser(
+        "compare",
+        help="compare two MIPS objects",
+        description="Compare instruction words, relocations, structure, and registers.",
+    )
+    compare_parser.add_argument("target", help="reference object")
+    compare_parser.add_argument("candidate", help="candidate object")
     add_common_compare_arguments(compare_parser)
-    compare_parser.add_argument("--show-diff", action="store_true")
-    compare_parser.add_argument("--fail-on-mismatch", action="store_true")
+    compare_parser.add_argument(
+        "--show-diff", action="store_true", help="show localized register differences"
+    )
+    compare_parser.add_argument(
+        "--fail-on-mismatch",
+        action="store_true",
+        help="return exit 1 unless the comparison is exact",
+    )
     compare_parser.set_defaults(handler=compare_command)
 
     dumps_parser = commands.add_parser(
         "compare-dumps",
         help="compare retained GNU objdump text without object files",
+        description="Run the object comparator on redistributable objdump text.",
     )
-    dumps_parser.add_argument("target")
-    dumps_parser.add_argument("candidate")
-    dumps_parser.add_argument("--symbol")
-    dumps_parser.add_argument("--json", action="store_true")
-    dumps_parser.add_argument("--show-diff", action="store_true")
-    dumps_parser.add_argument("--fail-on-mismatch", action="store_true")
+    dumps_parser.add_argument("target", help="reference objdump text")
+    dumps_parser.add_argument("candidate", help="candidate objdump text")
+    dumps_parser.add_argument("--symbol", help="compare only this exact symbol")
+    dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
+    dumps_parser.add_argument(
+        "--show-diff", action="store_true", help="show localized register differences"
+    )
+    dumps_parser.add_argument(
+        "--fail-on-mismatch",
+        action="store_true",
+        help="return exit 1 unless the comparison is exact",
+    )
     dumps_parser.set_defaults(handler=compare_dumps_command)
 
-    rank_parser = commands.add_parser("rank", help="rank candidate objects")
-    rank_parser.add_argument("target")
-    rank_parser.add_argument("candidates", nargs="+")
-    rank_parser.add_argument("--limit", type=int, default=20)
+    rank_parser = commands.add_parser(
+        "rank",
+        help="rank candidate objects",
+        description="Compare prebuilt candidates and sort the usable results.",
+    )
+    rank_parser.add_argument("target", help="reference object")
+    rank_parser.add_argument("candidates", nargs="+", help="candidate objects")
+    rank_parser.add_argument(
+        "--limit", type=int, default=20, help="maximum results to show"
+    )
     add_common_compare_arguments(rank_parser)
     rank_parser.set_defaults(handler=rank_command)
 
     compile_parser = commands.add_parser(
-        "compile-rank", help="compile and rank C source candidates"
+        "compile-rank",
+        help="compile and rank C source candidates",
+        description="Compile candidates sequentially, then rank their objects.",
     )
-    compile_parser.add_argument("target")
-    compile_parser.add_argument("sources", nargs="+")
-    compile_parser.add_argument("--compile-command", required=True)
-    compile_parser.add_argument("--keep-objects")
-    compile_parser.add_argument("--limit", type=int, default=20)
+    compile_parser.add_argument("target", help="reference object")
+    compile_parser.add_argument("sources", nargs="+", help="candidate C files")
+    compile_parser.add_argument(
+        "--compile-command",
+        required=True,
+        help="command template containing {source} and {output}",
+    )
+    compile_parser.add_argument(
+        "--keep-objects", help="directory in which to retain compiled objects"
+    )
+    compile_parser.add_argument(
+        "--limit", type=int, default=20, help="maximum results to show"
+    )
     add_common_compare_arguments(compile_parser)
     compile_parser.set_defaults(handler=compile_rank_command)
 
     campaign_parser = commands.add_parser(
         "campaign",
         help="run a parallel, cached candidate campaign",
+        description="Compile, cache, rank, and record source candidates.",
     )
-    campaign_parser.add_argument("target")
-    campaign_parser.add_argument("sources", nargs="+")
-    campaign_parser.add_argument("--compile-command", required=True)
-    campaign_parser.add_argument("--cache-dir", default=".decomp-workbench/cache")
-    campaign_parser.add_argument("--ledger")
+    campaign_parser.add_argument("target", help="reference object")
+    campaign_parser.add_argument("sources", nargs="+", help="candidate C files")
     campaign_parser.add_argument(
-        "--jobs", type=int, default=max(1, min(8, os.cpu_count() or 1))
+        "--compile-command",
+        required=True,
+        help="command template containing {source} and {output}",
     )
-    campaign_parser.add_argument("--env", action="append", default=[])
-    campaign_parser.add_argument("--keep-objects")
-    campaign_parser.add_argument("--limit", type=int, default=20)
+    campaign_parser.add_argument(
+        "--cache-dir",
+        default=".decomp-workbench/cache",
+        help="content-cache directory",
+    )
+    campaign_parser.add_argument("--ledger", help="append results to this JSONL file")
+    campaign_parser.add_argument(
+        "--jobs",
+        type=int,
+        default=max(1, min(8, os.cpu_count() or 1)),
+        help="parallel compiler processes",
+    )
+    campaign_parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="compiler environment included in the cache key; repeatable",
+    )
+    campaign_parser.add_argument(
+        "--keep-objects", help="directory in which to retain compiled objects"
+    )
+    campaign_parser.add_argument(
+        "--limit", type=int, default=20, help="maximum results to show"
+    )
     add_common_compare_arguments(campaign_parser)
     campaign_parser.set_defaults(handler=campaign_command)
 
     instrument_parser = commands.add_parser(
-        "instrument-ugen", help="instrument statically recompiled ugen C"
+        "instrument-ugen",
+        help="instrument statically recompiled ugen C",
+        description="Add opt-in function and free-list traces to generated ugen C.",
     )
-    instrument_parser.add_argument("input")
-    instrument_parser.add_argument("output")
-    instrument_parser.add_argument("--functions", default=r"^f_")
-    instrument_parser.add_argument("--in-place", action="store_true")
+    instrument_parser.add_argument("input", help="pristine generated ugen.c")
+    instrument_parser.add_argument("output", help="instrumented output path")
+    instrument_parser.add_argument(
+        "--functions",
+        default=r"^f_",
+        help=r"regular expression selecting generated functions (default: ^f_)",
+    )
+    instrument_parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="permit input and output to be the same path",
+    )
     instrument_parser.set_defaults(handler=instrument_command)
 
     instrument_uopt_parser = commands.add_parser(
         "instrument-uopt-globalcolor",
         help="instrument the pinned IDO 5.3 static-recomp uopt profile",
+        description="Add globalcolor traces and force probes to pinned uopt C.",
     )
-    instrument_uopt_parser.add_argument("input")
-    instrument_uopt_parser.add_argument("output")
+    instrument_uopt_parser.add_argument("input", help="pristine generated uopt.c")
+    instrument_uopt_parser.add_argument("output", help="instrumented output path")
     instrument_uopt_parser.add_argument(
-        "--allow-unverified-source", action="store_true"
+        "--allow-unverified-source",
+        action="store_true",
+        help="bypass the source hash for profile development",
     )
-    instrument_uopt_parser.add_argument("--in-place", action="store_true")
+    instrument_uopt_parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="permit input and output to be the same path",
+    )
     instrument_uopt_parser.set_defaults(handler=instrument_uopt_command)
 
     instrument_alias_parser = commands.add_parser(
         "instrument-uopt-alias",
         help="trace base provenance in the pinned IDO 5.3 uopt profile",
+        description="Add base-provenance and alias-query traces to pinned uopt C.",
     )
-    instrument_alias_parser.add_argument("input")
-    instrument_alias_parser.add_argument("output")
+    instrument_alias_parser.add_argument("input", help="pristine generated uopt.c")
+    instrument_alias_parser.add_argument("output", help="instrumented output path")
     instrument_alias_parser.add_argument(
-        "--allow-unverified-source", action="store_true"
+        "--allow-unverified-source",
+        action="store_true",
+        help="bypass the source hash for profile development",
     )
-    instrument_alias_parser.add_argument("--in-place", action="store_true")
+    instrument_alias_parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="permit input and output to be the same path",
+    )
     instrument_alias_parser.set_defaults(handler=instrument_alias_command)
 
     instrument_profiles_parser = commands.add_parser(
         "instrument-uopt",
         help="apply compatible profiles to the pinned IDO 5.3 uopt source",
+        description="Apply one or more compatible profiles to pinned uopt C.",
     )
-    instrument_profiles_parser.add_argument("input")
-    instrument_profiles_parser.add_argument("output")
+    instrument_profiles_parser.add_argument("input", help="pristine generated uopt.c")
+    instrument_profiles_parser.add_argument("output", help="instrumented output path")
     instrument_profiles_parser.add_argument(
         "--profile",
         action="append",
@@ -767,31 +850,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="profile to apply; repeat for a combined source",
     )
     instrument_profiles_parser.add_argument(
-        "--allow-unverified-source", action="store_true"
+        "--allow-unverified-source",
+        action="store_true",
+        help="bypass the source hash for profile development",
     )
-    instrument_profiles_parser.add_argument("--in-place", action="store_true")
+    instrument_profiles_parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="permit input and output to be the same path",
+    )
     instrument_profiles_parser.set_defaults(handler=instrument_profiles_command)
 
     summary_parser = commands.add_parser(
-        "trace-summary", help="summarize ugen diagnostic events"
+        "trace-summary",
+        help="summarize ugen diagnostic events",
+        description="Count recognized events, actions, registers, and source lines.",
     )
-    summary_parser.add_argument("trace")
-    summary_parser.add_argument("--json", action="store_true")
+    summary_parser.add_argument("trace", help="captured compiler log")
+    summary_parser.add_argument("--json", action="store_true", help="emit JSON")
     summary_parser.set_defaults(handler=trace_summary_command)
 
     alias_parser = commands.add_parser(
         "trace-alias",
         help="summarize profiled uopt base-provenance and alias decisions",
+        description="Report base paths, descriptor types, and alias outcomes.",
     )
-    alias_parser.add_argument("trace")
-    alias_parser.add_argument("--show-queries", action="store_true")
-    alias_parser.add_argument("--json", action="store_true")
+    alias_parser.add_argument("trace", help="captured compiler log")
+    alias_parser.add_argument(
+        "--show-queries", action="store_true", help="print each alias query"
+    )
+    alias_parser.add_argument("--json", action="store_true", help="emit JSON")
     alias_parser.set_defaults(handler=trace_alias_command)
 
     fifo_parser = commands.add_parser(
-        "trace-fifo", help="replay a traced register free list as a FIFO"
+        "trace-fifo",
+        help="replay a traced register free list as a FIFO",
+        description="Validate queue order and assign logical value identities.",
     )
-    fifo_parser.add_argument("trace")
+    fifo_parser.add_argument("trace", help="captured compiler log")
     fifo_parser.add_argument(
         "--initial",
         help="comma-separated initial queue; inferred from leading appends",
@@ -802,34 +898,70 @@ def build_parser() -> argparse.ArgumentParser:
     fifo_parser.add_argument(
         "--list-address", help="only include appends for this list"
     )
-    fifo_parser.add_argument("--show-events", action="store_true")
-    fifo_parser.add_argument("--json", action="store_true")
-    fifo_parser.add_argument("--fail-on-violation", action="store_true")
+    fifo_parser.add_argument(
+        "--show-events", action="store_true", help="print the logical event schedule"
+    )
+    fifo_parser.add_argument("--json", action="store_true", help="emit JSON")
+    fifo_parser.add_argument(
+        "--fail-on-violation",
+        action="store_true",
+        help="return exit 1 when FIFO validation fails",
+    )
     fifo_parser.set_defaults(handler=trace_fifo_command)
 
     color_parser = commands.add_parser(
         "trace-globalcolor",
         help="summarize uopt CSAVE/CUP and CDX globalcolor traces",
+        description="Rank live ranges and report color/split decisions.",
     )
-    color_parser.add_argument("trace")
-    color_parser.add_argument("--dtype", type=int)
-    color_parser.add_argument("--top", type=int, default=20)
-    color_parser.add_argument("--json", action="store_true")
+    color_parser.add_argument("trace", help="captured compiler log")
+    color_parser.add_argument("--dtype", type=int, help="include only this data type")
+    color_parser.add_argument(
+        "--top", type=int, default=20, help="maximum live ranges to show"
+    )
+    color_parser.add_argument("--json", action="store_true", help="emit JSON")
     color_parser.set_defaults(handler=trace_globalcolor_command)
 
     replay_parser = commands.add_parser(
         "replay-as1",
         help="edit a retained ugen listing and rerun as0/as1",
+        description="Apply unique listing edits and rebuild through as0 and as1.",
     )
-    replay_parser.add_argument("listing")
-    replay_parser.add_argument("output")
-    replay_parser.add_argument("--as0-command", required=True)
-    replay_parser.add_argument("--as1-command", required=True)
-    replay_parser.add_argument("--insert-before", action="append", default=[])
-    replay_parser.add_argument("--insert-after", action="append", default=[])
-    replay_parser.add_argument("--allow-multiple", action="store_true")
-    replay_parser.add_argument("--keep-work")
-    replay_parser.add_argument("--json", action="store_true")
+    replay_parser.add_argument("listing", help="retained ugen assembly listing")
+    replay_parser.add_argument("output", help="output object path")
+    replay_parser.add_argument(
+        "--as0-command",
+        required=True,
+        help="template containing {listing} and {binasm}",
+    )
+    replay_parser.add_argument(
+        "--as1-command",
+        required=True,
+        help="template containing {binasm} and {object}",
+    )
+    replay_parser.add_argument(
+        "--insert-before",
+        action="append",
+        default=[],
+        metavar="REGEX=TEXT",
+        help="insert text before a unique regex match; repeatable",
+    )
+    replay_parser.add_argument(
+        "--insert-after",
+        action="append",
+        default=[],
+        metavar="REGEX=TEXT",
+        help="insert text after a unique regex match; repeatable",
+    )
+    replay_parser.add_argument(
+        "--allow-multiple",
+        action="store_true",
+        help="permit an edit regex to match more than once",
+    )
+    replay_parser.add_argument(
+        "--keep-work", help="retain the edited listing and intermediate files here"
+    )
+    replay_parser.add_argument("--json", action="store_true", help="emit JSON")
     replay_parser.set_defaults(handler=replay_as1_command)
     return parser
 

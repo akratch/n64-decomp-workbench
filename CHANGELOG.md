@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Refocused the documentation on decompilation problems, command outputs, and
+  support boundaries.
+- Replaced project-specific research narratives with concise workflows,
+  operating principles, and a documentation index.
+
 ## 0.2.0 — 2026-07-27
 
 - Made exact comparison relocation-aware and conservative about missing or
@@ -12,9 +19,7 @@
 - Added hash-pinned, anchor-validated uopt globalcolor and alias profiles,
   including safe profile composition and alias-state reports.
 - Added retained ugen→as1 listing replay.
-- Added four DKR case studies, task-oriented guides, a 38-item historical
-  tooling inventory, an evidence-bounded lessons guide, CC0 licensing, and
-  clean-wheel validation.
+- Added task-oriented guides, CC0 licensing, and clean-wheel validation.
 - Published the workbench as a standalone repository with end-to-end developer
   workflows, centralized troubleshooting, and root-level CI.
 - Added Python 3.10–3.14 CI, strict type checks, formatter enforcement, and

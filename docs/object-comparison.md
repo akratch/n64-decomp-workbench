@@ -82,19 +82,13 @@ and metrics as object comparison.
 
 ## Ranking is not proof
 
-Normalized distance intentionally hides information. In the
-[`func_80017A18` example](../case-studies/objects-structural-score.md), hiding
-stack offsets obscured a whole-frame shift and misranked a genuinely useful
-candidate.
+Normalized distance intentionally hides information. A candidate can improve
+instruction shape while worsening the scalar score, or hide a frame shift when
+stack offsets are normalized.
 
 For projects using asm-differ, keep its native score and penalty buckets beside
-the workbench report. The workbench does not claim to reproduce asm-differ’s
-alignment or weights. DKR used asm-differ itself with:
-
-```sh
-mips64-elf-objdump -d -r -z -j .text \
-  --disassemble=function_name candidate.o
-```
+the workbench report. The workbench does not reproduce asm-differ’s alignment
+or weights.
 
 The final project gate should remain the project’s normal object or whole-ROM
 verification, not a heuristic score.

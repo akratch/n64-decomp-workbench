@@ -9,7 +9,7 @@ run, inspect, or reproduce without requiring copyrighted project inputs.
 python3 -m pip install -e '.[dev]'
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 bandit -r src -ll
-codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
 ruff check src tests
 ruff format --check src tests
 mypy src tests
@@ -39,8 +39,7 @@ objdump text and synthetic traces are preferred.
 - Keep exact verification separate from heuristic ranking.
 - Refuse unknown generated compiler source instead of silently applying a
   version-specific patch.
-- Put target-specific search scripts in `research-archive/`, not in the public
-  package.
+- Keep target-specific search scripts in their project repository.
 - Add a synthetic or redistributable fixture for every parser and model.
 - Record the origin and limits of compiler behavior claims.
 

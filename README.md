@@ -1,100 +1,58 @@
 # N64 Decomp Workbench
 
-Small, composable tools for the point where a decompilation is structurally
-close but compiler behavior is still deciding the last instructions.
+[![CI](https://github.com/akratch/n64-decomp-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/akratch/n64-decomp-workbench/actions/workflows/ci.yml)
 
-The workbench grew out of the final matching work on four large or stubborn
-Diddy Kong Racing (DKR) functions. This standalone repository keeps the
-reusable parts: relocation-aware comparison, repeatable candidate campaigns,
-compiler trace analysis, guarded static-recomp instrumentation, and
-retained-pass replay. The DKR-specific material is presented as worked
-examples rather than as general rules about IDO or proof of the historical
-source.
+Find the cause of late-stage MIPS decompilation mismatches.
 
-The repository contains no ROMs, extracted target objects, proprietary
-compiler binaries, or complete copied translation units.
+The workbench compares objects without being fooled by relocations, runs
+reproducible source-candidate campaigns, turns compiler traces into useful
+reports, and replays late compiler passes. It complements asm-differ; it does
+not replace your project’s build or matching checks.
 
-## Where it fits
+## Is this for me?
 
-Most of the workbench is project- and compiler-independent:
+Use it when:
 
-- `compare`, `compare-dumps`, ranking, and campaigns work with MIPS objects
-  and GNU-compatible objdump output.
-- Trace parsers consume documented text formats and can be fed by any compiler
-  instrumentation that emits them.
-- FIFO reconstruction models observed allocation events without assuming IDO.
-- Pass replay invokes caller-supplied assembler stages and produces an object
-  for comparison.
+- your candidate is close, but the remaining mismatch is hard to classify;
+- you are compiling many source variants and need caching plus a durable ledger;
+- the instruction shape matches but register allocation does not;
+- you need to test whether uopt, ugen, or as1 owns a difference.
 
-The `instrument-uopt*` commands are deliberately narrower. They patch generated
-`uopt.c` from one pinned IDO 5.3 static-recomp revision, check its SHA-256 and
-anchors, and refuse unknown input by default. Generic `ugen.c` call/free-list
-hooks are available separately. The workbench does not include a compiler,
-binutils, a ROM, or a game build system.
+You do not need a ROM or compiler to try the included fixtures. Real object
+comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
+need binaries supplied by your project.
 
-## Choose your workflow
+## What it delivers
 
-| I want to… | Start with |
-|---|---|
-| Evaluate the package without an N64 toolchain | [Five-minute tour](#five-minute-tour) |
-| Prove whether two MIPS objects match | [Object-matcher workflow][workflows-object] |
-| Search and rank many source candidates | [Campaign-author workflow][workflows-campaign] |
-| Investigate a register-allocation plateau | [Allocator workflow][workflows-allocator] |
-| Isolate a late compiler-pass decision | [Pass-boundary workflow][workflows-pass] |
-| Add guarded traces to static-recompiled IDO | [IDO instrumentation workflow][workflows-ido] |
-| Adapt the package to another project or compiler | [Maintainer workflow][workflows-maintainer] |
-| Diagnose an error or empty result | [Troubleshooting][troubleshooting] |
-
-The complete [developer workflows][workflows] state prerequisites, expected
-outputs, and stopping points. The [four DKR case studies](#worked-examples)
-show the evidence behind the techniques; the [scope guide][scope-and-claims]
-separates those observations from broader claims.
-
-Reference material:
-
-- Operation: [object comparison][object-comparison],
-  [campaigns][campaigns], [trace analysis][trace-analysis],
-  [pass replay][pass-replay], and
-  [compiler instrumentation][compiler-instrumentation].
-- Evidence: [historical tooling inventory][historical-inventory],
-  [lessons learned][lessons-learned], [provenance][provenance], and the
-  [0.2.0 validation record][validation-record].
-- Project: [changelog][changelog], [contributing](CONTRIBUTING.md), and
-  [license][license].
+| Problem | Command | Output |
+|---|---|---|
+| Are these objects instruction-exact? | `compare` | Relocation-aware verdict, mismatch counts, register ranges, JSON |
+| Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
+| Which candidate is closest? | `rank` | Stable structural and exact ranking |
+| How do I run hundreds of variants safely? | `campaign` | Parallel builds, content cache, JSONL provenance ledger |
+| What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
+| Is temp-register reuse following a FIFO? | `trace-fifo` | Validated queue and physical-to-logical value schedule |
+| Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions |
+| Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
+| Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
+| Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
 ## Install
 
-Python 3.10 or newer is required. The installed package uses only the standard
-library.
-
-From a clone of this repository:
+Python 3.10 or newer:
 
 ```sh
 git clone https://github.com/akratch/n64-decomp-workbench.git
 cd n64-decomp-workbench
 python3 -m pip install -e .
-decomp-workbench --help
 ```
 
-After a PyPI release, the package can instead be installed with
-`python3 -m pip install n64-decomp-workbench`.
+The installed package has no runtime dependencies outside the Python standard
+library.
 
-To work on the package:
+## Try it in 60 seconds
 
-```sh
-python3 -m pip install -e ".[dev]"
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-ruff check src tests
-ruff format --check src tests
-mypy src tests
-```
-
-## Five-minute tour
-
-These examples use retained text fixtures and synthetic traces, so they do not
-require a ROM, IDO, or MIPS binutils.
-
-### 1. Compare two relocated instruction streams
+Compare two fixture dumps whose raw words differ only in relocated fields:
 
 ```sh
 decomp-workbench compare-dumps \
@@ -103,11 +61,16 @@ decomp-workbench compare-dumps \
   --fail-on-mismatch
 ```
 
-The raw words differ in a `jal` target and a `lui` immediate, but both fields
-have matching relocation records. The workbench masks only the
-linker-controlled bits and reports `words=0 raw=2`.
+Expected result:
 
-Now expose a real register difference:
+```text
+words=   0 raw=   2 norm=   0 regs=   0 fp=   0 insns=   6 ...
+```
+
+`words=0` is the relocation-aware result. `raw=2` shows why a literal word
+comparison would have rejected the candidate.
+
+Now inspect a real register mismatch:
 
 ```sh
 decomp-workbench compare-dumps \
@@ -116,182 +79,94 @@ decomp-workbench compare-dumps \
   --show-diff
 ```
 
-This reports one word, normalized, register, and FP-register mismatch.
+## Use it in a decomp project
 
-### 2. Replay a traced temp-register FIFO
-
-```sh
-decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
-  --registers t6,t7,t8 \
-  --show-events \
-  --fail-on-violation
-```
-
-Leading append events seed the queue. The report checks every later allocation
-against the FIFO head and assigns stable logical value identities (`v1`,
-`v2`, …) to the physical register events.
-
-### 3. Rank globalcolor live ranges
+Compare one function:
 
 ```sh
-decomp-workbench trace-globalcolor \
-  examples/traces/globalcolor.log \
-  --dtype 13
+decomp-workbench compare target.o candidate.o \
+  --symbol function_name \
+  --objdump /path/to/mips64-elf-objdump \
+  --show-diff
 ```
 
-This parses the retained `CSAVE`/`CUP` format and the later `[CDX]` records
-emitted by the included profile. The historical field name `unk1C` is
-presented as `weight`; the raw value is retained and the documentation does
-not claim a broader semantic interpretation than the experiments established.
-
-### 4. Inspect alias decisions
+Run generated source variants through your existing compile wrapper:
 
 ```sh
-decomp-workbench trace-alias \
-  examples/traces/alias.log \
-  --show-queries
+decomp-workbench campaign target.o candidates/*.c \
+  --symbol function_name \
+  --objdump /path/to/mips64-elf-objdump \
+  --compile-command './compile-one.sh {source} -o {output}' \
+  --cache-dir .workbench/cache \
+  --ledger .workbench/results.jsonl \
+  --jobs 8
 ```
 
-This separates retained, direct, and fresh base paths and summarizes the
-descriptor types and outcomes of each observed alias query. The fixture is
-synthetic; the field names mirror the pinned instrumentation profile.
+The command template is tokenized and executed without a shell. Every ledger
+record includes source, target, wrapper, objdump, explicit environment, timing,
+and comparison identity.
 
-## Command map
+## Pick the next diagnostic
 
-| Command | Purpose |
+| What the comparison says | Next move |
 |---|---|
-| `compare` | Disassemble and compare two objects |
-| `compare-dumps` | Compare redistributable GNU objdump text |
-| `rank` | Rank prebuilt candidate objects |
-| `compile-rank` | Simple sequential compile-and-rank loop |
-| `campaign` | Parallel compilation with caching and a JSONL ledger |
-| `trace-summary` | Count events, registers, and source lines |
-| `trace-alias` | Summarize uopt base provenance and alias decisions |
-| `trace-fifo` | Validate and reconstruct a FIFO register class |
-| `trace-globalcolor` | Summarize uopt allocation costs and decisions |
-| `instrument-ugen` | Add opt-in call/free-list hooks to generated `ugen.c` |
-| `instrument-uopt` | Compose compatible pinned uopt profiles |
-| `instrument-uopt-globalcolor` | Apply the hash-pinned IDO 5.3 uopt profile |
-| `instrument-uopt-alias` | Apply the hash-pinned alias trace profile |
-| `replay-as1` | Edit a retained ugen listing and rerun as0/as1 |
+| Instruction count or opcode shape differs | Keep working at the C/control-flow level |
+| Shape matches; registers differ | Capture the narrowest relevant uopt or ugen trace |
+| Raw words differ; relocation-aware words match | Check relocation metadata, then use the project link/ROM check |
+| A late schedule differs | Retain the ugen listing and calibrate `replay-as1` |
+| `exact=true` | Run the project’s normal collateral and full-output verification |
 
-Every reporting command supports JSON where machine-readable output is useful.
-Compiler commands are tokenized with `shlex` and run without a shell.
-Exit-code meanings and common toolchain failures are collected in
-[Troubleshooting][troubleshooting].
+Start with [workflow selection][workflows], then use the focused guide:
 
-## How the pieces fit
+- [Object comparison][object-comparison]
+- [Candidate campaigns][campaigns]
+- [Trace analysis][trace-analysis]
+- [Compiler instrumentation][compiler-instrumentation]
+- [Pass replay][pass-replay]
+- [Troubleshooting][troubleshooting]
+- [Command design principles][principles]
 
-```text
-source candidates
-       │
-       ▼
- campaign ──────► candidate objects ──────► compare / asm-differ
-                                                │
-                         structural plateau ────┘
-                                                ▼
-                                      uopt / ugen traces
-                                      │       │       │
-                                      ▼       ▼       ▼
-                                  coloring  aliases  FIFO replay
-                                      │       │       │
-                                      └───────┼───────┘
-                                              ▼
-                                    focused source change
+The [documentation index][documentation] lists inputs, outputs, and support
+boundaries in one place.
 
-retained ugen listing ──► replay-as1 ──► causal pass-boundary experiment
+## Support boundary
+
+Comparison, ranking, campaigns, trace parsing, and pass replay are adapters:
+bring your own object files, objdump, compiler wrapper, traces, or pass
+binaries.
+
+The packaged uopt patch profiles are intentionally narrower. They accept
+generated `uopt.c` from one pinned IDO 5.3 static-recomp revision, verify its
+SHA-256 and source anchors, and reject unknown input by default. The generic
+ugen instrumenter supports a broader but shallower call/free-list trace.
+
+The repository contains no ROMs, target objects, proprietary compiler binaries,
+or copied game sources.
+
+## Development
+
+```sh
+python3 -m pip install -e ".[dev]"
+python3 -m unittest discover -s tests -v
+ruff check src tests
+ruff format --check src tests
+mypy src tests
 ```
 
-The intended workflow is to use the least invasive oracle that answers the
-current question. Compiler modification is a late diagnostic step, not the
-default matching technique.
-
-## Worked examples
-
-The case studies emphasize the tool and the evidence it exposed:
-
-1. [Globalcolor tracing exposed an expression-order tie][trackbg-case].
-2. [Penalty buckets prevented a useful candidate from being discarded][objects-case].
-3. [A physical register trace became a logical event schedule][racer-case].
-4. [Pass replay identified one missing `.noalias` directive][menu-case].
-
-Each example separates observed facts, the diagnostic intervention, the
-source change that eventually matched, and the limits of the conclusion.
-
-## Repository map
-
-```text
-src/decomp_workbench/       installable Python package
-tests/                      standard-library unit tests
-examples/fixtures/          redistributable objdump text
-examples/traces/            small synthetic trace fixtures
-case-studies/               four DKR worked examples
-docs/workflows.md           end-to-end developer journeys
-docs/troubleshooting.md     failure modes and issue-report checklist
-docs/                       focused guides, evidence, and reference
-research-archive/           index to preserved raw experiments
-.github/workflows/ci.yml    release-equivalent continuous integration
-```
-
-The large historical campaign—hundreds of variants, reports, and
-function-specific scripts—remains available on the DKR Git branch
-[`archive/decomp-research-2026-07-26`][research-archive]. It is intentionally
-not mixed into the public API.
-
-## Instrumentation safety
-
-Tracing a compiler can perturb the compiler. Treat this as a testable property,
-not an assumption:
-
-1. Build the unmodified pass and the instrumented pass.
-2. Run both with every workbench environment variable unset.
-3. Compare the target object, already-matching collateral objects, and the
-   complete ROM or binary.
-4. Enable one known trace as a positive control.
-5. Use behavior-changing controls such as `CDX_FORCE` only as causal probes.
-
-The uopt profile is pinned to the SHA-256 of one generated IDO 5.3 `uopt.c`
-and refuses other source by default. See the
-[compiler instrumentation][compiler-instrumentation] guide for the exact
-upstream revision and validation checklist.
-
-## Project status
-
-Version 0.2.0 supersedes the initial `v0.1.0` snapshot. The
-relocation comparator, campaign preparation, trace parsers, FIFO model,
-listing mutation, and instrumentation anchor checks have synthetic tests.
-Actual IDO and whole-ROM fidelity checks require user-supplied toolchain and
-game inputs and are therefore documented integration gates, not claims made by
-the redistributable unit suite.
+See [CONTRIBUTING.md][contributing] before adding a relocation type,
+instrumentation profile, or trace format.
 
 ## License
 
-Original workbench code, fixtures, and documentation are dedicated to the
-public domain under [CC0 1.0 Universal][license]. Third-party tools and
-user-supplied compiler or game inputs retain their own terms.
+CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 
-[campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/campaigns.md
-[changelog]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/CHANGELOG.md
-[compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/compiler-instrumentation.md
-[historical-inventory]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/historical-tooling-inventory.md
-[license]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/LICENSE.md
-[lessons-learned]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/lessons-learned.md
-[menu-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/menu-pass-replay.md
-[object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/object-comparison.md
-[objects-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/objects-structural-score.md
-[pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/pass-replay.md
-[provenance]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/provenance.md
-[racer-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/racer-fifo.md
-[research-archive]: https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26
-[scope-and-claims]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/scope-and-claims.md
-[trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/trace-analysis.md
-[trackbg-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/trackbg-globalcolor.md
-[troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/troubleshooting.md
-[validation-record]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/validation-0.2.0.md
-[workflows]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md
-[workflows-allocator]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#4-investigate-a-register-allocation-plateau
-[workflows-campaign]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#3-run-a-reproducible-candidate-campaign
-[workflows-ido]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#6-instrument-the-pinned-ido-53-static-recompile
-[workflows-maintainer]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#7-adapt-or-maintain-the-workbench
-[workflows-object]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#2-diagnose-a-late-stage-object-mismatch
-[workflows-pass]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#5-test-a-pass-boundary-hypothesis
+[campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
+[compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
+[contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md
+[documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md
+[object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/object-comparison.md
+[pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md
+[principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
+[trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
+[troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/troubleshooting.md
+[workflows]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/workflows.md

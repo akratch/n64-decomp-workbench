@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "n64-decomp-workbench"
 version = "0.2.0"
-description = "MIPS decompilation oracles, campaigns, compiler traces, and pass replay"
+description = "Diagnose late-stage MIPS decompilation mismatches"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "CC0-1.0"
 license-files = ["LICENSE.md"]
-authors = [{ name = "DKR decompilation contributors" }]
+authors = [{ name = "N64 decompilation contributors" }]
 keywords = ["decompilation", "ido", "mips", "n64", "reverse-engineering"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -43,8 +43,8 @@ decomp-workbench = "decomp_workbench.cli:main"
 [project.urls]
 Repository = "https://github.com/akratch/n64-decomp-workbench"
 Issues = "https://github.com/akratch/n64-decomp-workbench/issues"
-Documentation = "https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/README.md"
-Changelog = "https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/CHANGELOG.md"
+Documentation = "https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md"
+Changelog = "https://github.com/akratch/n64-decomp-workbench/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

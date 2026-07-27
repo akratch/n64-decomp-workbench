@@ -72,9 +72,8 @@ Keep several axes visible:
 6. trace signature when candidates enter the same structural basin.
 
 A candidate with a numerically worse score can still remove structural
-differences and leave only a register permutation. The
-[object collision worked example](../case-studies/objects-structural-score.md)
-shows that exact transition.
+differences and leave only a register permutation. Inspect individual metrics,
+not only rank.
 
 ## Writing transformation generators
 
@@ -86,11 +85,10 @@ Keep generators separate from the campaign runner. A generator should:
 - include transformation parameters in a sidecar manifest or source comment;
 - avoid editing the active project translation unit in place.
 
-The historical DKR archive contains many function-specific generators.
-Reusable families include declaration order, expression tree/order, statement
-split/merge, control-flow spelling, local reuse, literal type, and live-range
-boundary changes. They are examples of experiments, not an API that the
-workbench promises to make meaningful for every compiler.
+Useful transformation families include declaration order, expression
+tree/order, statement split/merge, control-flow spelling, local reuse, literal
+type, and live-range boundary changes. Their effect is compiler- and
+function-specific.
 
 ## Cache hygiene
 

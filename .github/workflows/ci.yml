@@ -55,7 +55,7 @@ jobs:
       - name: Run static analysis
         run: |
           bandit -r src -ll
-          codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+          codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
           ruff check src tests
           ruff format --check src tests
           mypy src tests
