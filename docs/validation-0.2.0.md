@@ -21,10 +21,30 @@ Fresh wheel and source distributions passed `twine check`. The wheel passed
 environment; `decomp-workbench --version`, relocation-aware dump comparison,
 and FIFO trace replay all completed successfully.
 
+## Documentation and developer workflows
+
+The release documentation was walked from seven starting points: evaluation
+without a toolchain, object diagnosis, candidate campaigns, allocator
+analysis, pass-boundary replay, pinned IDO instrumentation, and package
+maintenance. Each journey now identifies its required external inputs, first
+command, expected evidence, next decision, and claim boundary in
+[`workflows.md`](workflows.md).
+
+All 14 command help surfaces parsed successfully. The four redistributable
+five-minute-tour commands ran from an editable standalone install and produced
+the documented comparison and trace results. Automated checks found no broken
+local Markdown paths or heading anchors. The DKR archive, research, and
+original-publication refs were confirmed on the public remote, and the
+standalone workflow and issue-form YAML parsed successfully.
+
+Toolchain-dependent journey steps were reconciled with the real-object,
+instrumentation, campaign, and pass-replay checks below. They are explicitly
+marked as user-supplied integration gates rather than simulated by fixtures.
+
 ## Real MIPS object check
 
 The comparator was run against `init_track` in the DKR build's real
-`build/src/tracks.c.o` with the repository's GNU-compatible
+`build/src/tracks.c.o` with the DKR repository's GNU-compatible
 `mips64-elf-objdump`:
 
 | Check | Result |

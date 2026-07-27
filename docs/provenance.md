@@ -1,13 +1,16 @@
 # Provenance
 
-The workbench is a curated extraction of diagnostic tooling built while the
-DKR decompilation approached its final matching functions in July 2026.
+The workbench is a standalone, curated extraction of diagnostic tooling built
+while the DKR decompilation approached its final matching functions in July
+2026. Its Git history preserves the package commits extracted from DKR; DKR is
+the evidentiary source, not a runtime or repository dependency.
 
 ## Repository sources
 
 | Git reference | Material |
 |---|---|
-| [`tooling/decomp-workbench`](https://github.com/akratch/Diddy-Kong-Racing/tree/tooling/decomp-workbench) / `decomp-workbench-v0.1.0` | First reusable package |
+| [`v0.1.0`](https://github.com/akratch/n64-decomp-workbench/tree/v0.1.0) | First reusable standalone package snapshot |
+| [`tooling/decomp-workbench-v1`](https://github.com/akratch/Diddy-Kong-Racing/tree/tooling/decomp-workbench-v1) | Original in-tree publication snapshot |
 | [`archive/decomp-research-2026-07-26`](https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26) | Menu and racer reports, variants, traces, scripts, and preserved instrumentation patches |
 | [`match-trackbg-render-flashy`](https://github.com/akratch/Diddy-Kong-Racing/tree/match-trackbg-render-flashy) | Track renderer and object collision research |
 | [`faebc894`](https://github.com/akratch/Diddy-Kong-Racing/commit/faebc894b48cddc60fd2ae32acf7fdf3260cad79) | `trackbg_render_flashy` match |

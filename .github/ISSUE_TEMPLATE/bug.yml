@@ -1,0 +1,66 @@
+name: Reproducible bug
+description: Report incorrect behavior with a redistributable reproducer
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/troubleshooting.md` first. Reduce project inputs to objdump
+        text or synthetic traces whenever possible.
+  - type: input
+    id: version
+    attributes:
+      label: Workbench version
+      description: Output of `decomp-workbench --version`
+      placeholder: decomp-workbench 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, operating system, and relevant external-tool versions
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and exit code
+      description: Include the complete command with private paths redacted consistently.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include stdout and stderr, or attach them as text files.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal redistributable reproducer
+      description: Attach reduced objdump text, a synthetic trace, or concise reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: instrumentation
+    attributes:
+      label: Instrumentation identity and controls
+      description: If applicable, include the upstream commit, generated-source SHA-256, environment controls, and stock-versus-instrumented result.
+  - type: checkboxes
+    id: redistribution
+    attributes:
+      label: Redistribution check
+      options:
+        - label: I have not attached a ROM, proprietary compiler binary, extracted target object, or third-party source I cannot redistribute.
+          required: true

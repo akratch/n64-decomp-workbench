@@ -18,6 +18,7 @@ workbench; compiler and game inputs have separate fidelity gates.
 python -m unittest discover -s tests -v
 bandit -r src -ll
 codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+actionlint .github/workflows/ci.yml
 ruff check src tests
 ruff format --check src tests
 mypy src tests
@@ -68,7 +69,7 @@ substituted by the package's synthetic unit tests.
 ## Tag and publish
 
 1. Build distributions from the exact clean commit to be tagged.
-2. Create an annotated version tag and verify that the documentation URLs in
+2. Create an annotated `vX.Y.Z` tag and verify that the documentation URLs in
    package metadata resolve at that tag.
 3. Publish only the artifacts built from the tagged commit.
 4. Install the published wheel in a new environment and rerun the smoke test.

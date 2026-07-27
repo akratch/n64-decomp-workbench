@@ -41,10 +41,10 @@ dev = [
 decomp-workbench = "decomp_workbench.cli:main"
 
 [project.urls]
-Repository = "https://github.com/akratch/Diddy-Kong-Racing"
-Issues = "https://github.com/akratch/Diddy-Kong-Racing/issues"
-Documentation = "https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/README.md"
-Changelog = "https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/CHANGELOG.md"
+Repository = "https://github.com/akratch/n64-decomp-workbench"
+Issues = "https://github.com/akratch/n64-decomp-workbench/issues"
+Documentation = "https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/README.md"
+Changelog = "https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

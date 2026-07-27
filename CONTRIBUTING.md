@@ -19,6 +19,19 @@ The core package intentionally uses the Python standard library. Optional
 integrations may have dependencies, but keep them isolated and document their
 failure mode when unavailable.
 
+## Reporting an issue
+
+Check [Troubleshooting](docs/troubleshooting.md) first. If the problem remains,
+include the command, exit code, `decomp-workbench --version`, Python and host
+versions, expected and actual behavior, and the smallest redistributable input
+that reproduces it. For instrumentation problems, also include the upstream
+commit, generated-source hash, enabled environment variables, and whether the
+disabled-instrumentation fidelity check passed.
+
+Do not attach ROMs, proprietary compiler binaries, complete generated compiler
+sources, or project objects whose terms do not allow redistribution. Reduced
+objdump text and synthetic traces are preferred.
+
 ## Design expectations
 
 - Prefer small commands that compose through files and JSON.

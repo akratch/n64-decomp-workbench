@@ -6,14 +6,20 @@ are preserved.
 
 ## Primary archive
 
-Check out the
+Browse the
 [`archive/decomp-research-2026-07-26`](https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26)
-branch or inspect individual files:
+branch in the separate DKR repository. To inspect individual files locally
+without checking out its full working tree:
 
 ```sh
-git show archive/decomp-research-2026-07-26:MENU_FINDINGS.md
-git show archive/decomp-research-2026-07-26:racer_research/RACER_FINDINGS_DRAFT.md
-git show archive/decomp-research-2026-07-26:menu_research/report_as1_directive.md
+git clone --filter=blob:none --no-checkout \
+  https://github.com/akratch/Diddy-Kong-Racing.git dkr-research
+cd dkr-research
+git fetch origin \
+  archive/decomp-research-2026-07-26:refs/remotes/origin/archive/decomp-research-2026-07-26
+git show origin/archive/decomp-research-2026-07-26:MENU_FINDINGS.md
+git show origin/archive/decomp-research-2026-07-26:racer_research/RACER_FINDINGS_DRAFT.md
+git show origin/archive/decomp-research-2026-07-26:menu_research/report_as1_directive.md
 ```
 
 The branch contains:

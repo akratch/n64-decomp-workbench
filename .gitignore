@@ -1,6 +1,13 @@
 /build/
 /dist/
 /.decomp-workbench/
+/.workbench/
+/.mypy_cache/
+/.ruff_cache/
+/.venv*/
+/.coverage
+/htmlcov/
 *.egg-info/
 __pycache__/
 *.py[cod]
+.DS_Store

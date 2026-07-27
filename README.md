@@ -4,43 +4,75 @@ Small, composable tools for the point where a decompilation is structurally
 close but compiler behavior is still deciding the last instructions.
 
 The workbench grew out of the final matching work on four large or stubborn
-Diddy Kong Racing functions. The public package keeps the reusable parts:
-relocation-aware comparison, repeatable candidate campaigns, compiler trace
-analysis, guarded static-recomp instrumentation, and retained-pass replay.
-The DKR-specific material is presented as worked examples rather than as
-general rules about IDO or proof of the historical source.
+Diddy Kong Racing (DKR) functions. This standalone repository keeps the
+reusable parts: relocation-aware comparison, repeatable candidate campaigns,
+compiler trace analysis, guarded static-recomp instrumentation, and
+retained-pass replay. The DKR-specific material is presented as worked
+examples rather than as general rules about IDO or proof of the historical
+source.
 
 The repository contains no ROMs, extracted target objects, proprietary
 compiler binaries, or complete copied translation units.
 
-## Start here
+## Where it fits
+
+Most of the workbench is project- and compiler-independent:
+
+- `compare`, `compare-dumps`, ranking, and campaigns work with MIPS objects
+  and GNU-compatible objdump output.
+- Trace parsers consume documented text formats and can be fed by any compiler
+  instrumentation that emits them.
+- FIFO reconstruction models observed allocation events without assuming IDO.
+- Pass replay invokes caller-supplied assembler stages and produces an object
+  for comparison.
+
+The `instrument-uopt*` commands are deliberately narrower. They patch generated
+`uopt.c` from one pinned IDO 5.3 static-recomp revision, check its SHA-256 and
+anchors, and refuse unknown input by default. Generic `ugen.c` call/free-list
+hooks are available separately. The workbench does not include a compiler,
+binutils, a ROM, or a game build system.
+
+## Choose your workflow
 
 | I want to… | Start with |
 |---|---|
-| Check whether two MIPS objects match | [Object comparison][object-comparison] |
-| Explore the included fixtures without a toolchain | [Five-minute tour](#five-minute-tour) |
-| Compile and rank many source candidates | [Campaigns][campaigns] |
-| Understand a register-only mismatch | [Trace analysis][trace-analysis] |
-| See why tracing uopt helped in practice | [Track renderer example][trackbg-case] |
-| Reconstruct a temp-register FIFO | [Plane physics example][racer-case] |
-| Inspect or perturb the ugen→as1 boundary | [Menu example][menu-case] |
-| Instrument a static recompile of IDO | [Compiler instrumentation][compiler-instrumentation] |
-| Browse everything evaluated for extraction | [Historical tooling inventory][historical-inventory] |
-| Review the practices supported by the four investigations | [Lessons learned][lessons-learned] |
-| Inspect the checks run for this release | [Validation record][validation-record] |
-| Understand what “exact” does and does not mean | [Scope and claims][scope-and-claims] |
-| Find the origin of an included technique | [Provenance][provenance] |
-| See release-level changes | [Changelog][changelog] |
+| Evaluate the package without an N64 toolchain | [Five-minute tour](#five-minute-tour) |
+| Prove whether two MIPS objects match | [Object-matcher workflow][workflows-object] |
+| Search and rank many source candidates | [Campaign-author workflow][workflows-campaign] |
+| Investigate a register-allocation plateau | [Allocator workflow][workflows-allocator] |
+| Isolate a late compiler-pass decision | [Pass-boundary workflow][workflows-pass] |
+| Add guarded traces to static-recompiled IDO | [IDO instrumentation workflow][workflows-ido] |
+| Adapt the package to another project or compiler | [Maintainer workflow][workflows-maintainer] |
+| Diagnose an error or empty result | [Troubleshooting][troubleshooting] |
+
+The complete [developer workflows][workflows] state prerequisites, expected
+outputs, and stopping points. The [four DKR case studies](#worked-examples)
+show the evidence behind the techniques; the [scope guide][scope-and-claims]
+separates those observations from broader claims.
+
+Reference material:
+
+- Operation: [object comparison][object-comparison],
+  [campaigns][campaigns], [trace analysis][trace-analysis],
+  [pass replay][pass-replay], and
+  [compiler instrumentation][compiler-instrumentation].
+- Evidence: [historical tooling inventory][historical-inventory],
+  [lessons learned][lessons-learned], [provenance][provenance], and the
+  [0.2.0 validation record][validation-record].
+- Project: [changelog][changelog], [contributing](CONTRIBUTING.md), and
+  [license][license].
 
 ## Install
 
 Python 3.10 or newer is required. The installed package uses only the standard
 library.
 
-From a DKR source checkout:
+From a clone of this repository:
 
 ```sh
-python3 -m pip install -e tools/decomp-workbench
+git clone https://github.com/akratch/n64-decomp-workbench.git
+cd n64-decomp-workbench
+python3 -m pip install -e .
 decomp-workbench --help
 ```
 
@@ -50,7 +82,6 @@ After a PyPI release, the package can instead be installed with
 To work on the package:
 
 ```sh
-cd tools/decomp-workbench
 python3 -m pip install -e ".[dev]"
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ruff check src tests
@@ -146,6 +177,8 @@ synthetic; the field names mirror the pinned instrumentation profile.
 
 Every reporting command supports JSON where machine-readable output is useful.
 Compiler commands are tokenized with `shlex` and run without a shell.
+Exit-code meanings and common toolchain failures are collected in
+[Troubleshooting][troubleshooting].
 
 ## How the pieces fit
 
@@ -193,8 +226,11 @@ tests/                      standard-library unit tests
 examples/fixtures/          redistributable objdump text
 examples/traces/            small synthetic trace fixtures
 case-studies/               four DKR worked examples
-docs/                       task-oriented guides and reference
+docs/workflows.md           end-to-end developer journeys
+docs/troubleshooting.md     failure modes and issue-report checklist
+docs/                       focused guides, evidence, and reference
 research-archive/           index to preserved raw experiments
+.github/workflows/ci.yml    release-equivalent continuous integration
 ```
 
 The large historical campaign—hundreds of variants, reports, and
@@ -221,7 +257,7 @@ upstream revision and validation checklist.
 
 ## Project status
 
-Version 0.2.0 supersedes the initial `decomp-workbench-v0.1.0` snapshot. The
+Version 0.2.0 supersedes the initial `v0.1.0` snapshot. The
 relocation comparator, campaign preparation, trace parsers, FIFO model,
 listing mutation, and instrumentation anchor checks have synthetic tests.
 Actual IDO and whole-ROM fidelity checks require user-supplied toolchain and
@@ -234,19 +270,28 @@ Original workbench code, fixtures, and documentation are dedicated to the
 public domain under [CC0 1.0 Universal][license]. Third-party tools and
 user-supplied compiler or game inputs retain their own terms.
 
-[campaigns]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/campaigns.md
-[changelog]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/CHANGELOG.md
-[compiler-instrumentation]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/compiler-instrumentation.md
-[historical-inventory]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/historical-tooling-inventory.md
-[license]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/LICENSE.md
-[lessons-learned]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/lessons-learned.md
-[menu-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/menu-pass-replay.md
-[object-comparison]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/object-comparison.md
-[objects-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/objects-structural-score.md
-[provenance]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/provenance.md
-[racer-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/racer-fifo.md
+[campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/campaigns.md
+[changelog]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/CHANGELOG.md
+[compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/compiler-instrumentation.md
+[historical-inventory]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/historical-tooling-inventory.md
+[license]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/LICENSE.md
+[lessons-learned]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/lessons-learned.md
+[menu-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/menu-pass-replay.md
+[object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/object-comparison.md
+[objects-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/objects-structural-score.md
+[pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/pass-replay.md
+[provenance]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/provenance.md
+[racer-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/racer-fifo.md
 [research-archive]: https://github.com/akratch/Diddy-Kong-Racing/tree/archive/decomp-research-2026-07-26
-[scope-and-claims]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/scope-and-claims.md
-[trace-analysis]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/trace-analysis.md
-[trackbg-case]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/case-studies/trackbg-globalcolor.md
-[validation-record]: https://github.com/akratch/Diddy-Kong-Racing/blob/decomp-workbench-v0.2.0/tools/decomp-workbench/docs/validation-0.2.0.md
+[scope-and-claims]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/scope-and-claims.md
+[trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/trace-analysis.md
+[trackbg-case]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/case-studies/trackbg-globalcolor.md
+[troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/troubleshooting.md
+[validation-record]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/validation-0.2.0.md
+[workflows]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md
+[workflows-allocator]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#4-investigate-a-register-allocation-plateau
+[workflows-campaign]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#3-run-a-reproducible-candidate-campaign
+[workflows-ido]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#6-instrument-the-pinned-ido-53-static-recompile
+[workflows-maintainer]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#7-adapt-or-maintain-the-workbench
+[workflows-object]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#2-diagnose-a-late-stage-object-mismatch
+[workflows-pass]: https://github.com/akratch/n64-decomp-workbench/blob/v0.2.0/docs/workflows.md#5-test-a-pass-boundary-hypothesis

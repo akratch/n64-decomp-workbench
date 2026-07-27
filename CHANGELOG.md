@@ -15,6 +15,8 @@
 - Added four DKR case studies, task-oriented guides, a 38-item historical
   tooling inventory, an evidence-bounded lessons guide, CC0 licensing, and
   clean-wheel validation.
+- Published the workbench as a standalone repository with end-to-end developer
+  workflows, centralized troubleshooting, and root-level CI.
 - Added Python 3.10–3.14 CI, strict type checks, formatter enforcement, and
   release-distribution smoke tests.
 - Fixed list-address filtering in FIFO replay and accepted non-finite

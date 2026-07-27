@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: python -m pip install --upgrade --editable .
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  quality:
+    name: Static analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and development tools
+        run: python -m pip install --upgrade --editable ".[dev]"
+
+      - name: Run static analysis
+        run: |
+          bandit -r src -ll
+          codespell README.md CHANGELOG.md CONTRIBUTING.md case-studies docs examples research-archive src tests
+          ruff check src tests
+          ruff format --check src tests
+          mypy src tests
+
+  package:
+    name: Build distributions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install release tools
+        run: python -m pip install --upgrade ".[dev]"
+
+      - name: Build and inspect distributions
+        run: |
+          python -m build
+          python -m twine check dist/*
+          check-wheel-contents dist/*.whl
+
+      - name: Install and smoke-test the wheel
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          decomp-workbench --version
+          decomp-workbench compare-dumps \
+            examples/fixtures/target.objdump \
+            examples/fixtures/relocated-match.objdump \
+            --fail-on-mismatch
+          decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
+            --registers t6,t7,t8 \
+            --fail-on-violation
+
+      - name: Install and smoke-test the source distribution
+        run: |
+          python -m venv /tmp/dkwb-sdist-env
+          /tmp/dkwb-sdist-env/bin/python -m pip install dist/*.tar.gz
+          /tmp/dkwb-sdist-env/bin/decomp-workbench --version
+          /tmp/dkwb-sdist-env/bin/decomp-workbench compare-dumps \
+            examples/fixtures/target.objdump \
+            examples/fixtures/relocated-match.objdump \
+            --fail-on-mismatch
+          /tmp/dkwb-sdist-env/bin/decomp-workbench trace-fifo \
+            examples/traces/ugen-fifo.log \
+            --registers t6,t7,t8 \
+            --fail-on-violation
