@@ -39,7 +39,9 @@ objdump text and synthetic traces are preferred.
 - Keep exact verification separate from heuristic ranking.
 - Refuse unknown generated compiler source instead of silently applying a
   version-specific patch.
-- Keep target-specific search scripts in their project repository.
+- Prefer target-specific search scripts in their project repository. A
+  self-contained walkthrough may live here when its inputs are redistributable,
+  narrowly scoped, attributed, and clearly separated from synthetic fixtures.
 - Add a synthetic or redistributable fixture for every parser and model.
 - Record the origin and limits of compiler behavior claims.
 

@@ -30,6 +30,7 @@ from .instrument_uopt import instrument_uopt_globalcolor
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
+from .scratch_bundle import bundle_scratch
 from .trace import (
     alias_trace_summary,
     parse_integer,
@@ -144,6 +145,30 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
                 print(f"\n[{item['index']}] target    {item['target']}")
                 print(f"    candidate {item['candidate']}")
     return 1 if args.fail_on_mismatch and not comparison.exact else 0
+
+
+def bundle_scratch_command(args: argparse.Namespace) -> int:
+    try:
+        result = bundle_scratch(
+            args.output,
+            target_assembly=args.target_assembly,
+            context=args.context,
+            source=args.source,
+            platform=args.platform,
+            compiler=args.compiler,
+            compiler_flags=args.compiler_flags,
+            diff_label=args.diff_label,
+            project=args.project,
+            preset=args.preset,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result.manifest, indent=2, sort_keys=True))
+    else:
+        print(f"scratch bundle: {result.output}")
+    return 0
 
 
 def rank_command(args: argparse.Namespace) -> int:
@@ -963,6 +988,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_parser.add_argument("--json", action="store_true", help="emit JSON")
     replay_parser.set_defaults(handler=replay_as1_command)
+
+    bundle_parser = commands.add_parser(
+        "bundle-scratch",
+        help="package local inputs for manual decomp.me scratch creation",
+        description=(
+            "Copy target assembly, context, and source into a deterministic "
+            "upload-neutral scratch bundle."
+        ),
+    )
+    bundle_parser.add_argument("output", help="new or empty output directory")
+    bundle_parser.add_argument(
+        "--target-assembly", required=True, help="single-function GAS target"
+    )
+    bundle_parser.add_argument("--context", required=True, help="context C file")
+    bundle_parser.add_argument(
+        "--source", required=True, help="candidate source C file"
+    )
+    bundle_parser.add_argument("--platform", required=True, help="decomp.me platform")
+    bundle_parser.add_argument("--compiler", required=True, help="compiler identity")
+    bundle_parser.add_argument(
+        "--compiler-flags", default="", help="compiler flags copied to the manifest"
+    )
+    bundle_parser.add_argument(
+        "--diff-label", required=True, help="target function label"
+    )
+    bundle_parser.add_argument("--project", help="optional project identity")
+    bundle_parser.add_argument("--preset", help="optional decomp.me preset identity")
+    bundle_parser.add_argument("--json", action="store_true", help="emit manifest JSON")
+    bundle_parser.set_defaults(handler=bundle_scratch_command)
     return parser
 
 

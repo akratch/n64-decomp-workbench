@@ -24,6 +24,11 @@ decomp-workbench compare target.o candidate.o \
 `--fail-on-mismatch` returns nonzero unless the relocation-aware words and
 relocation-kind layout match and every encountered type is understood.
 
+When `--symbol` selects an assembly-defined symbol without an ELF size, GNU
+objdump can include zero alignment padding through the end of the section. The
+workbench excludes unreachable zero words after the function's final `jr ra`
+delay slot; the delay-slot instruction itself remains part of the comparison.
+
 ## What the metrics mean
 
 | Field | Meaning | Appropriate use |

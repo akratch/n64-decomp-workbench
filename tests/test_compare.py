@@ -9,7 +9,11 @@ from decomp_workbench.compare import (
     mismatch_ranges,
     normalize_instruction,
 )
-from decomp_workbench.objdump import parse_disassembly, parse_relocations
+from decomp_workbench.objdump import (
+    parse_disassembly,
+    parse_relocations,
+    trim_function_padding,
+)
 
 TARGET = """
 00000000 <demo>:
@@ -89,6 +93,39 @@ class CompareTests(unittest.TestCase):
             symbol="second",
         )
         self.assertEqual(result.candidate_frame_size, -64)
+
+    def test_trims_zero_padding_after_return_delay_slot(self) -> None:
+        instructions = parse_disassembly(
+            """
+00000000 <demo>:
+   0: 848e004c  lh $t6,76($a0)
+   4: 03e00008  jr $ra
+   8: a4ae004c  sh $t6,76($a1)
+   c: 00000000  nop
+  10: 00000000  nop
+""",
+            symbol="demo",
+        )
+        self.assertEqual([item.address for item in instructions], [0, 4, 8])
+
+    def test_does_not_trim_a_return_delay_slot(self) -> None:
+        instructions = parse_disassembly(
+            """
+   0: 03e00008  jr $ra
+   4: 00000000  nop
+"""
+        )
+        self.assertEqual(trim_function_padding(instructions), instructions)
+
+    def test_does_not_trim_nonzero_content_after_return(self) -> None:
+        instructions = parse_disassembly(
+            """
+   0: 03e00008  jr $ra
+   4: 00000000  nop
+   8: 24020001  li $v0,1
+"""
+        )
+        self.assertEqual(trim_function_padding(instructions), instructions)
 
     def test_comparison_layers(self) -> None:
         target = parse_disassembly(TARGET)

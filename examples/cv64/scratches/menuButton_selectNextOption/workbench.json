@@ -1,0 +1,8 @@
+{
+  "candidate_instructions": 62,
+  "exact": false,
+  "normalized_distance": 2,
+  "note": "One early target instruction shifts positional comparison.",
+  "target_instructions": 63,
+  "word_mismatches": 57
+}

@@ -35,6 +35,7 @@ need binaries supplied by your project.
 | Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions |
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
+| Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
 ## Install
@@ -116,13 +117,30 @@ and comparison identity.
 | A late schedule differs | Retain the ugen listing and calibrate `replay-as1` |
 | `exact=true` | Run the project’s normal collateral and full-output verification |
 
+Package a single-function target, full context, and current source for manual
+decomp.me creation without uploading anything:
+
+```sh
+decomp-workbench bundle-scratch scratch/demo \
+  --target-assembly target.s \
+  --context ctx.c \
+  --source candidate.c \
+  --platform n64 \
+  --compiler 'IDO 7.1' \
+  --compiler-flags='-O2 -mips2' \
+  --diff-label demo
+```
+
 Start with [workflow selection][workflows], then use the focused guide:
 
 - [Object comparison][object-comparison]
 - [Candidate campaigns][campaigns]
+- [Scratch bundles][scratch-bundles]
+- [IDO version support][ido-support]
 - [Trace analysis][trace-analysis]
 - [Compiler instrumentation][compiler-instrumentation]
 - [Pass replay][pass-replay]
+- [Castlevania 64 worked examples][cv64-examples]
 - [Troubleshooting][troubleshooting]
 - [Command design principles][principles]
 
@@ -131,17 +149,19 @@ boundaries in one place.
 
 ## Support boundary
 
-Comparison, ranking, campaigns, trace parsing, and pass replay are adapters:
-bring your own object files, objdump, compiler wrapper, traces, or pass
-binaries.
+Comparison, ranking, campaigns, scratch bundling, trace parsing, and pass
+replay are adapters: bring your own object files, objdump, compiler wrapper,
+scratch inputs, traces, or pass binaries. These workflows support IDO 5.3 and
+7.1 when the project supplies the corresponding toolchain.
 
 The packaged uopt patch profiles are intentionally narrower. They accept
 generated `uopt.c` from one pinned IDO 5.3 static-recomp revision, verify its
 SHA-256 and source anchors, and reject unknown input by default. The generic
 ugen instrumenter supports a broader but shallower call/free-list trace.
 
-The repository contains no ROMs, target objects, proprietary compiler binaries,
-or copied game sources.
+The repository contains no ROMs, target objects, proprietary compiler
+binaries, or extracted non-code game assets. The attributed CV64 materials are
+limited to complete single-function scratch handoffs.
 
 ## Development
 
@@ -163,10 +183,13 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
 [contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md
+[cv64-examples]: https://github.com/akratch/n64-decomp-workbench/blob/main/examples/cv64/README.md
 [documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md
+[ido-support]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/ido-support.md
 [object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/object-comparison.md
 [pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md
 [principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
+[scratch-bundles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/scratch-bundles.md
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
 [troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/troubleshooting.md
 [workflows]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/workflows.md

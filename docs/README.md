@@ -5,6 +5,8 @@
 | [Workflows](workflows.md) | You know the symptom but not the command | A target and a current hypothesis |
 | [Object comparison](object-comparison.md) | You need an exact verdict or mismatch classification | MIPS objects or GNU objdump text |
 | [Candidate campaigns](campaigns.md) | You have a source generator or variant set | A compile-one wrapper |
+| [Scratch bundles](scratch-bundles.md) | You need a complete local decomp.me handoff | Target assembly, context, source, settings |
+| [IDO version support](ido-support.md) | You need to know which 5.3 and 7.1 workflows are validated | Project compiler/pass identities |
 | [Trace analysis](trace-analysis.md) | Structure matches but allocation or aliasing does not | A supported trace |
 | [Compiler instrumentation](compiler-instrumentation.md) | You need a trace producer for static-recompiled IDO | Generated compiler C and its build |
 | [Pass replay](pass-replay.md) | A late scheduling decision is suspect | A retained listing plus as0/as1 |

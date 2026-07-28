@@ -6,6 +6,14 @@
   support boundaries.
 - Replaced project-specific research narratives with concise workflows,
   operating principles, and a documentation index.
+- Excluded unreachable zero alignment padding after a selected MIPS function's
+  return delay slot from object and retained-dump comparisons.
+- Added deterministic, upload-neutral decomp.me scratch bundles with copied
+  target/context/source inputs, settings, checksums, and manual-use guidance.
+- Added a five-function Castlevania 64 walkthrough and complete scratch inputs,
+  including exact matches and three small scheduling/code-generation puzzles.
+- Documented the supported IDO 5.3 and 7.1 workflow matrix and the narrower
+  version boundary of the pinned deep-uopt instrumentation profiles.
 
 ## 0.2.0 — 2026-07-27
 

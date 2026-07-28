@@ -1,7 +1,9 @@
 # Examples
 
-Everything in this directory is synthetic or reduced text intended for
-redistribution.
+Most files in this directory are synthetic or reduced text intended for
+redistribution. [The CV64 walkthrough](cv64/README.md) is a separately
+attributed set of complete, single-function scratch materials; it contains no
+ROM or extracted non-code assets.
 
 ## Object comparison fixtures
 

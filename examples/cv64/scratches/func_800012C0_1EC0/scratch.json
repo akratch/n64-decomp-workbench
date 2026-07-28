@@ -1,0 +1,21 @@
+{
+  "decomp_me": {
+    "compiler": "IDO 7.1",
+    "compiler_flags": "-Wab,-r4300_mul -non_shared -G0 -Xcpluscomm -mips2 -O2",
+    "diff_label": "func_800012C0_1EC0",
+    "platform": "n64"
+  },
+  "files": {
+    "context.c": {
+      "sha256": "09c598c84ba1734dbfc43242a92dea603a66db609cbe6fbc987bbfbd2f937e73"
+    },
+    "source.c": {
+      "sha256": "836d705a6855ade7aa4250e933dd0eeb84340b9e45363b98dad05e0c3c1a91a4"
+    },
+    "target.s": {
+      "sha256": "98cdfb2c9b18ffca7176da380aa79a68651dc48b34b56dde09894dc303bb2546"
+    }
+  },
+  "project": "k64ret/cv64@5307217aa772019b7576cad3cb2c545e88e0394a",
+  "schema": "decomp-workbench-scratch-bundle-v1"
+}

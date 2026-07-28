@@ -64,3 +64,4 @@ strict = true
 
 [tool.codespell]
 ignore-words-list = "disjointness,dout"
+skip = "examples/cv64/scratches/*/context.c"

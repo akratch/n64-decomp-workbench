@@ -92,6 +92,29 @@ def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instructi
                     relocations=relocations.get(address, ()),
                 )
             )
+    return trim_function_padding(instructions) if symbol else instructions
+
+
+def trim_function_padding(instructions: list[Instruction]) -> list[Instruction]:
+    """Drop unreachable zero padding after a final ``jr ra`` delay slot.
+
+    Assembly-defined symbols commonly have no ELF size.  In that case GNU
+    objdump's ``--disassemble=SYMBOL`` output can run from the symbol through
+    the end of the section and include alignment zeroes after the function.
+    A MIPS return owns exactly one delay-slot instruction, so later zero words
+    are section padding rather than part of that function.
+    """
+
+    last_return = None
+    for index, instruction in enumerate(instructions):
+        assembly = instruction.assembly.replace("$", "")
+        if re.match(r"^jr\s+ra(?:\s|$)", assembly):
+            last_return = index
+    if last_return is None or last_return + 2 >= len(instructions):
+        return instructions
+    trailing = instructions[last_return + 2 :]
+    if all(instruction.word == "00000000" for instruction in trailing):
+        return instructions[: last_return + 2]
     return instructions
 
 
@@ -117,7 +140,7 @@ def dump_object(
     if result.returncode:
         message = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"objdump failed for {path}: {message}")
-    instructions = parse_disassembly(result.stdout)
+    instructions = parse_disassembly(result.stdout, symbol=symbol)
     if not instructions:
         suffix = f" for symbol {symbol}" if symbol else ""
         raise RuntimeError(f"objdump produced no instructions{suffix}: {path}")
