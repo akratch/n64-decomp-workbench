@@ -31,12 +31,20 @@ L471758:
 s5 = MEM_U32(sp + 276);
 //nop;
 f0.w[0] = MEM_U32(s5 + 48);
+L47190c:
+cf = f2.f[0] < f20.f[0];
+L471afc:
+cf = f2.f[0] < f20.f[0];
 cf = f6.f[0] <= f20.f[0];
 //nop;
 if (!cf) {
 }
 L471d6c:
 t5 = MEM_U32(sp + 220);
+L4723a4:
+cf = f2.f[0] < f20.f[0];
+L4725b0:
+cf = f2.f[0] < f20.f[0];
 cf = f20.f[0] < f10.f[0];
 //nop;
 if (!cf) {
@@ -55,7 +63,7 @@ class InstrumentProfilesTests(unittest.TestCase):
             allow_unverified_source=True,
         )
         self.assertEqual(result.profiles, ("alias", "globalcolor"))
-        self.assertEqual(result.trace_points, 8)
+        self.assertEqual(result.trace_points, 12)
         self.assertIn(ALIAS_MARKER, result.source)
         self.assertIn(GLOBALCOLOR_MARKER, result.source)
 

@@ -92,6 +92,38 @@ class ColorDecision:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class AllocatorWebDecision:
+    """One allocator decision joined with optional webdetail metadata."""
+
+    proc: int
+    web: int
+    phase: str
+    fields: dict[str, str]
+    detail: dict[str, str]
+    color_costs: list[dict[str, str]]
+
+    @property
+    def dtype(self) -> int | None:
+        value = self.detail.get("dtype")
+        return int(value, 0) if value is not None else None
+
+    @property
+    def total_save(self) -> float:
+        value = self.fields.get("totalsave", "nan")
+        return float(value)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "proc": self.proc,
+            "web": self.web,
+            "phase": self.phase,
+            "fields": self.fields,
+            "detail": self.detail,
+            "color_costs": self.color_costs,
+        }
+
+
 @dataclass
 class GlobalColorTrace:
     """Parsed globalcolor live ranges and decisions."""
@@ -117,9 +149,70 @@ class GlobalColorTrace:
         )
         return selected[:limit] if limit else selected
 
+    def decisions_for(self, proc: int | None = None) -> list[ColorDecision]:
+        """Return decisions for one globalcolor invocation, or all decisions."""
+
+        if proc is None:
+            return self.decisions
+        return [item for item in self.decisions if item.fields.get("proc") == str(proc)]
+
+    def allocator_webs(
+        self,
+        *,
+        proc: int | None = None,
+        dtype: int | None = None,
+        limit: int | None = None,
+    ) -> list[AllocatorWebDecision]:
+        """Join p1/p2 decisions to target webdetail records."""
+
+        details: dict[tuple[int, int], dict[str, str]] = {}
+        costs: dict[tuple[int, int, str], list[dict[str, str]]] = {}
+        for item in self.decisions:
+            if "proc" not in item.fields or "web" not in item.fields:
+                continue
+            key = (int(item.fields["proc"], 0), int(item.fields["web"], 0))
+            if item.phase == "webdetail" and item.fields.get("role") == "target":
+                details[key] = item.fields
+            elif item.phase in {"p1cost", "p2cost"}:
+                costs.setdefault((*key, item.phase[:2]), []).append(item.fields)
+
+        joined: list[AllocatorWebDecision] = []
+        for item in self.decisions:
+            if item.phase not in {"p1dec", "p2dec"}:
+                continue
+            if "proc" not in item.fields or "web" not in item.fields:
+                continue
+            item_proc = int(item.fields["proc"], 0)
+            item_web = int(item.fields["web"], 0)
+            detail = details.get((item_proc, item_web), {})
+            joined_item = AllocatorWebDecision(
+                proc=item_proc,
+                web=item_web,
+                phase=item.phase,
+                fields=item.fields,
+                detail=detail,
+                color_costs=costs.get((item_proc, item_web, item.phase[:2]), []),
+            )
+            if proc is not None and item_proc != proc:
+                continue
+            if dtype is not None and joined_item.dtype != dtype:
+                continue
+            joined.append(joined_item)
+        joined.sort(
+            key=lambda item: (
+                math.isnan(item.total_save),
+                -item.total_save if not math.isnan(item.total_save) else 0.0,
+                item.proc,
+                item.web,
+                item.phase,
+            )
+        )
+        return joined[:limit] if limit else joined
+
     def as_dict(self) -> dict[str, object]:
         return {
             "live_ranges": [item.as_dict() for item in self.ranked()],
+            "allocator_webs": [item.as_dict() for item in self.allocator_webs()],
             "decisions": [item.as_dict() for item in self.decisions],
             "unparsed_diagnostic_lines": self.unparsed_diagnostic_lines,
         }

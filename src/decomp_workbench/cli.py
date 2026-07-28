@@ -331,6 +331,12 @@ def parse_environment(values: list[str]) -> dict[str, str]:
 
 
 def campaign_command(args: argparse.Namespace) -> int:
+    if args.json and args.json_summary:
+        print(
+            "error: --json and --json-summary are mutually exclusive",
+            file=sys.stderr,
+        )
+        return 2
     try:
         environment = parse_environment(args.env)
         results, duplicates = run_campaign(
@@ -344,20 +350,61 @@ def campaign_command(args: argparse.Namespace) -> int:
             symbol=args.symbol,
             section=args.section,
             environment=environment,
+            compile_cwd=args.compile_cwd,
             keep_objects=args.keep_objects,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
-    if args.json:
+    if args.json or args.json_summary:
+        serialized_results = []
+        for item in shown:
+            if not args.json_summary:
+                serialized_results.append(item.as_dict())
+                continue
+            comparison = item.comparison
+            serialized_results.append(
+                {
+                    "source": item.source,
+                    "returncode": item.returncode,
+                    "object_path": item.object_path,
+                    "cache_key": item.cache_key,
+                    "cached": item.cached,
+                    "duration_seconds": item.duration_seconds,
+                    "comparison": (
+                        {
+                            "exact": comparison.exact,
+                            "word_mismatches": comparison.word_mismatches,
+                            "raw_word_mismatches": comparison.raw_word_mismatches,
+                            "normalized_distance": comparison.normalized_distance,
+                            "opcode_mismatches": comparison.opcode_mismatches,
+                            "register_mismatches": comparison.register_mismatches,
+                            "fp_register_mismatches": (
+                                comparison.fp_register_mismatches
+                            ),
+                            "target_instructions": comparison.target_instructions,
+                            "candidate_instructions": (
+                                comparison.candidate_instructions
+                            ),
+                            "instruction_delta": comparison.instruction_delta,
+                            "target_frame_size": comparison.target_frame_size,
+                            "candidate_frame_size": (comparison.candidate_frame_size),
+                            "candidate_sha1": comparison.candidate_sha1,
+                            "candidate_sha256": comparison.candidate_sha256,
+                        }
+                        if comparison
+                        else None
+                    ),
+                }
+            )
         print(
             json.dumps(
                 {
                     "schema": "decomp-workbench-campaign-v1",
                     "unique_candidates": len(results),
                     "source_files": sum(len(items) for items in duplicates.values()),
-                    "results": [item.as_dict() for item in shown],
+                    "results": serialized_results,
                 },
                 indent=2,
                 sort_keys=True,
@@ -613,12 +660,17 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     selected = report.ranked(dtype=args.dtype, limit=args.top)
+    allocator_webs = report.allocator_webs(
+        proc=args.proc, dtype=args.dtype, limit=args.top
+    )
+    decisions = report.decisions_for(args.proc)
     if args.json:
         print(
             json.dumps(
                 {
                     "live_ranges": [item.as_dict() for item in selected],
-                    "decisions": [item.as_dict() for item in report.decisions],
+                    "allocator_webs": [item.as_dict() for item in allocator_webs],
+                    "decisions": [item.as_dict() for item in decisions],
                     "unparsed_diagnostic_lines": (report.unparsed_diagnostic_lines),
                 },
                 indent=2,
@@ -635,12 +687,30 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
                 f"adjsave={item.adjusted_save:11g} "
                 f"total={item.total_save:13g} best={best}"
             )
+        for allocator_item in allocator_webs:
+            detail = allocator_item.detail
+            cost_text = ",".join(
+                f"c{cost.get('color', '?')}:{cost.get('cost', '?')}"
+                for cost in allocator_item.color_costs
+            )
+            print(
+                f"proc={allocator_item.proc} web={allocator_item.web} "
+                f"phase={allocator_item.phase} "
+                f"dtype={detail.get('dtype', '?')} "
+                f"save={allocator_item.fields.get('save', '?')} "
+                f"nocs={allocator_item.fields.get('nocs', '?')} "
+                f"bestcolor={allocator_item.fields.get('bestcolor', '?')} "
+                f"decision={allocator_item.fields.get('decision', '?')} "
+                f"bb={detail.get('bb', '?')} line={detail.get('line', '?')} "
+                f"costs={cost_text or '-'}"
+            )
         print(
             f"live-ranges={len(report.live_ranges)} "
-            f"decisions={len(report.decisions)} "
+            f"allocator-webs={len(allocator_webs)} "
+            f"decisions={len(decisions)} "
             f"unparsed={len(report.unparsed_diagnostic_lines)}"
         )
-    return 0 if report.live_ranges or report.decisions else 1
+    return 0 if report.live_ranges or allocator_webs or decisions else 1
 
 
 def parse_listing_edit(value: str, position: str) -> ListingEdit:
@@ -795,12 +865,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="compiler environment included in the cache key; repeatable",
     )
     campaign_parser.add_argument(
+        "--compile-cwd",
+        help="working directory for compiler processes; included in the cache key",
+    )
+    campaign_parser.add_argument(
         "--keep-objects", help="directory in which to retain compiled objects"
     )
     campaign_parser.add_argument(
         "--limit", type=int, default=20, help="maximum results to show"
     )
     add_common_compare_arguments(campaign_parser)
+    campaign_parser.add_argument(
+        "--json-summary",
+        action="store_true",
+        help="emit compact JSON without compiler streams or instruction-level diffs",
+    )
     campaign_parser.set_defaults(handler=campaign_command)
 
     instrument_parser = commands.add_parser(
@@ -940,6 +1019,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Rank live ranges and report color/split decisions.",
     )
     color_parser.add_argument("trace", help="captured compiler log")
+    color_parser.add_argument(
+        "--proc", type=int, help="include only CDX decisions from this procedure"
+    )
     color_parser.add_argument("--dtype", type=int, help="include only this data type")
     color_parser.add_argument(
         "--top", type=int, default=20, help="maximum live ranges to show"

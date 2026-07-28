@@ -11,6 +11,7 @@
 | [Compiler instrumentation](compiler-instrumentation.md) | You need a trace producer for static-recompiled IDO | Generated compiler C and its build |
 | [Pass replay](pass-replay.md) | A late scheduling decision is suspect | A retained listing plus as0/as1 |
 | [Troubleshooting](troubleshooting.md) | A command fails or returns no usable result | Command, stderr, and tool identities |
+| [Tooling roadmap](tooling-roadmap.md) | You want the reusable gaps found in live campaigns | Evidence from a completed or late-stage match |
 
 [Principles](principles.md) explains the safety and evidence rules behind the
 commands. [Provenance](provenance.md) records the small amount of source history

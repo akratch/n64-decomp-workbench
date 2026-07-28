@@ -117,6 +117,28 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(len(candidates), 2)
             self.assertEqual(len(duplicates), 2)
 
+    def test_candidate_key_tracks_compiler_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "candidate.c"
+            target = root / "target.o"
+            source.write_text("int candidate;\n", encoding="utf-8")
+            target.write_bytes(b"target")
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            arguments = {
+                "command": ["./compile", str(source), "{cache_object}"],
+                "target": target,
+                "symbol": None,
+                "environment": {},
+            }
+            self.assertNotEqual(
+                candidate_key(source, compile_cwd=first, **arguments),
+                candidate_key(source, compile_cwd=second, **arguments),
+            )
+
     def test_campaign_caches_and_records_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -173,6 +195,48 @@ class CampaignTests(unittest.TestCase):
                 records[0]["provenance"]["objdump"]["resolved"],
                 str(objdump.resolve()),
             )
+            self.assertEqual(
+                records[0]["provenance"]["compile_cwd"],
+                str(Path.cwd().resolve()),
+            )
+
+    def test_campaign_uses_explicit_compiler_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            (project / "required.txt").write_text("present", encoding="utf-8")
+            source = root / "candidate.c"
+            target = root / "target.o"
+            source.write_text("int candidate;\n", encoding="utf-8")
+            target.write_bytes(b"target")
+            compiler = root / "compile.py"
+            compiler.write_text(
+                "import pathlib, sys\n"
+                "assert pathlib.Path('required.txt').is_file()\n"
+                "pathlib.Path(sys.argv[2]).write_bytes("
+                "pathlib.Path(sys.argv[1]).read_bytes())\n",
+                encoding="utf-8",
+            )
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            results, _ = run_campaign(
+                [source],
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+                compile_cwd=project,
+            )
+            self.assertIsNotNone(results[0].comparison)
 
     def test_parse_environment(self) -> None:
         self.assertEqual(

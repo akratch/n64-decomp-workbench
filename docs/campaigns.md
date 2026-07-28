@@ -9,6 +9,7 @@ compile loops.
 decomp-workbench campaign target.o candidates/*.c \
   --symbol function_name \
   --compile-command './compile.sh {source} -o {output}' \
+  --compile-cwd /path/to/project \
   --objdump /path/to/mips64-elf-objdump \
   --jobs 8 \
   --cache-dir .workbench/cache \
@@ -20,12 +21,18 @@ decomp-workbench campaign target.o candidates/*.c \
 executed directly; shell expansion, pipes, redirection, and command
 substitution are not evaluated.
 
+Compiler processes normally inherit the directory in which the workbench was
+started. Use `--compile-cwd` when a project wrapper expects relative include,
+tool, or configuration paths. The resolved directory is recorded in
+provenance and participates in the cache key.
+
 ## What is recorded
 
 Each JSONL record includes:
 
 - source path;
 - rendered compiler command;
+- compiler working directory;
 - explicit compiler environment;
 - source, target, directly invoked compiler/wrapper, and objdump identities in
   the cache key;
@@ -74,6 +81,11 @@ Keep several axes visible:
 A candidate with a numerically worse score can still remove structural
 differences and leave only a register permutation. Inspect individual metrics,
 not only rank.
+
+Use `--json-summary` for automation that only needs ranking metrics, hashes,
+cache status, and retained-object paths. Unlike the full `--json` report, it
+omits compiler streams, stack/register histograms, and instruction-level
+register diffs, which can be very large for structurally distant candidates.
 
 ## Writing transformation generators
 

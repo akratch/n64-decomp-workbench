@@ -81,6 +81,19 @@ Use a new cache directory after changing transitive toolchain inputs or
 undeclared environment state. Record those identities in the wrapper output or
 your experiment manifest.
 
+## A campaign wrapper works manually but fails in the workbench
+
+Check whether the wrapper assumes it starts in the project root. Candidate
+paths are resolved, but relative compiler, include, and configuration paths are
+still interpreted by the compiler process. Pass the expected directory
+explicitly:
+
+```sh
+decomp-workbench campaign target.o candidates/*.c \
+  --compile-command './compile.sh {source} {output}' \
+  --compile-cwd /path/to/project
+```
+
 ## An instrumentation profile rejects generated source
 
 The rejection is a safety property. Confirm the `ido-static-recomp` commit and

@@ -56,7 +56,9 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def executable_identity(command: list[str]) -> dict[str, str | None]:
+def executable_identity(
+    command: list[str], *, cwd: Path | None = None
+) -> dict[str, str | None]:
     """Record the directly invoked compiler or wrapper when available."""
 
     executable = command[0]
@@ -66,6 +68,8 @@ def executable_identity(command: list[str]) -> dict[str, str | None]:
         resolved = str(Path(discovered).expanduser().resolve())
     else:
         path = Path(executable).expanduser()
+        if not path.is_absolute() and cwd is not None:
+            path = cwd / path
         resolved = str(path.resolve()) if path.is_file() else None
     digest = file_sha256(Path(resolved)) if resolved else None
     return {"requested": executable, "resolved": resolved, "sha256": digest}
@@ -78,6 +82,7 @@ def candidate_key(
     target: Path,
     symbol: str | None,
     environment: dict[str, str],
+    compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
 ) -> str:
@@ -89,6 +94,7 @@ def candidate_key(
         target=target,
         symbol=symbol,
         environment=environment,
+        compile_cwd=compile_cwd,
         section=section,
         objdump=objdump,
     )
@@ -103,11 +109,13 @@ def candidate_provenance(
     target: Path,
     symbol: str | None,
     environment: dict[str, str],
+    compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
 ) -> dict[str, object]:
     """Return the explicit inputs represented by a campaign cache key."""
 
+    resolved_cwd = (compile_cwd or Path.cwd()).expanduser().resolve()
     return {
         "schema": LEDGER_SCHEMA,
         "source": str(source.expanduser().resolve()),
@@ -115,8 +123,11 @@ def candidate_provenance(
         "target": str(target.expanduser().resolve()),
         "target_sha256": file_sha256(target),
         "command": command,
-        "compiler": executable_identity(command),
-        "objdump": executable_identity([objdump]) if objdump else None,
+        "compiler": executable_identity(command, cwd=resolved_cwd),
+        "objdump": executable_identity([objdump], cwd=resolved_cwd)
+        if objdump
+        else None,
+        "compile_cwd": str(resolved_cwd),
         "symbol": symbol,
         "section": section,
         "environment": dict(sorted(environment.items())),
@@ -130,6 +141,7 @@ def prepare_candidates(
     target: Path,
     symbol: str | None,
     environment: dict[str, str],
+    compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
 ) -> tuple[list[Candidate], dict[str, list[str]]]:
@@ -150,6 +162,7 @@ def prepare_candidates(
             target=target,
             symbol=symbol,
             environment=environment,
+            compile_cwd=compile_cwd,
             section=section,
             objdump=objdump,
         )
@@ -181,6 +194,7 @@ def _compile_candidate(
     symbol: str | None,
     section: str,
     environment: dict[str, str],
+    compile_cwd: Path,
     keep_dir: Path | None,
 ) -> CompileResult:
     started = time.monotonic()
@@ -206,6 +220,7 @@ def _compile_candidate(
                     capture_output=True,
                     text=True,
                     env={**os.environ, **environment},
+                    cwd=compile_cwd,
                 )
             except OSError as error:
                 returncode = 127
@@ -293,6 +308,7 @@ def run_campaign(
     symbol: str | None = None,
     section: str = ".text",
     environment: dict[str, str] | None = None,
+    compile_cwd: str | Path | None = None,
     keep_objects: str | Path | None = None,
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
     """Compile a candidate set and return results in deterministic order."""
@@ -303,6 +319,15 @@ def run_campaign(
     if not target_path.is_file():
         raise FileNotFoundError(f"target object does not exist: {target_path}")
     env = environment or {}
+    compile_cwd_path = (
+        Path(compile_cwd).expanduser().resolve()
+        if compile_cwd
+        else Path.cwd().resolve()
+    )
+    if not compile_cwd_path.is_dir():
+        raise NotADirectoryError(
+            f"compiler working directory does not exist: {compile_cwd_path}"
+        )
     objdump_path = discover_objdump(objdump)
     cache_path = Path(cache_dir).expanduser().resolve()
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -319,6 +344,7 @@ def run_campaign(
         target=target_path,
         symbol=symbol,
         environment=env,
+        compile_cwd=compile_cwd_path,
         section=section,
         objdump=objdump_path,
     )
@@ -335,6 +361,7 @@ def run_campaign(
                 symbol=symbol,
                 section=section,
                 environment=env,
+                compile_cwd=compile_cwd_path,
                 keep_dir=keep_path,
             ): candidate
             for candidate in candidates

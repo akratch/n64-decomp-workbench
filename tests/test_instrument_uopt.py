@@ -20,12 +20,20 @@ L471758:
 s5 = MEM_U32(sp + 276);
 //nop;
 f0.w[0] = MEM_U32(s5 + 48);
+L47190c:
+cf = f2.f[0] < f20.f[0];
+L471afc:
+cf = f2.f[0] < f20.f[0];
 cf = f6.f[0] <= f20.f[0];
 //nop;
 if (!cf) {
 }
 L471d6c:
 t5 = MEM_U32(sp + 220);
+L4723a4:
+cf = f2.f[0] < f20.f[0];
+L4725b0:
+cf = f2.f[0] < f20.f[0];
 cf = f20.f[0] < f10.f[0];
 //nop;
 if (!cf) {
@@ -46,6 +54,19 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn(MARKER, result.source)
         self.assertIn("[CDX] p1dec", result.source)
         self.assertIn("[CDX] p2color", result.source)
+        self.assertIn("[CDX] intf", result.source)
+        self.assertIn("[CDX] webdetail", result.source)
+        self.assertIn("[CDX] %scost", result.source)
+        self.assertIn('"p1", (int)MEM_U32(sp + 268)', result.source)
+        self.assertIn('"p2", (int)MEM_U32(sp + 272)', result.source)
+        self.assertIn("dkwb_cdx_emulated_pointer", result.source)
+        self.assertIn("CDX_DETAIL_WEB", result.source)
+        self.assertIn('strcmp(value, "all")', result.source)
+        self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)
+        self.assertIn("available0=0x%08x available1=0x%08x", result.source)
+        self.assertIn("allcallersave=%d taken1=%d taken2=%d", result.source)
+        self.assertIn("dkwb_cdx_reg_taken(mem, 2)", result.source)
+        self.assertIn("MEM_U8(s5 + 33)", result.source)
         self.assertIn("CDX_FORCE", result.source)
         self.assertIn("CDX_FORCE ignored without CDX_PROC", result.source)
         self.assertEqual(

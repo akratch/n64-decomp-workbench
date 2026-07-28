@@ -32,7 +32,7 @@ need binaries supplied by your project.
 | How do I run hundreds of variants safely? | `campaign` | Parallel builds, content cache, JSONL provenance ledger |
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
 | Is temp-register reuse following a FIFO? | `trace-fifo` | Validated queue and physical-to-logical value schedule |
-| Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions |
+| Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions, filterable by procedure |
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
@@ -139,6 +139,7 @@ Start with [workflow selection][workflows], then use the focused guide:
 - [IDO version support][ido-support]
 - [Trace analysis][trace-analysis]
 - [Compiler instrumentation][compiler-instrumentation]
+- [Tooling roadmap from live campaigns][tooling-roadmap]
 - [Pass replay][pass-replay]
 - [Castlevania 64 worked examples][cv64-examples]
 - [Troubleshooting][troubleshooting]
@@ -182,6 +183,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
+[tooling-roadmap]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/tooling-roadmap.md
 [contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md
 [cv64-examples]: https://github.com/akratch/n64-decomp-workbench/blob/main/examples/cv64/README.md
 [documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md

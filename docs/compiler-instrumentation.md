@@ -86,9 +86,26 @@ decomp-workbench instrument-uopt-globalcolor \
 |---|---|
 | `CDX_LOG=1` | Emit `[CDX]` decision records |
 | `CDX_PROC=N` | Restrict logs and controls to globalcolor invocation `N` |
+| `CDX_DETAIL_WEB=N` | Emit IR metadata, interference neighbors, and every evaluated color cost for web `N` |
+| `CDX_DETAIL_WEB=all` | Emit IR metadata and every evaluated color cost for all allocator decisions, without neighbor expansion |
 | `CDX_OUT=FILE` | Write diagnostics to a file instead of stderr |
 | `CDX_FORCE=w9=c30` | Force web 9 to color 30 for the selected procedure |
 | `CDX_FORCE=w9=s` | Force the split/no-color path for web 9 in the selected procedure |
+
+`trace-globalcolor` joins `p1dec`/`p2dec` records to matching target
+`webdetail` records and reports them as allocator webs. `--proc` and `--dtype`
+filter this joined view, so CDX-only traces remain useful even when they do not
+contain the older `CSAVE`/`CUP` live-range format.
+
+The joined record also contains `color_costs`. Each entry identifies the
+caller- or callee-saved color, its final cost (including any first-use
+surcharge), and the best cost immediately before that color was considered.
+This makes exact ties and scan-order tie breaking visible.
+
+Decision records include the available-color masks, the `allcallersave`
+setting, and whether colors 1 and 2 are already present in the procedure's
+register-use table. Those fields explain the allocator's secondary preference
+when several colors have equal cost.
 
 Multiple force entries are comma-separated. `CDX_FORCE` is ignored unless
 `CDX_PROC` selects one globalcolor invocation; this prevents an experimental
