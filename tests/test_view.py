@@ -473,6 +473,28 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(view.counts["constant"], 0)
         self.assertEqual(view.playbook, "relocation-only")
 
+    def test_jump_table_section_addends_are_not_source_residuals(self) -> None:
+        """IDO and hand assembly name the same relocation layout differently."""
+
+        target = body("lui at,0", "addu at,at,t8", "lw t8,0(at)")
+        candidate = body("lui at,0", "addu at,at,t8", "lw t8,172(at)")
+        view = view_of(
+            target,
+            candidate,
+            relocations={
+                4: "R_MIPS_HI16 jtbl_8009AE9C",
+                6: "R_MIPS_LO16 jtbl_8009AE9C",
+            },
+            candidate_relocations={
+                4: "R_MIPS_HI16 .rodata",
+                6: "R_MIPS_LO16 .rodata",
+            },
+        )
+        self.assertEqual(view.verdict, "words-identical")
+        self.assertEqual(view.counts["relocation"], 2)
+        self.assertEqual(view.counts["schedule"], 0)
+        self.assertEqual(view.counts["constant"], 0)
+
     def test_unknown_relocation_is_announced_not_guessed(self) -> None:
         view = view_of(
             body("jal helper", "nop"),

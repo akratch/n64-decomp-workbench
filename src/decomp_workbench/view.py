@@ -478,6 +478,12 @@ def _relocation_signature(
     return tuple((item.kind, item.symbol) for item in instruction.relocations)
 
 
+def _relocation_kind_signature(instruction: Instruction) -> tuple[str, ...]:
+    """Return the relocation layout used by the object-exact comparator."""
+
+    return tuple(item.kind for item in instruction.relocations)
+
+
 def _relocation_equivalent(target: Instruction, candidate: Instruction) -> bool:
     """Return whether the two words agree outside linker-controlled bits."""
 
@@ -540,10 +546,14 @@ def classify_pair(
             return COMMUTATIVE
         return REGISTER
     if _immediates(target_text) != _immediates(candidate_text):
-        if _relocation_signature(target) == _relocation_signature(
+        if _relocation_kind_signature(target) == _relocation_kind_signature(
             candidate
         ) and _relocation_equivalent(target, candidate):
             # The differing field is supplied by the linker, not by the source.
+            # GNU objdump can name one side through a local jump-table symbol
+            # and the other through its section symbol plus an encoded addend;
+            # the object comparator deliberately compares relocation layout,
+            # not those unstable spellings.
             return RELOCATION
         return CONSTANT
     return STRUCTURAL
@@ -1165,15 +1175,16 @@ def _hunks(rows: Sequence[AlignedRow]) -> tuple[Hunk, ...]:
 def _runs(labels: Sequence[str]) -> list[tuple[int, int]]:
     """Return inclusive ranges of consecutive rows that need reporting.
 
-    ``match`` and ``displacement`` rows do not start a run: neither is a source
-    difference, and letting an alignment-controlled branch offset open a hunk
-    would scatter one insertion across every branch that spans it.
+    ``match``, ``displacement``, and ``relocation`` rows do not start a run:
+    none is a source difference. Letting an alignment-controlled branch offset
+    open a run would scatter one insertion across every branch that spans it;
+    letting a relocated row open one would relabel linker metadata as schedule.
     """
 
     runs: list[tuple[int, int]] = []
     start: int | None = None
     for index, label in enumerate(labels):
-        if label in {MATCH, DISPLACEMENT}:
+        if label in {MATCH, DISPLACEMENT, RELOCATION}:
             if start is not None:
                 runs.append((start, index - 1))
                 start = None

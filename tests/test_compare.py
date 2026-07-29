@@ -799,6 +799,33 @@ class AlignedResidualTests(unittest.TestCase):
             with self.subTest(classification=excluded):
                 self.assertNotIn(f"aligned_{excluded}", ALIGNED_CLASS_KEYS)
 
+    def test_jump_table_section_addends_do_not_inflate_aligned_total(self) -> None:
+        target = parse_disassembly(
+            "   0: 3c010000  lui $at,0x0\n"
+            "                        0: R_MIPS_HI16 jtbl_8009AE9C\n"
+            "   4: 00380821  addu $at,$at,$t8\n"
+            "   8: 8c380000  lw $t8,0($at)\n"
+            "                        8: R_MIPS_LO16 jtbl_8009AE9C\n"
+        )
+        candidate = parse_disassembly(
+            "   0: 3c010000  lui $at,0x0\n"
+            "                        0: R_MIPS_HI16 .rodata\n"
+            "   4: 00380821  addu $at,$at,$t8\n"
+            "   8: 8c3800ac  lw $t8,172($at)\n"
+            "                        8: R_MIPS_LO16 .rodata\n"
+        )
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertTrue(result.exact)
+        self.assertEqual(result.aligned_total, 0)
+        self.assertEqual(result.aligned_schedule, 0)
+        self.assertEqual(result.aligned_constant, 0)
+
     def test_an_empty_side_is_never_reported_as_agreement(self) -> None:
         target = parse_disassembly(assemble(ALIGN_TARGET, symbol="demo"), symbol="demo")
         counts = aligned_residual(target, [])
