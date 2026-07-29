@@ -453,6 +453,21 @@ class CompareTests(unittest.TestCase):
         self.assertIn("assembly encodes the truth", guidance)
         self.assertIn("fake", guidance)
 
+    def test_linker_controlled_words_do_not_change_the_mechanism(self) -> None:
+        result = self.compare_text(
+            "   0: 24020021  li $v0,33\n"
+            "   4: 3c010123  lui $at,0x123\n"
+            "                        4: R_MIPS_HI16 global\n",
+            "   0: 24020031  li $v0,49\n"
+            "   4: 3c010000  lui $at,0x0\n"
+            "                        4: R_MIPS_HI16 global\n",
+        )
+        self.assertEqual(
+            result.diff_site_classes,
+            {"constant": 1, "relocation-controlled": 1},
+        )
+        self.assertEqual(result.verdict, "constant-mismatch")
+
     def test_frame_adjustment_is_not_a_constant_verdict(self) -> None:
         result = self.compare_text(
             "   0: 27bdffe0  addiu $sp,$sp,-32\n",

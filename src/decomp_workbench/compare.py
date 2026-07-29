@@ -428,7 +428,13 @@ def comparison_guidance(
                 "linked/ROM output before changing source.",
             ],
         )
-    classes = {name for name, count in site_classes.items() if count}
+    # Linker-controlled words are reported as sites but never name the
+    # mechanism: they say nothing about the source.
+    classes = {
+        name
+        for name, count in site_classes.items()
+        if count and name != "relocation-controlled"
+    }
     if classes == {"constant"}:
         return (
             "constant-mismatch",
