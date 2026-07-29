@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import unittest
 
-from decomp_workbench.globalcolor import parse_globalcolor_trace
+from decomp_workbench.globalcolor import (
+    parse_globalcolor_trace,
+    register_for_color,
+)
 
 TRACE = """\
 CSAVE bitpos=279 kind=1 dtype=13 unk1C=81 adjsave=2.5 unk23=0
@@ -90,6 +93,35 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(item.assigned_register, "s3")
         self.assertEqual(item.explanation, "color: selected c17 (s3)")
         self.assertEqual(report.allocator_webs(proc=46, web=241), [])
+
+    def test_decodes_caller_saved_colors_and_phase_namespace(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2dec phase=p2 proc=7 web=55 sym=55 class=1 save=1 "
+            "nocs=2 totalsave=2 bestcost=0 bestcolor=2 bestreg=v1 "
+            "decision=color\n"
+        )
+        item = report.allocator_webs(proc=7, web=55)[0]
+        self.assertEqual(item.assigned_color, 2)
+        self.assertEqual(item.assigned_register, "v1")
+        self.assertEqual(item.phase_tag, "p2")
+        self.assertEqual(item.force_key, "p2:w55")
+        self.assertEqual(item.explanation, "color: selected c2 (v1)")
+
+    def test_phase_namespace_falls_back_to_the_record_name(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec proc=7 web=9 bestcolor=1 decision=color\n"
+        )
+        item = report.allocator_webs(proc=7, web=9)[0]
+        self.assertEqual(item.phase_tag, "p1")
+        self.assertEqual(item.force_key, "p1:w9")
+        self.assertEqual(item.assigned_register, "v0")
+
+    def test_unconfirmed_colors_are_not_named(self) -> None:
+        self.assertIsNone(register_for_color(13))
+        self.assertIsNone(register_for_color(30))
+        self.assertIsNone(register_for_color(None))
+        self.assertEqual(register_for_color(12), "t5")
+        self.assertEqual(register_for_color(23), "ra")
 
     def test_ranks_nan_save_last(self) -> None:
         report = parse_globalcolor_trace(

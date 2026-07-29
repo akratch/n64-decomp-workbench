@@ -21,6 +21,32 @@ decomp-workbench campaign target.o candidates/*.c \
 executed directly; shell expansion, pipes, redirection, and command
 substitution are not evaluated.
 
+## Throughput
+
+A variant costs one compiler process and one objdump process. The comparison
+itself runs in process — `campaign` calls the comparator directly and never
+spawns a `compare` subprocess per candidate — and the reference object is
+disassembled once for the whole campaign rather than once per variant.
+
+On a fast compiler (an IDO wrapper is roughly 0.07 s per translation unit) the
+per-variant overhead used to dominate the compile; removing the repeated target
+disassembly and the comparison subprocess is why a large grid is now worth
+running through `campaign` instead of a hand-rolled import harness.
+
+## Stopping on the first exact match
+
+`--stop-on-exact` is the default: once a candidate compares exact, no further
+candidates are submitted. Candidates already in flight (up to `--jobs` of them)
+are waited for, compared, and recorded — their objects exist and the campaign
+already paid for them — so the ledger holds one record for every candidate that
+actually ran and none for candidates that never started. The terminal report
+names how many prepared candidates were skipped, and `--json-summary` carries
+`stopped_on_exact` and `prepared_candidates`.
+
+Pass `--no-stop-on-exact` when the point of the run is the whole grid — basin
+census, per-family comparison, or a corpus that later differential work will
+reuse.
+
 Compiler processes normally inherit the directory in which the workbench was
 started. Use `--compile-cwd` when a project wrapper expects relative include,
 tool, or configuration paths. The resolved directory is recorded in
@@ -41,6 +67,12 @@ Each JSONL record includes:
 - comparison metrics and object hashes;
 - paths that produced the same prepared key, when applicable.
 
+A candidate that fails — a compiler error, an unreadable object, or an
+unexpected error inside the comparison — is recorded as a failed candidate with
+its diagnostics and does not end the campaign. The other candidates keep their
+results and their ledger records. Only an interrupt (`Ctrl-C`) or a process
+exit ends the run.
+
 The directly invoked wrapper is hashed when it is a file. A wrapper may invoke
 additional binaries or read configuration that the workbench cannot discover.
 For complete reproducibility, put those versions in the wrapper’s own output or
@@ -50,6 +82,31 @@ Source paths intentionally remain in prepared keys even when file content is
 equal. Some wrappers change behavior by path and some object formats embed
 source paths. Passing the same prepared source more than once is deduplicated;
 different paths are treated as distinct candidates.
+
+## Process ownership
+
+Every compiler runs in its own process group, and the campaign ends that group
+when the run fails or is interrupted, escalating from `SIGTERM` to `SIGKILL`
+after a short grace period so a wrapper that traps the polite signal cannot
+outlive the campaign. A leaked parallel job did exactly that in the field and
+degraded two later runs.
+
+- **POSIX** — the compiler gets its own process group inside the workbench's
+  session (`process_group=0`; Python 3.10 falls back to `start_new_session`,
+  which detaches the session as well). Termination signals the whole group, so
+  an assembler, a parallel search, or any other helper the wrapper started is
+  ended too. Keeping the session means the children keep the controlling
+  terminal.
+- **Windows** — the child is created in a new process group and is sent a
+  console break, then terminated. Windows has no process-group signal, so
+  group-wide termination is **best effort**: a grandchild that ignores the
+  console break, or a run without a console, can survive. Only the direct
+  child is guaranteed to end. Do not rely on the workbench to reap a detached
+  Windows tool.
+
+Interrupting a campaign (`Ctrl-C`) cancels queued candidates, terminates
+running compilers, and re-raises. Records already written to the ledger stay
+valid.
 
 ## Environment-sensitive compilers
 
@@ -81,6 +138,11 @@ Keep several axes visible:
 A candidate with a numerically worse score can still remove structural
 differences and leave only a register permutation. Inspect individual metrics,
 not only rank.
+
+Campaign output uses the same metric registry as `compare`: the printed label
+and the JSON key are one string, and `decomp-workbench campaign --explain-keys`
+prints the mapping (including the deprecated long-form keys still emitted for
+one release).
 
 Use `--json-summary` for automation that only needs ranking metrics, hashes,
 cache status, and retained-object paths. Unlike the full `--json` report, it

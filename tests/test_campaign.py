@@ -30,6 +30,16 @@ class CampaignArguments(TypedDict):
     section: str
 
 
+class StopOnExactArguments(TypedDict):
+    target: Path
+    template: str
+    cache_dir: Path
+    objdump: str
+    symbol: str
+    jobs: int
+    ledger: Path
+
+
 class CampaignTests(unittest.TestCase):
     def test_compiler_identity_resolves_relative_executable(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
@@ -278,6 +288,7 @@ class CampaignTests(unittest.TestCase):
                 cache_dir=root / "cache",
                 objdump=str(objdump),
                 symbol="demo",
+                stop_on_exact=False,
             )
             basins = group_object_basins(results)
             self.assertEqual(len(basins), 1)
@@ -293,6 +304,193 @@ class CampaignTests(unittest.TestCase):
             second_comparison.word_mismatches = 0
             basins = group_object_basins(results)
             self.assertIs(basins[0][0], results[1])
+
+    def write_counting_objdump(self, root: Path, counter: Path) -> Path:
+        objdump = root / "objdump"
+        objdump.write_text(
+            "#!/usr/bin/env python3\n"
+            "import pathlib\n"
+            f"pathlib.Path({str(counter)!r}).open('a').write('run\\n')\n"
+            "print('00000000 <demo>:')\n"
+            "print('   0: 03e00008  jr $ra')\n"
+            "print('   4: 00000000  nop')\n",
+            encoding="utf-8",
+        )
+        objdump.chmod(0o755)
+        return objdump
+
+    def write_copying_compiler(self, root: Path) -> Path:
+        compiler = root / "compile.py"
+        compiler.write_text(
+            "import pathlib, sys\n"
+            "pathlib.Path(sys.argv[2]).write_bytes("
+            "pathlib.Path(sys.argv[1]).read_bytes())\n",
+            encoding="utf-8",
+        )
+        return compiler
+
+    def test_target_is_disassembled_once_for_the_whole_campaign(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            counter = root / "objdump-runs.txt"
+            objdump = self.write_counting_objdump(root, counter)
+            compiler = self.write_copying_compiler(root)
+            sources = []
+            for index in range(3):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int candidate = {index};\n", encoding="utf-8")
+                sources.append(source)
+            results, _ = run_campaign(
+                sources,
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+                stop_on_exact=False,
+            )
+            self.assertEqual(len(results), 3)
+            runs = counter.read_text(encoding="utf-8").splitlines()
+            # One target disassembly plus one per candidate; the comparison
+            # itself never leaves the process.
+            self.assertEqual(len(runs), 4)
+
+    def test_stop_on_exact_leaves_later_candidates_uncompiled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            objdump = self.write_counting_objdump(root, root / "runs.txt")
+            compiler = self.write_copying_compiler(root)
+            sources = []
+            for index in range(3):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int candidate = {index};\n", encoding="utf-8")
+                sources.append(source)
+            ledger = root / "ledger.jsonl"
+            arguments: StopOnExactArguments = {
+                "target": target,
+                "template": f"{sys.executable} {compiler} {{source}} {{output}}",
+                "cache_dir": root / "cache",
+                "objdump": str(objdump),
+                "symbol": "demo",
+                "jobs": 1,
+                "ledger": ledger,
+            }
+            stopped, _ = run_campaign(sources, stop_on_exact=True, **arguments)
+            self.assertEqual(len(stopped), 1)
+            first = stopped[0].comparison
+            if first is None:
+                raise AssertionError("campaign did not compare the compiled object")
+            self.assertTrue(first.exact)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                1,
+            )
+
+            swept, _ = run_campaign(sources, stop_on_exact=False, **arguments)
+            self.assertEqual(len(swept), 3)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                4,
+            )
+
+    def test_stopping_early_keeps_every_candidate_that_actually_ran(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            objdump = self.write_counting_objdump(root, root / "runs.txt")
+            compiler = root / "compile.py"
+            # A compiler slow enough that every job is in flight when the
+            # first one finishes exact.
+            compiler.write_text(
+                "import pathlib, sys, time\n"
+                "time.sleep(0.3)\n"
+                "pathlib.Path(sys.argv[2]).write_bytes(b'object')\n",
+                encoding="utf-8",
+            )
+            sources = []
+            for index in range(6):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int value = {index};\n", encoding="utf-8")
+                sources.append(source)
+            ledger = root / "ledger.jsonl"
+            results, _ = run_campaign(
+                sources,
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+                jobs=6,
+                ledger=ledger,
+                stop_on_exact=True,
+            )
+            # Every candidate the pool started is compiled, compared, and
+            # recorded; dropping in-flight work would make the ledger lie and
+            # would throw away objects the campaign already paid for.
+            self.assertEqual(len(results), 6)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                6,
+            )
+            self.assertTrue(all(item.comparison is not None for item in results))
+
+    def test_one_broken_candidate_does_not_end_the_campaign(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            compiler = self.write_copying_compiler(root)
+            # Objdump output that is not valid UTF-8 raises through the
+            # comparison, which is neither OSError nor RuntimeError.
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "import pathlib, sys\n"
+                "objects = [item for item in sys.argv[1:] "
+                "if item.endswith('.o')]\n"
+                "data = pathlib.Path(objects[-1]).read_bytes()\n"
+                "if b'poison' in data:\n"
+                "    sys.stdout.buffer.write(b'0: 03e00008 \\xff\\xfe\\n')\n"
+                "    raise SystemExit(0)\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            good = root / "good.c"
+            good.write_text("int good;\n", encoding="utf-8")
+            poisoned = root / "poison.c"
+            poisoned.write_text("int poison;\n", encoding="utf-8")
+            other = root / "other.c"
+            other.write_text("int other;\n", encoding="utf-8")
+            ledger = root / "ledger.jsonl"
+            results, _ = run_campaign(
+                [good, poisoned, other],
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+                jobs=1,
+                ledger=ledger,
+                stop_on_exact=False,
+            )
+            self.assertEqual(len(results), 3)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                3,
+            )
+            failed = [item for item in results if item.comparison is None]
+            self.assertEqual(len(failed), 1)
+            self.assertIn("poison", failed[0].source)
+            self.assertNotEqual(failed[0].returncode, 0)
+            self.assertTrue(failed[0].stderr)
 
     def test_parse_environment(self) -> None:
         self.assertEqual(

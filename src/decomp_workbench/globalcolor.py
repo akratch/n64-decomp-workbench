@@ -6,17 +6,29 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
+# Color to machine register for the pinned IDO 5.3 profile. Phase one and
+# phase two share this space, so one number means one register in both.
+# Provenance, with its limits, is recorded in docs/compiler-instrumentation.md:
+# c1-c5 were confirmed empirically by forcing each color and diffing the
+# object; the rest follow the coloroffset table decode and pool-order probing.
+# Colors outside the table stay numeric: naming them would be a guess.
+COLOR_REGISTERS: dict[int, str] = {
+    1: "v0",
+    2: "v1",
+    3: "a0",
+    4: "a1",
+    5: "a2",
+    6: "a3",
+    **{7 + index: f"t{index}" for index in range(6)},
+    **{14 + index: f"s{index}" for index in range(9)},
+    23: "ra",
+}
 
-def callee_saved_color_name(color: int | None) -> str | None:
-    """Name stable callee-saved colors from the pinned IDO profile.
 
-    Other color values remain compiler colors. Guessing names for them would
-    make a trace friendlier but less reliable across profiles.
-    """
+def register_for_color(color: int | None) -> str | None:
+    """Name a color's machine register where the pinned profile confirms it."""
 
-    if color is None or not 14 <= color <= 22:
-        return None
-    return f"s{color - 14}"
+    return None if color is None else COLOR_REGISTERS.get(color)
 
 
 FLOAT_PATTERN = (
@@ -149,10 +161,27 @@ class AllocatorWebDecision:
         return optional_integer(value)
 
     @property
+    def phase_tag(self) -> str:
+        """Return the allocator phase namespace: ``p1`` or ``p2``.
+
+        Phase one and phase two emit disjoint web spaces, so a web number is
+        only meaningful with its phase. Records carry an explicit ``phase``
+        field; older traces are read from the record name.
+        """
+
+        return self.fields.get("phase") or self.phase[:2]
+
+    @property
+    def force_key(self) -> str:
+        """Return the phase-qualified CDX_FORCE key for this web."""
+
+        return f"{self.phase_tag}:w{self.web}"
+
+    @property
     def assigned_register(self) -> str | None:
         """Return a physical register name only when the mapping is stable."""
 
-        return callee_saved_color_name(self.assigned_color)
+        return register_for_color(self.assigned_color)
 
     @property
     def explanation(self) -> str:
@@ -176,6 +205,8 @@ class AllocatorWebDecision:
             "proc": self.proc,
             "web": self.web,
             "phase": self.phase,
+            "phase_tag": self.phase_tag,
+            "force_key": self.force_key,
             "fields": self.fields,
             "detail": self.detail,
             "color_costs": self.color_costs,

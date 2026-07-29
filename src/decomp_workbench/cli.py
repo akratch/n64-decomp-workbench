@@ -11,26 +11,34 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
 from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
 from .compare import compare_instructions, compare_objects
-from .globalcolor import parse_globalcolor_trace
+from .globalcolor import (
+    optional_integer,
+    parse_globalcolor_trace,
+    register_for_color,
+)
 from .instrument import instrument_ugen
 from .instrument_alias import instrument_uopt_alias
 from .instrument_profiles import (
     SUPPORTED_PROFILES,
     instrument_uopt_profiles,
 )
-from .instrument_uopt import instrument_uopt_globalcolor
+from .instrument_uopt import (
+    instrument_uopt_globalcolor,
+    parse_force_specification,
+)
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
+from .schema import explain_keys_text, selected_fields, summary_line
 from .scratch_bundle import bundle_scratch
 from .trace import (
     alias_trace_summary,
@@ -42,9 +50,73 @@ from .trace import (
     trace_summary,
 )
 
+SYMBOL_OPTION_DEST = "symbol_option"
+
+# Ranking metrics kept in `campaign --json-summary`: no compiler streams, no
+# instruction-level evidence.
+CAMPAIGN_SUMMARY_KEYS = (
+    "exact",
+    "verdict",
+    "structural_exact",
+    "words",
+    "raw",
+    "norm",
+    "opcodes",
+    "regs",
+    "fp",
+    "target_insns",
+    "insns",
+    "insn_delta",
+    "target_frame",
+    "frame",
+    "sha1",
+    "sha256",
+)
+
+
+class SymbolAction(argparse.Action):
+    """Accept both vocabularies for one selector.
+
+    Decompilation projects say "function"; GNU tooling says "symbol". Both
+    spellings write the same destination. Passing both with different values
+    is a mistake worth reporting instead of silently keeping the last one.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        previous = getattr(namespace, self.dest, None)
+        if previous is not None and previous != values:
+            previous_option = getattr(namespace, SYMBOL_OPTION_DEST, "--symbol")
+            raise argparse.ArgumentError(
+                self,
+                f"conflicts with {previous_option} {previous!r}; "
+                "--symbol and --function are two spellings of one selector",
+            )
+        setattr(namespace, self.dest, values)
+        setattr(namespace, SYMBOL_OPTION_DEST, option_string)
+
+
+def add_symbol_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the symbol selector under both accepted spellings."""
+
+    parser.add_argument(
+        "--symbol",
+        "--function",
+        action=SymbolAction,
+        default=None,
+        metavar="NAME",
+        help="compare only this exact symbol; --function is the same option",
+    )
+
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--symbol", help="compare only this exact symbol")
+    add_symbol_argument(parser)
+    add_explain_keys_argument(parser)
     parser.add_argument(
         "--section", default=".text", help="object section (default: .text)"
     )
@@ -68,18 +140,49 @@ def add_cross_rom_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def comparison_line(item: Comparison) -> str:
-    return (
-        f"verdict={item.verdict} "
-        f"words={item.word_mismatches:4d} "
-        f"raw={item.raw_word_mismatches:4d} "
-        f"norm={item.normalized_distance:4d} "
-        f"regs={item.register_mismatches:4d} "
-        f"fp={item.fp_register_mismatches:4d} "
-        f"insns={item.candidate_instructions:4d} "
-        f"frame={item.candidate_frame_size!s:>5s} "
-        f"sha1={item.candidate_sha1} {item.candidate}"
+class ExplainKeysAction(argparse.Action):
+    """Print the metric registry and exit, like ``--version``."""
+
+    def __init__(
+        self,
+        option_strings: Sequence[str],
+        dest: str = argparse.SUPPRESS,
+        default: str = argparse.SUPPRESS,
+        help: str | None = None,
+    ) -> None:
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            default=default,
+            nargs=0,
+            help=help,
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        print(explain_keys_text())
+        parser.exit()
+
+
+def add_explain_keys_argument(parser: argparse.ArgumentParser) -> None:
+    """Offer the metric registry wherever comparison metrics are printed."""
+
+    parser.add_argument(
+        "--explain-keys",
+        action=ExplainKeysAction,
+        help="print the metric registry (label, JSON key, meaning) and exit",
     )
+
+
+def comparison_line(item: Comparison) -> str:
+    """Render the summary line from the shared metric registry."""
+
+    return summary_line(item)
 
 
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
@@ -111,6 +214,11 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
     )
     if breakdown:
         print(f"raw difference classes: {breakdown}")
+    if item.diff_sites:
+        classes = ", ".join(
+            f"{name}={count}" for name, count in item.diff_site_classes.items()
+        )
+        print(f"diff_sites={len(item.diff_sites)} ({classes})")
     for line in item.guidance:
         print(f"next: {line}")
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
@@ -118,6 +226,23 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
         print("acceptance: PASS (cross-ROM structural evidence only; exact=false)")
     elif not accepted and cross_rom:
         print("acceptance: FAIL (cross-ROM structure also differs)")
+
+
+def print_diff_sites(item: Comparison) -> None:
+    """Print every differing site, whatever the verdict emphasizes.
+
+    The verdict selects the cheapest explanation; it never filters evidence.
+    Grouping is by class so a literal difference cannot hide behind a register
+    summary.
+    """
+
+    for name in item.diff_site_classes:
+        for site in item.diff_sites:
+            if site["class"] != name:
+                continue
+            print(f"\n[{site['index']:4d}] {name}")
+            print(f"       target    {site['target_word']}  {site['target']}")
+            print(f"       candidate {site['candidate_word']}  {site['candidate']}")
 
 
 def compare_command(args: argparse.Namespace) -> int:
@@ -157,9 +282,7 @@ def compare_command(args: argparse.Namespace) -> int:
                 + ", ".join(comparison.unknown_relocations)
             )
         if args.show_diff:
-            for item in comparison.register_diff:
-                print(f"\n[{item['index']}] target    {item['target']}")
-                print(f"    candidate {item['candidate']}")
+            print_diff_sites(comparison)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -210,9 +333,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
                 + ", ".join(comparison.unknown_relocations)
             )
         if args.show_diff:
-            for item in comparison.register_diff:
-                print(f"\n[{item['index']}] target    {item['target']}")
-                print(f"    candidate {item['candidate']}")
+            print_diff_sites(comparison)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -413,7 +534,11 @@ def compile_rank_command(args: argparse.Namespace) -> int:
 
 
 def parse_environment(values: list[str]) -> dict[str, str]:
-    """Parse explicit NAME=VALUE compiler environment entries."""
+    """Parse explicit NAME=VALUE compiler environment entries.
+
+    Known instrumentation controls are validated here so a malformed probe
+    fails before a campaign spends a compile on it.
+    """
 
     result: dict[str, str] = {}
     for value in values:
@@ -425,6 +550,8 @@ def parse_environment(values: list[str]) -> dict[str, str]:
         ):
             raise ValueError(f"invalid environment entry: {value!r}")
         result[name] = content
+    if "CDX_FORCE" in result:
+        parse_force_specification(result["CDX_FORCE"])
     return result
 
 
@@ -450,12 +577,14 @@ def campaign_command(args: argparse.Namespace) -> int:
             environment=environment,
             compile_cwd=args.compile_cwd,
             keep_objects=args.keep_objects,
+            stop_on_exact=args.stop_on_exact,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
     basins = group_object_basins(results)
+    unrun = len(duplicates) - len(results)
 
     def basin_summary(basin: list[CompileResult]) -> dict[str, object]:
         comparison = basin[0].comparison
@@ -466,14 +595,10 @@ def campaign_command(args: argparse.Namespace) -> int:
             "candidate_sha1": comparison.candidate_sha1,
             "variant_count": len(basin),
             "sources": [item.source for item in basin],
-            "best_metrics": {
-                "verdict": comparison.verdict,
-                "exact": comparison.exact,
-                "word_mismatches": comparison.word_mismatches,
-                "normalized_distance": comparison.normalized_distance,
-                "opcode_mismatches": comparison.opcode_mismatches,
-                "register_mismatches": comparison.register_mismatches,
-            },
+            "best_metrics": selected_fields(
+                comparison,
+                ("verdict", "exact", "words", "norm", "opcodes", "regs"),
+            ),
         }
 
     if args.json or args.json_summary:
@@ -492,28 +617,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "cached": item.cached,
                     "duration_seconds": item.duration_seconds,
                     "comparison": (
-                        {
-                            "exact": comparison.exact,
-                            "verdict": comparison.verdict,
-                            "structural_exact": comparison.structural_exact,
-                            "word_mismatches": comparison.word_mismatches,
-                            "raw_word_mismatches": comparison.raw_word_mismatches,
-                            "normalized_distance": comparison.normalized_distance,
-                            "opcode_mismatches": comparison.opcode_mismatches,
-                            "register_mismatches": comparison.register_mismatches,
-                            "fp_register_mismatches": (
-                                comparison.fp_register_mismatches
-                            ),
-                            "target_instructions": comparison.target_instructions,
-                            "candidate_instructions": (
-                                comparison.candidate_instructions
-                            ),
-                            "instruction_delta": comparison.instruction_delta,
-                            "target_frame_size": comparison.target_frame_size,
-                            "candidate_frame_size": (comparison.candidate_frame_size),
-                            "candidate_sha1": comparison.candidate_sha1,
-                            "candidate_sha256": comparison.candidate_sha256,
-                        }
+                        selected_fields(comparison, CAMPAIGN_SUMMARY_KEYS)
                         if comparison
                         else None
                     ),
@@ -524,6 +628,8 @@ def campaign_command(args: argparse.Namespace) -> int:
                 {
                     "schema": "decomp-workbench-campaign-v1",
                     "unique_candidates": len(results),
+                    "prepared_candidates": len(duplicates),
+                    "stopped_on_exact": bool(unrun) and args.stop_on_exact,
                     "source_files": sum(len(items) for items in duplicates.values()),
                     "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
@@ -559,6 +665,12 @@ def campaign_command(args: argparse.Namespace) -> int:
                     f"sha1={comparison.candidate_sha1} {comparison.verdict}\n"
                     f"  {sources}"
                 )
+        if unrun and args.stop_on_exact:
+            print(
+                f"stopped on the first exact match; {unrun} prepared "
+                "candidate(s) were not compiled "
+                "(pass --no-stop-on-exact to sweep them)"
+            )
         duplicate_count = sum(len(items) - 1 for items in duplicates.values())
         if duplicate_count:
             print(f"deduplicated {duplicate_count} identical source file(s)")
@@ -738,6 +850,15 @@ def trace_alias_command(args: argparse.Namespace) -> int:
     return 0 if report["events"] else 1
 
 
+def decoded_color(cost: dict[str, str]) -> str:
+    """Return the machine register for a recorded color, in parentheses."""
+
+    register = cost.get("reg") or register_for_color(
+        optional_integer(cost.get("color"))
+    )
+    return f"({register})" if register else ""
+
+
 def parse_register_list(value: str | None) -> list[int] | None:
     if value is None:
         return None
@@ -879,12 +1000,14 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         for allocator_item in allocator_webs:
             detail = allocator_item.detail
             cost_text = ",".join(
-                f"c{cost.get('color', '?')}:{cost.get('cost', '?')}"
+                f"c{cost.get('color', '?')}{decoded_color(cost)}:"
+                f"{cost.get('cost', '?')}"
                 for cost in allocator_item.color_costs
             )
             print(
                 f"proc={allocator_item.proc} web={allocator_item.web} "
                 f"phase={allocator_item.phase} "
+                f"force_key={allocator_item.force_key} "
                 f"dtype={detail.get('dtype', '?')} "
                 f"save={allocator_item.fields.get('save', '?')} "
                 f"nocs={allocator_item.fields.get('nocs', '?')} "
@@ -953,6 +1076,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
+    add_explain_keys_argument(parser)
     commands = parser.add_subparsers(dest="command", required=True)
 
     compare_parser = commands.add_parser(
@@ -965,7 +1089,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_compare_arguments(compare_parser)
     add_cross_rom_argument(compare_parser)
     compare_parser.add_argument(
-        "--show-diff", action="store_true", help="show localized register differences"
+        "--show-diff",
+        action="store_true",
+        help="print every differing site, grouped by class",
     )
     compare_parser.add_argument(
         "--fail-on-mismatch",
@@ -981,11 +1107,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dumps_parser.add_argument("target", help="reference objdump text")
     dumps_parser.add_argument("candidate", help="candidate objdump text")
-    dumps_parser.add_argument("--symbol", help="compare only this exact symbol")
+    add_symbol_argument(dumps_parser)
+    add_explain_keys_argument(dumps_parser)
     dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps_parser)
     dumps_parser.add_argument(
-        "--show-diff", action="store_true", help="show localized register differences"
+        "--show-diff",
+        action="store_true",
+        help="print every differing site, grouped by class",
     )
     dumps_parser.add_argument(
         "--fail-on-mismatch",
@@ -1093,6 +1222,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--json-summary",
         action="store_true",
         help="emit compact JSON without compiler streams or instruction-level diffs",
+    )
+    campaign_parser.add_argument(
+        "--stop-on-exact",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "stop submitting candidates once one compares exact "
+            "(default: enabled; pass --no-stop-on-exact to sweep every "
+            "candidate)"
+        ),
     )
     campaign_parser.add_argument(
         "--show-basins",
@@ -1328,6 +1467,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # Which spelling of the symbol selector was used is parser bookkeeping,
+    # not an argument a command should see.
+    vars(args).pop(SYMBOL_OPTION_DEST, None)
     handler = cast(Callable[[argparse.Namespace], int], args.handler)
     return handler(args)
 

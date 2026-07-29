@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
+from decomp_workbench.globalcolor import COLOR_REGISTERS
 from decomp_workbench.instrument_uopt import (
+    HEADER,
     MARKER,
+    ForceEntry,
+    color_register_table,
     instrument_uopt_globalcolor,
+    parse_force_specification,
 )
 
 SOURCE = """\
@@ -44,6 +54,75 @@ t8 = MEM_U32(sp + 220);
 """
 
 
+# The emulated-memory accessors and a driver, so the injected header can be
+# compiled on its own. Building the whole recompiled pass needs the external
+# research toolchain; this proves the generated C at least compiles cleanly.
+COMPILE_PRELUDE = """\
+#include <stdint.h>
+static uint8_t dkwb_test_memory[64];
+#define MEM_U32(address) (*(uint32_t *)dkwb_test_memory)
+#define MEM_U16(address) (*(uint16_t *)dkwb_test_memory)
+#define MEM_U8(address) (*(uint8_t *)dkwb_test_memory)
+"""
+
+COMPILE_DRIVER = """\
+int main(void) {
+    dkwb_cdx_init();
+    dkwb_cdx_procindex();
+    dkwb_cdx_finish();
+    (void)dkwb_cdx_active(0);
+    (void)dkwb_cdx_lookup(0, "p1", 9);
+    (void)dkwb_cdx_lookup(0, "p2", 9);
+    (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
+    dkwb_cdx_log_interference(dkwb_test_memory, 0, 9, 0);
+    DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
+    DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
+    return 0;
+}
+"""
+
+# One table, two validators. The workbench refuses a malformed force control
+# before a campaign spends a compile on it, and the instrumented pass refuses
+# it again at the point of use. A control the pass would silently ignore is
+# exactly the defect that produced a false exoneration in the field, so the
+# two must agree entry for entry.
+FORCE_SPECIFICATIONS: tuple[tuple[str, bool], ...] = (
+    ("p1:w9=c30", True),
+    ("p2:w55=c2", True),
+    ("p1:w9=s", True),
+    ("p2:w0=c0", True),
+    ("p1:w9=c30,p2:w55=c2", True),
+    ("p1:w123=c7,p1:w4=s,p2:w9=c1", True),
+    # Unqualified: the recorded trap.
+    ("w55=c2", False),
+    ("w9=s", False),
+    ("p1:w9=c30,w55=c2", False),
+    # Partially formed keys the pass would otherwise treat as "no force".
+    ("p1:w9", False),
+    ("p1:w9=", False),
+    ("p1:wgarbage=c2", False),
+    ("p1:w9=zzz", False),
+    ("p1:w9=c", False),
+    ("p1:w9=cx", False),
+    ("p1:w9=c30x", False),
+    ("p1:w9=sx", False),
+    ("p3:w9=c30", False),
+    ("p1w9=c30", False),
+    ("P1:W9=C30", False),
+    ("p1:w-1=c30", False),
+    # Empty and whitespace entries must not be silently skipped.
+    ("", False),
+    (",", False),
+    ("p1:w9=c30,", False),
+    (",p1:w9=c30", False),
+    ("p1:w9=c30,,p2:w1=s", False),
+    (" p1:w9=c30", False),
+    ("p1:w9=c30 ", False),
+    # Longer than the pass's per-entry buffer.
+    ("p1:w9=c" + "3" * 60, False),
+)
+
+
 class UoptInstrumentationTests(unittest.TestCase):
     def test_refuses_unpinned_source_by_default(self) -> None:
         with self.assertRaisesRegex(ValueError, "not the pinned"):
@@ -77,6 +156,143 @@ class UoptInstrumentationTests(unittest.TestCase):
             result.source.count("dkwb_web = (int)MEM_U32(sp + 272)"),
             2,
         )
+
+    def test_records_carry_their_allocator_phase(self) -> None:
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        for record in ("p1cand", "p1dec", "p1color"):
+            self.assertIn(f"[CDX] {record} phase=p1", source)
+        for record in ("p2dec", "p2color"):
+            self.assertIn(f"[CDX] {record} phase=p2", source)
+        self.assertIn('"[CDX] %scost phase=%s', source)
+
+    def test_force_keys_are_phase_qualified(self) -> None:
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        self.assertIn('snprintf(key, sizeof(key), "%s:w%d=", phase, web)', source)
+        self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p1"'), 2)
+        self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p2"'), 2)
+        self.assertIn("is not a phase-qualified force ", source)
+        self.assertIn("disjoint ", source)
+        self.assertIn("web spaces", source)
+        self.assertIn("dkwb_cdx_validate_force", source)
+        self.assertIn("dkwb_cdx_force_entry_ok", source)
+
+    def test_colors_are_decoded_to_registers_in_output(self) -> None:
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        self.assertIn("bestcolor=%d bestreg=%s", source)
+        self.assertIn("color=%d reg=%s forced=%d", source)
+        self.assertIn("color=%d reg=%s kind=%s", source)
+        self.assertIn("dkwb_cdx_register_name((int)MEM_U32(sp + 220))", source)
+
+    def test_color_table_is_generated_from_one_mapping(self) -> None:
+        table = color_register_table()
+        self.assertIn(f"#define DKWB_CDX_MAX_COLOR {max(COLOR_REGISTERS)}", table)
+        for color, register in COLOR_REGISTERS.items():
+            with self.subTest(color=color):
+                self.assertIn(f'"{register}"', table)
+        # Colors the profile has not confirmed stay numeric rather than being
+        # guessed: color 13 sits between t5 and s0 with no recorded register.
+        self.assertNotIn(13, COLOR_REGISTERS)
+        self.assertIn('"t5", 0, "s0"', table)
+        self.assertIn("DKWB_CDX_COLOR_TABLE", HEADER)
+        self.assertNotIn(
+            "DKWB_CDX_COLOR_TABLE",
+            instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True).source,
+        )
+
+    def test_symbol_named_procedure_is_refused_with_an_index_table(self) -> None:
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        self.assertIn("strtol(value, &end, 10)", source)
+        self.assertIn("is a symbol name", source)
+        self.assertIn("[CDX] procindex proc=%d decisions=%d", source)
+        self.assertIn("dkwb_cdx_proc_decisions++", source)
+        self.assertIn("atexit(dkwb_cdx_finish)", source)
+
+    def build_header_program(self, root: Path) -> Path:
+        """Compile the injected header on its own and return the binary."""
+
+        compiler = shutil.which("cc") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("no host C compiler available")
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        start = source.index("/* DKWB_UOPT_GLOBALCOLOR_V1")
+        end = source.index("static void f_compute_save")
+        program = root / "header.c"
+        program.write_text(
+            COMPILE_PRELUDE + source[start:end] + COMPILE_DRIVER,
+            encoding="utf-8",
+        )
+        binary = root / "header"
+        completed = subprocess.run(
+            [compiler, "-Wall", "-Werror", str(program), "-o", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return binary
+
+    def test_generated_header_compiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertTrue(self.build_header_program(Path(temp)).is_file())
+
+    def test_force_specification_parses_accepted_controls(self) -> None:
+        self.assertEqual(
+            parse_force_specification("p2:w55=c2,p1:w9=s"),
+            [ForceEntry("p2", 55, 2), ForceEntry("p1", 9, None)],
+        )
+        self.assertEqual(str(ForceEntry("p2", 55, 2)), "p2:w55=c2")
+        self.assertEqual(str(ForceEntry("p1", 9, None)), "p1:w9=s")
+        with self.assertRaisesRegex(ValueError, "phase-qualified"):
+            parse_force_specification("w55=c2")
+        with self.assertRaisesRegex(ValueError, "disjoint web spaces"):
+            parse_force_specification("p1:w9=c30,w55=c2")
+        with self.assertRaisesRegex(ValueError, "empty"):
+            parse_force_specification("")
+
+    def test_workbench_force_validation_matches_the_table(self) -> None:
+        for specification, accepted in FORCE_SPECIFICATIONS:
+            with self.subTest(specification=specification):
+                if accepted:
+                    self.assertTrue(parse_force_specification(specification))
+                else:
+                    with self.assertRaises(ValueError):
+                        parse_force_specification(specification)
+
+    def test_generated_pass_force_validation_matches_the_workbench(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(Path(temp))
+            for specification, accepted in FORCE_SPECIFICATIONS:
+                if not specification:
+                    # An unset CDX_FORCE is not a malformed one; the pass
+                    # simply has no controls to apply.
+                    continue
+                with self.subTest(specification=specification):
+                    completed = subprocess.run(
+                        [str(binary)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            "CDX_FORCE": specification,
+                            "CDX_PROC": "0",
+                            "PATH": os.environ.get("PATH", ""),
+                        },
+                    )
+                    if accepted:
+                        self.assertEqual(completed.returncode, 0, completed.stderr)
+                    else:
+                        self.assertEqual(completed.returncode, 2, completed.stdout)
+                        self.assertIn("phase-qualified", completed.stderr)
 
     def test_refuses_double_instrumentation(self) -> None:
         once = instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True).source

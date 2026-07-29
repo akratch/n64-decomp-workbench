@@ -7,6 +7,7 @@ import difflib
 import hashlib
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from .model import Comparison, Instruction, display_path
@@ -191,6 +192,165 @@ def relocation_signature(instruction: Instruction) -> tuple[str, ...]:
     return tuple(item.kind for item in instruction.relocations)
 
 
+# Integer and floating-point operations whose two source operands are
+# interchangeable.  A swap here is front-end expression shape, never register
+# allocation.
+COMMUTATIVE_OPCODES = frozenset(
+    {
+        "add",
+        "addu",
+        "and",
+        "dadd",
+        "daddu",
+        "dmult",
+        "dmultu",
+        "mult",
+        "multu",
+        "nor",
+        "or",
+        "xor",
+        "add.d",
+        "add.s",
+        "mul.d",
+        "mul.s",
+    }
+)
+
+# Instructions whose differing field is a materialized constant rather than a
+# memory offset.  Stack-frame adjustments are excluded: a frame delta is spill
+# evidence, not a wrong flag or enum.
+CONSTANT_OPCODES = frozenset(
+    {
+        "addiu",
+        "andi",
+        "daddiu",
+        "li",
+        "lui",
+        "ori",
+        "slti",
+        "sltiu",
+        "xori",
+    }
+)
+
+
+def is_commutative_swap(expected: Instruction, actual: Instruction) -> bool:
+    """Return whether two instructions differ only by swapped source operands.
+
+    Both operand shapes are recognized: the three-operand form
+    (``or rd,rs,rt``) and the two-operand form used by the multiply and
+    divide-style instructions that write ``hi``/``lo`` (``mult rs,rt``).
+    """
+
+    if expected.opcode != actual.opcode or expected.opcode not in COMMUTATIVE_OPCODES:
+        return False
+    expected_registers = register_operands(expected.assembly)
+    actual_registers = register_operands(actual.assembly)
+    if len(expected_registers) != len(actual_registers):
+        return False
+    if len(expected_registers) == 2:
+        sources, other = expected_registers, actual_registers
+    elif len(expected_registers) == 3:
+        if expected_registers[0] != actual_registers[0]:
+            return False
+        sources, other = expected_registers[1:], actual_registers[1:]
+    else:
+        return False
+    return (
+        sources[0] == other[1] and sources[1] == other[0] and sources[0] != sources[1]
+    )
+
+
+def is_constant_difference(expected: Instruction, actual: Instruction) -> bool:
+    """Return whether two instructions differ only by a materialized constant."""
+
+    if expected.opcode != actual.opcode or expected.opcode not in CONSTANT_OPCODES:
+        return False
+    if FRAME_RE.search(expected.assembly) or FRAME_RE.search(actual.assembly):
+        return False
+    return register_operands(expected.assembly) == register_operands(actual.assembly)
+
+
+def classify_diff_site(
+    expected: Instruction, actual: Instruction, *, masked_equal: bool
+) -> str:
+    """Name the cheapest mechanism that explains one differing site."""
+
+    if masked_equal:
+        if relocation_signature(expected) != relocation_signature(actual):
+            return "relocation-layout"
+        return "relocation-controlled"
+    if expected.opcode != actual.opcode:
+        return "opcode"
+    if is_commutative_swap(expected, actual):
+        return "commutative-order"
+    if register_operands(expected.assembly) != register_operands(actual.assembly):
+        return "register"
+    if is_constant_difference(expected, actual):
+        return "constant"
+    return "operand"
+
+
+def diff_sites(
+    target: list[Instruction],
+    candidate: list[Instruction],
+    target_words: list[str],
+    candidate_words: list[str],
+) -> list[dict[str, object]]:
+    """Return every differing site, classified and never filtered.
+
+    A verdict chooses emphasis; it must never hide evidence.  A register-range
+    summary once omitted a ``li v0,33`` versus ``li v0,49`` literal difference
+    that the same report counted in ``raw``, and the omission cost a
+    mis-scoped experiment.  Every position that differs in instruction words or
+    in relocation kinds appears here, whatever the verdict says.
+    """
+
+    sites: list[dict[str, object]] = []
+    aligned = min(len(target), len(candidate))
+    for index in range(aligned):
+        expected = target[index]
+        actual = candidate[index]
+        masked_equal = target_words[index] == candidate_words[index]
+        if expected.word == actual.word and relocation_signature(
+            expected
+        ) == relocation_signature(actual):
+            continue
+        sites.append(
+            {
+                "index": index,
+                "class": classify_diff_site(
+                    expected, actual, masked_equal=masked_equal
+                ),
+                "target": expected.assembly,
+                "candidate": actual.assembly,
+                "target_word": expected.word,
+                "candidate_word": actual.word,
+            }
+        )
+    for index in range(aligned, max(len(target), len(candidate))):
+        expected_extra = target[index] if index < len(target) else None
+        actual_extra = candidate[index] if index < len(candidate) else None
+        sites.append(
+            {
+                "index": index,
+                "class": "instruction-count",
+                "target": expected_extra.assembly if expected_extra else "-",
+                "candidate": actual_extra.assembly if actual_extra else "-",
+                "target_word": expected_extra.word if expected_extra else "-",
+                "candidate_word": actual_extra.word if actual_extra else "-",
+            }
+        )
+    return sites
+
+
+def diff_site_classes(sites: list[dict[str, object]]) -> dict[str, int]:
+    """Count differing sites per class in a stable order."""
+
+    counts = collections.Counter(str(site["class"]) for site in sites)
+    return dict(sorted(counts.items()))
+
+
 def raw_difference_breakdown(
     target: list[Instruction],
     candidate: list[Instruction],
@@ -222,6 +382,30 @@ def raw_difference_breakdown(
     return {name: count for name, count in sorted(result.items()) if count}
 
 
+def mixed_site_callouts(site_classes: dict[str, int]) -> list[str]:
+    """Name cheaper mechanisms hiding inside a broader residual.
+
+    A verdict summarizes the whole residual, but a constant or a commutative
+    swap inside it is still the cheapest thing to fix first, and both are
+    levers the summarizing verdict would otherwise send to the wrong layer.
+    """
+
+    callouts: list[str] = []
+    if site_classes.get("constant"):
+        callouts.append(
+            "Some differing sites are constant materializations: audit the "
+            "flag, enum, or constant against the assembly first, since one "
+            "wrong identifier can present as a much larger residual."
+        )
+    if site_classes.get("commutative-order"):
+        callouts.append(
+            "Some differing sites are swapped sources of a commutative "
+            "operation: that part is expression shape (`x |= y`), not "
+            "allocation."
+        )
+    return callouts
+
+
 def comparison_guidance(
     *,
     exact: bool,
@@ -232,6 +416,8 @@ def comparison_guidance(
     opcode_mismatches: int,
     instruction_delta: int,
     register_mismatches: int,
+    site_classes: dict[str, int],
+    instruction_multiset_equal: bool,
 ) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
@@ -276,10 +462,72 @@ def comparison_guidance(
                 "linked/ROM output before changing source.",
             ],
         )
+    # Linker-controlled words are reported as sites but never name the
+    # mechanism: they say nothing about the source.
+    classes = {
+        name
+        for name, count in site_classes.items()
+        if count and name != "relocation-controlled"
+    }
+    if classes == {"constant"}:
+        return (
+            "constant-mismatch",
+            [
+                "Every difference is an immediate on a constant-materializing "
+                "instruction; opcodes and registers already agree.",
+                "Audit the flag, enum, or constant against the target assembly "
+                "first: the assembly encodes the truth, and one wrong "
+                "identifier can present as a large structural difference.",
+                "Re-derive any fake expressions afterwards; they may have been "
+                "fitted to the wrong constant. Literal search is comparison "
+                "work, not permuter work.",
+            ],
+        )
+    if classes == {"commutative-order"}:
+        return (
+            "commutative-order",
+            [
+                "Same opcodes and same operands with the two sources of a "
+                "commutative operation swapped: this is front-end expression "
+                "shape, not register allocation.",
+                "Reach for compound assignment. `a | b` and `b | a` "
+                "canonicalize to the same object, but `x |= y` is a distinct "
+                "expression tree and flips the emitted operand order.",
+                "Do not trace the allocator for this residual.",
+            ],
+        )
+    # A reordering only explains the whole residual when the two sides hold
+    # the same instructions, registers included. Gating on the opcode
+    # multiset alone would call a reordering that also moves a register
+    # "not allocation" and send the next experiment to the wrong layer.
+    if (
+        instruction_multiset_equal
+        and opcode_mismatches
+        and not instruction_delta
+        and classes <= {"opcode"}
+    ):
+        return (
+            "schedule-mismatch",
+            [
+                "Instruction count, opcodes, and registers are identical and "
+                "the instructions are reordered: this is late-pass "
+                "scheduling, not allocation and not control flow.",
+                "Regroup expressions and statements rather than changing "
+                "values or lifetimes.",
+                "Diagnostic: rebuild the candidate with -g0. IDO emits a .loc "
+                "per statement under -g3 and the assembler restricts motion "
+                "across those barriers, so a region that collapses under -g0 "
+                "means the C is right and the residual is debug-info "
+                "scheduling.",
+                "`replay-as1` tests whether the final assembler pass owns the "
+                "ordering.",
+            ],
+        )
     if opcode_mismatches or instruction_delta:
         return (
             "structure-mismatch",
             [
+                *mixed_site_callouts(site_classes),
                 "Instruction shape differs: work at the C/control-flow or "
                 "expression-tree level first.",
                 "Avoid allocator-only experiments until the instruction "
@@ -290,6 +538,7 @@ def comparison_guidance(
         return (
             "allocation-mismatch",
             [
+                *mixed_site_callouts(site_classes),
                 "Opcode shape matches but register allocation differs.",
                 "Capture a narrow globalcolor/UGEN trace and inspect live "
                 "ranges before adding local fakes.",
@@ -378,6 +627,8 @@ def compare_instructions(
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
+    sites = diff_sites(target, candidate, target_words, candidate_words)
+    site_classes = diff_site_classes(sites)
     exact = (
         exact_mismatches == 0 and relocation_mismatches == 0 and not unknown_relocations
     )
@@ -390,6 +641,11 @@ def compare_instructions(
         opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
         instruction_delta=len(candidate) - len(target),
         register_mismatches=register_count,
+        site_classes=site_classes,
+        instruction_multiset_equal=(
+            collections.Counter(target_normalized)
+            == collections.Counter(candidate_normalized)
+        ),
     )
     return Comparison(
         candidate=candidate_name,
@@ -422,6 +678,59 @@ def compare_instructions(
         verdict=verdict,
         guidance=guidance,
         register_diff=register_diff,
+        diff_sites=sites,
+        diff_site_classes=site_classes,
+    )
+
+
+@dataclass(frozen=True)
+class TargetObject:
+    """A disassembled target retained for repeated comparison.
+
+    Campaigns compare hundreds of candidates against one target. Holding the
+    parsed target removes one objdump process and one parse per candidate.
+    """
+
+    name: str
+    symbol: str | None
+    instructions: list[Instruction]
+
+
+def load_target(
+    target: str | Path,
+    *,
+    objdump: str | None = None,
+    symbol: str | None = None,
+    section: str = ".text",
+) -> TargetObject:
+    """Disassemble the reference object once."""
+
+    _, instructions = dump_object(
+        target, objdump=objdump, symbol=symbol, section=section
+    )
+    return TargetObject(
+        name=display_path(target), symbol=symbol, instructions=instructions
+    )
+
+
+def compare_candidate(
+    target: TargetObject,
+    candidate: str | Path,
+    *,
+    objdump: str | None = None,
+    section: str = ".text",
+) -> Comparison:
+    """Compare one candidate object against an already-parsed target."""
+
+    _, candidate_instructions = dump_object(
+        candidate, objdump=objdump, symbol=target.symbol, section=section
+    )
+    return compare_instructions(
+        target.instructions,
+        candidate_instructions,
+        target_name=target.name,
+        candidate_name=display_path(candidate),
+        symbol=target.symbol,
     )
 
 
@@ -435,16 +744,9 @@ def compare_objects(
 ) -> Comparison:
     """Disassemble and compare two object files."""
 
-    _, target_instructions = dump_object(
-        target, objdump=objdump, symbol=symbol, section=section
-    )
-    _, candidate_instructions = dump_object(
-        candidate, objdump=objdump, symbol=symbol, section=section
-    )
-    return compare_instructions(
-        target_instructions,
-        candidate_instructions,
-        target_name=display_path(target),
-        candidate_name=display_path(candidate),
-        symbol=symbol,
+    return compare_candidate(
+        load_target(target, objdump=objdump, symbol=symbol, section=section),
+        candidate,
+        objdump=objdump,
+        section=section,
     )
