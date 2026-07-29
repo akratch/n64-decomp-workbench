@@ -118,15 +118,24 @@ way, including in the per-color cost list (`c2(v1):22.25`). The mapping is one
 table in the workbench, rendered into the generated C so the pass and the
 reader can never disagree:
 
-| Colors | Registers |
-|---|---|
-| c1–c6 | `v0 v1 a0 a1 a2 a3` |
-| c7–c12 | `t0`–`t5` |
-| c14–c22 | `s0`–`s8` |
-| c23 | `ra` |
+| Colors | Registers | How it was established |
+|---|---|---|
+| c1–c5 | `v0 v1 a0 a1 a2` | Empirically confirmed: each color was forced with `CDX_FORCE` and the resulting object diffed to see which machine register moved |
+| c6–c12 | `a3`, `t0`–`t5` | Continuation of the caller-saved pool order decoded from the compiler's `coloroffset` table, consistent with black-box pool probing |
+| c14–c22 | `s0`–`s8` | The stable callee-saved block, in use since before this table existed |
+| c23 | `ra` | `coloroffset` table |
 
-Colors outside the table (including c13) stay numeric. Naming them would be a
-guess, and a wrong register name is worse than a number.
+**Provenance and limits.** Only c1–c5 have been proved by force-and-diff on a
+real build. The rest come from the `coloroffset` table decode plus pool-order
+probing; they are consistent with every trace seen so far but have not each
+been individually forced. The table is pinned to the IDO 5.3 profile and is not
+claimed to hold for other IDO releases.
+
+Colors outside the table — including c13 and everything above c23 — stay
+numeric in both the records and the reports. Naming them would be a guess, and
+a wrong register name is worse than a number. If you confirm one, add it to
+`COLOR_REGISTERS` in `globalcolor.py`: the generated C table is rendered from
+that mapping, so the pass and the reader cannot disagree.
 
 #### Selecting a procedure by name
 

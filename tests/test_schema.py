@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import io
+import json
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
-from decomp_workbench.cli import CAMPAIGN_SUMMARY_KEYS, comparison_line
+from decomp_workbench.cli import CAMPAIGN_SUMMARY_KEYS, comparison_line, main
 from decomp_workbench.compare import compare_instructions
 from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.schema import (
+    CAMPAIGN_METRICS,
     DEPRECATED_KEYS,
     METRICS,
     METRICS_BY_KEY,
@@ -107,11 +114,56 @@ class SchemaTests(unittest.TestCase):
 
     def test_explain_keys_lists_every_metric(self) -> None:
         text = explain_keys_text()
-        for metric in METRICS:
+        for metric in (*METRICS, *CAMPAIGN_METRICS):
             with self.subTest(key=metric.key):
                 self.assertIn(metric.key, text)
                 self.assertIn(metric.description.split(";")[0][:40], text)
         self.assertIn("word_mismatches", text)
+        self.assertIn("Campaign report keys", text)
+
+    def test_campaign_report_keys_are_all_registered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "target.o").write_bytes(b"target")
+            source = root / "candidate.c"
+            source.write_text("int candidate;\n", encoding="utf-8")
+            compiler = root / "compile.py"
+            compiler.write_text(
+                "import pathlib, sys\n"
+                "pathlib.Path(sys.argv[2]).write_bytes(b'object')\n",
+                encoding="utf-8",
+            )
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    [
+                        "campaign",
+                        str(root / "target.o"),
+                        str(source),
+                        "--symbol",
+                        "demo",
+                        "--objdump",
+                        str(objdump),
+                        "--compile-command",
+                        f"{sys.executable} {compiler} {{source}} {{output}}",
+                        "--cache-dir",
+                        str(root / "cache"),
+                        "--json-summary",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout.getvalue())
+        registered = {metric.key for metric in CAMPAIGN_METRICS}
+        self.assertEqual(set(payload) - registered, set())
 
 
 if __name__ == "__main__":

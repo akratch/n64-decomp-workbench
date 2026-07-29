@@ -8,6 +8,7 @@ so the campaign can end the wrapper and everything the wrapper spawned.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,19 @@ pathlib.Path(sys.argv[1]).write_text(f"{child.pid}\\n", encoding="utf-8")
 time.sleep(30)
 """
 
+# A wrapper that traps the polite signal, as build drivers with their own
+# cleanup handlers do.
+STUBBORN_COMPILER = """\
+import pathlib
+import signal
+import sys
+import time
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pathlib.Path(sys.argv[1]).write_text("ready\\n", encoding="utf-8")
+time.sleep(30)
+"""
+
 
 def is_running(pid: int) -> bool:
     try:
@@ -61,10 +75,51 @@ def wait_until(predicate: Callable[[], bool], timeout: float = 10.0) -> bool:
 class ProcessLifecycleTests(unittest.TestCase):
     def test_process_group_arguments_are_platform_appropriate(self) -> None:
         arguments = process_group_arguments()
-        if os.name == "posix":
-            self.assertEqual(arguments, {"start_new_session": True})
-        else:
+        if os.name != "posix":
             self.assertNotIn("start_new_session", arguments)
+            return
+        if sys.version_info >= (3, 11):
+            # Own process group, same session: the compiler keeps the
+            # controlling terminal instead of being detached from it.
+            self.assertEqual(arguments, {"process_group": 0})
+        else:
+            self.assertEqual(arguments, {"start_new_session": True})
+
+    def test_a_compiler_that_ignores_sigterm_is_still_ended(self) -> None:
+        if os.name != "posix":
+            self.skipTest("signal escalation is POSIX-specific")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            compiler = root / "stubborn.py"
+            compiler.write_text(STUBBORN_COMPILER, encoding="utf-8")
+            ready = root / "ready"
+            completed: list[subprocess.CompletedProcess[str]] = []
+
+            def run() -> None:
+                completed.append(
+                    run_compiler(
+                        [sys.executable, str(compiler), str(ready)],
+                        environment={},
+                        compile_cwd=root,
+                    )
+                )
+
+            worker = threading.Thread(target=run)
+            worker.start()
+            try:
+                self.assertTrue(wait_until(ready.is_file))
+                start = time.monotonic()
+                terminate_running_compilers()
+                worker.join(timeout=20)
+                elapsed = time.monotonic() - start
+            finally:
+                terminate_running_compilers()
+                worker.join(timeout=20)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(len(completed), 1)
+            # Terminated by the escalation, not by the ignored polite signal.
+            self.assertEqual(completed[0].returncode, -signal.SIGKILL)
+            self.assertLess(elapsed, 15)
 
     def test_compilers_run_in_their_own_group(self) -> None:
         if os.name != "posix":

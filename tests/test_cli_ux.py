@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -9,8 +10,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from decomp_workbench.cli import main
+from decomp_workbench.cli import build_parser, main
 
 
 class CliUxTests(unittest.TestCase):
@@ -125,6 +127,31 @@ class CliUxTests(unittest.TestCase):
         self.assertEqual(payload["symbol"], "first")
         self.assertEqual(payload["candidate_instructions"], 1)
 
+    def test_symbol_spelling_is_not_leaked_into_command_arguments(self) -> None:
+        seen: list[argparse.Namespace] = []
+        parser = build_parser()
+        arguments = parser.parse_args(
+            ["compare-dumps", "a.objdump", "b.objdump", "--function", "demo"]
+        )
+        self.assertIn("symbol_option", vars(arguments))
+
+        def capture(args: argparse.Namespace) -> int:
+            seen.append(args)
+            return 0
+
+        with tempfile.TemporaryDirectory() as temp:
+            dump = self.write_two_function_dump(Path(temp))
+            with mock.patch(
+                "decomp_workbench.cli.compare_dumps_command",
+                side_effect=capture,
+            ):
+                status, _, _ = self.run_cli(
+                    ["compare-dumps", str(dump), str(dump), "--function", "first"]
+                )
+        self.assertEqual(status, 0)
+        self.assertEqual(seen[0].symbol, "first")
+        self.assertNotIn("symbol_option", vars(seen[0]))
+
     def test_repeated_symbol_spellings_agree(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             dump = self.write_two_function_dump(Path(temp))
@@ -202,7 +229,7 @@ class CliUxTests(unittest.TestCase):
             )
         self.assertEqual(status, 0)
         self.assertIn("verdict=allocation-mismatch", stdout)
-        self.assertIn("diff sites: 2 (constant=1, register=1)", stdout)
+        self.assertIn("diff_sites=2 (constant=1, register=1)", stdout)
         self.assertIn("li $v0,33", stdout)
         self.assertIn("li $v0,49", stdout)
         self.assertIn("addu $t3,$t1,$t2", stdout)
@@ -252,7 +279,7 @@ class CliUxTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(status, 2)
-        self.assertIn("not phase-qualified", stderr)
+        self.assertIn("not a phase-qualified force control", stderr)
         self.assertIn("p2:w9=c30", stderr)
 
     def test_trace_globalcolor_decodes_colors_and_force_keys(self) -> None:

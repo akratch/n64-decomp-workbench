@@ -53,7 +53,7 @@ reported as a *diff site*, classified but never dropped:
 
 ```text
 verdict=allocation-mismatch words=   2 raw=   2 ...
-diff sites: 2 (constant=1, register=1)
+diff_sites=2 (constant=1, register=1)
 
 [   0] constant
        target    24020021  li $v0,33

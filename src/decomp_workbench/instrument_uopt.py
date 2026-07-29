@@ -19,11 +19,17 @@ IDO_53_V12_SHA256 = "b0058f1559441c1a194d649271eb43b8637ec255682cfdd629031340b91
 
 FORCE_ENTRY_RE = re.compile(r"^(?P<phase>p[12]):w(?P<web>\d+)=(?:c(?P<color>\d+)|s)$")
 
+# The instrumented pass copies each comma-separated entry into a fixed buffer.
+# The Python and C validators share the limit so neither accepts a control the
+# other refuses.
+MAX_FORCE_ENTRY = 63
+
 UNQUALIFIED_FORCE_MESSAGE = (
-    "is not phase-qualified; write p1:w9=c30 for the phase-one "
-    "(callee-saved) sweep or p2:w9=c30 for the phase-two (caller-saved) "
-    "sweep. p1 and p2 are disjoint web spaces: the same web number is a "
-    "different web in each phase"
+    "is not a phase-qualified force control; write p1:w9=c30 for the "
+    "phase-one (callee-saved) sweep or p2:w9=c30 for the phase-two "
+    "(caller-saved) sweep, or p1:w9=s to force the split path. Entries are "
+    "comma-separated with no spaces, and p1 and p2 are disjoint web spaces: "
+    "the same web number is a different web in each phase"
 )
 
 
@@ -51,13 +57,12 @@ def parse_force_specification(value: str) -> list[ForceEntry]:
     rejected here and by the instrumented pass rather than guessed.
     """
 
+    if not value:
+        raise ValueError("CDX_FORCE is empty; write p1:w9=c30 or p2:w9=c30")
     entries: list[ForceEntry] = []
-    for raw in value.split(","):
-        entry = raw.strip()
-        if not entry:
-            continue
+    for entry in value.split(","):
         match = FORCE_ENTRY_RE.match(entry)
-        if match is None:
+        if match is None or len(entry) > MAX_FORCE_ENTRY:
             raise ValueError(f"CDX_FORCE entry {entry!r} {UNQUALIFIED_FORCE_MESSAGE}")
         color = match.group("color")
         entries.append(
@@ -67,8 +72,6 @@ def parse_force_specification(value: str) -> list[ForceEntry]:
                 color=None if color is None else int(color),
             )
         )
-    if not entries:
-        raise ValueError("CDX_FORCE is empty; write p1:w9=c30 or p2:w9=c30")
     return entries
 
 
@@ -82,6 +85,7 @@ def color_register_table() -> str:
     )
     return (
         f"#define DKWB_CDX_MAX_COLOR {highest}\n"
+        f"#define DKWB_CDX_MAX_FORCE_ENTRY {MAX_FORCE_ENTRY}\n"
         f"static const char *dkwb_cdx_colors[DKWB_CDX_MAX_COLOR + 1] = "
         f"{{{values}}};\n"
     )
@@ -112,28 +116,53 @@ static const char *dkwb_cdx_register_name(int color) {
 }
 /* Both phases index the same color space, so an unqualified force key is
  * ambiguous: p1 colors callee-saved webs and p2 colors caller-saved webs
- * with disjoint web numbering. Refusing the bare form is deliberate; a
- * silently phase-one-only sweep once produced a wrong conclusion. */
+ * with disjoint web numbering. This accepts exactly
+ * p[12]:w<digits>=(c<digits>|s) — the same grammar the workbench validates
+ * before a campaign spends a compile. A partially-formed key that silently
+ * forced nothing is the defect this check exists to prevent: it is how a
+ * phase-one-only sweep once produced a wrong exoneration. */
+static int dkwb_cdx_digits(const char **cursor) {
+    const char *start = *cursor;
+    while (**cursor >= '0' && **cursor <= '9') (*cursor)++;
+    return *cursor != start;
+}
+static int dkwb_cdx_force_entry_ok(const char *entry) {
+    const char *cursor = entry;
+    if (*cursor++ != 'p') return 0;
+    if (*cursor != '1' && *cursor != '2') return 0;
+    cursor++;
+    if (*cursor++ != ':') return 0;
+    if (*cursor++ != 'w') return 0;
+    if (!dkwb_cdx_digits(&cursor)) return 0;
+    if (*cursor++ != '=') return 0;
+    if (*cursor == 's') return cursor[1] == '\0';
+    if (*cursor++ != 'c') return 0;
+    if (!dkwb_cdx_digits(&cursor)) return 0;
+    return *cursor == '\0';
+}
 static void dkwb_cdx_validate_force(void) {
     const char *cursor = dkwb_cdx_force;
-    while (*cursor) {
-        char entry[64];
+    for (;;) {
+        char entry[DKWB_CDX_MAX_FORCE_ENTRY + 1];
         const char *comma = strchr(cursor, ',');
         size_t length = comma ? (size_t)(comma - cursor) : strlen(cursor);
-        if (length >= sizeof(entry)) length = sizeof(entry) - 1;
+        int oversized = length > DKWB_CDX_MAX_FORCE_ENTRY;
+        if (oversized) length = DKWB_CDX_MAX_FORCE_ENTRY;
         memcpy(entry, cursor, length);
         entry[length] = '\0';
-        if (!(entry[0] == 'p' && (entry[1] == '1' || entry[1] == '2') &&
-                entry[2] == ':' && entry[3] == 'w')) {
+        if (oversized || !dkwb_cdx_force_entry_ok(entry)) {
             fprintf(stderr,
-                "DKWB: CDX_FORCE entry \"%s\" is not phase-qualified; write "
-                "p1:w9=c30 for the phase-one (callee-saved) sweep or "
-                "p2:w9=c30 for the phase-two (caller-saved) sweep. "
-                "p1 and p2 are disjoint web spaces: the same web number is a "
-                "different web in each phase.\n", entry);
+                "DKWB: CDX_FORCE entry \"%s\" is not a phase-qualified force "
+                "control; write p1:w9=c30 for the phase-one (callee-saved) "
+                "sweep or p2:w9=c30 for the phase-two (caller-saved) sweep, "
+                "or p1:w9=s to force the split path. Entries are "
+                "comma-separated with no spaces, and p1 and p2 are disjoint "
+                "web spaces: the same web number is a different web in each "
+                "phase.\n", entry);
             exit(2);
         }
-        cursor = comma ? comma + 1 : cursor + strlen(cursor);
+        if (!comma) break;
+        cursor = comma + 1;
     }
 }
 static void dkwb_cdx_procindex(void) {
@@ -144,7 +173,10 @@ static void dkwb_cdx_procindex(void) {
 }
 static void dkwb_cdx_finish(void) {
     dkwb_cdx_procindex();
-    if (dkwb_cdx_output) fflush(dkwb_cdx_output);
+    if (!dkwb_cdx_output) return;
+    fflush(dkwb_cdx_output);
+    if (dkwb_cdx_output != stderr) fclose(dkwb_cdx_output);
+    dkwb_cdx_output = stderr;
 }
 static void dkwb_cdx_init(void) {
     const char *value;

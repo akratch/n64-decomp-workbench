@@ -218,7 +218,7 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
         classes = ", ".join(
             f"{name}={count}" for name, count in item.diff_site_classes.items()
         )
-        print(f"diff sites: {len(item.diff_sites)} ({classes})")
+        print(f"diff_sites={len(item.diff_sites)} ({classes})")
     for line in item.guidance:
         print(f"next: {line}")
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
@@ -1467,6 +1467,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # Which spelling of the symbol selector was used is parser bookkeeping,
+    # not an argument a command should see.
+    vars(args).pop(SYMBOL_OPTION_DEST, None)
     handler = cast(Callable[[argparse.Namespace], int], args.handler)
     return handler(args)
 

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Kept every candidate a campaign actually ran: stopping on an exact match now
+  waits for and records the candidates already in flight instead of discarding
+  their objects and their ledger records, and a candidate that raises an
+  unexpected error is recorded as a failed candidate rather than ending the
+  run.
+- Required a matching instruction multiset for `schedule-mismatch`, so a
+  reordering that also moves a register is no longer reported as "not
+  allocation".
+- Escalated compiler termination from `SIGTERM` to `SIGKILL`, kept compilers in
+  the workbench's session on Python 3.11+ (own process group, still attached to
+  the terminal), and scoped the group-termination guarantee to POSIX in the
+  documentation; Windows remains best effort.
+- Gave the instrumented pass the same force-key grammar the workbench
+  validates, so a partially formed control such as `p1:w9` or `p1:w9=zzz` is
+  refused instead of silently forcing nothing.
+
 - Established the packaged bundle under `src/decomp_workbench/skills` as the
   only skill tree, with a test that fails if a root-level `skills/` directory
   exists without matching what `install-skill` ships.

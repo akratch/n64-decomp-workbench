@@ -37,10 +37,11 @@ running through `campaign` instead of a hand-rolled import harness.
 
 `--stop-on-exact` is the default: once a candidate compares exact, no further
 candidates are submitted. Candidates already in flight (up to `--jobs` of them)
-finish and are recorded, so the ledger keeps one record for every candidate
-that actually ran and none for candidates that never started. The terminal
-report names how many prepared candidates were skipped, and `--json-summary`
-carries `stopped_on_exact` and `prepared_candidates`.
+are waited for, compared, and recorded — their objects exist and the campaign
+already paid for them — so the ledger holds one record for every candidate that
+actually ran and none for candidates that never started. The terminal report
+names how many prepared candidates were skipped, and `--json-summary` carries
+`stopped_on_exact` and `prepared_candidates`.
 
 Pass `--no-stop-on-exact` when the point of the run is the whole grid — basin
 census, per-family comparison, or a corpus that later differential work will
@@ -66,6 +67,12 @@ Each JSONL record includes:
 - comparison metrics and object hashes;
 - paths that produced the same prepared key, when applicable.
 
+A candidate that fails — a compiler error, an unreadable object, or an
+unexpected error inside the comparison — is recorded as a failed candidate with
+its diagnostics and does not end the campaign. The other candidates keep their
+results and their ledger records. Only an interrupt (`Ctrl-C`) or a process
+exit ends the run.
+
 The directly invoked wrapper is hashed when it is a file. A wrapper may invoke
 additional binaries or read configuration that the workbench cannot discover.
 For complete reproducibility, put those versions in the wrapper’s own output or
@@ -78,16 +85,28 @@ different paths are treated as distinct candidates.
 
 ## Process ownership
 
-Every compiler runs in its own process group (`start_new_session` on POSIX, a
-new process group on Windows), and the campaign ends that group — the wrapper
-and everything it started — when the run fails or is interrupted. A compiler
-wrapper that starts an assembler, a parallel search, or any other helper
-therefore cannot outlive its campaign. A leaked parallel job did exactly that
-in the field and degraded two later runs before the next campaign started.
+Every compiler runs in its own process group, and the campaign ends that group
+when the run fails or is interrupted, escalating from `SIGTERM` to `SIGKILL`
+after a short grace period so a wrapper that traps the polite signal cannot
+outlive the campaign. A leaked parallel job did exactly that in the field and
+degraded two later runs.
+
+- **POSIX** — the compiler gets its own process group inside the workbench's
+  session (`process_group=0`; Python 3.10 falls back to `start_new_session`,
+  which detaches the session as well). Termination signals the whole group, so
+  an assembler, a parallel search, or any other helper the wrapper started is
+  ended too. Keeping the session means the children keep the controlling
+  terminal.
+- **Windows** — the child is created in a new process group and is sent a
+  console break, then terminated. Windows has no process-group signal, so
+  group-wide termination is **best effort**: a grandchild that ignores the
+  console break, or a run without a console, can survive. Only the direct
+  child is guaranteed to end. Do not rely on the workbench to reap a detached
+  Windows tool.
 
 Interrupting a campaign (`Ctrl-C`) cancels queued candidates, terminates
-running compilers with their children, and re-raises. Records already written
-to the ledger stay valid.
+running compilers, and re-raises. Records already written to the ledger stay
+valid.
 
 ## Environment-sensitive compilers
 

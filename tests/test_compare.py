@@ -436,12 +436,81 @@ class CompareTests(unittest.TestCase):
         self.assertIn("-g0", guidance)
         self.assertIn("replay-as1", guidance)
 
+    def test_reordering_with_a_register_difference_is_not_a_schedule_verdict(
+        self,
+    ) -> None:
+        # Same opcode multiset and a real reordering, but one instruction also
+        # changes a register. Calling this "not allocation" would send the next
+        # experiment to the wrong layer.
+        result = self.compare_text(
+            "   0: 8c880000  lw $t0,0($a0)\n"
+            "   4: 25290001  addiu $t1,$t1,1\n"
+            "   8: 016c5021  addu $t2,$t3,$t4\n",
+            "   0: 25290001  addiu $t1,$t1,1\n"
+            "   4: 8c880000  lw $t0,0($a0)\n"
+            "   8: 016c6821  addu $t5,$t3,$t4\n",
+        )
+        self.assertEqual(
+            result.diff_site_classes,
+            {"opcode": 2, "register": 1},
+        )
+        self.assertNotEqual(result.verdict, "schedule-mismatch")
+        self.assertEqual(result.verdict, "structure-mismatch")
+        self.assertNotIn("not allocation", " ".join(result.guidance))
+
     def test_changed_opcode_multiset_stays_a_structure_verdict(self) -> None:
         result = self.compare_text(
             "   0: 8c880000  lw $t0,0($a0)\n   4: 25290001  addiu $t1,$t1,1\n",
             "   0: 25290001  addiu $t1,$t1,1\n   4: 25290001  addiu $t1,$t1,1\n",
         )
         self.assertEqual(result.verdict, "structure-mismatch")
+
+    def test_two_operand_commutative_swap_is_recognized(self) -> None:
+        result = self.compare_text(
+            "   0: 00850018  mult $a0,$a1\n",
+            "   0: 00a40018  mult $a1,$a0\n",
+        )
+        self.assertEqual(result.diff_site_classes, {"commutative-order": 1})
+        self.assertEqual(result.verdict, "commutative-order")
+
+    def test_two_operand_non_commutative_opcode_is_not_a_swap(self) -> None:
+        result = self.compare_text(
+            "   0: 0085001a  div $a0,$a1\n",
+            "   0: 00a4001a  div $a1,$a0\n",
+        )
+        self.assertEqual(result.diff_site_classes, {"register": 1})
+        self.assertEqual(result.verdict, "allocation-mismatch")
+
+    def test_register_verdict_names_a_constant_site_when_present(self) -> None:
+        result = compare_instructions(
+            parse_disassembly(MIXED_TARGET, symbol="demo"),
+            parse_disassembly(MIXED_CANDIDATE, symbol="demo"),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+        self.assertIn("constant materializations", result.guidance[0])
+
+    def test_register_verdict_names_a_commutative_site_when_present(self) -> None:
+        result = self.compare_text(
+            "   0: 00851025  or $v0,$a0,$a1\n   4: 012a4021  addu $t0,$t1,$t2\n",
+            "   0: 00a41025  or $v0,$a1,$a0\n   4: 012a5821  addu $t3,$t1,$t2\n",
+        )
+        self.assertEqual(
+            result.diff_site_classes,
+            {"commutative-order": 1, "register": 1},
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+        self.assertIn("commutative", result.guidance[0])
+
+    def test_register_verdict_without_mixed_sites_keeps_its_first_line(self) -> None:
+        result = self.compare_text(
+            "   0: 012a4021  addu $t0,$t1,$t2\n",
+            "   0: 012a5821  addu $t3,$t1,$t2\n",
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+        self.assertTrue(result.guidance[0].startswith("Opcode shape matches"))
 
     def test_literal_only_difference_is_a_constant_verdict(self) -> None:
         result = self.compare_text(

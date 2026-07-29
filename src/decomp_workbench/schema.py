@@ -218,7 +218,43 @@ METRICS: tuple[Metric, ...] = (
     Metric("error", "error", "why this comparison could not be produced"),
 )
 
-METRICS_BY_KEY: dict[str, Metric] = {item.key: item for item in METRICS}
+# Campaign-level report keys. They describe a run rather than one comparison,
+# so they are listed separately, but `--explain-keys` must still explain every
+# key a campaign emits.
+CAMPAIGN_METRICS: tuple[Metric, ...] = (
+    Metric("schema", "schema", "report schema identity"),
+    Metric(
+        "unique_candidates",
+        "unique_candidates",
+        "candidates that were compiled and compared in this run",
+    ),
+    Metric(
+        "prepared_candidates",
+        "prepared_candidates",
+        "candidates resolved and deduplicated before the run started",
+    ),
+    Metric(
+        "source_files",
+        "source_files",
+        "source paths supplied, before deduplication by cache key",
+    ),
+    Metric(
+        "stopped_on_exact",
+        "stopped_on_exact",
+        "whether an exact match ended the run before every prepared candidate "
+        "was submitted; candidates already running were still recorded",
+    ),
+    Metric(
+        "object_basins",
+        "object_basins",
+        "distinct compared-function bytes, with the variants that reached each",
+    ),
+    Metric("results", "results", "per-candidate records, best rank first"),
+)
+
+METRICS_BY_KEY: dict[str, Metric] = {
+    item.key: item for item in (*METRICS, *CAMPAIGN_METRICS)
+}
 SUMMARY_METRICS: tuple[Metric, ...] = tuple(item for item in METRICS if item.summary)
 DEPRECATED_KEYS: dict[str, str] = {
     alias: item.key for item in METRICS for alias in item.deprecated_keys
@@ -273,17 +309,22 @@ def explain_keys_text() -> str:
         "by its meaning.\n"
     )
     titles = ("key", "line", "deprecated json key", "")
-    rows = [
-        (
-            metric.key,
-            "yes" if metric.summary else "-",
-            ", ".join(metric.deprecated_keys) or "-",
-            metric.description,
-        )
-        for metric in METRICS
-    ]
+
+    def describe(metrics: tuple[Metric, ...]) -> list[tuple[str, str, str, str]]:
+        return [
+            (
+                metric.key,
+                "yes" if metric.summary else "-",
+                ", ".join(metric.deprecated_keys) or "-",
+                metric.description,
+            )
+            for metric in metrics
+        ]
+
+    rows = describe(METRICS)
+    campaign_rows = describe(CAMPAIGN_METRICS)
     widths = [
-        max(len(titles[column]), *(len(row[column]) for row in rows))
+        max(len(titles[column]), *(len(row[column]) for row in rows + campaign_rows))
         for column in range(3)
     ]
 
@@ -292,19 +333,32 @@ def explain_keys_text() -> str:
             row[column].ljust(widths[column]) for column in range(3)
         ).rstrip()
 
-    lines = [
-        header,
-        format_columns(titles),
-        "  ".join("-" * width for width in widths),
-    ]
-    for row in rows:
-        lines.append(format_columns(row))
-        lines.extend(
-            textwrap.wrap(
-                row[3],
-                EXPLAIN_WIDTH,
-                initial_indent="    ",
-                subsequent_indent="    ",
+    def format_rows(items: list[tuple[str, str, str, str]]) -> list[str]:
+        lines: list[str] = []
+        for row in items:
+            lines.append(format_columns(row))
+            lines.extend(
+                textwrap.wrap(
+                    row[3],
+                    EXPLAIN_WIDTH,
+                    initial_indent="    ",
+                    subsequent_indent="    ",
+                )
             )
-        )
-    return "\n".join(lines)
+        return lines
+
+    separator = "  ".join("-" * width for width in widths)
+    return "\n".join(
+        [
+            header,
+            format_columns(titles),
+            separator,
+            *format_rows(rows),
+            "",
+            "Campaign report keys (campaign --json / --json-summary).",
+            "",
+            format_columns(titles),
+            separator,
+            *format_rows(campaign_rows),
+        ]
+    )

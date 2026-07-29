@@ -6,10 +6,11 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
-# Color to machine register for the pinned IDO 5.3 profile. The caller-saved
-# entries were decoded empirically by forcing each color and diffing the
-# result; the callee-saved block is the stable s0-s8 range. Phase one and
+# Color to machine register for the pinned IDO 5.3 profile. Phase one and
 # phase two share this space, so one number means one register in both.
+# Provenance, with its limits, is recorded in docs/compiler-instrumentation.md:
+# c1-c5 were confirmed empirically by forcing each color and diffing the
+# object; the rest follow the coloroffset table decode and pool-order probing.
 # Colors outside the table stay numeric: naming them would be a guess.
 COLOR_REGISTERS: dict[int, str] = {
     1: "v0",

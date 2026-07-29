@@ -235,19 +235,29 @@ CONSTANT_OPCODES = frozenset(
 
 
 def is_commutative_swap(expected: Instruction, actual: Instruction) -> bool:
-    """Return whether two instructions differ only by swapped source operands."""
+    """Return whether two instructions differ only by swapped source operands.
+
+    Both operand shapes are recognized: the three-operand form
+    (``or rd,rs,rt``) and the two-operand form used by the multiply and
+    divide-style instructions that write ``hi``/``lo`` (``mult rs,rt``).
+    """
 
     if expected.opcode != actual.opcode or expected.opcode not in COMMUTATIVE_OPCODES:
         return False
     expected_registers = register_operands(expected.assembly)
     actual_registers = register_operands(actual.assembly)
-    if len(expected_registers) != 3 or len(actual_registers) != 3:
+    if len(expected_registers) != len(actual_registers):
+        return False
+    if len(expected_registers) == 2:
+        sources, other = expected_registers, actual_registers
+    elif len(expected_registers) == 3:
+        if expected_registers[0] != actual_registers[0]:
+            return False
+        sources, other = expected_registers[1:], actual_registers[1:]
+    else:
         return False
     return (
-        expected_registers[0] == actual_registers[0]
-        and expected_registers[1] == actual_registers[2]
-        and expected_registers[2] == actual_registers[1]
-        and expected_registers[1] != expected_registers[2]
+        sources[0] == other[1] and sources[1] == other[0] and sources[0] != sources[1]
     )
 
 
@@ -372,6 +382,30 @@ def raw_difference_breakdown(
     return {name: count for name, count in sorted(result.items()) if count}
 
 
+def mixed_site_callouts(site_classes: dict[str, int]) -> list[str]:
+    """Name cheaper mechanisms hiding inside a broader residual.
+
+    A verdict summarizes the whole residual, but a constant or a commutative
+    swap inside it is still the cheapest thing to fix first, and both are
+    levers the summarizing verdict would otherwise send to the wrong layer.
+    """
+
+    callouts: list[str] = []
+    if site_classes.get("constant"):
+        callouts.append(
+            "Some differing sites are constant materializations: audit the "
+            "flag, enum, or constant against the assembly first, since one "
+            "wrong identifier can present as a much larger residual."
+        )
+    if site_classes.get("commutative-order"):
+        callouts.append(
+            "Some differing sites are swapped sources of a commutative "
+            "operation: that part is expression shape (`x |= y`), not "
+            "allocation."
+        )
+    return callouts
+
+
 def comparison_guidance(
     *,
     exact: bool,
@@ -383,7 +417,7 @@ def comparison_guidance(
     instruction_delta: int,
     register_mismatches: int,
     site_classes: dict[str, int],
-    opcode_multiset_equal: bool,
+    instruction_multiset_equal: bool,
 ) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
@@ -462,13 +496,22 @@ def comparison_guidance(
                 "Do not trace the allocator for this residual.",
             ],
         )
-    if opcode_multiset_equal and opcode_mismatches and not instruction_delta:
+    # A reordering only explains the whole residual when the two sides hold
+    # the same instructions, registers included. Gating on the opcode
+    # multiset alone would call a reordering that also moves a register
+    # "not allocation" and send the next experiment to the wrong layer.
+    if (
+        instruction_multiset_equal
+        and opcode_mismatches
+        and not instruction_delta
+        and classes <= {"opcode"}
+    ):
         return (
             "schedule-mismatch",
             [
-                "Instruction count and opcode multiset are identical and the "
-                "instructions are reordered: this is late-pass scheduling, "
-                "not allocation and not control flow.",
+                "Instruction count, opcodes, and registers are identical and "
+                "the instructions are reordered: this is late-pass "
+                "scheduling, not allocation and not control flow.",
                 "Regroup expressions and statements rather than changing "
                 "values or lifetimes.",
                 "Diagnostic: rebuild the candidate with -g0. IDO emits a .loc "
@@ -481,24 +524,21 @@ def comparison_guidance(
             ],
         )
     if opcode_mismatches or instruction_delta:
-        guidance = [
-            "Instruction shape differs: work at the C/control-flow or "
-            "expression-tree level first.",
-            "Avoid allocator-only experiments until the instruction "
-            "count and opcode schedule stabilize.",
-        ]
-        if site_classes.get("constant"):
-            guidance.insert(
-                0,
-                "One or more differing sites are constant materializations: "
-                "audit the flag, enum, or constant against the assembly "
-                "before treating this as a control-flow problem.",
-            )
-        return "structure-mismatch", guidance
+        return (
+            "structure-mismatch",
+            [
+                *mixed_site_callouts(site_classes),
+                "Instruction shape differs: work at the C/control-flow or "
+                "expression-tree level first.",
+                "Avoid allocator-only experiments until the instruction "
+                "count and opcode schedule stabilize.",
+            ],
+        )
     if register_mismatches:
         return (
             "allocation-mismatch",
             [
+                *mixed_site_callouts(site_classes),
                 "Opcode shape matches but register allocation differs.",
                 "Capture a narrow globalcolor/UGEN trace and inspect live "
                 "ranges before adding local fakes.",
@@ -602,9 +642,9 @@ def compare_instructions(
         instruction_delta=len(candidate) - len(target),
         register_mismatches=register_count,
         site_classes=site_classes,
-        opcode_multiset_equal=(
-            collections.Counter(target_opcodes)
-            == collections.Counter(candidate_opcodes)
+        instruction_multiset_equal=(
+            collections.Counter(target_normalized)
+            == collections.Counter(candidate_normalized)
         ),
     )
     return Comparison(

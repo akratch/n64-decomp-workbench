@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -80,6 +81,47 @@ int main(void) {
 }
 """
 
+# One table, two validators. The workbench refuses a malformed force control
+# before a campaign spends a compile on it, and the instrumented pass refuses
+# it again at the point of use. A control the pass would silently ignore is
+# exactly the defect that produced a false exoneration in the field, so the
+# two must agree entry for entry.
+FORCE_SPECIFICATIONS: tuple[tuple[str, bool], ...] = (
+    ("p1:w9=c30", True),
+    ("p2:w55=c2", True),
+    ("p1:w9=s", True),
+    ("p2:w0=c0", True),
+    ("p1:w9=c30,p2:w55=c2", True),
+    ("p1:w123=c7,p1:w4=s,p2:w9=c1", True),
+    # Unqualified: the recorded trap.
+    ("w55=c2", False),
+    ("w9=s", False),
+    ("p1:w9=c30,w55=c2", False),
+    # Partially formed keys the pass would otherwise treat as "no force".
+    ("p1:w9", False),
+    ("p1:w9=", False),
+    ("p1:wgarbage=c2", False),
+    ("p1:w9=zzz", False),
+    ("p1:w9=c", False),
+    ("p1:w9=cx", False),
+    ("p1:w9=c30x", False),
+    ("p1:w9=sx", False),
+    ("p3:w9=c30", False),
+    ("p1w9=c30", False),
+    ("P1:W9=C30", False),
+    ("p1:w-1=c30", False),
+    # Empty and whitespace entries must not be silently skipped.
+    ("", False),
+    (",", False),
+    ("p1:w9=c30,", False),
+    (",p1:w9=c30", False),
+    ("p1:w9=c30,,p2:w1=s", False),
+    (" p1:w9=c30", False),
+    ("p1:w9=c30 ", False),
+    # Longer than the pass's per-entry buffer.
+    ("p1:w9=c" + "3" * 60, False),
+)
+
 
 class UoptInstrumentationTests(unittest.TestCase):
     def test_refuses_unpinned_source_by_default(self) -> None:
@@ -132,9 +174,11 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn('snprintf(key, sizeof(key), "%s:w%d=", phase, web)', source)
         self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p1"'), 2)
         self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p2"'), 2)
-        self.assertIn("is not phase-qualified", source)
-        self.assertIn("disjoint web spaces", source)
+        self.assertIn("is not a phase-qualified force ", source)
+        self.assertIn("disjoint ", source)
+        self.assertIn("web spaces", source)
         self.assertIn("dkwb_cdx_validate_force", source)
+        self.assertIn("dkwb_cdx_force_entry_ok", source)
 
     def test_colors_are_decoded_to_registers_in_output(self) -> None:
         source = instrument_uopt_globalcolor(
@@ -171,7 +215,9 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("dkwb_cdx_proc_decisions++", source)
         self.assertIn("atexit(dkwb_cdx_finish)", source)
 
-    def test_generated_header_compiles(self) -> None:
+    def build_header_program(self, root: Path) -> Path:
+        """Compile the injected header on its own and return the binary."""
+
         compiler = shutil.which("cc") or shutil.which("gcc")
         if compiler is None:
             self.skipTest("no host C compiler available")
@@ -180,41 +226,73 @@ class UoptInstrumentationTests(unittest.TestCase):
         ).source
         start = source.index("/* DKWB_UOPT_GLOBALCOLOR_V1")
         end = source.index("static void f_compute_save")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            program = root / "header.c"
-            program.write_text(
-                COMPILE_PRELUDE + source[start:end] + COMPILE_DRIVER,
-                encoding="utf-8",
-            )
-            completed = subprocess.run(
-                [
-                    compiler,
-                    "-Wall",
-                    "-Werror",
-                    "-c",
-                    str(program),
-                    "-o",
-                    str(root / "header.o"),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+        program = root / "header.c"
+        program.write_text(
+            COMPILE_PRELUDE + source[start:end] + COMPILE_DRIVER,
+            encoding="utf-8",
+        )
+        binary = root / "header"
+        completed = subprocess.run(
+            [compiler, "-Wall", "-Werror", str(program), "-o", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+        return binary
 
-    def test_force_specification_rejects_unqualified_keys(self) -> None:
+    def test_generated_header_compiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertTrue(self.build_header_program(Path(temp)).is_file())
+
+    def test_force_specification_parses_accepted_controls(self) -> None:
         self.assertEqual(
             parse_force_specification("p2:w55=c2,p1:w9=s"),
             [ForceEntry("p2", 55, 2), ForceEntry("p1", 9, None)],
         )
         self.assertEqual(str(ForceEntry("p2", 55, 2)), "p2:w55=c2")
-        with self.assertRaisesRegex(ValueError, "not phase-qualified"):
+        self.assertEqual(str(ForceEntry("p1", 9, None)), "p1:w9=s")
+        with self.assertRaisesRegex(ValueError, "phase-qualified"):
             parse_force_specification("w55=c2")
         with self.assertRaisesRegex(ValueError, "disjoint web spaces"):
             parse_force_specification("p1:w9=c30,w55=c2")
         with self.assertRaisesRegex(ValueError, "empty"):
-            parse_force_specification("  ")
+            parse_force_specification("")
+
+    def test_workbench_force_validation_matches_the_table(self) -> None:
+        for specification, accepted in FORCE_SPECIFICATIONS:
+            with self.subTest(specification=specification):
+                if accepted:
+                    self.assertTrue(parse_force_specification(specification))
+                else:
+                    with self.assertRaises(ValueError):
+                        parse_force_specification(specification)
+
+    def test_generated_pass_force_validation_matches_the_workbench(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(Path(temp))
+            for specification, accepted in FORCE_SPECIFICATIONS:
+                if not specification:
+                    # An unset CDX_FORCE is not a malformed one; the pass
+                    # simply has no controls to apply.
+                    continue
+                with self.subTest(specification=specification):
+                    completed = subprocess.run(
+                        [str(binary)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            "CDX_FORCE": specification,
+                            "CDX_PROC": "0",
+                            "PATH": os.environ.get("PATH", ""),
+                        },
+                    )
+                    if accepted:
+                        self.assertEqual(completed.returncode, 0, completed.stderr)
+                    else:
+                        self.assertEqual(completed.returncode, 2, completed.stdout)
+                        self.assertIn("phase-qualified", completed.stderr)
 
     def test_refuses_double_instrumentation(self) -> None:
         once = instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True).source

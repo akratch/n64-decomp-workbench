@@ -11,6 +11,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -29,6 +30,9 @@ _RUNNING_LOCK = threading.Lock()
 _RUNNING_COMPILERS: set[subprocess.Popen[str]] = set()
 
 
+TERMINATE_GRACE_SECONDS = 2.0
+
+
 def process_group_arguments() -> dict[str, Any]:
     """Return the arguments that give a compiler its own process group.
 
@@ -36,29 +40,72 @@ def process_group_arguments() -> dict[str, Any]:
     workbench invoked. Owning the group makes it possible to end all of them
     together: a leaked parallel job outlived its campaign once and degraded
     two later runs.
+
+    On POSIX the child gets its own process group *inside* the workbench's
+    session, so it keeps the controlling terminal and is still reaped by a
+    terminal hangup if the workbench dies without cleaning up. A new session
+    (``start_new_session``) would detach it entirely; that is only used on
+    Python 3.10, which has no ``process_group`` parameter.
     """
 
     if os.name == "posix":
+        if sys.version_info >= (3, 11):
+            return {"process_group": 0}
         return {"start_new_session": True}
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return {"creationflags": flags} if flags else {}
 
 
-def terminate_process_group(process: subprocess.Popen[str]) -> None:
-    """End one compiler and everything it started."""
+def signal_process_group(process: subprocess.Popen[str], number: int) -> bool:
+    """Signal a compiler's whole process group; report whether that worked."""
+
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(process.pid), number)
+        except OSError:
+            return False
+        return True
+    # Windows has no process-group signals. A console break reaches the group
+    # created for this child when a console exists; otherwise only the direct
+    # child can be ended, which is why the group guarantee is documented as
+    # POSIX-only.
+    event = getattr(signal, "CTRL_BREAK_EVENT", None)
+    if event is None:
+        return False
+    try:
+        os.kill(process.pid, event)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_process_group(
+    process: subprocess.Popen[str], *, grace: float = TERMINATE_GRACE_SECONDS
+) -> None:
+    """End one compiler and everything it started.
+
+    Terminate first, then escalate: a wrapper that ignores or traps the polite
+    signal must not be able to outlive the campaign that started it.
+    """
 
     if process.poll() is not None:
         return
-    if os.name == "posix":
+    if not signal_process_group(process, signal.SIGTERM):
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            process.terminate()
+        except OSError:
             return
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return
+        time.sleep(0.05)
+    kill_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+    if not signal_process_group(process, kill_signal):
+        try:
+            process.kill()
         except OSError:
             pass
-    try:
-        process.terminate()
-    except OSError:
-        pass
 
 
 def terminate_running_compilers() -> None:
@@ -443,7 +490,35 @@ def run_campaign(
     queue = iter(candidates)
     pending: dict[concurrent.futures.Future[CompileResult], Candidate] = {}
 
-    def record(result: CompileResult, candidate: Candidate) -> CompileResult:
+    def collect(
+        future: concurrent.futures.Future[CompileResult], candidate: Candidate
+    ) -> CompileResult:
+        """Turn one finished future into a result, including a failure.
+
+        A candidate that raises an unmodelled error is a failed candidate,
+        not a failed campaign: discarding the other results would throw away
+        work the campaign already paid for. ``KeyboardInterrupt`` and
+        ``SystemExit`` are not caught here; they end the run.
+        """
+
+        try:
+            return future.result()
+        except Exception as error:
+            return CompileResult(
+                source=display_path(candidate.source),
+                command=candidate.command,
+                returncode=1,
+                stdout="",
+                stderr=f"campaign error: {type(error).__name__}: {error}",
+                object_path=None,
+                comparison=None,
+                cache_key=candidate.cache_key,
+            )
+
+    def record(
+        future: concurrent.futures.Future[CompileResult], candidate: Candidate
+    ) -> CompileResult:
+        result = collect(future, candidate)
         results.append(result)
         if ledger_path:
             append_ledger(
@@ -484,12 +559,22 @@ def run_campaign(
                     pending, return_when=concurrent.futures.FIRST_COMPLETED
                 )
                 for future in done:
-                    result = record(future.result(), pending.pop(future))
+                    result = record(future, pending.pop(future))
                     comparison = result.comparison
                     if stop_on_exact and comparison is not None and comparison.exact:
                         stop = True
                 if not stop:
                     submit_next(len(done))
+            # Stopping means "submit nothing further". Candidates the pool had
+            # already started cannot be cancelled, so they are waited for and
+            # recorded: their objects exist, and a ledger that omitted them
+            # would misreport what the campaign actually tested.
+            for future in list(pending):
+                if future.cancel():
+                    del pending[future]
+            concurrent.futures.wait(pending)
+            for future in list(pending):
+                record(future, pending.pop(future))
         except BaseException:
             # Interrupts and errors must not leave compilers (or the tools a
             # compiler wrapper spawned) running after the campaign.
@@ -497,9 +582,6 @@ def run_campaign(
                 future.cancel()
             terminate_running_compilers()
             raise
-        finally:
-            for future in pending:
-                future.cancel()
     results.sort(
         key=lambda item: (
             item.comparison is None,
