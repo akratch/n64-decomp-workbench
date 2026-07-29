@@ -341,7 +341,7 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
 - `replay-as1` is a differential probe, not byte-faithful for IDO 5.3
   (listing→as0→as1 loses binasm scheduling metadata; silently ignores -Wa
   flags) — document as such.
-- decomp_permuter hard boundary: IDO `va_arg` is unparseable by pycparser
+- decomp_permuter hard boundary: IDO `va_arg` is unparsable by pycparser
   either expanded or preserved — permuter unusable on all varargs functions.
   Opaque-expression mode is the fix.
 - Seed quirks vindicated: the repo's odd inline `if (spacing) { done++;

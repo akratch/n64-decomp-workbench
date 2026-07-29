@@ -74,7 +74,7 @@ compiler-instrumentation deep-dive, all on IDO 5.3 `-O2 -g3 -mips2`.
     No color force can fix that class; the lever is liverange formation
     (f_makelivranges — hook specced, untested). Diagnose via the assign
     tracer: pool GET vs f_ureg provenance for the divergent register.
-15. **Varargs functions are permuter-dead** (IDO va_arg unparseable by
+15. **Varargs functions are permuter-dead** (IDO va_arg unparsable by
     pycparser) — plan campaigns on printf-family functions accordingly.
 16. **The redundant-mask lever (matched blockSetupVertices).** A source mask
     that is a no-op at the assembler (`(s16 & 0x3fff) << 18`) still consumes
