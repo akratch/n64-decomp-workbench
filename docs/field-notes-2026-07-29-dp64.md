@@ -635,4 +635,480 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
   human-first docs pass dispatched (START_HERE, field-guide, batch-triage
   walkthrough).
 
+## objprint_func_80036890 MATCHED (final assault) — p2 is index-ordered, and
+## the dual-role local is a COLORING lever
+
+- **words=0, insns=186, frame=-112; whole objprint TU .text byte-identical
+  (2220 insns, 14/14 functions) under stock IDO 5.3 + project flags.**
+- **The `-g0` diagnostic REFUSED the .loc hypothesis and was right.** The
+  10-instruction hunk was byte-identical at `-g0` and `-g3` while the rest of
+  the function fell apart at `-g0`. Recording the negative result matters:
+  the diagnostic is genuinely two-sided, not just a "stop searching" signal.
+- **CORRECTION to the p2 docs (important): p2 colors webs in ASCENDING WEB
+  INDEX order, not save order.** The CDX log for objprint proc 8 emits
+  p2dec/p2color for webs 0, 2, 21, 23, 26, 31, 55, 189… strictly ascending;
+  saves along that sequence are 2.0, 4.0, −3.0, 3.0, −2.7, 7.0, 105.5, 400.
+  Every earlier writeup that reasoned "the 105.5 web outranks the 15.0 web"
+  was reasoning about the wrong ordering. Consequence for search: a dead-read
+  web only helps if its FIRST UCODE REFERENCE precedes the victim web's, and
+  "make the web profitable so it outranks" is not the mechanism — "make the
+  web exist earlier" is. Also confirmed: `regsleft = 22 − popcount(f0)`, and
+  bestcolor is first-free EXCEPT for the incoming-register preference (web 2
+  = arg0 takes c3 with c2 free).
+- **The winning lever: dual-role local as a WEB-MERGE tool.** The residual was
+  "p2 web 55 (the `textureAnimationCount` reload) must have c1 forbidden".
+  No new zero-code web could be created that both spans the inner-loop guard
+  and leaves the schedule alone (proved over ~2500 filtered variants: every
+  guard-spanning construct hoists part of the `sp34 + (sp6C<<1) + 1` chain
+  above the `blez`, which the target keeps below it). The fix was not to add
+  a web but to MERGE the victim into an existing one: reuse a single local
+  for `arg0->def` (p2 web 23, already c1-forbidden via interference with
+  `newp`/web 0, already colored c2=v1) and for the loop bound. The merged web
+  inherits web 23's index AND its forbidden mask, so it takes c2 = v1.
+  Both ingredients are individually inert (5w each); only the pair matches.
+  Source shape:
+    `var_dual = (s32)arg0->def; sp34 = ((ObjDef*)var_dual)->pTextures; …`
+    `for (j = 0; j < (var_dual = t5->textureAnimationCount); j++)`
+  s32+casts, `ObjDef*`+cast, and a `union {ObjDef* d; s32 n;}` spelling all
+  produce the identical object. **Generalize this into
+  ido-late-stage-patterns.md**: the dual-role local (previously listed as a
+  register-pressure idiom) is also the only known way to transplant a
+  forbidden-color mask onto a web you cannot otherwise constrain. Recipe:
+  find a p2 web that already has the color you want, verify it dies before
+  the victim's liverange, and merge them through one variable.
+- **Negative results worth keeping**: whole-local `if (!(x));` dead reads after
+  an assignment are dropped entirely (no web, zero effect); only rvalue
+  EXPRESSIONS that CSE with a real computation form webs. Dead reads placed
+  anywhere inside the inner loop cost 20–100 words (branch breaks the
+  loop-body schedule). Prologue statement permutation is inert on its own for
+  9 of the legal orders here — but combined with an early count read it moves
+  the death points and reshuffles the whole p2 assignment (a usable but
+  low-precision dial).
+- **Repeat asks confirmed, in priority order**: (1) `--align` — positional
+  words ranked a 12-word 4-hunk variant and a 12-word 20-hunk variant
+  identically and misranked the 5-word register-only variant that turned out
+  to be the correct base; an LCS-aligned word count found it immediately.
+  Fifth campaign to need this. (2) `compare --report-regs` rebuilt again.
+  (3) CDX should print the p2 processing ORDER explicitly (or at least a
+  `rank=` field) — the index-order discovery above took a log re-read that a
+  one-word field would have made free. (4) `census`-style prefilters
+  (insns + which register holds web X) are what make 2500-variant sweeps
+  practical at ~0.06 s each; a `compare --census KEY=VALUE` predicate would
+  remove the per-campaign objdump+regex layer.
+
+## DLL wave 2 additions (PIC catalog)
+
+- **Unused-static dead-code elimination trap**: marking a helper `static`
+  while its only caller is still a GLOBAL_ASM block guts the body to
+  `jr ra; nop` (symbol kept, size≈0) and shifts every later function's
+  address — cascading false structure-mismatches. Detect via readelf -sW
+  size=0. Rule: flip to static only when the real C caller lands in the
+  same pass (pairs with wave-1's bottom-up rule).
+- Reconfirmed reloc-noise class: candidate `R_MIPS_GOT16 .data+off` vs
+  target's named-symbol reloc = same runtime address; workbench buckets it
+  correctly as relocation-controlled, but it still costs hunt time — the
+  reloc-symbol-mismatch signature ask covers this case too.
+- Manual-unroll-by-4 tell (dll_14 bss_0 family): first 3 unrolled checks
+  use branch-likely, the 4th uses plain branch + nop (nothing to prefetch)
+  — a strong "unrolled in source, not by compiler" signature.
+
+## DLL 413 probe (parallel worker) + verification safety note
+
+- **Safety rule (make it doctrine): ninja success is NOT match evidence.**
+  A clean-compiling non-exact function still links; only the ROM checksum
+  line (`build/dino.z64: OK` from md5sum -c) proves exactness. Our
+  verify-commit discipline already gates on that exact line — keep it
+  mandatory in every brief.
+- DLL 413 (IMspacecraft): dll_413_setup has a PROVEN fix (callee
+  dll_413_func_1AC as static real C → setup words=0) but the pair is
+  COUPLED — static flips the caller's PIC codegen, so both must land
+  together, and func_1AC is unsolved (one extra dead `move a0,zero` before
+  its message loop; 7-case switch regalloc cascade). Handoff for a future
+  round; the coupled-revert requirement is itself a reusable caution.
+
+## Wave-2 final — config-contamination catch + corrected bottom-up rule
+
+- **DOCTRINE: regenerate build.ninja before trusting any verdict.** A
+  `configure.py --all-code` run leaves `-DNON_MATCHING` in build.ninja;
+  every `#ifndef NON_MATCHING` gate then compiles the DRAFT branch, and
+  stale objects keep the ROM checksum green until the next recompile.
+  Negative results measured under a contaminated config are void (DLL
+  210/437/413 diagnoses need clean re-runs). Add a config fingerprint line
+  (grep -c NON_MATCHING build.ninja == 0) to every campaign brief.
+- **Bottom-up rule CORRECTED**: never mark a callee static while its caller
+  is still GLOBAL_ASM (IDO deletes the unreferenced-static body to jr ra;
+  asm_processor splices post-compilation so the pragma is not a reference).
+  Correct order: match the callee NON-static first, then flip to static in
+  the same edit that makes the caller real C.
+- New levers: statement order of independent stores drives t-register
+  assignment (pre-scheduling order); $v0-reservation is the objdata-register
+  tell in void vs value-returning accessors; free a-registers are ordinary
+  colors ahead of t0; IDO won't CSE self->field across a store through a
+  pointer param (aliasing) — a local is not optional there.
+- dino.py extract-dll/configure must run under .venv python (the python3
+  shebang dies on spimdisasm AFTER deleting the asm dir).
+
 ## Pending (from subagent campaign runs — append when reports land)
+
+## texDPTextures kill-mission (148 -> 74w; temp cascade solved, 2 structural sites left)
+
+- **Result**: `cand_best` 148w/align=120 -> **74w/align=45 (struct 8 + reg 37)** in a
+  two-line source diff, ~330 filtered variants. The ~110-word ugen temp cascade
+  named in the prior handoff is **gone**; what remains is 4 clean pool-coloring
+  clusters plus the original 8-word structural pair.
+- **The winning pair is non-additive (both ingredients are losses alone)**:
+  (1) `if (tex0->flags & RENDER_TEX_BLEND) {}` at the top of the `else` of
+  `if (tex1 != NULL)` — a zero-code dead read that CSEs with the real
+  `tex0->flags & BLEND` test 4 instructions later; alone 148->95.
+  (2) `temp_a2 = temp_v1->valB | (renderFlags & temp_v1->valA)` instead of
+  `(renderFlags & valA) | valB`; **alone this is 148->152 (worse)**, together
+  95->74. Third confirmed instance of "two individually-inert/negative
+  ingredients, only the pair matches" (after objprint's dual-role merge).
+  Note this also **contradicts the field guide's dead-family entry** for
+  commutative order: `a | b` vs `b | a` did NOT canonicalize here (`or a2,t8,t9`
+  vs `or a2,t9,t8`), it flipped emitted operand order without compound
+  assignment. The guide's claim needs an "operands of unequal depth" caveat —
+  `X | (Y & Z)` is not the symmetric case that canonicalizes.
+- **`--align` earned its keep again (6th campaign)**: positional words ranked
+  `D_deadmask_elsetop` and `F_texfl_1` identically at 95w; LCS opcode-alignment
+  separated them (struct 10 vs 8) and picked the one that actually composed with
+  the `or` swap. An ad-hoc `align.py` (shape-normalised LCS -> struct/reg/hunks
+  split) was rebuilt for the 6th time; it is ~40 lines and belongs in `compare`.
+- **NEW NEGATIVE, important and general: IDO 5.3 copy-propagates EVERY plain
+  local copy `X = <var>;`, unconditionally.** Falsified across ~90 variants:
+  fresh locals, reused live locals, **formal parameters as the destination**
+  (`force = renderFlags`), destinations with many other defs (`hasTex`),
+  statement-separated copies, copies with real statements between copy and use.
+  All produced byte-identical objects to the base. The field guide's lever-13
+  rule ("params with multiple reaching defs are not propagated") is about the
+  *source* of a read, not the destination of a copy — the two are not
+  symmetric, and the dual-role/web-merge recipe from objprint therefore does
+  **not** transfer to a value that arrives via a copy.
+- **The one construct that DID defeat it (new lever)**: redefine the *source*
+  after the copy. `var = renderFlags; renderFlags |= 0;` collapsed the
+  double reload into a single register feeding both `andi`s (148->105 on the
+  old base, exactly the target's shape) — but `|= 0` on a memory-resident
+  formal materialises lw+sw and costs more than it wins on the good base.
+  `renderFlags |= 0` **alone** is fully inert (303 insns, 148w) — it only
+  materialises when it has a copy to kill. Wanted: a zero-code redefinition.
+- **Exact remaining blocker (struct 8, unchanged since the prior campaign)**:
+  target `lw a1,140(sp)` @105 in the dominator block (one renderFlags reload
+  whose web spans both the `&0x40` and `&0x2000` tests) + `move a1,t3` @144
+  (frameOptions copied into that same register before the `>>8`); candidate
+  emits two loads @133/134 and hoists `sra t?,t3,0x8` to @145. Census
+  (DKWB_UOPT_COPY_V1, proc 11) shows renderFlags = itab bit 63, `color=-1`,
+  `intf=26`, split by globalcolor into three post-spill liveranges (bits
+  299/300/301) all uncolored, `forb=7f800000` (c1-c8 forbidden). The target
+  colors one of those fragments c4=a1. **CDX_FORCE cannot create the web**;
+  this is a web-SET difference, same class as texLoad round 5.
+- **Cluster attribution of the remaining 37 register words** (all pool, no temp
+  cascade): (a) hasTex/var_a0 a0<->a1 swap, 14 sites — target keeps `hasTex`
+  in a1 for its whole life (frame index @17 AND boolean @175/182/196) while the
+  candidate splits it into two liveranges (a1 early, a0 late) and `var_a0` then
+  takes a1 by elimination; (b) renderMipmaps a2 vs v1 + temp_v0_2 v0 vs v1 +
+  tex0->flags v1 vs a1, ~18 sites, one chain displaced by the dead read's own
+  web taking a1; (c) `addu v1,a3,t4` vs `addu v1,t4,a3`, 1 site; (d) two stray
+  temps. Cluster (a) is almost certainly downstream of the missing a1 web —
+  the same register is contested.
+- **Proven-inert on this function (do not re-spend)**: declaration permutation
+  (25 positions), statement order in the `tex0!=NULL` tail (all 24 perms),
+  `hasTex` test spelling, `var_a0` expression form, `hasPalette` expression
+  form, `dlSetEnvColorNoSync` argument spelling (5 forms), dead reads of
+  `var_a0`/`hasTex` (all emit a branch, +1 insn), reads of renderFlags placed
+  on the `tex1 != NULL` path to force PRE (dropped entirely), `&&` operand
+  order, and parameter signedness (blocked by the header prototype).
+
+## texDPTextures round 2 — 74 -> 43w; three new levers, sibling-transplant validated
+
+- **43 words, insns 303, frame -128, align=36 (struct 4 + reg 32)**, down from
+  148/align=120 at handoff. Instructions 106-172 (the whole divergent block that
+  the prior campaign called a ~110-word cascade) are now **byte-identical**.
+- **The sibling-source transplant is a first-class technique.** Reading the
+  already-MATCHED `texDPTextureSimple` in the same TU produced the fix for the
+  `move a1,t3` structural site in one variant: its argument spelling
+  `dlSetEnvColorNoSync(&dl, (frameOptions & 0xFFFF) >> 8, ... x3)` instead of
+  `frameOptions >>= 8;` + three bare args. **The `& 0xFFFF` is load-bearing and
+  emits nothing** — `frameOptions >> 8` inline three times leaves struct=9,
+  `(frameOptions & 0xFFFF) >> 8` gives struct=5 and materialises the copy.
+  This is the redundant-mask lever (lever 16) acting on *web formation*, not
+  just FIFO phase: the mask makes the shift's operand own a liverange, so the
+  parameter's web must be copied into it rather than shifted in place.
+  Recommendation for the skill: **before opening a campaign, diff the target
+  against any matched sibling in the same file, statement by statement** — the
+  three levers that moved this function (env-arg mask, `(renderFlags & valA) |
+  valB` order, inline `var_a3_2[idx]` vs a pointer temp) were all readable
+  directly off the sibling.
+- **Copy-prop defeat, now cheap and general (this is the round's main lever)**:
+  `var_dual = renderFlags; renderFlags |= 0;` — a redefinition of the *source*
+  immediately after the copy. `renderFlags |= 0` alone is inert (byte-identical);
+  it only materialises when it has a copy to kill, and then it costs one store
+  that the target spends on a reload, so instruction count is unchanged (303).
+  This collapsed the double `lw ?,140(sp)` into one register feeding both
+  `andi`s — the exact target shape. `^= 0`, `+= 0`, `= x` and `&= ~0` are NOT
+  equivalent: `+= 0` and `= x` are dropped before they can kill the copy,
+  `|= 0` and `&= ~0` behave identically. Worth a patterns-doc entry with the
+  full negative list.
+- **Web-index steering by dead read, confirmed and quantified**: with the copy
+  at the top of the block, `var_dual`'s web is first-referenced *before*
+  `gCurrTex0`'s address web, so it takes c3=a0 and the address takes c4=a1 —
+  the reverse of the target. Adding `if (gCurrTex0) {}` immediately **before**
+  the copy moves the address web's first reference earlier, flipping the pair
+  (renderFlags -> a1 as required): 50w -> 43w. Order within the slot is
+  decisive — the same dead read placed *after* the copy is 158w, and at any
+  earlier slot (function top, inside the `tex0 != NULL` branch) it is 254-299w.
+  "First ucode reference order" is now directly steerable and this is the
+  cleanest demonstration so far; it should be a worked example in
+  ido-late-stage-patterns.md.
+- **Counter-example to "unused-declaration drops are inert" (3rd sighting)**:
+  after switching to inline `var_a3_2[var_a0]`, deleting the now-unreferenced
+  `struct PointersInts* temp_v1;` declaration moved the function from 43w to
+  67w (struct 4 -> 56). The declaration must be kept. This contradicts the
+  round-3 note "unused-declaration drops are fully inert (dropped before uopt)"
+  — that claim needs retracting or scoping.
+- **Refuted this round**: the hasTex/var_a0 merge (F3). Making the surviving
+  copy land in `hasTex` rather than a fresh local — i.e. one local carrying the
+  frame index, the renderFlags reload, the frameOptions value and the boolean —
+  is consistently 6 words *worse* (49 vs 43) and does not merge the two
+  liveranges. Also refuted: splitting `var_v0`'s three roles the way the
+  matched sibling does (separate `i`, `geomMode`, `s16` mask) — +150 words, so
+  the sibling's local *count* does not transplant even though its expression
+  spellings do. F1's expression-RHS copies (`| 0`, `+ 0`, `* 1`, `& ~0`,
+  `(s32)`, `~~`) all fold to pure copies and are byte-identical to the base —
+  **the fold boundary is: any expression whose value equals the operand is
+  folded to a copy before copy-propagation runs**, so there is no F1 analogue
+  of texLoad's mul-vs-shift asymmetry on the RHS of an assignment.
+- **Terminal state / exact blocker**: struct 4 = the `renderFlags |= 0` store is
+  emitted twice (once before `bne`, once in its delay slot) where the target
+  emits one store plus one `lw a1,140(sp)` reload; instruction counts balance,
+  so this is a store-duplication/schedule artifact of keeping the value live
+  rather than reloading it. reg 32 = three clusters: (a) hasTex/var_a0 a0<->a1,
+  14 sites — target keeps `hasTex` in ONE web from insn 17 to 196, candidate
+  splits it (all merge attempts refuted above); (b) renderMipmaps a2->t0 and
+  hasPalette t0->t1, 9 sites, blocked because the `if (gCurrTex0) {}` dead read
+  consumes a2 with its own value web (the target's equivalent value lives in a
+  ugen temp t6 — the dead read cannot avoid creating a pool web because the
+  empty-if is a BB boundary); (c) one commutative `addu v1,a3,t4` and two
+  strays. Cluster (b) is the tractable one: **the ask is a zero-code way to
+  advance a global's ADDRESS web index without also forming a value web.**
+
+## texDPTextures round 3 (campaign close) — the address-of dead read EXISTS and is free
+
+- **New confirmed lever, and the answer to round 2's named ask:
+  `if ((s32) &gGlobal) {}` is a zero-code dead read that forms the ADDRESS web
+  without forming a VALUE web.** Verified in the object: with
+  `if (gCurrTex0) {}` the global's value lands in a pool register
+  (`lw a0,0(a2)`); with `if ((s32) &gCurrTex0) {}` it falls to a ugen temp
+  (`lw t4,0(a1)`) exactly as the target does (`lw t6,0(a0)`), and instruction
+  count is unchanged (303). This is the first construct found that separates
+  the two webs a global reference normally creates. Add to the field guide
+  next to levers 7/8: **the empty-if forms a web for whatever rvalue you name;
+  naming the address instead of the value gets you the lui/addiu web alone.**
+  Spellings `&g`, `(s32)&g`, `(u32)&g`, `&g != (T*)0`, `(s32)&g * 4`,
+  `(s32)&g * 1`, `(s32)&g + var`, `(s32)&g | var` are all equivalent here — the
+  arithmetic decorations neither help nor hurt, so the mul-vs-shift formation
+  asymmetry does NOT extend to address expressions.
+- **It does not fix this function, for a precise and reusable reason.** The
+  address-only read costs +119 words (43 -> 162) on its own, and once the
+  *value* read `if (gCurrTex0) {}` is present the address-of read is fully
+  inert (byte-identical, 43w) in every position tried — the value read has
+  already formed the address web, so the address-of read CSEs into it and
+  creates nothing. **The index advance that cluster (b) needs is only produced
+  by reading the value, and reading the value is exactly what consumes a2.**
+  That is a genuine tension, not a search failure: on this shape the address
+  web's first-reference cannot be advanced independently of the value web's.
+- **Campaign closed at 43 words** (insns 303, frame -128, obj sha1 bf616e2d62ad,
+  src sha1 7f058760f1303a058a4fc5844752c978c300d881), from 148 at handoff;
+  911 ledger rows across 3 rounds. Instructions 106-172 byte-identical.
+  Residual: struct 4 (the `renderFlags |= 0` store emitted twice vs the
+  target's one store + one reload) and reg 32 in three clusters — (a)
+  hasTex/var_a0 a0<->a1, 14 sites, needs hasTex to be ONE web from insn 17 to
+  196 and every merge spelling was refuted; (b) renderMipmaps a2->t0 /
+  hasPalette t0->t1, 9 sites, blocked by the tension above; (c) one commutative
+  `addu` plus two strays. Next lever would have to come from below the source
+  layer (a CDX force probe on the a0/a1 pair) rather than from more variants.
+
+## blockComputeVertexColors — DKWB_UOPT_PRE_V1 and a NEW LAYER below coloring
+
+**New instrument: `DKWB_UOPT_PRE_V1` (`patch_prehoist.py`, env `CDX_HOIST=1`),**
+extends `DKWB_UOPT_COPY_V1`; all three profiles compose in one run
+(`CDX_WEBS=1 DKWB_UOPT_COPY=1 CDX_HOIST=1`). Section-scoped byte fidelity
+verified on 3 TUs (map, objprint, texture), tracing ON and OFF, 0 DIFF.
+
+- **The unlock: uopt ships its own PRE dumpers.** `f_printprecm` /
+  `f_printcm` / `f_printscm` survive with symbol names. Decoding their
+  `write_string("<name> --")` -> `printbv(bb + off)` pairs out of the rodata
+  blob gives the authoritative per-block field map, no guessing:
+  `0xfc hoistedexp, 0x104 antlocs, 0x10c alters, 0x114 avlocs, 0x11c absalters,
+  0x124 delete, 0x12c ppin, 0x134 iv, 0x13c cand, 0x144 subdelete,
+  0x14c subinsert, 0x154 antin, 0x15c antout, 0x164 insert, 0x16c ppout`.
+  The same words are reused: in the avail prepass `0x124 pavlocs, 0x144 avin,
+  0x14c avout, 0x164 pavin, 0x16c pavout`; after `f_getexpsources`
+  `0x134 sink, 0x154 source, 0x15c region`. **Corrects WEBFORM/COPY_V1:**
+  `bb+0x154` is `antin`/`source`, not a bespoke "web witness".
+  Also decoded: `bb+8` number, `bb+10` loopdepth, `bb+28` first statement,
+  stmt `node+8` next, `node+16` owning block, `node+2` itab bit.
+- **Liverange priority fields (from `f_printregs`): `lr+0x1c = nocs`,
+  `lr+0x24 = numintf`, `lr+0x28/0x2c = forbidden`, `lr+0x30 = save`
+  (an IEEE float = totalsave/nocs), `lr+4 = web id`, `lr+32 = color`.**
+  This makes the initializer-sinking / read-count levers directly observable:
+  dump `save` per web and watch the scan order move.
+- **Two mandatory robustness fixes for any future uopt walker.** (1) The
+  recompiled 512MB region is `mmap` PROT_NONE, paged in by `wrapper_sbrk`, so
+  a speculative deref SIGBUSes -- `dkwb_ph_ok()` is a memoised per-4K-page
+  `sigsetjmp` probe, armed only while tracing. (2) `f_bvectin` has no capacity
+  check; nodes handed to `f_resetsubdelete` carry `sym` far past `nbits`.
+  Bound-check against `n*128` first. Both were required; without them the
+  instrument crashed on 2 of 3 gate TUs.
+
+**Hypothesis refuted, and a new layer found.** The 4-vs-1 `sll` difference on
+bCVC is NOT a uopt PRE decision. Across the hoisting and non-hoisting variants
+`f_codemotion` makes byte-identical placement decisions (exactly one `insert`
+in the whole proc, for an unrelated loop-invariant address; the scale's
+`PLACE` sets are empty in both), and `f_getexpsources` only computes
+source/sink/region. `f_codemotion`, `f_getexpsources`, `f_dompropagate` are
+exonerated for this class of diff.
+
+- **NEW LAYER: the ugen delay-slot filler, below coloring and above emission.**
+  ugen fills a branch delay slot with the *first instruction of the target
+  block* and advances the branch label past it. It may only do so with a
+  **non-likely** branch -- which executes the slot on both paths -- when the
+  slot instruction's **destination register is not live at the branch**.
+  Otherwise it must emit `beql` (likely), and then every other predecessor
+  needs its own copy plus the physical block-head copy survives.
+- **The delay-slot collision rule (new, reusable).** On a compare-chain
+  `switch`, if the scaled-index web and the switch-selector web get the SAME
+  register, ugen is forced to `beql` and the arm's first instruction is
+  emitted **3 times** (two delay slots + one dead block-head copy) instead of
+  once. Cost: +2 instructions per switch region. Target: selector `v0`, scale
+  `v1` -> `beq`, 2 per region. Every candidate: both `v0` -> `beql`, 4 per
+  region. **Invariant to aim for is "different registers", not any particular
+  register.**
+- **The empty-if dead read is a binary CSE dial, not a graded one.** Any
+  expression containing an exact `idx * 4` subterm placed in the switch's
+  dominator makes cfe emit the scale once there and both arms consume it
+  (0 per region); everything else leaves it per-arm. Confirmed hoisting:
+  `idx*4`, `idx*4+1`, `(idx*4)&1`, `otherArray[idx]`. Confirmed NOT hoisting:
+  `idx*8`, `idx*2`, `idx*3`, `idx<<2`, `idx+1`, `idx`, `-idx`,
+  `&array[idx]`. No intermediate setting exists.
+- **Inert on this shape (all byte-identical to base):** dead reads inside any
+  case arm; `*(base+idx)` vs `base[idx]` in either or both arms; `(s32)` casts
+  on the index; statement reordering inside arms; extra parens; `3 & x`;
+  `switch (sel = ...)`. **The "per-arm syntactic variation defeats the CSE"
+  family is refuted** -- cfe's ucode is identical for all of them.
+- **A hard tension, same shape as texDPTextures round 3.** Two dominoes are
+  needed and they are anti-correlated. `if (var_a0_2) {}` in the `case 0` arm
+  moves `var_a0_2` into `a0` (target's register) at **zero instruction cost**
+  and improves both metrics (678->676 words, 747->757 aligned). But every
+  lever that separates the selector from the scale (any dead read of
+  `(s16)flag & 3`, or dropping the `s16` cast) works *by extending the
+  selector web*, and that extension immediately knocks `var_a0_2` back off
+  `a0` and cascades a whole-function renaming (alignment 757 -> ~400).
+  12 pairings tried; the anti-correlation held in every one.
+- **Baseline correction for the campaign.** `BEST_FINAL_func.c` is not the
+  best candidate: it carries three `if (var_a0_2 * 4) {}` dead reads that
+  over-hoist (1035 insns, 15 of the target's 18 scale `sll`s). Removing all
+  three scores **678 words / 1041 insns** vs 784/1035; adding
+  `if (var_a0_2) {}` to `case 0` gives the current best, **676 words,
+  757/1037 aligned**. Re-baseline on that, not on BEST_FINAL.
+- Unsolved. ~50 new variants (73 ledger rows) in
+  `scratchpad/prehoist_bCVC/ledger.jsonl`. Next lever must come from below the
+  source layer -- a CDX force probe on the scale web's color, exactly the
+  conclusion texDPTextures round 3 reached for its a0/a1 pair.
+
+## 2026-07-29 -- DLL (PIC) match campaign: first pass on `-KPIC` codegen
+
+37 DLL functions matched in one session (DLL total 5764 -> 5801, 62.23% ->
+62.63%; overall 68.19% -> 68.52%). Commits: DLL 32 (2), DLL 14 (10), DLL 714
+(14), DLL 7 (10), DLL 615 (1). Everything below is from `-O2 -g3 -KPIC`
+(`CC_FLAGS_DLL`) rather than the core `-G 0 -non_shared` profile.
+
+### Loop / oracle for DLLs
+- Object pairs live at `build/src/dlls/<path>/<name>.o` vs
+  `expected/build/src/dlls/<path>/<name>.o`. `decomp-workbench compare/view
+  --symbol <fn>` works unchanged; `ninja build/src/dlls/.../x.o` is a ~2s
+  iteration.
+- **`tools/progress.py` counts `asm/nonmatchings/dlls/<dir>/*.s` files on
+  disk, not pragmas in the C.** After a match you must run
+  `./dino.py extract-dll <num>` (which re-runs splat and deletes the .s for
+  functions now found in the C) before progress moves. Easy to miss; cost me
+  one confused cycle. *Tool gap: the workbench could expose a "did the count
+  actually move" check that knows about this re-extract step.*
+- Relocation noise is much higher than in core: IDO emits **section-relative
+  GOT entries** (`%got(.bss)` + literal offset) where splat's expected asm has
+  **per-symbol** entries (`%got(sym)` + `%lo(sym)`). The workbench correctly
+  buckets these as `relocation_controlled`, but raw immediates differ
+  (e.g. `sb v0,38(at)` vs `sb v0,0(at)`); read `words=0` /
+  `verdict=instruction-exact`, not `raw`.
+
+### PIC idioms (new levers)
+1. **Local (static) vs global symbol address is visible in the instruction
+   stream.** Taking the address of, or calling, a function in the same TU:
+   - `static` callee -> `lw t9,%got(f)(gp); addiu t9,t9,%lo(f); jalr t9`
+     (3 insns; same 2-insn shape when storing a function pointer).
+   - non-`static` callee -> `lw t9,%call16(f)(gp); jalr t9` (2 insns), or a
+     single `lw` when only the address is stored.
+   This is the single biggest structural blocker in object DLLs: every
+   `ctor`, dispatch-table builder and thin wrapper calls same-TU helpers.
+   **IDO hard-errors on `static f(); #pragma GLOBAL_ASM(f)`**
+   ("static function declared and referenced, but not defined"), so a
+   caller cannot match until its callee is fully decompiled. DLLs must be
+   worked **bottom-up**. (`subtitles.c` already carries
+   "Needs to be static for matching" comments -- same finding.)
+   Blocked this session on: `dll_714_ctor`/`func_0`, `dll_714_func_38A0`,
+   `dll_413_setup`, `dll_662_setup`, `dll_251_func_B64`,
+   `dll_210_func_1CCC0`, `dll_437_func_15F8`.
+2. **`%lo` folding vs address materialization discriminates single-use from
+   multi-use.** A single scalar store folds (`sw x,%lo(sym)(at)`); two or
+   more accesses to the same object materialize the base
+   (`lw v0,%got(sym); addiu v0,v0,%lo(sym)` then `0(v0)`). Corollary lever,
+   used to fix `dll_14_func_6CA0`: an extra materialized base with **no**
+   matching load means a *read that copy-propagation killed*. Source is
+   `a = X; b = a;` not `a = X; b = X;` -- the read forms the address web,
+   then folds away. Worth one variant every time an unexplained
+   `addiu vN,vN,%lo(sym)` appears.
+3. **`-g3` argument home stores are an unused-parameter tell.** `sw a0,0(sp)`
+   with no frame adjustment (or `sw aN,0x2N(sp)` with one) appears for
+   parameters that are *not* consumed in a register. `void f(s32 a){}` is
+   exactly `sw a0,0(sp); jr ra; nop`. Narrowing casts also force a home
+   store plus the mask: `u8` param -> `sw a0,..(sp); andi t,a0,0xff`;
+   `s16` -> `sw a0,..(sp); sll/sra 16`; `u16` -> `andi 0xffff`.
+   Reading the mask tells you the declared parameter type for free.
+4. **Parameter-in-place beats a shadow local** (same as core). `dll_7_func_5E5C`
+   needed `if (arg0 >= 0x1C) arg0 = 0;` -- introducing `u8 var = arg0;` moved
+   the mask into `a0` and reordered the whole prologue.
+5. **Redundant `& 1` on a comparison is real, not noise.** `slt t,zero,x`
+   followed by `andi t,t,1` means the source wrote the extra mask;
+   `dll_714_func_18E0` needed
+   `(4 * ((x > 0) & 1)) * 4` where the sibling `dll_714_func_1968` needed
+   `4 * (x > 0) * 4`. One `andi` = one instruction of divergence.
+6. **`b` to the next instruction = a real `else`.** `v=A; beqz c,L; nop;
+   b L; v=B; L:` is `if (c) v=B; else v=A;` -- the *hoisted* value is the
+   else arm. Writing the `if`-only form (`v=A; if (c) v=B;`) drops the `b`.
+7. **`if (A || B)` vs `if (!A && !B)` decides branch polarity.**
+   `dll_14_func_6E24` was 89/89 instructions with exactly 2 words wrong
+   (`bnezl` vs `beqzl`); rewriting the condition inverted-with-swapped-arms
+   fixed both. Cheap first variant on any 2-word branch residual.
+8. **Pointer subtraction of a non-power-of-2 struct emits a real `div`.**
+   `bss_AC4 - bss_AC0` with `sizeof == 0x18` -> `subu; li at,24; div; mflo`.
+   Seeing `div` by a struct size is a pointer-difference tell, not an
+   integer division in the source.
+
+### bss/data layout under PIC
+- IDO aligns each `.bss` object to at least 4, and to 8 once it is >= 8 bytes.
+  A scalar `s16` followed by a 6-byte pad array will *not* land the next
+  object at +8 -- declare the padded scalar as an array instead
+  (`static s16 bss_AC8[4];`), which keeps the symbol, the offset and the
+  codegen (`bss_AC8[0]` folds `%lo` identically to a scalar).
+- Retyping bss/data is free as long as the **symbol names** survive: the
+  remaining `GLOBAL_ASM` .s files only need the names, not the types. That
+  makes "type the whole bss block, then convert every function that touches
+  it" a very high-yield unit of work (DLL 14: 8 functions in one edit;
+  DLL 7: 10). Check first with
+  `grep -rl '<sym>' asm/nonmatchings/dlls/<dir>/` that the symbols you want
+  to *delete* (by folding into a struct) are only referenced by functions you
+  are converting in the same pass.
+- Object-DLL data structs: `Object.data` is at `0xB8`, `Object.srt.transl` at
+  `0xC` (SRT is yaw/pitch/roll/flags/scale *then* transl), `globalPosition`
+  at `0x18`, `velocity` at `0x24`, `seqSlot` at `0xB4`, `shadow` at `0x64`
+  (`ObjectShadow.tr` at `0x20`). Most tiny object-DLL functions are
+  `self->data` field pokes and decode in one pass from these.
