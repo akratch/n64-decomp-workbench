@@ -69,5 +69,5 @@ strict = true
 
 [tool.codespell]
 # "tne" is the MIPS trap-if-not-equal mnemonic.
-ignore-words-list = "disjointness,dout,tne"
+ignore-words-list = "disjointness,dout,tne,nd"
 skip = "examples/cv64/scratches/*/context.c"

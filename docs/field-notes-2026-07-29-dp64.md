@@ -481,4 +481,158 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
   lists + tight pointer windows (blind scans SIGBUS) + descriptor-capped
   bit loops.
 
+## Scratch-parity gap: relocation SYMBOL identity (from the anim_load 99.89% case)
+
+- `compare` reported `instruction-words-identical` + "relocation-kind layout
+  identical" while decomp.me still scored 15: three `jal` sites bound
+  `piRomLoadSection` where the scratch target binds `read_file_region`. Kinds
+  matched; NAMES didn't. Our masking is correct for cross-project
+  redistributability, but for scratch parity symbol identity matters. Ask: a
+  `reloc-symbol-mismatch` signature (list the differing names per site) so
+  "words=0 but the browser disagrees" is answered in one run — plus a docs
+  note that decomp.me scores call-symbol identity.
+- Session pattern worth documenting: two naming lineages exist for dp64
+  scratches (repo names vs modern names, e.g. piRomLoadSection vs
+  read_file_region); every paste-ready artifact should state its lineage.
+
+## objprint community-merge analysis — layer attribution finalized (4w base)
+
+- Cross-shape merge analysis is a first-class technique: transplant both
+  directions, filter on the oracle mask, and the "complementary" wins either
+  compose or are PROVEN the same lever pointed opposite ways (here: `newp`'s
+  copy-preference vs temp_t5-parks-in-v0 — mutually exclusive; no source
+  merge exists). Saves chasing a phantom combination.
+- New best 4w (community body ported to dp64 TU, sha1-faithful across
+  contexts). Residual = ugen COPY-PREFERENCE: which live value receives the
+  prologue's single expression-temp move. CDX force space exhausted in both
+  namespaces on their shape — the decision is below globalcolor and above
+  the pool (uninstrumented seam). **The one blocking instrument: log
+  "coalescing proposed temp T into V — accepted/rejected + reason" around
+  ugen f_copy/f_copy_reg/f_check_vreg/f_assign_vreg (ugen.c:50794/79683/
+  101445/102247).** This was the original morning feature ask; now it gates
+  exactly one function's last 4 words.
+- Harness hygiene (for campaign-hygiene.md): exec()-style harness loading
+  dumped globals and fabricated a plausible all-fail table (nd=30902) that
+  was nearly reported — harnesses must be real modules with explicit APIs.
+  Return-type mutations must patch declaration AND definition (silent
+  COMPILE_FAIL cells misreported round-1's void results).
+- decomp.me scratch parity confirmed end-to-end today: anim_load hit 100%
+  in-browser after the call-symbol fix — the local IDO + workbench compare
+  pipeline predicts browser scores exactly (words + reloc symbol identity).
+
+## objprint terminal answer + first `view` field use
+
+- Agent correctly REFUSED to build a mis-aimed instrument: the pool trace
+  showed the residual `move`'s source and dest are both uopt-assigned (34
+  f_ureg hits; pool yields only t6-t9), so ugen's copy machinery never
+  decides — the copy uop is already in the ucode. ~830 forces negative;
+  culprit = web 12 (a load-temp that doesn't exist in the target's ucode).
+  Final attribution: uopt copy-propagation/web-formation, pre-localcolor.
+  Next hook: "load into dest web D — coalesce or materialize temp+copy?"
+  objprint rests at 4 words (BEST4c). Evidence-based instrument refusal is
+  itself a pattern for the skill.
+- **First real-world `view` use** (block_setup_vertices scratch port):
+  one screen showed lanes identical 53/53+40/40, prefix-exact@20, six
+  classified hunks — immediately separated reloc-display artifacts from the
+  two real deltas (schedule + branch-likely). The bet is paying off on day
+  one. Noted: jal-to-address-0 renders as whatever symbol sits at 0
+  (display artifact worth normalizing), and mixed-verdict playbook ordering
+  (constants first) read correctly.
+- New port-hazard class: SAME source + SAME flags under a different TU
+  context (scratch ctx vs dp64 headers) shifts schedule/branch-likely
+  selection (ctx type diffs: EncodedTri d0/d1 u32 vs s32, etc.). Scratch
+  ports of matched functions need their own verification pass — "matched in
+  dp64" does not transfer automatically.
+
+## block_setup_vertices scratch port — flag-parity root cause
+
+- ~78 "structural" word diffs on a ROM-verified source were caused by ONE
+  missing assembler flag: `-Wab,-r4300_mul` (R4300 multiply-hazard + branch-
+  likely scheduling in as1). The -g0 diagnostic correctly REFUSED to blame
+  .loc barriers, and a real-header isolate cleared the ctx-type hypothesis —
+  systematic elimination landed on flag parity. Skill addition: **verify flag
+  parity against the project's build.ninja BEFORE any source search on a
+  scratch port** — decomp.me preset flags can diverge from the project's
+  real flags (dp64 preset 28 lacks -Wab,-r4300_mul; likely affects EVERY
+  dp64 scratch with multiplies or FP branches).
+- `compare` handled free-text extra flags fine; the gap is human workflow:
+  scratch presets are curated, and a preset-vs-project flag diff is
+  invisible until someone diffs build.ninja. Workbench ask: `bundle-scratch`
+  should emit the project's full CC flag line into scratch.json/README so
+  paste-time flag parity is a copy-paste, not an investigation.
+
+## DKWB_UOPT_COPY_V1 — coalesce-vs-copy solved; objprint one reachability from done
+
+- **COPYDEC is the missing profile, now built + fidelity-gated (21/21 on 3
+  TUs)**: one line per assignment uop — `lhs rhs rhsformed bbwit colors →
+  COALESCE|TEMPCOPY`. Self-validated on first run (labelled web 12 and the
+  unk70 load correctly). Promote to a first-class workbench profile.
+- **Decision rule (document in ido-late-stage-patterns.md)**: temp+copy iff
+  the RHS expression owns a liverange (f_formlivbb, called only from
+  f_makelivranges here); a formed web emits its move only if the temp has a
+  second emitted use; redundant reads BEFORE the assignment form the web,
+  AFTER it in the same BB they fold away (position asymmetry).
+- **objprint final state**: BEST4c and BEST5 are two different levers through
+  v0 (model-CSE web parks in v0 → count web right, copy wrong; newp copy
+  right → v0 free → count web wrong). Oracle: BEST5 + w55=c2 = byte-exact.
+  Handoff constraint set for the last construct: (a) live across inner loop,
+  (b) colors before web 55, (c) zero code, (d) NOT the RHS of a local
+  assignment (else it spends the one copy). All known zero-code blockers
+  violate (d); candidate expression CSEs (temp_t5->faces etc.) were inert in
+  24 placements. Now purely a p2 first-free reachability question.
+- Friction repeats: CDX_FORCE SIGABRT on forbidden colors (3rd campaign);
+  positional words misranking (--align blocking on a 2nd function);
+  --report-regs rebuilt per-campaign. NEW: fidelity gates must assert inputs
+  exist (zsh non-splitting produced 7 empty-string-sha1 "OK"s); recompiled
+  uopt links need version_info.o (recipe in build_uopt.sh).
+
+## texLoadTextureActual MATCHED (round 7) + objprint constraint-(d) found
+
+- **texLoad matched**: parameter-in-place mask + ONE dead read
+  `if ((tab*4) + tabEntry + tabEntry) {}`. Three new levers for the
+  patterns doc: (1) zero-code dead reads generalize to arbitrary RVALUE
+  EXPRESSIONS (`if (gFile_TEX_TAB[tab]) {}` — the only thing that beat the
+  lui hoist); (2) `tab * 4` forms a web where `tab << 2` does NOT —
+  mul/shift are not interchangeable formation triggers despite identical
+  emitted code; (3) READ-COUNT IS A PRIORITY DIAL — stacking reads of the
+  losing web until it outranks the winner is monotone (1 read = 5w, 2
+  reads = 0w). Map corrections: uopt colors 22 registers (t6-t9 are the
+  only ugen scratch); the "save-3.0 blocker web" was a shape-dependent
+  hoist artifact, not a fixed obstacle.
+- **objprint constraint-(d) construct**: split a local's own update chain
+  with a dead read (`x += a; if (!x); x++;`) — zero code, zero frame, forms
+  a short web from the intermediate that takes v0 without touching any
+  coalesce decision. Count web colors v1 with NO force (first in ~2800
+  variants). Counter-note: "empty-if reads take v1 never v0" applies to
+  whole locals/globals only — intermediate-value reads DO take v0.
+  Remaining 11w = ONE schedule hunk (the dead read is a ucode branch
+  pinning the chain above the guard) — the residual left the allocator.
+  p2 exception discovered: web 2 (arg0) took c3 with c2 free — an
+  incoming-register preference path exists; docs' "pure first-free" is
+  wrong. Decode ring confirmed: forbidden0 bit = 1<<(31-c), regsleft =
+  22 - popcount(f0).
+- Repeated top ask (4th campaign): --align ranking. Positional words ranked
+  a 1-hunk 11w variant below a 5-scattered-sites 5w variant and nearly
+  steered the search wrong. Filter predicates must key on which web holds
+  the contested color, not opcode (filt.py's op==0x04 test missed an
+  op==0x18 equivalent).
+
+## Community feedback (Discord, real users on released 0.2.0)
+
+- mkst (SSSV, 30+ near-matches): "I am too dumb. How do I use the
+  workbench?" — ran compare correctly, got words=13, no idea what next
+  (0.2.0 has no verdict/guidance lines — the unreleased work is the fix;
+  RELEASE MATTERS). Asked: isolate functions vs asm-processor? (answer for
+  docs: no — compare is symbol-scoped; his own paste shows isolation
+  CHANGING codegen, insns 96 vs 93, the perfect teachable example). Asked:
+  "am I expected to use codex as the permuter?" — the manual path must be
+  documented as first-class.
+- inspect: wants "access and understanding to the trace stuff over the
+  permuter... I like to understand how to match more things" — the
+  mechanism playbook needs a human-facing field guide, not just skill files.
+- queueRAM pointed at workflows.md; mkst still lost ("I feel like I need to
+  be an AI to understand it") — validates the vision doc's onboarding bet;
+  human-first docs pass dispatched (START_HERE, field-guide, batch-triage
+  walkthrough).
+
 ## Pending (from subagent campaign runs — append when reports land)
