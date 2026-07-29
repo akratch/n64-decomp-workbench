@@ -55,6 +55,21 @@
   that selects one function, and rejected conflicting values instead of
   silently keeping the last one.
 
+- Added `view` and `view-dumps`: the aligned mechanism view. Two-pass LCS
+  alignment over the opcode streams, per-hunk classification
+  (structural/schedule/register/constant/commutative/relocation), per-class
+  register lanes that include the matching instructions, a
+  `prefix-exact@N` / `state-divergence@class:slot` signature line, grouped
+  register webs, and lever guidance chosen by the dominant class. Aligned
+  counts replace positional counts, which multiply a single insertion into a
+  phantom cascade. Two anchorings are scored against each other so neither a
+  run of repeated opcodes nor repeated instruction text can mispair the
+  streams, a shifted branch offset is reported as `displacement` rather than
+  claimed as byte identity, and `phase-shift` requires a real rotation cycle
+  instead of the constant offset that any small register swap satisfies. Both
+  commands accept reduced objdump text, `--json` uses the same keys as the
+  human labels, and `--report-regs` emits per-aligned-row register operands for
+  matching rows too.
 - Completed a release-quality UX pass: packaged the Agent Skill with the
   distribution, added a safe installer, clarified comparison proof scope and
   cross-ROM JSON acceptance, hardened focused web lookups, and selected the

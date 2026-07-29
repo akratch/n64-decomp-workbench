@@ -4,6 +4,7 @@
 |---|---|---|
 | [Workflows](workflows.md) | You know the symptom but not the command | A target and a current hypothesis |
 | [Object comparison](object-comparison.md) | You need an exact verdict or mismatch classification | MIPS objects or GNU objdump text |
+| [Aligned mechanism view](view.md) | A residual is small but you do not know which layer owns it | Two objects or two reduced dumps |
 | [Final-function campaign lessons](final-function-campaigns.md) | You want the reusable reasoning from a difficult finish | A late-stage residual or completed campaign |
 | [Agent skill](agent-skill.md) | You want Codex or Claude Code to apply the campaign method | A local workbench checkout |
 | [Candidate campaigns](campaigns.md) | You have a source generator or variant set | A compile-one wrapper |

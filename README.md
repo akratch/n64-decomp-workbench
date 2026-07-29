@@ -28,6 +28,7 @@ need binaries supplied by your project.
 |---|---|---|
 | Are these objects instruction-exact? | `compare` | Relocation-aware verdict, mismatch counts, register ranges, JSON |
 | Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
+| Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
 | How do I run hundreds of variants safely? | `campaign` | Parallel builds, content cache, JSONL provenance ledger |
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
