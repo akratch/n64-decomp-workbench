@@ -285,6 +285,14 @@ class CampaignTests(unittest.TestCase):
                 [item.source for item in basins[0]],
                 [str(first.resolve()), str(second.resolve())],
             )
+            first_comparison = results[0].comparison
+            second_comparison = results[1].comparison
+            if first_comparison is None or second_comparison is None:
+                raise AssertionError("campaign results were not compared")
+            first_comparison.word_mismatches = 5
+            second_comparison.word_mismatches = 0
+            basins = group_object_basins(results)
+            self.assertIs(basins[0][0], results[1])
 
     def test_parse_environment(self) -> None:
         self.assertEqual(

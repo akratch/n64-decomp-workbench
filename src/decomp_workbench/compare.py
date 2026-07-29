@@ -249,20 +249,11 @@ def comparison_guidance(
                 ],
             )
         return (
-            "byte-identical",
+            "instruction-words-identical",
             [
-                "Byte-identical at the compared object level. "
+                "Instruction words and known relocation-kind layout are "
+                "identical for the selected function. "
                 "Run the project's normal final verification.",
-            ],
-        )
-    if structural_exact:
-        return (
-            "cross-rom-structure-exact",
-            [
-                "Opcode, normalized instruction shape, registers, frame, "
-                "and instruction count agree.",
-                "This is strong cross-ROM/compiler-lineage evidence, not "
-                "an object-level source-match proof.",
             ],
         )
     if unknown_relocations:
@@ -302,6 +293,16 @@ def comparison_guidance(
                 "Opcode shape matches but register allocation differs.",
                 "Capture a narrow globalcolor/UGEN trace and inspect live "
                 "ranges before adding local fakes.",
+            ],
+        )
+    if structural_exact:
+        return (
+            "operand-mismatch",
+            [
+                "Opcode, normalized instruction shape, registers, frame, "
+                "and instruction count agree, but literal operands differ.",
+                "Use --cross-rom only when the inputs are intentionally from "
+                "different revisions; otherwise inspect the localized operands.",
             ],
         )
     return (

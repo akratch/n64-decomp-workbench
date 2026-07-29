@@ -79,6 +79,11 @@ instead of scanning an entire procedure:
 decomp-workbench trace-globalcolor uopt.log --proc 46 --web 240
 ```
 
+`--proc` and `--web` hide unrelated legacy live-range rows. `--web` requires
+`--proc`, and an explicit lookup exits nonzero when its allocator data is
+absent. A missing lookup lists the procedure or web IDs that were actually
+recorded.
+
 The report names stable callee-saved profile colors when it can (`c17 (s3)`),
 keeps profile-specific colors as `cNN`, and explains whether the web was
 colored or split. A force probe is a causal experiment only: use it to learn

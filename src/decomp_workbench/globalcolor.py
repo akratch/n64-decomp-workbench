@@ -41,6 +41,17 @@ CDX_RE = re.compile(r"^\[CDX\]\s+(?P<phase>\S+)\s+(?P<fields>.*)$")
 FIELD_RE = re.compile(r"([A-Za-z0-9_]+)=([^\s]+)")
 
 
+def optional_integer(value: str | None) -> int | None:
+    """Parse one optional trace integer without trusting diagnostic text."""
+
+    if value is None:
+        return None
+    try:
+        return int(value, 0)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class ColorCost:
     """The measured cost of assigning one color/register."""
@@ -118,13 +129,15 @@ class AllocatorWebDecision:
 
     @property
     def dtype(self) -> int | None:
-        value = self.detail.get("dtype")
-        return int(value, 0) if value is not None else None
+        return optional_integer(self.detail.get("dtype"))
 
     @property
     def total_save(self) -> float:
         value = self.fields.get("totalsave", "nan")
-        return float(value)
+        try:
+            return float(value)
+        except ValueError:
+            return math.nan
 
     @property
     def assigned_color(self) -> int | None:
@@ -133,10 +146,7 @@ class AllocatorWebDecision:
         value = self.fields.get("bestcolor")
         if value is None:
             return None
-        try:
-            return int(value, 0)
-        except ValueError:
-            return None
+        return optional_integer(value)
 
     @property
     def assigned_register(self) -> str | None:
@@ -200,12 +210,21 @@ class GlobalColorTrace:
         )
         return selected[:limit] if limit else selected
 
-    def decisions_for(self, proc: int | None = None) -> list[ColorDecision]:
-        """Return decisions for one globalcolor invocation, or all decisions."""
+    def decisions_for(
+        self, proc: int | None = None, *, web: int | None = None
+    ) -> list[ColorDecision]:
+        """Return decisions filtered to one invocation and allocator web."""
 
-        if proc is None:
-            return self.decisions
-        return [item for item in self.decisions if item.fields.get("proc") == str(proc)]
+        selected: list[ColorDecision] = []
+        for item in self.decisions:
+            proc_value = optional_integer(item.fields.get("proc"))
+            web_value = optional_integer(item.fields.get("web"))
+            if proc is not None and proc_value != proc:
+                continue
+            if web is not None and web_value != web:
+                continue
+            selected.append(item)
+        return selected
 
     def allocator_webs(
         self,
@@ -222,7 +241,11 @@ class GlobalColorTrace:
         for item in self.decisions:
             if "proc" not in item.fields or "web" not in item.fields:
                 continue
-            key = (int(item.fields["proc"], 0), int(item.fields["web"], 0))
+            item_proc = optional_integer(item.fields["proc"])
+            item_web = optional_integer(item.fields["web"])
+            if item_proc is None or item_web is None:
+                continue
+            key = (item_proc, item_web)
             if item.phase == "webdetail" and item.fields.get("role") == "target":
                 details[key] = item.fields
             elif item.phase in {"p1cost", "p2cost"}:
@@ -234,8 +257,10 @@ class GlobalColorTrace:
                 continue
             if "proc" not in item.fields or "web" not in item.fields:
                 continue
-            item_proc = int(item.fields["proc"], 0)
-            item_web = int(item.fields["web"], 0)
+            item_proc = optional_integer(item.fields["proc"])
+            item_web = optional_integer(item.fields["web"])
+            if item_proc is None or item_web is None:
+                continue
             detail = details.get((item_proc, item_web), {})
             joined_item = AllocatorWebDecision(
                 proc=item_proc,

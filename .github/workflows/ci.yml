@@ -95,6 +95,8 @@ jobs:
           decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
             --registers t6,t7,t8 \
             --fail-on-violation
+          decomp-workbench install-skill claude \
+            --destination /tmp/dkwb-wheel-skills
 
       - name: Install and smoke-test the source distribution
         run: |
@@ -109,3 +111,5 @@ jobs:
             examples/traces/ugen-fifo.log \
             --registers t6,t7,t8 \
             --fail-on-violation
+          /tmp/dkwb-sdist-env/bin/decomp-workbench install-skill claude \
+            --destination /tmp/dkwb-sdist-skills

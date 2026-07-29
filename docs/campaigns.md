@@ -94,6 +94,11 @@ especially useful for declaration-order, folded-condition, and expression-form
 grids, where hundreds of source spellings may collapse to a handful of real
 allocator outcomes.
 
+The first member and `best_metrics` in each basin are the best-ranked
+comparison in that basin, not the alphabetically first source. Basin identity
+is based on raw words for the selected function; relocation-layout metrics
+remain visible in the representative comparison.
+
 ## Writing transformation generators
 
 Keep generators separate from the campaign runner. A generator should:

@@ -243,6 +243,7 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.word_mismatches, 0)
         self.assertEqual(result.unknown_relocations, ["R_MIPS_FUTURE"])
         self.assertFalse(result.exact)
+        self.assertEqual(result.verdict, "unknown-relocation")
 
     def test_cross_rom_structural_match_is_not_object_exact(self) -> None:
         target = parse_disassembly(
@@ -268,7 +269,7 @@ class CompareTests(unittest.TestCase):
         )
         self.assertFalse(result.exact)
         self.assertTrue(result.structural_exact)
-        self.assertEqual(result.verdict, "cross-rom-structure-exact")
+        self.assertEqual(result.verdict, "operand-mismatch")
         self.assertEqual(result.normalized_distance, 0)
         self.assertEqual(result.register_mismatches, 0)
 
@@ -287,6 +288,19 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.word_mismatches, 0)
         self.assertEqual(result.relocation_metadata_mismatches, 1)
         self.assertFalse(result.exact)
+        self.assertEqual(result.verdict, "relocation-layout-mismatch")
+
+    def test_raw_identity_is_scoped_to_instruction_words(self) -> None:
+        instructions = parse_disassembly(TARGET)
+        result = compare_instructions(
+            instructions,
+            instructions,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertTrue(result.exact)
+        self.assertEqual(result.verdict, "instruction-words-identical")
 
     def test_parse_relocations(self) -> None:
         relocations = parse_relocations(RELOC_TARGET)

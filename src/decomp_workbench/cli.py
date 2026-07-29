@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from . import __version__
+from .agent_skill import install_agent_skill
 from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
 from .compare import compare_instructions, compare_objects
@@ -81,6 +82,27 @@ def comparison_line(item: Comparison) -> str:
     )
 
 
+def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
+    """Return command acceptance independently from the evidence verdict."""
+
+    if item.exact:
+        return True, "function-exact"
+    if cross_rom and item.structural_exact:
+        return True, "cross-rom-structural"
+    return False, "mismatch"
+
+
+def comparison_payload(item: Comparison, *, cross_rom: bool) -> dict[str, object]:
+    """Add command-level acceptance context to a comparison JSON result."""
+
+    accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
+    return {
+        **item.as_dict(),
+        "accepted": accepted,
+        "acceptance_basis": basis,
+    }
+
+
 def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
     """Render a compact, action-oriented comparison explanation."""
 
@@ -91,8 +113,11 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
         print(f"raw difference classes: {breakdown}")
     for line in item.guidance:
         print(f"next: {line}")
-    if cross_rom and item.structural_exact and not item.exact:
-        print("cross-rom acceptance: PASS (structural evidence only)")
+    accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
+    if basis == "cross-rom-structural":
+        print("acceptance: PASS (cross-ROM structural evidence only; exact=false)")
+    elif not accepted and cross_rom:
+        print("acceptance: FAIL (cross-ROM structure also differs)")
 
 
 def compare_command(args: argparse.Namespace) -> int:
@@ -107,8 +132,15 @@ def compare_command(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
     if args.json:
-        print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                comparison_payload(comparison, cross_rom=args.cross_rom),
+                indent=2,
+                sort_keys=True,
+            )
+        )
     else:
         print(comparison_line(comparison))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
@@ -128,7 +160,6 @@ def compare_command(args: argparse.Namespace) -> int:
             for item in comparison.register_diff:
                 print(f"\n[{item['index']}] target    {item['target']}")
                 print(f"    candidate {item['candidate']}")
-    accepted = comparison.exact or (args.cross_rom and comparison.structural_exact)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -156,8 +187,15 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         candidate_name=display_path(args.candidate),
         symbol=args.symbol,
     )
+    accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
     if args.json:
-        print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                comparison_payload(comparison, cross_rom=args.cross_rom),
+                indent=2,
+                sort_keys=True,
+            )
+        )
     else:
         print(comparison_line(comparison))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
@@ -175,7 +213,6 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
             for item in comparison.register_diff:
                 print(f"\n[{item['index']}] target    {item['target']}")
                 print(f"    candidate {item['candidate']}")
-    accepted = comparison.exact or (args.cross_rom and comparison.structural_exact)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -200,6 +237,35 @@ def bundle_scratch_command(args: argparse.Namespace) -> int:
         print(json.dumps(result.manifest, indent=2, sort_keys=True))
     else:
         print(f"scratch bundle: {result.output}")
+    return 0
+
+
+def install_skill_command(args: argparse.Namespace) -> int:
+    """Install the bundled Agent Skill for one supported client."""
+
+    try:
+        path, status = install_agent_skill(
+            args.client,
+            destination=args.destination,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    invocation = (
+        "$n64-decomp-campaign" if args.client == "codex" else "/n64-decomp-campaign"
+    )
+    payload = {
+        "client": args.client,
+        "invocation": invocation,
+        "path": str(path),
+        "status": status,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        label = "installed" if status == "installed" else "already current"
+        print(f"skill {label}: {path}")
+        print(f"invoke with: {invocation}")
     return 0
 
 
@@ -725,20 +791,69 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
 
 
 def trace_globalcolor_command(args: argparse.Namespace) -> int:
+    if args.web is not None and args.proc is None:
+        print(
+            "error: --web requires --proc so the allocator lookup is unambiguous",
+            file=sys.stderr,
+        )
+        return 2
     try:
         report = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    selected = report.ranked(dtype=args.dtype, limit=args.top)
+    selected = (
+        [] if args.proc is not None else report.ranked(dtype=args.dtype, limit=args.top)
+    )
     allocator_webs = report.allocator_webs(
         proc=args.proc, web=args.web, dtype=args.dtype, limit=args.top
     )
-    decisions = report.decisions_for(args.proc)
+    decisions = report.decisions_for(args.proc, web=args.web)
+    lookup_error = None
+    if args.web is not None and not allocator_webs:
+        same_web = report.allocator_webs(proc=args.proc, web=args.web)
+        if same_web and args.dtype is not None:
+            recorded = sorted(
+                {
+                    str(item.dtype) if item.dtype is not None else "unknown"
+                    for item in same_web
+                }
+            )
+            suffix = (
+                f" web exists but does not match dtype={args.dtype}; "
+                f"recorded dtype(s): {', '.join(recorded)}"
+            )
+        else:
+            available = report.allocator_webs(proc=args.proc)
+            available_webs = sorted({item.web for item in available})
+            suffix = (
+                " available web(s): " + ", ".join(str(item) for item in available_webs)
+                if available_webs
+                else " no allocator decisions were recorded for that procedure"
+            )
+        lookup_error = (
+            f"no allocator decision matched proc={args.proc} web={args.web};{suffix}"
+        )
+    elif args.proc is not None and not allocator_webs and not decisions:
+        available_procedures = sorted({item.proc for item in report.allocator_webs()})
+        suffix = (
+            " available procedure(s): "
+            + ", ".join(str(item) for item in available_procedures)
+            if available_procedures
+            else " no allocator decisions were recorded"
+        )
+        lookup_error = f"no allocator data matched proc={args.proc};{suffix}"
     if args.json:
         print(
             json.dumps(
                 {
+                    "error": lookup_error,
+                    "filters": {
+                        "dtype": args.dtype,
+                        "proc": args.proc,
+                        "top": args.top,
+                        "web": args.web,
+                    },
                     "live_ranges": [item.as_dict() for item in selected],
                     "allocator_webs": [item.as_dict() for item in allocator_webs],
                     "decisions": [item.as_dict() for item in decisions],
@@ -749,6 +864,9 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        if lookup_error:
+            print(f"error: {lookup_error}", file=sys.stderr)
+            return 1
         for item in selected:
             costs = sorted(item.finite_costs, key=lambda entry: entry.cost)
             best = f"r{costs[0].register}:{costs[0].cost:g}" if costs else "-"
@@ -778,12 +896,14 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
                 f"  {allocator_item.explanation}"
             )
         print(
-            f"live-ranges={len(report.live_ranges)} "
+            f"live-ranges={len(selected)}/{len(report.live_ranges)} "
             f"allocator-webs={len(allocator_webs)} "
             f"decisions={len(decisions)} "
             f"unparsed={len(report.unparsed_diagnostic_lines)}"
         )
-    return 0 if report.live_ranges or allocator_webs or decisions else 1
+    if lookup_error:
+        return 1
+    return 0 if selected or allocator_webs or decisions else 1
 
 
 def parse_listing_edit(value: str, position: str) -> ListingEdit:
@@ -850,7 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument(
         "--fail-on-mismatch",
         action="store_true",
-        help="return exit 1 unless the comparison is exact",
+        help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
     )
     compare_parser.set_defaults(handler=compare_command)
 
@@ -870,9 +990,28 @@ def build_parser() -> argparse.ArgumentParser:
     dumps_parser.add_argument(
         "--fail-on-mismatch",
         action="store_true",
-        help="return exit 1 unless the comparison is exact",
+        help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
     )
     dumps_parser.set_defaults(handler=compare_dumps_command)
+
+    skill_parser = commands.add_parser(
+        "install-skill",
+        help="install the bundled N64 decomp Agent Skill",
+        description=(
+            "Install n64-decomp-campaign for Codex or Claude Code. "
+            "Existing differing installations are never overwritten."
+        ),
+    )
+    skill_parser.add_argument("client", choices=("codex", "claude"))
+    skill_parser.add_argument(
+        "--destination",
+        help=(
+            "parent skills directory; defaults to the selected client's "
+            "personal skills directory"
+        ),
+    )
+    skill_parser.add_argument("--json", action="store_true", help="emit JSON")
+    skill_parser.set_defaults(handler=install_skill_command)
 
     rank_parser = commands.add_parser(
         "rank",

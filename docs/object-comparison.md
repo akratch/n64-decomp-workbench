@@ -22,11 +22,13 @@ decomp-workbench compare target.o candidate.o \
 ```
 
 `--fail-on-mismatch` returns nonzero unless the relocation-aware words and
-relocation-kind layout match and every encountered type is understood.
+relocation-kind layout match and every encountered type is understood. With an
+explicit `--cross-rom`, structural equality is accepted for the command but
+continues to report `exact=false`.
 
 Every human-readable report starts with a verdict and next action. This is
-intentional: `raw_word_mismatches` is evidence about literal file identity, not
-an instruction-matching score. For example:
+intentional: `raw_word_mismatches` is evidence about literal instruction-word
+identity, not an instruction-matching score. For example:
 
 ```text
 verdict=instruction-exact words=   0 raw=  48 ...
@@ -60,6 +62,12 @@ delay slot; the delay-slot instruction itself remains part of the comparison.
 | `verdict` | Product-level classification of the evidence | Decide whether to edit source, trace allocation, or verify the link |
 | `raw_difference_breakdown` | Why literal words differ | Separate instruction bits from relocation-controlled words |
 | `structural_exact` | Opcode, normalized shape, registers, frame, and count agree | Cross-ROM/compiler-lineage evidence only |
+| `accepted` | Whether this invocation satisfies `--fail-on-mismatch` | Automation for `compare` and `compare-dumps` |
+| `acceptance_basis` | `function-exact`, `cross-rom-structural`, or `mismatch` | Explain why the command accepted or rejected the comparison |
+
+`instruction-words-identical` means the selected function's raw instruction
+words and known relocation-kind layout agree. It does not claim that the whole
+object file, symbol table, or final ROM is byte-identical.
 
 The sort order for `rank` and `campaign` is exact word mismatches, unknown and
 mismatched relocation metadata, normalized distance, register mismatches,
@@ -127,6 +135,8 @@ shape, register operands, frame, and instruction count. It is useful evidence
 that the source/compiler lineage is shared across ROMs even when linked
 addresses, data offsets, and absolute immediates differ. It never changes
 `exact=true`, and it must not replace project-level object or ROM matching.
+JSON output makes the distinction explicit with
+`"acceptance_basis": "cross-rom-structural"`.
 
 ## Ranking is not proof
 

@@ -6,45 +6,41 @@ campaign workflow from the DKR and Star Fox 64 work without including ROMs,
 compiler binaries, target objects, or game source.
 
 The canonical, version-controlled bundle is
-[`skills/n64-decomp-campaign`](../skills/n64-decomp-campaign). Its `SKILL.md`
-uses only portable `name` and `description` frontmatter. The adjacent
-`agents/openai.yaml` provides optional Codex UI metadata and is not required by
-Claude Code.
+[`src/decomp_workbench/skills/n64-decomp-campaign`](../src/decomp_workbench/skills/n64-decomp-campaign).
+Its `SKILL.md` uses only portable `name` and `description` frontmatter. The
+adjacent `agents/openai.yaml` provides optional Codex UI metadata and is not
+required by Claude Code. The skill ships in wheels and source distributions as
+well as the repository checkout.
 
 ## Install for Codex
 
-Copy or symlink the skill directory into your Codex skills directory. For a
-checkout at `/path/to/n64-decomp-workbench`:
-
 ```sh
-mkdir -p ~/.codex/skills
-ln -s /path/to/n64-decomp-workbench/skills/n64-decomp-campaign \
-  ~/.codex/skills/n64-decomp-campaign
+decomp-workbench install-skill codex
 ```
 
-Start a new Codex session, then invoke `$n64-decomp-campaign` or ask about a
-late-stage N64 mismatch naturally.
+The installer copies the bundled skill to the active Codex home, honors
+`CODEX_HOME`, and refuses to overwrite a different existing skill. Start a new
+Codex session, then invoke `$n64-decomp-campaign` or ask about a late-stage N64
+mismatch naturally.
 
 ## Install for Claude Code
 
 Claude Code supports the same Agent Skills directory structure. Install it
-personally or per project:
+personally:
 
 ```sh
-# Personal
-mkdir -p ~/.claude/skills
-ln -s /path/to/n64-decomp-workbench/skills/n64-decomp-campaign \
-  ~/.claude/skills/n64-decomp-campaign
+decomp-workbench install-skill claude
+```
 
-# Or, from a decomp project's root, make it project-local
-mkdir -p .claude/skills
-ln -s /path/to/n64-decomp-workbench/skills/n64-decomp-campaign \
-  .claude/skills/n64-decomp-campaign
+Or install it into one decomp project:
+
+```sh
+decomp-workbench install-skill claude --destination .claude/skills
 ```
 
 Invoke `/n64-decomp-campaign` directly or let Claude select it for a relevant
-request. Claude Code discovers project skills from `.claude/skills/`; a
-symlink keeps the installed skill aligned with this repository's updates.
+request. Re-running the installer is safe when the installed copy is current.
+If it differs, the command reports the exact path and leaves it untouched.
 
 ## What it covers
 

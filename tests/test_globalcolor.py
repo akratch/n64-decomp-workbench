@@ -35,6 +35,8 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(report.decisions_for(3), [decision])
         self.assertEqual(report.decisions_for(4), [])
         self.assertEqual(report.decisions_for(), report.decisions)
+        self.assertEqual(report.decisions_for(3, web=9), [decision])
+        self.assertEqual(report.decisions_for(3, web=10), [])
         self.assertEqual(report.unparsed_diagnostic_lines, [])
 
     def test_accepts_nonfinite_compiler_cost(self) -> None:
@@ -95,6 +97,13 @@ class GlobalColorTests(unittest.TestCase):
             "CSAVE bitpos=2 kind=1 dtype=13 unk1C=1 adjsave=2.0 unk23=0\n"
         )
         self.assertEqual([item.bitpos for item in report.ranked()], [2, 1])
+
+    def test_malformed_cdx_numbers_do_not_crash_focused_reports(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec proc=bad web=9 totalsave=bad decision=color\n"
+        )
+        self.assertEqual(report.decisions_for(3, web=9), [])
+        self.assertEqual(report.allocator_webs(proc=3), [])
 
 
 if __name__ == "__main__":

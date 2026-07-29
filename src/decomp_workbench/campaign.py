@@ -403,7 +403,12 @@ def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileRe
         buckets.setdefault(comparison.candidate_sha256, []).append(result)
     grouped = list(buckets.values())
     for basin in grouped:
-        basin.sort(key=lambda item: item.source)
+        basin.sort(
+            key=lambda item: (
+                item.comparison.sort_key if item.comparison else (),
+                item.source,
+            )
+        )
     grouped.sort(
         key=lambda basin: (
             basin[0].comparison.sort_key if basin[0].comparison else (),

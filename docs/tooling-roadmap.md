@@ -17,6 +17,15 @@ ROMs, target objects, and proprietary compiler files.
 - Detailed globalcolor traces expose every evaluated color's final cost,
   best-before value, caller/callee class, available-color masks, and secondary
   tie-break state.
+- Focused globalcolor lookups require a procedure/web pair, suppress unrelated
+  rows, and report available webs when a lookup misses.
+- Campaign summaries group source variants by compiled function-byte hash and
+  choose the best-ranked representative for each object basin.
+- Comparison reports classify relocation-controlled raw differences, emit
+  action-oriented verdicts, and keep cross-ROM acceptance separate from exact
+  object evidence.
+- The portable Agent Skill ships in package artifacts and has a safe,
+  idempotent installer for Codex and Claude Code.
 
 ## Next
 
@@ -95,18 +104,17 @@ cell.
 ### Campaign experiment manifests
 
 Accept a sidecar manifest describing each transformation family and its
-parameters. Summaries should group identical object hashes, report basin
-transitions, and keep the top candidate per structural signature without
-embedding unbounded detail.
+parameters. Summaries should report basin transitions and keep the top
+candidate per structural signature without embedding unbounded detail.
 
 Ship a project-neutral library of source-equivalent late-stage mutations:
 repeated folded conditions, neutral integer operations, nested assignments,
 statement grouping, equivalent pointer arithmetic, declaration-order
 permutations, and lifetime-carrier placements. These patterns repeatedly
-matter in mature IDO decomps. The campaign runner should deduplicate candidates
-by compiled function bytes as they arrive and report how many source variants
-collapsed into each basin, avoiding hundreds of visually different but
-identical allocator results.
+matter in mature IDO decomps. The campaign runner should optionally stop or
+deprioritize redundant experiments as compiled function-byte basins arrive,
+avoiding unnecessary work after a generator begins producing repeated
+outcomes.
 
 Include adjacent repeated indexed empty conditions as a first-class mutation,
 with configurable expression, repetition count, and placement anchor. Live IDO
@@ -142,16 +150,9 @@ whether the permutation makes the function exact and which source webs must be
 re-prioritized. This turns a late-stage register-color residual into a bounded
 source mutation problem instead of another broad structural search.
 
-### Exactness and relocation-only differences
+### Linked-address relocation aliases
 
-Make `exact=true` self-explanatory when `raw_word_mismatches` is nonzero. The
-comparison report should classify every masked raw difference (for example,
-relocation addend, branch address, or normalized stack operand) and provide an
-explicit summary such as “instruction-exact; four relocation-addend words
-differ.” JSON output should include the classified count so downstream campaign
-tools do not mislabel an exact result as contradictory or incomplete.
-
-Also classify relocation aliases that resolve to the same linked address. This
+Classify relocation aliases that resolve to the same linked address. This
 occurs when a loop endpoint can be spelled either as `array + count` or as the
 next adjacent symbol: a ROM-derived target may choose the successor symbol
 while the compiler object retains the base symbol plus an addend. Reports

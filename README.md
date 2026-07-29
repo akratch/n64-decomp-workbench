@@ -36,6 +36,7 @@ need binaries supplied by your project.
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
+| Can an agent follow the proven campaign method? | `install-skill` | Portable Codex or Claude Code Agent Skill |
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
 ## Install
@@ -65,11 +66,21 @@ decomp-workbench compare-dumps \
 Expected result:
 
 ```text
-words=   0 raw=   2 norm=   0 regs=   0 fp=   0 insns=   6 ...
+verdict=instruction-exact words=   0 raw=   2 norm=   0 regs=   0 fp=   0 ...
+raw difference classes: relocation_controlled=2
+next: Instruction-exact: raw differences are linker-controlled relocation fields ...
 ```
 
 `words=0` is the relocation-aware result. `raw=2` shows why a literal word
 comparison would have rejected the candidate.
+
+Install the campaign skill for your preferred agent:
+
+```sh
+decomp-workbench install-skill codex
+# or
+decomp-workbench install-skill claude
+```
 
 Now inspect a real register mismatch:
 

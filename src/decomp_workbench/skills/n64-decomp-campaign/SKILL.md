@@ -59,8 +59,8 @@ creating candidates, scratch artifacts, commits, or a public progress repo.
 
 ## Validate in the right order
 
-1. Accept `byte-identical` or `instruction-exact` only as function-level object
-   evidence.
+1. Accept `instruction-words-identical` or `instruction-exact` only as
+   function-level object evidence.
 2. If a function is exact in a scratch but not in a browser, compare the
    scratch context, relocation layout, and linked output before editing C.
 3. Run the project's normal build and whole-ROM or project-level verifier.

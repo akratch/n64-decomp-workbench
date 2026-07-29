@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Completed a release-quality UX pass: packaged the Agent Skill with the
+  distribution, added a safe installer, clarified comparison proof scope and
+  cross-ROM JSON acceptance, hardened focused web lookups, and selected the
+  true best representative for every campaign basin.
 - Added the portable `n64-decomp-campaign` Agent Skill for Codex and Claude
   Code, including installation guidance and reusable DKR/SF64 campaign
   evidence, IDO patterns, and reproducibility practice.

@@ -50,7 +50,12 @@ Changelog = "https://github.com/akratch/n64-decomp-workbench/blob/main/CHANGELOG
 where = ["src"]
 
 [tool.setuptools.package-data]
-decomp_workbench = ["py.typed"]
+decomp_workbench = [
+    "py.typed",
+    "skills/n64-decomp-campaign/SKILL.md",
+    "skills/n64-decomp-campaign/agents/*.yaml",
+    "skills/n64-decomp-campaign/references/*.md",
+]
 
 [tool.ruff]
 target-version = "py310"

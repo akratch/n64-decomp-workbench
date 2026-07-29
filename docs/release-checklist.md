@@ -42,8 +42,10 @@ decomp-workbench compare-dumps \
 ```
 
 Inspect both archives. The wheel should contain only the Python package and
-license metadata. The source distribution should also contain the
-documentation, examples, and tests listed by `MANIFEST.in`.
+license metadata, including the package-owned Agent Skill resources. The source
+distribution should also contain the documentation, examples, and tests listed
+by `MANIFEST.in`. Install the skill from each artifact into a temporary
+destination and validate its `SKILL.md`.
 
 ## Toolchain-dependent checks
 
