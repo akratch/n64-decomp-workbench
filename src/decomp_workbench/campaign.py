@@ -9,18 +9,100 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .compare import TargetObject, compare_candidate, load_target
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
 
 LEDGER_SCHEMA = "decomp-workbench-campaign-v1"
+
+_RUNNING_LOCK = threading.Lock()
+_RUNNING_COMPILERS: set[subprocess.Popen[str]] = set()
+
+
+def process_group_arguments() -> dict[str, Any]:
+    """Return the arguments that give a compiler its own process group.
+
+    A compiler wrapper usually starts more processes than the one the
+    workbench invoked. Owning the group makes it possible to end all of them
+    together: a leaked parallel job outlived its campaign once and degraded
+    two later runs.
+    """
+
+    if os.name == "posix":
+        return {"start_new_session": True}
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return {"creationflags": flags} if flags else {}
+
+
+def terminate_process_group(process: subprocess.Popen[str]) -> None:
+    """End one compiler and everything it started."""
+
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            return
+        except OSError:
+            pass
+    try:
+        process.terminate()
+    except OSError:
+        pass
+
+
+def terminate_running_compilers() -> None:
+    """End every compiler this process started, and their children."""
+
+    with _RUNNING_LOCK:
+        processes = list(_RUNNING_COMPILERS)
+    for process in processes:
+        terminate_process_group(process)
+
+
+def run_compiler(
+    command: list[str],
+    *,
+    environment: dict[str, str],
+    compile_cwd: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Run one compiler as the owner of its own process group."""
+
+    with subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, **environment},
+        cwd=compile_cwd,
+        **process_group_arguments(),
+    ) as process:
+        with _RUNNING_LOCK:
+            _RUNNING_COMPILERS.add(process)
+        try:
+            stdout, stderr = process.communicate()
+        except BaseException:
+            terminate_process_group(process)
+            raise
+        finally:
+            with _RUNNING_LOCK:
+                _RUNNING_COMPILERS.discard(process)
+    return subprocess.CompletedProcess(
+        args=command,
+        returncode=process.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 @dataclass(frozen=True)
@@ -214,13 +296,10 @@ def _compile_candidate(
                 template, candidate.source, temporary_object
             )
             try:
-                process = subprocess.run(
+                process = run_compiler(
                     command,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    env={**os.environ, **environment},
-                    cwd=compile_cwd,
+                    environment=environment,
+                    compile_cwd=compile_cwd,
                 )
             except OSError as error:
                 returncode = 127
@@ -411,6 +490,13 @@ def run_campaign(
                         stop = True
                 if not stop:
                     submit_next(len(done))
+        except BaseException:
+            # Interrupts and errors must not leave compilers (or the tools a
+            # compiler wrapper spawned) running after the campaign.
+            for future in pending:
+                future.cancel()
+            terminate_running_compilers()
+            raise
         finally:
             for future in pending:
                 future.cancel()

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Gave the campaign runner ownership of the processes it starts: compilers run
+  in their own process group and are terminated with their children when a run
+  fails or is interrupted, so a spawned search or assembler cannot outlive its
+  campaign.
 - Stopped campaigns on the first exact match by default (`--no-stop-on-exact`
   sweeps the whole grid) and removed the repeated target disassembly, so a
   variant costs one compiler run and one objdump run with the comparison in

@@ -76,6 +76,19 @@ equal. Some wrappers change behavior by path and some object formats embed
 source paths. Passing the same prepared source more than once is deduplicated;
 different paths are treated as distinct candidates.
 
+## Process ownership
+
+Every compiler runs in its own process group (`start_new_session` on POSIX, a
+new process group on Windows), and the campaign ends that group — the wrapper
+and everything it started — when the run fails or is interrupted. A compiler
+wrapper that starts an assembler, a parallel search, or any other helper
+therefore cannot outlive its campaign. A leaked parallel job did exactly that
+in the field and degraded two later runs before the next campaign started.
+
+Interrupting a campaign (`Ctrl-C`) cancels queued candidates, terminates
+running compilers with their children, and re-raises. Records already written
+to the ledger stay valid.
+
 ## Environment-sensitive compilers
 
 Pass instrumentation and behavioral controls frequently use environment
