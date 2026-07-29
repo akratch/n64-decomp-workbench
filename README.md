@@ -135,6 +135,7 @@ Start with [workflow selection][workflows], then use the focused guide:
 
 - [Object comparison][object-comparison]
 - [Lessons from final-function campaigns][final-function-campaigns]
+- [Portable Codex and Claude Code skill][agent-skill]
 - [Candidate campaigns][campaigns]
 - [Scratch bundles][scratch-bundles]
 - [IDO version support][ido-support]
@@ -183,6 +184,7 @@ instrumentation profile, or trace format.
 CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
+[agent-skill]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/agent-skill.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
 [tooling-roadmap]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/tooling-roadmap.md
 [contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md

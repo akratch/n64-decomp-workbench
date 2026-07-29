@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added the portable `n64-decomp-campaign` Agent Skill for Codex and Claude
+  Code, including installation guidance and reusable DKR/SF64 campaign
+  evidence, IDO patterns, and reproducibility practice.
 - Added action-oriented comparison verdicts, relocation-only raw-difference
   explanations, and a deliberately separate cross-ROM structural-evidence
   mode.
