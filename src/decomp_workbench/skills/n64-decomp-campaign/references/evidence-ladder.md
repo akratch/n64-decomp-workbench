@@ -35,3 +35,9 @@ scores across changed compiler contexts, ROM revisions, or external tools
 without also preserving the comparison metrics and inputs. Prefer a candidate
 that removes a structural class of difference over one that merely improves a
 single score.
+
+When a score is used, use the aligned one. `aligned_total` counts differing
+rows after an LCS alignment; `words` counts positions and shifts on every
+inserted or deleted instruction, which misranked candidates in six recorded
+campaigns. The workbench sorts on the aligned count for this reason, and the
+`aligned_*` class split says which lever family the residual belongs to.

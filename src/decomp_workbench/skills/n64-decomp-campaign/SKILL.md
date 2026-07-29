@@ -22,6 +22,11 @@ Before editing source, identify and preserve:
 Run `decomp-workbench compare` or `compare-dumps` before choosing an
 experiment. Record the verdict, not only a scalar score.
 
+Rank candidates by `aligned_total`, never by `words`. Positional word counts
+shift on every inserted or deleted instruction, so the variant one edit away
+can report a longer residual than one with a dozen unrelated allocation
+differences. `words=0` with `exact=true` is still the only matching claim.
+
 ## Choose the next experiment from the residual
 
 | Evidence | Work on | Do not start with |
@@ -46,13 +51,18 @@ when the mismatch is caused by IDO code generation or register allocation.
    compiler wrapper, working directory, environment, cache, and ledger.
 4. Compare every successful object; inspect object basins so identical compiler
    outcomes do not masquerade as independent discoveries.
+   Filter a large sweep with `compare --census KEY=VALUE` (exit 0 when every
+   predicate holds, 3 when one fails) rather than writing another objdump and
+   regular-expression layer.
 5. Keep promising source/object pairs and the associated trace evidence.
 6. Return to a readable, source-level explanation after a force probe or fake
    demonstrates causality.
 
 Use `trace-globalcolor --proc PROC --web WEB` only after the comparator has
 isolated an allocation residual. A force-color build tests a cause; it is not a
-source match.
+source match. Read `forbidden_colors` before planning a force sweep: those
+endpoints do not exist, and the instrumented pass declines them with a
+`force_declined` record rather than assigning them.
 
 Read [references/campaign-hygiene.md](references/campaign-hygiene.md) when
 creating candidates, scratch artifacts, commits, or a public progress repo.
