@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Split three verdicts out of the volume-based classes, each with the field
+  lever attached: `constant-mismatch` (audit the flag/enum against the
+  assembly), `commutative-order` (compound assignment, not the allocator), and
+  `schedule-mismatch` (statement grouping and the `-g0` diagnostic).
 - Unified human labels and JSON keys behind one metric registry and added
   `--explain-keys`. `words=` is now `"words"` in JSON; the previous long-form
   keys (`word_mismatches`, `candidate_instructions`, `candidate_frame_size`,

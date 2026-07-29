@@ -9,6 +9,7 @@ from decomp_workbench.compare import (
     mismatch_ranges,
     normalize_instruction,
 )
+from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import (
     parse_disassembly,
     parse_relocations,
@@ -394,6 +395,79 @@ class CompareTests(unittest.TestCase):
             symbol=None,
         )
         self.assertEqual(result.diff_site_classes, {"relocation-layout": 1})
+
+    def compare_text(self, target: str, candidate: str) -> Comparison:
+        return compare_instructions(
+            parse_disassembly(target),
+            parse_disassembly(candidate),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+    def test_swapped_commutative_operands_are_not_an_allocation_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 00851025  or $v0,$a0,$a1\n",
+            "   0: 00a41025  or $v0,$a1,$a0\n",
+        )
+        self.assertEqual(result.verdict, "commutative-order")
+        self.assertEqual(result.diff_site_classes, {"commutative-order": 1})
+        self.assertEqual(result.register_mismatches, 1)
+        guidance = " ".join(result.guidance)
+        self.assertIn("|=", guidance)
+        self.assertNotIn("trace", guidance.replace("Do not trace", ""))
+
+    def test_same_operand_order_is_not_a_commutative_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 00851025  or $v0,$a0,$a1\n",
+            "   0: 00851825  or $v1,$a0,$a1\n",
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+
+    def test_reordered_identical_opcodes_are_a_schedule_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 8c880000  lw $t0,0($a0)\n   4: 25290001  addiu $t1,$t1,1\n",
+            "   0: 25290001  addiu $t1,$t1,1\n   4: 8c880000  lw $t0,0($a0)\n",
+        )
+        self.assertEqual(result.verdict, "schedule-mismatch")
+        self.assertEqual(result.opcode_mismatches, 2)
+        self.assertEqual(result.instruction_delta, 0)
+        guidance = " ".join(result.guidance)
+        self.assertIn("-g0", guidance)
+        self.assertIn("replay-as1", guidance)
+
+    def test_changed_opcode_multiset_stays_a_structure_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 8c880000  lw $t0,0($a0)\n   4: 25290001  addiu $t1,$t1,1\n",
+            "   0: 25290001  addiu $t1,$t1,1\n   4: 25290001  addiu $t1,$t1,1\n",
+        )
+        self.assertEqual(result.verdict, "structure-mismatch")
+
+    def test_literal_only_difference_is_a_constant_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 24020021  li $v0,33\n",
+            "   0: 24020031  li $v0,49\n",
+        )
+        self.assertEqual(result.verdict, "constant-mismatch")
+        guidance = " ".join(result.guidance)
+        self.assertIn("assembly encodes the truth", guidance)
+        self.assertIn("fake", guidance)
+
+    def test_frame_adjustment_is_not_a_constant_verdict(self) -> None:
+        result = self.compare_text(
+            "   0: 27bdffe0  addiu $sp,$sp,-32\n",
+            "   0: 27bdffd0  addiu $sp,$sp,-48\n",
+        )
+        self.assertEqual(result.diff_site_classes, {"operand": 1})
+        self.assertEqual(result.verdict, "operand-mismatch")
+
+    def test_structure_verdict_names_a_constant_site_when_present(self) -> None:
+        result = self.compare_text(
+            "   0: 3c081000  lui $t0,0x1000\n   4: 8c880000  lw $t0,0($a0)\n",
+            "   0: 3c080010  lui $t0,0x10\n",
+        )
+        self.assertEqual(result.verdict, "structure-mismatch")
+        self.assertIn("constant materializations", result.guidance[0])
 
     def test_parse_relocations(self) -> None:
         relocations = parse_relocations(RELOC_TARGET)

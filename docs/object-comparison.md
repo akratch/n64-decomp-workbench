@@ -80,6 +80,44 @@ objdump can include zero alignment padding through the end of the section. The
 workbench excludes unreachable zero words after the function's final `jr ra`
 delay slot; the delay-slot instruction itself remains part of the comparison.
 
+## Verdicts and the next lever
+
+A verdict names the cheapest mechanism that explains the residual, because a
+verdict chosen by volume sends the next experiment to the wrong layer.
+
+| Verdict | Recognized by | Next lever |
+|---|---|---|
+| `instruction-exact` | Masked words agree; raw differences are relocation-controlled | Verify the link or ROM; do not change source |
+| `instruction-words-identical` | Raw words and relocation layout agree | Run the project's final verification |
+| `unknown-relocation` | A relocation kind has no precise field mask | Add the mask before trusting the comparison |
+| `relocation-layout-mismatch` | Instruction bits agree, relocation kinds/symbols differ | Translation-unit and linker context, not fake expressions |
+| `constant-mismatch` | Every differing site is an immediate on `li`/`lui`/`ori`/`andi`/`addiu`/`slti` with equal opcodes and registers | Audit the flag/enum/constant against the assembly, then re-derive fakes |
+| `commutative-order` | Every differing site swaps the two sources of a commutative operation | Compound assignment (`x \|= y`), not the allocator |
+| `schedule-mismatch` | Equal instruction count and equal opcode multiset, reordered | Statement/expression grouping; `-g0` diagnostic; `replay-as1` |
+| `structure-mismatch` | Opcode differences or an instruction-count delta | C and control-flow shape; check constant sites first when present |
+| `allocation-mismatch` | Opcode shape agrees, registers differ | Live ranges, declaration order, allocator traces |
+| `operand-mismatch` | Remaining immediate or offset differences | Inspect the localized sites |
+
+Three of these classes exist because volume-based naming misdirected real
+campaigns:
+
+- **`constant-mismatch`** — one wrong flag identifier produced 183 words that
+  read as `structure-mismatch`. When a large structural difference starts at a
+  constant materialization, the assembly encodes the truth; audit the constant
+  before anything else, then re-derive fakes that may have been fitted to the
+  wrong body.
+- **`commutative-order`** — two `or` instructions with swapped sources were
+  reported as `allocation-mismatch`, which dispatched allocator work for an
+  expression-tree problem. IDO 5.3 canonicalizes `a | b` and `b | a`, so that
+  family is dead; `x |= y` is a distinct expression tree and is the lever.
+- **`schedule-mismatch`** — equal-length reordered output was reported as
+  `structure-mismatch`. Under `-g3` IDO emits a `.loc` per statement and the
+  assembler restricts motion across those barriers, so rebuilding the candidate
+  with `-g0` is the decisive one-command diagnostic: if the divergent region
+  collapses, the C is correct and the residual is debug-info scheduling.
+
+A verdict never suppresses evidence; see the diff-site policy above.
+
 ## One name per metric
 
 The terminal label and the JSON key are the same string, rendered from one

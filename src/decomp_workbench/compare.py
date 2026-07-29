@@ -381,6 +381,8 @@ def comparison_guidance(
     opcode_mismatches: int,
     instruction_delta: int,
     register_mismatches: int,
+    site_classes: dict[str, int],
+    opcode_multiset_equal: bool,
 ) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
@@ -425,16 +427,67 @@ def comparison_guidance(
                 "linked/ROM output before changing source.",
             ],
         )
-    if opcode_mismatches or instruction_delta:
+    classes = {name for name, count in site_classes.items() if count}
+    if classes == {"constant"}:
         return (
-            "structure-mismatch",
+            "constant-mismatch",
             [
-                "Instruction shape differs: work at the C/control-flow or "
-                "expression-tree level first.",
-                "Avoid allocator-only experiments until the instruction "
-                "count and opcode schedule stabilize.",
+                "Every difference is an immediate on a constant-materializing "
+                "instruction; opcodes and registers already agree.",
+                "Audit the flag, enum, or constant against the target assembly "
+                "first: the assembly encodes the truth, and one wrong "
+                "identifier can present as a large structural difference.",
+                "Re-derive any fake expressions afterwards; they may have been "
+                "fitted to the wrong constant. Literal search is comparison "
+                "work, not permuter work.",
             ],
         )
+    if classes == {"commutative-order"}:
+        return (
+            "commutative-order",
+            [
+                "Same opcodes and same operands with the two sources of a "
+                "commutative operation swapped: this is front-end expression "
+                "shape, not register allocation.",
+                "Reach for compound assignment. `a | b` and `b | a` "
+                "canonicalize to the same object, but `x |= y` is a distinct "
+                "expression tree and flips the emitted operand order.",
+                "Do not trace the allocator for this residual.",
+            ],
+        )
+    if opcode_multiset_equal and opcode_mismatches and not instruction_delta:
+        return (
+            "schedule-mismatch",
+            [
+                "Instruction count and opcode multiset are identical and the "
+                "instructions are reordered: this is late-pass scheduling, "
+                "not allocation and not control flow.",
+                "Regroup expressions and statements rather than changing "
+                "values or lifetimes.",
+                "Diagnostic: rebuild the candidate with -g0. IDO emits a .loc "
+                "per statement under -g3 and the assembler restricts motion "
+                "across those barriers, so a region that collapses under -g0 "
+                "means the C is right and the residual is debug-info "
+                "scheduling.",
+                "`replay-as1` tests whether the final assembler pass owns the "
+                "ordering.",
+            ],
+        )
+    if opcode_mismatches or instruction_delta:
+        guidance = [
+            "Instruction shape differs: work at the C/control-flow or "
+            "expression-tree level first.",
+            "Avoid allocator-only experiments until the instruction "
+            "count and opcode schedule stabilize.",
+        ]
+        if site_classes.get("constant"):
+            guidance.insert(
+                0,
+                "One or more differing sites are constant materializations: "
+                "audit the flag, enum, or constant against the assembly "
+                "before treating this as a control-flow problem.",
+            )
+        return "structure-mismatch", guidance
     if register_mismatches:
         return (
             "allocation-mismatch",
@@ -528,6 +581,7 @@ def compare_instructions(
         target, candidate, target_words, candidate_words
     )
     sites = diff_sites(target, candidate, target_words, candidate_words)
+    site_classes = diff_site_classes(sites)
     exact = (
         exact_mismatches == 0 and relocation_mismatches == 0 and not unknown_relocations
     )
@@ -540,6 +594,11 @@ def compare_instructions(
         opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
         instruction_delta=len(candidate) - len(target),
         register_mismatches=register_count,
+        site_classes=site_classes,
+        opcode_multiset_equal=(
+            collections.Counter(target_opcodes)
+            == collections.Counter(candidate_opcodes)
+        ),
     )
     return Comparison(
         candidate=candidate_name,
@@ -573,7 +632,7 @@ def compare_instructions(
         guidance=guidance,
         register_diff=register_diff,
         diff_sites=sites,
-        diff_site_classes=diff_site_classes(sites),
+        diff_site_classes=site_classes,
     )
 
 
