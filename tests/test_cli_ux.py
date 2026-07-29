@@ -23,6 +23,7 @@ SYMBOL_COMMANDS = (
     "compare-dumps",
     "view",
     "view-dumps",
+    "check-scratch",
     "rank",
     "compile-rank",
     "campaign",
@@ -192,12 +193,16 @@ class CliUxTests(unittest.TestCase):
             with self.subTest(command=command):
                 with tempfile.TemporaryDirectory() as temp:
                     dump = self.write_two_function_dump(Path(temp))
+                    inputs = (
+                        [str(Path(temp))]
+                        if command == "check-scratch"
+                        else [str(dump), str(dump)]
+                    )
                     with self.assertRaises(SystemExit) as raised:
                         self.run_cli(
                             [
                                 command,
-                                str(dump),
-                                str(dump),
+                                *inputs,
                                 "--symbol",
                                 "first",
                                 "--function",

@@ -33,6 +33,19 @@ carry one extra instruction, where positional counting reports eleven differing
 words and the alignment reports one hunk. Both pairs are synthetic and encode
 real MIPS words, so byte-level signatures are meaningful.
 
+## decomp.me export fixture
+
+```sh
+decomp-workbench check-scratch fixtures/decompme-export
+```
+
+`fixtures/decompme-export/` is a synthetic expanded export: metadata, context,
+source, and a redistributable target/current objdump pair. Its two adjacent
+`li` instructions are reversed, reproducing the final shape of a real
+`99.98%` scheduling residual without shipping compiler output or project code.
+The full workflow is in
+[From a decomp.me export to local truth](../docs/decompme-exports.md).
+
 ## Ugen FIFO trace
 
 ```sh

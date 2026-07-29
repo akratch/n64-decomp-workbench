@@ -65,9 +65,11 @@ compiler-instrumentation deep-dive, all on IDO 5.3 `-O2 -g3 -mips2`.
 13. **The `-g0` diagnostic (highest value per command).** When the residual
     is "same instruction multiset, target schedules/hoists further":
     recompile the candidate with `-g0`. If the region collapses to ~exact,
-    the C is correct — the residual is `-g3` `.loc`-barrier scheduling
-    (as1 restricts motion at per-statement `.loc`s), and source search is
-    over. Line joins and comma merges cannot remove the barriers.
+    debug metadata participates in the `-g3` ordering and as1 can reach the
+    target schedule. This does **not** prove source correctness: a freer
+    scheduler can rescue a non-original shape, as the eventual `vsprintf`
+    match demonstrated. Compare expression/statement topology and line tags
+    before ending source search.
 14. **Web formation vs coloring.** A value can differ not in WHICH register
     a web gets but in WHETHER it becomes a colored web at all (target keeps
     it a ugen pool temp, candidate promotes it to a uopt web — texLoad).

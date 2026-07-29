@@ -54,6 +54,7 @@ If it differs, the command reports the exact path and leaves it untouched.
 - classification of structural, allocator, relocation, and cross-ROM residuals;
 - IDO lifetime, fake-local, loop-form, and force-probe experiments;
 - reproducible candidate campaigns and object-basin interpretation;
+- safe decomp.me export checking and site-faithful source composition;
 - safe public proof artifacts and a tooling-gap capture loop.
 
 Use the workbench commands for actual comparison and trace analysis. The skill

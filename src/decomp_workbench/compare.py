@@ -483,6 +483,7 @@ def comparison_guidance(
     register_mismatches: int,
     site_classes: dict[str, int],
     instruction_multiset_equal: bool,
+    aligned_counts: dict[str, int],
 ) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
@@ -565,7 +566,16 @@ def comparison_guidance(
     # the same instructions, registers included. Gating on the opcode
     # multiset alone would call a reordering that also moves a register
     # "not allocation" and send the next experiment to the wrong layer.
-    if (
+    aligned_schedule_only = bool(aligned_counts.get("aligned_schedule")) and not any(
+        aligned_counts.get(name)
+        for name in (
+            "aligned_structural",
+            "aligned_register",
+            "aligned_constant",
+            "aligned_commutative",
+        )
+    )
+    if aligned_schedule_only or (
         instruction_multiset_equal
         and opcode_mismatches
         and not instruction_delta
@@ -574,16 +584,18 @@ def comparison_guidance(
         return (
             "schedule-mismatch",
             [
-                "Instruction count, opcodes, and registers are identical and "
-                "the instructions are reordered: this is late-pass "
-                "scheduling, not allocation and not control flow.",
+                "Instruction count and the full instruction multiset "
+                "(registers included) are identical; only their order differs. "
+                "This is late-pass scheduling, not allocation or control flow.",
                 "Regroup expressions and statements rather than changing "
                 "values or lifetimes.",
-                "Diagnostic: rebuild the candidate with -g0. IDO emits a .loc "
-                "per statement under -g3 and the assembler restricts motion "
-                "across those barriers, so a region that collapses under -g0 "
-                "means the C is right and the residual is debug-info "
-                "scheduling.",
+                "Ownership probe: rebuild the candidate with -g0. If the "
+                "region collapses, debug line metadata constrains the -g3 "
+                "schedule and the assembler can reach the target ordering.",
+                "A -g0 collapse does not prove source correctness: a freer "
+                "scheduler can rescue a non-original expression or statement "
+                "shape. Compare source topology and line tags before declaring "
+                "that search complete.",
                 "`replay-as1` tests whether the final assembler pass owns the "
                 "ordering.",
             ],
@@ -712,6 +724,7 @@ def compare_instructions(
             collections.Counter(target_normalized)
             == collections.Counter(candidate_normalized)
         ),
+        aligned_counts=aligned,
     )
     return Comparison(
         candidate=candidate_name,

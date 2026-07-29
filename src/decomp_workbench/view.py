@@ -1025,9 +1025,13 @@ def _guidance(
             [
                 "equal instruction multiset in a different order: this is late "
                 "scheduling, not allocation.",
-                "recompile the candidate with -g0. If the divergent region "
-                "collapses, the C is correct and the residual is -g3 .loc "
-                "scheduling; stop searching source space.",
+                "recompile the candidate with -g0 as an ownership probe. A "
+                "collapse proves debug line metadata constrains the -g3 "
+                "schedule and that as1 can reach the target ordering.",
+                "a -g0 collapse does not prove source correctness: a freer "
+                "scheduler can rescue a non-original expression or statement "
+                "shape. Compare topology and line tags before ending source "
+                "search.",
                 "statement and expression grouping is the source lever; "
                 "replay-as1 tests whether as1 owns the ordering.",
             ]
@@ -1198,33 +1202,34 @@ def _runs(labels: Sequence[str]) -> list[tuple[int, int]]:
 def _relabel_reorderings(
     labels: list[str],
     skeleton: Sequence[tuple[str, int | None, int | None]],
-    target_text: Sequence[str],
-    candidate_text: Sequence[str],
+    target_keys: Sequence[str],
+    candidate_keys: Sequence[str],
 ) -> None:
     """Promote pure reorderings from ``structural`` to ``schedule``.
 
     Opcode-level LCS reports a swap of two differently-named instructions as an
     adjacent delete and insert, which reads as new structure by volume.  A run
     whose two sides carry the same instructions in a different order is a late
-    scheduling decision, and the lever for it (`-g0` as a diagnostic) has
-    nothing to do with the levers for real structure.
+    scheduling decision. Keys mask linker-controlled relocation fields, so
+    unrelated jump-table addends elsewhere in the function cannot hide that
+    fact.
     """
 
     def sides(start: int, end: int) -> tuple[list[str], list[str]]:
         left = [
-            target_text[index]
+            target_keys[index]
             for _, index, _ in skeleton[start : end + 1]
             if index is not None
         ]
         right = [
-            candidate_text[index]
+            candidate_keys[index]
             for _, _, index in skeleton[start : end + 1]
             if index is not None
         ]
         return sorted(left), sorted(right)
 
     runs = _runs(labels)
-    if runs and sorted(target_text) == sorted(candidate_text) and target_text:
+    if runs and sorted(target_keys) == sorted(candidate_keys) and target_keys:
         # Whole-function reordering: equal instruction multiset, different order.
         # The run labels are irrelevant here.  Two same-opcode instructions that
         # swapped places pair up as register differences, not as a delete beside
@@ -1239,6 +1244,19 @@ def _relabel_reorderings(
         if left and left == right:
             for index in range(start, end + 1):
                 labels[index] = SCHEDULE
+
+
+def _schedule_identity(instruction: Instruction, normalized: str) -> str:
+    """Return an instruction identity stable across linker-controlled fields."""
+
+    if ALIGNED_TARGET in normalized:
+        return normalized
+    mask, unknown = relocation_field_mask(instruction)
+    if unknown:
+        return f"{instruction.word}:{normalized}"
+    kept_word = instruction.word_value & (~mask & 0xFFFFFFFF)
+    kinds = ",".join(_relocation_kind_signature(instruction))
+    return f"{kept_word:08x}:{kinds}"
 
 
 def _unknown_relocations(*streams: Sequence[Instruction]) -> list[str]:
@@ -1336,6 +1354,14 @@ def build_view(
         )
         for item in candidate
     ]
+    target_schedule_keys = [
+        _schedule_identity(item, text)
+        for item, text in zip(target, target_text, strict=True)
+    ]
+    candidate_schedule_keys = [
+        _schedule_identity(item, text)
+        for item, text in zip(candidate, candidate_text, strict=True)
+    ]
 
     labels: list[str] = []
     for tag, target_index, candidate_index in skeleton:
@@ -1350,7 +1376,12 @@ def build_view(
             )
         else:
             labels.append(STRUCTURAL)
-    _relabel_reorderings(labels, skeleton, target_text, candidate_text)
+    _relabel_reorderings(
+        labels,
+        skeleton,
+        target_schedule_keys,
+        candidate_schedule_keys,
+    )
 
     rows: list[AlignedRow] = []
     counts: dict[str, int] = {name: 0 for name in CLASS_ORDER}

@@ -3,6 +3,18 @@
 Start with object comparison. Move into compiler diagnostics only after the
 instruction structure is close.
 
+## Downloaded decomp.me scratch
+
+```sh
+decomp-workbench doctor "/path/to/scratch.zip"
+decomp-workbench check-scratch "/path/to/scratch.zip" --show-diff
+```
+
+This validates the handoff, reports the browser score as context, and compares
+the site's own target/current objects. Add `--compile-command` when you need to
+test a local candidate with the site's context and source-line reset. See
+[decomp.me export checking](decompme-exports.md).
+
 ## Object mismatch
 
 ```sh

@@ -444,6 +444,40 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(view.counts["schedule"], 2)
         self.assertIn("-g0", " ".join(view.guidance))
 
+    def test_relocation_addends_elsewhere_do_not_hide_a_reorder(self) -> None:
+        """The final vsprintf residual had both kinds of raw difference."""
+
+        target = parse_disassembly(
+            "00000000 <demo>:\n"
+            "   0: 8c380000  lw $t8,0($at)\n"
+            "                        0: R_MIPS_LO16 jump_table\n"
+            "   4: 2401000a  li $at,10\n"
+            "   8: 240e002d  li $t6,45\n",
+            symbol="demo",
+        )
+        candidate = parse_disassembly(
+            "00000000 <demo>:\n"
+            "   0: 8c380014  lw $t8,20($at)\n"
+            "                        0: R_MIPS_LO16 jump_table\n"
+            "   4: 240e002d  li $t6,45\n"
+            "   8: 2401000a  li $at,10\n",
+            symbol="demo",
+        )
+        view = build_view(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+
+        self.assertEqual(view.verdict, "schedule")
+        self.assertEqual(view.counts["schedule"], 2)
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["relocation"], 1)
+        guidance = " ".join(view.guidance)
+        self.assertIn("does not prove source correctness", guidance)
+
     def test_relocation_only_difference_is_linker_controlled(self) -> None:
         target = parse_disassembly(
             "00000000 <demo>:\n"

@@ -1,0 +1,11 @@
+{
+  "compiler": "ido5.3",
+  "compiler_flags": "-O2 -mips2 -g3",
+  "diff_label": "demo",
+  "language": "C",
+  "max_score": 127000,
+  "name": "redistributable schedule example",
+  "platform": "n64",
+  "score": 20,
+  "slug": "local-example"
+}

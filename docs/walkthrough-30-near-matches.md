@@ -160,10 +160,13 @@ and a single rebuild.
 | `ast-shape` | Rewrite the assignment as `x \|= y` | [Lever 2](field-guide.md#2-commutative-operand-order) |
 | `g0-schedule-probe` | Rebuild that one candidate with `-g0` and compare again | [Lever 3](field-guide.md#3-the--g0-diagnostic) |
 
-The `-g0` round is the highest-value hour in the whole backlog, because it does
-not fix functions — it **retires** them. Anything whose divergent region
-collapses under `-g0` has correct C, and the residual is `-g3` `.loc`-barrier
-scheduling. Mark it, stop searching source for it, and take it off the pile.
+The `-g0` round is a high-value ownership pass, not a correctness pass. A
+collapse says debug metadata participates in the `-g3` ordering and as1 can
+reach the target schedule; it does not say the current expression or statement
+shape is original. Mark those rows `debug-schedule-sensitive`, compare their
+source topology and line tags, and reserve scheduler tracing for the smallest
+remaining tie. A negative result rules out a purely debug-line explanation
+only for the exact region and build inputs tested.
 
 Re-run `triage.sh` after this round. Fixing a constant re-shapes the whole
 function, and several rows will have moved class.

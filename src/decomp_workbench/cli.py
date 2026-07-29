@@ -49,10 +49,16 @@ from .instrument_uopt import (
     parse_force_specification,
 )
 from .model import Comparison, CompileResult, display_path
-from .objdump import parse_disassembly
+from .objdump import discover_objdump, dump_object, parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
 from .schema import COMPARISON_CENSUS_KEYS, selected_fields, summary_line
 from .scratch_bundle import bundle_scratch
+from .scratch_check import (
+    ScratchPackage,
+    compose_site_source,
+    load_scratch,
+    scratch_score,
+)
 from .trace import (
     alias_trace_summary,
     parse_integer,
@@ -341,6 +347,380 @@ def bundle_scratch_command(args: argparse.Namespace) -> int:
     else:
         print(f"scratch bundle: {result.output}")
     return 0
+
+
+def _scratch_comparison(
+    package: ScratchPackage,
+    args: argparse.Namespace,
+    workspace: Path,
+) -> tuple[Comparison | None, dict[str, object] | None, str]:
+    """Compile when requested, then select the strongest bundled evidence."""
+
+    symbol = args.symbol
+    metadata_symbol = package.metadata.get("diff_label")
+    if symbol is None and isinstance(metadata_symbol, str):
+        symbol = metadata_symbol
+
+    compile_report: dict[str, object] | None = None
+    candidate_object: Path | None = None
+    if args.compile_command:
+        composed = workspace / "site-source.c"
+        composed.write_bytes(compose_site_source(package, args.source).encode("utf-8"))
+        output = workspace / "compiled.o"
+        command = render_compile_command(args.compile_command, composed, output)
+        environment = os.environ.copy()
+        environment.update(parse_environment(args.env))
+        compile_cwd = (
+            Path(args.compile_cwd).expanduser().resolve() if args.compile_cwd else None
+        )
+        if compile_cwd is not None and not compile_cwd.is_dir():
+            raise ValueError(
+                f"compile working directory is not a directory: {compile_cwd}"
+            )
+        try:
+            process = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                cwd=compile_cwd,
+                env=environment,
+                timeout=args.timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                f"compiler exceeded --timeout={args.timeout:g} seconds"
+            ) from error
+        compile_report = {
+            "command": command,
+            "returncode": process.returncode,
+            "stdout": process.stdout,
+            "stderr": process.stderr,
+            "source": "override" if args.source else "exported code.c",
+            "site_line_reset": '#line 1 "src.c"',
+        }
+        if process.returncode:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(
+                f"compiler failed with exit {process.returncode}: "
+                f"{detail or 'no diagnostic'}"
+            )
+        if not output.is_file():
+            raise RuntimeError("compiler succeeded but did not create {output}")
+        candidate_object = output
+        if args.keep_composed:
+            destination = Path(args.keep_composed).expanduser().resolve()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(composed, destination)
+            compile_report["retained_source"] = str(destination)
+        if args.keep_object:
+            destination = Path(args.keep_object).expanduser().resolve()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(output, destination)
+            compile_report["retained_object"] = str(destination)
+
+    if candidate_object is not None:
+        if "target.o" not in package.files:
+            raise ValueError("site-faithful compilation needs target.o in the export")
+        target_object = package.materialize("target.o", workspace)
+        comparison = compare_objects(
+            target_object,
+            candidate_object,
+            objdump=args.objdump,
+            symbol=symbol,
+            section=args.section,
+        )
+        comparison.target = f"{display_path(package.path)}:target.o"
+        comparison.candidate = (
+            display_path(args.source)
+            if args.source
+            else f"{display_path(package.path)}:code.c"
+        )
+        return comparison, compile_report, "compiled-site-source-vs-target-object"
+
+    if {"target.o", "current.o"} <= package.files.keys():
+        target_object = package.materialize("target.o", workspace)
+        current_object = package.materialize("current.o", workspace)
+        comparison = compare_objects(
+            target_object,
+            current_object,
+            objdump=args.objdump,
+            symbol=symbol,
+            section=args.section,
+        )
+        comparison.target = f"{display_path(package.path)}:target.o"
+        comparison.candidate = f"{display_path(package.path)}:current.o"
+        return comparison, compile_report, "exported-objects"
+
+    dump_pair = next(
+        (
+            pair
+            for pair in (
+                ("target.objdump", "current.objdump"),
+                ("target.objdump", "candidate.objdump"),
+            )
+            if set(pair) <= package.files.keys()
+        ),
+        None,
+    )
+    if dump_pair is not None:
+        target = parse_disassembly(package.text(dump_pair[0]), symbol=symbol)
+        candidate = parse_disassembly(package.text(dump_pair[1]), symbol=symbol)
+        if not target or not candidate:
+            detail = f" for symbol {symbol!r}" if symbol else ""
+            raise ValueError(
+                "both retained dumps must contain GNU-style objdump "
+                f"instruction lines{detail}"
+            )
+        comparison = compare_instructions(
+            target,
+            candidate,
+            target_name=f"{display_path(package.path)}:{dump_pair[0]}",
+            candidate_name=f"{display_path(package.path)}:{dump_pair[1]}",
+            symbol=symbol,
+        )
+        return comparison, compile_report, "retained-objdump-text"
+    return None, compile_report, "no-comparable-object-or-dump-pair"
+
+
+def _scratch_next_actions(
+    package: ScratchPackage,
+    comparison: Comparison | None,
+    evidence: str,
+) -> list[str]:
+    if comparison is not None and comparison.exact:
+        return [
+            "Run the project's normal link/ROM and collateral verification; "
+            "function exactness is not whole-project proof."
+        ]
+    if comparison is not None:
+        return list(comparison.guidance)
+    if package.kind == "workbench-bundle":
+        return [
+            "Create the scratch manually from README.md; the checksums are valid.",
+            "Download a decomp.me export afterward and run check-scratch on it.",
+        ]
+    if evidence == "no-comparable-object-or-dump-pair":
+        return [
+            "Export target.o/current.o from decomp.me, or add "
+            "target.objdump/current.objdump for a compiler-free comparison.",
+            "Pass --compile-command to verify code.c with decomp.me's line-reset "
+            "semantics when target.o is present.",
+        ]
+    return []
+
+
+def check_scratch_command(args: argparse.Namespace) -> int:
+    """Inspect an export and report decomp.me context beside workbench truth."""
+
+    if args.source and not args.compile_command:
+        print("error: --source requires --compile-command", file=sys.stderr)
+        return 2
+    if args.timeout <= 0:
+        print("error: --timeout must be positive", file=sys.stderr)
+        return 2
+    try:
+        package = load_scratch(args.scratch)
+        with tempfile.TemporaryDirectory(prefix="decomp-workbench-scratch-") as temp:
+            comparison, compile_report, evidence = _scratch_comparison(
+                package,
+                args,
+                Path(temp),
+            )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+    score = (
+        scratch_score(package.metadata) if package.kind == "decomp.me-export" else None
+    )
+    actions = _scratch_next_actions(package, comparison, evidence)
+    scratch_payload: dict[str, object] = {
+        "path": display_path(package.path),
+        "kind": package.kind,
+        "files": sorted(package.files),
+        "metadata": package.public_metadata(),
+        "checksums_valid": package.checksums_valid,
+    }
+    payload: dict[str, object] = {
+        "scratch": scratch_payload,
+        "external_score": score,
+        "evidence": evidence,
+        "source_semantics": {
+            "site_faithful": bool(args.compile_command),
+            "line_reset": '#line 1 "src.c"' if args.compile_command else None,
+        },
+        "comparison": (
+            comparison_payload(comparison, cross_rom=False)
+            if comparison is not None
+            else None
+        ),
+        "compile": compile_report,
+        "next_actions": actions,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"scratch: {package.kind} ({display_path(package.path)})")
+        metadata = package.public_metadata()
+        identity = metadata.get("name") or metadata.get("project")
+        slug = metadata.get("slug")
+        if identity or slug:
+            parts = [str(value) for value in (identity, slug) if value]
+            print("identity: " + " / ".join(parts))
+        print("files: " + ", ".join(sorted(package.files)))
+        if package.checksums_valid:
+            print("integrity: PASS (all workbench bundle checksums)")
+        if score is not None:
+            print(
+                "decomp.me display: "
+                f"score={score['score']:g}/{score['max_score']:g} "
+                f"({score['percentage']:.5f}%; context only)"
+            )
+        print(f"evidence: {evidence}")
+        if args.compile_command:
+            print(
+                'source composition: site-faithful (inserted #line 1 "src.c" '
+                "between ctx.c and candidate source)"
+            )
+        if comparison is None:
+            print("comparison: unavailable")
+        else:
+            print(comparison_line(comparison))
+            print_comparison_explanation(comparison, cross_rom=False)
+            if args.show_diff:
+                print_diff_sites(comparison)
+        # A comparison already rendered its own guidance above. The action
+        # list remains in JSON as the machine-readable equivalent, while the
+        # terminal gets only genuinely additional handoff steps.
+        if comparison is None:
+            for action in actions:
+                print(f"next: {action}")
+    mismatch = comparison is None or not comparison.exact
+    return 1 if args.fail_on_mismatch and mismatch else 0
+
+
+def doctor_command(args: argparse.Namespace) -> int:
+    """Explain local readiness and validate an optional scratch handoff."""
+
+    objdump_path: str | None = None
+    objdump_error: str | None = None
+    objdump_version: str | None = None
+    try:
+        objdump_path = discover_objdump(args.objdump)
+        version = subprocess.run(
+            [objdump_path, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        lines = (version.stdout or version.stderr).splitlines()
+        objdump_version = lines[0].strip() if lines else None
+    except FileNotFoundError as error:
+        objdump_error = str(error)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        objdump_error = f"could not query objdump: {error}"
+        objdump_path = None
+
+    package: ScratchPackage | None = None
+    if args.scratch:
+        try:
+            package = load_scratch(args.scratch)
+        except (OSError, ValueError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+
+    object_required = bool(package and "target.o" in package.files)
+    object_verified = False
+    if package and objdump_path and "target.o" in package.files:
+        symbol_value = package.metadata.get("diff_label")
+        symbol = symbol_value if isinstance(symbol_value, str) else None
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="decomp-workbench-doctor-"
+            ) as temporary:
+                target = package.materialize("target.o", Path(temporary))
+                dump_object(target, objdump=objdump_path, symbol=symbol)
+            object_verified = True
+        except (OSError, RuntimeError) as error:
+            objdump_error = f"object reader failed the supplied target.o: {error}"
+
+    cache = Path.cwd() / ".decomp-workbench" / "cache"
+    cache_files = (
+        [item for item in cache.rglob("*") if item.is_file()] if cache.is_dir() else []
+    )
+    cache_bytes = sum(item.stat().st_size for item in cache_files)
+    cache_large = cache_bytes >= 1024 * 1024 * 1024
+    object_status = (
+        "verified"
+        if object_verified
+        else "detected"
+        if objdump_path and not object_required
+        else "limited"
+    )
+    payload: dict[str, object] = {
+        "workbench_version": __version__,
+        "python": ".".join(str(item) for item in sys.version_info[:3]),
+        "python_supported": sys.version_info >= (3, 10),
+        "working_directory": str(Path.cwd().resolve()),
+        "cache": {
+            "path": display_path(cache),
+            "exists": cache.is_dir(),
+            "files": len(cache_files),
+            "bytes": cache_bytes,
+            "large": cache_large,
+        },
+        "dump_workflow": "ready",
+        "object_workflow": {
+            "status": object_status,
+            "objdump": objdump_path,
+            "version": objdump_version,
+            "error": objdump_error,
+        },
+        "scratch": (
+            {
+                "path": display_path(package.path),
+                "kind": package.kind,
+                "files": sorted(package.files),
+                "checksums_valid": package.checksums_valid,
+            }
+            if package
+            else None
+        ),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"decomp-workbench {__version__}")
+        python_status = "READY" if payload["python_supported"] else "UNSUPPORTED"
+        print(f"Python {payload['python']}: {python_status}")
+        print("retained objdump workflow: READY (no compiler or object reader needed)")
+        if object_status == "verified":
+            print(f"object workflow: VERIFIED ({objdump_path})")
+        elif object_status == "detected":
+            print(f"object workflow: DETECTED ({objdump_path})")
+            print("object format support: checked when the first object is read")
+        else:
+            print("object workflow: LIMITED")
+            print(f"  {objdump_error}")
+        cache_label = "LARGE" if cache_large else "OK"
+        print(
+            f"campaign cache: {cache_label} - {len(cache_files)} file(s), "
+            f"{cache_bytes} byte(s) ({display_path(cache)})"
+        )
+        if cache_large:
+            print(
+                "  note: inspect this content cache before pruning it; "
+                "doctor never deletes campaign evidence"
+            )
+        if package:
+            print(f"scratch: VALID ({package.kind}; {len(package.files)} file(s))")
+            command = ["decomp-workbench", "check-scratch", str(package.path)]
+            if args.objdump:
+                command.extend(["--objdump", args.objdump])
+            print(f"next: {shlex.join(command)}")
+    return 1 if object_required and not object_verified else 0
 
 
 def install_skill_command(args: argparse.Namespace) -> int:
@@ -1111,6 +1491,104 @@ def build_parser() -> argparse.ArgumentParser:
     # `compare-dumps` and answer the next question about them, so they belong
     # beside them in the listing.
     register_view_commands(commands)
+
+    check_parser = commands.add_parser(
+        "check-scratch",
+        help="inspect or site-faithfully compile a decomp.me export",
+        description=(
+            "Validate an exported ZIP/directory, distinguish the site's display "
+            "score from aligned object truth, and optionally compile context plus "
+            "source with decomp.me's #line reset."
+        ),
+    )
+    check_parser.add_argument(
+        "scratch",
+        help="decomp.me export ZIP/directory or workbench scratch bundle",
+    )
+    add_symbol_argument(
+        check_parser,
+        help_text=(
+            "compare this symbol; defaults to metadata.json's diff_label; "
+            "--function is the same option"
+        ),
+    )
+    add_explain_keys_argument(check_parser)
+    check_parser.add_argument(
+        "--compile-command",
+        help="command template containing {source} and {output}",
+    )
+    check_parser.add_argument(
+        "--source",
+        help="candidate code to place after ctx.c; defaults to exported code.c",
+    )
+    check_parser.add_argument(
+        "--compile-cwd",
+        help="working directory for the compiler process",
+    )
+    check_parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="compiler environment entry; repeatable",
+    )
+    check_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="compiler timeout in seconds (default: 120)",
+    )
+    check_parser.add_argument(
+        "--keep-composed",
+        metavar="PATH",
+        help="retain the exact context + line reset + source input",
+    )
+    check_parser.add_argument(
+        "--keep-object",
+        metavar="PATH",
+        help="retain the newly compiled object",
+    )
+    check_parser.add_argument(
+        "--section",
+        default=".text",
+        help="object section (default: .text)",
+    )
+    check_parser.add_argument(
+        "--objdump",
+        help="GNU-compatible MIPS objdump; auto-detected when omitted",
+    )
+    check_parser.add_argument(
+        "--show-diff",
+        action="store_true",
+        help="print every differing site, grouped by class",
+    )
+    check_parser.add_argument(
+        "--fail-on-mismatch",
+        action="store_true",
+        help="return exit 1 unless an available comparison is exact",
+    )
+    check_parser.add_argument("--json", action="store_true", help="emit JSON")
+    check_parser.set_defaults(handler=check_scratch_command)
+
+    doctor_parser = commands.add_parser(
+        "doctor",
+        help="check local readiness and validate an optional scratch",
+        description=(
+            "Report Python, retained-dump, and object-reader readiness; when a "
+            "scratch is supplied, validate it and print the exact next command."
+        ),
+    )
+    doctor_parser.add_argument(
+        "scratch",
+        nargs="?",
+        help="optional decomp.me export ZIP/directory or workbench bundle",
+    )
+    doctor_parser.add_argument(
+        "--objdump",
+        help="GNU-compatible MIPS objdump; auto-detected when omitted",
+    )
+    doctor_parser.add_argument("--json", action="store_true", help="emit JSON")
+    doctor_parser.set_defaults(handler=doctor_command)
 
     skill_parser = commands.add_parser(
         "install-skill",

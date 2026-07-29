@@ -145,6 +145,22 @@ decomp-workbench bundle-scratch scratch/demo \
   --diff-label demo
 ```
 
+Downloaded a decomp.me ZIP? Validate it and compare the site's own target and
+current objects before trying another source edit:
+
+```sh
+decomp-workbench doctor "/path/to/scratch.zip"
+decomp-workbench check-scratch "/path/to/scratch.zip" \
+  --objdump /path/to/mips64-elf-objdump \
+  --show-diff
+```
+
+`check-scratch` prints the browser score as context, then reports the
+relocation-aware, LCS-aligned truth. With `--compile-command`, it composes
+`ctx.c`, decomp.me's `#line 1 "src.c"` reset, and the candidate source before
+compiling, eliminating a subtle source-line mismatch that can change IDO's
+`-g3` schedule. See [the export tutorial][decompme-exports].
+
 Install the campaign skill for your preferred agent — optional, and it runs the
 same commands you would:
 
@@ -161,7 +177,7 @@ decomp-workbench install-skill claude
 | `structure-mismatch` | Keep working at the C/control-flow level |
 | `constant-mismatch` | Audit the flag/enum against the assembly, then re-derive fakes |
 | `commutative-order` | Change the expression tree (`x \|= y`), not the allocator |
-| `schedule-mismatch` | Regroup statements; rebuild with `-g0` as the diagnostic |
+| `schedule-mismatch` | Regroup statements; use `-g0` to locate ownership, not to prove the C |
 | `allocation-mismatch` | Run `view`, then the pool/temp levers in the field guide |
 | `relocation-layout-mismatch` | Check relocation metadata, then the project link/ROM check |
 | `exact=true` | Run the project’s normal collateral and full-output verification |
@@ -177,6 +193,8 @@ rows into the C that moves it.
 | Are these objects instruction-exact? | `compare` | Relocation-aware verdict, mismatch counts, register ranges, JSON |
 | Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
 | Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
+| Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
+| Does this downloaded scratch really match? | `check-scratch` | Browser score context, aligned object truth, optional site-faithful recompile |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
 | How do I run hundreds of variants safely? | `campaign` | Parallel builds, content cache, JSONL provenance ledger |
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
@@ -189,11 +207,12 @@ rows into the C that moves it.
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
 On every command that selects one function — `compare`, `compare-dumps`,
-`view`, `view-dumps`, `rank`, `compile-rank`, `campaign` — `--symbol` and
-`--function` are the same option, so either vocabulary works, and passing both
-with different values is refused rather than silently resolved. Every printed
-label is also the JSON key for that value; `--explain-keys` prints the one
-registry, comparison, campaign, and aligned-view keys together.
+`view`, `view-dumps`, `check-scratch`, `rank`, `compile-rank`, `campaign` —
+`--symbol` and `--function` are the same option, so either vocabulary works,
+and passing both with different values is refused rather than silently
+resolved. Every printed label is also the JSON key for that value;
+`--explain-keys` prints the one registry, comparison, campaign, and
+aligned-view keys together.
 
 ## All documentation
 
@@ -206,6 +225,7 @@ The three narrative pages first, then the focused guides:
 - [Object comparison][object-comparison]
 - [Aligned mechanism view][view]
 - [Candidate campaigns][campaigns]
+- [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
 - [Lessons from final-function campaigns][final-function-campaigns]
 - [Portable Codex and Claude Code skill][agent-skill]
@@ -259,6 +279,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [walkthrough]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/walkthrough-30-near-matches.md
 [view]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/view.md
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
+[decompme-exports]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/decompme-exports.md
 [agent-skill]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/agent-skill.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
 [tooling-roadmap]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/tooling-roadmap.md

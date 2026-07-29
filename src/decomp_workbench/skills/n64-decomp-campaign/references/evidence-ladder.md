@@ -7,6 +7,7 @@ Use the strongest available evidence and state its scope precisely.
 | decomp.me percentage or visual diff | A direction worth investigating | Exact code, context, or ROM match |
 | Normalized instruction similarity | A structural neighborhood | Literal operands, allocation, or final bytes |
 | Same opcode shape | Stable control-flow and instruction schedule | Matching registers or relocation layout |
+| Region collapses under `-g0` | Debug metadata constrains the `-g3` schedule; as1 can reach that order | Original or correct source topology |
 | Cross-ROM structural match | Shared compiler/source lineage evidence | Exact target object or project match |
 | Force-color or pass-replay experiment | A late compiler cause is plausible | A valid C source match |
 | Relocation-aware instruction-exact object comparison | The selected function's instructions and known relocation layout agree | Whole-project or final-ROM identity |
@@ -27,6 +28,12 @@ The Titania campaign demonstrated this boundary: an external scratch score
 could retain a tiny residual when the underlying object-level instruction
 evidence was already exact, because equivalent linked addresses were printed
 through different compiler-generated symbols.
+
+The `vsprintf` campaign demonstrated a second boundary: a large region
+collapsing under `-g0` did not prove the C was original. A freer scheduler had
+rescued a non-original padding/length topology. The eventual match required a
+different source expression shape, followed by site-faithful source-line
+identity for the final scheduling tie.
 
 ## Keep heuristics in their place
 

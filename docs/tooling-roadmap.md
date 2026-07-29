@@ -24,6 +24,14 @@ ROMs, target objects, and proprietary compiler files.
 - Comparison reports classify relocation-controlled raw differences, emit
   action-oriented verdicts, and keep cross-ROM acceptance separate from exact
   object evidence.
+- Comparison and ranking share one LCS-aligned mechanism view. Pure
+  instruction reorderings remain scheduling residuals even when unrelated
+  relocation addends differ elsewhere.
+- `doctor` reports retained-dump/object-reader readiness, validates scratch
+  handoffs, and prints a shell-quoted next command.
+- `check-scratch` safely reads decomp.me export ZIPs/directories without
+  extracting them, separates browser score context from object truth, and can
+  recompile `ctx.c` plus source with the site's `#line 1 "src.c"` semantics.
 - The portable Agent Skill ships in package artifacts and has a safe,
   idempotent installer for Codex and Claude Code.
 
@@ -166,3 +174,10 @@ instruction mismatches.
 Extend opt-in UGEN/AS1 diagnostics to cover expression evaluation order,
 temporary-register carrier selection, and schedule decisions. Controls remain
 experimental evidence and must never be presented as source-level matches.
+
+The first scheduler profile should emit a stable, documented record for each
+selected node: procedure, block, cycle, opcode, source line, ready-set size,
+and the tie-break that won. Calibrate it with an instrumentation-off binary
+identity gate and an unedited as0/as1 replay. Do not productize the current
+unlabeled pointer dump: a trace whose fields require reverse-engineering every
+run is not a user interface.

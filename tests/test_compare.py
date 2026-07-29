@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from mips_asm import assemble
 
@@ -16,6 +18,7 @@ from decomp_workbench.compare import (
 )
 from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import (
+    discover_objdump,
     parse_disassembly,
     parse_relocations,
     trim_function_padding,
@@ -76,6 +79,18 @@ MIXED_CANDIDATE = """
 
 
 class CompareTests(unittest.TestCase):
+    def test_explicit_objdump_never_silently_falls_back(self) -> None:
+        with self.assertRaisesRegex(FileNotFoundError, "explicit objdump"):
+            discover_objdump("/definitely/missing/mips-objdump")
+
+    def test_explicit_objdump_must_be_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            objdump = Path(temporary) / "objdump"
+            objdump.write_text("#!/bin/sh\n", encoding="utf-8")
+            objdump.chmod(0o644)
+            with self.assertRaisesRegex(FileNotFoundError, "not executable"):
+                discover_objdump(str(objdump))
+
     def test_parse_and_normalize(self) -> None:
         instructions = parse_disassembly(TARGET)
         self.assertEqual(len(instructions), 4)
@@ -441,6 +456,7 @@ class CompareTests(unittest.TestCase):
         guidance = " ".join(result.guidance)
         self.assertIn("-g0", guidance)
         self.assertIn("replay-as1", guidance)
+        self.assertIn("does not prove source correctness", guidance)
 
     def test_reordering_with_a_register_difference_is_not_a_schedule_verdict(
         self,

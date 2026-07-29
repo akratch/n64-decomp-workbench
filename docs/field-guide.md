@@ -83,18 +83,28 @@ capture an allocator trace for this class — the allocator is not involved.
 # rebuild the same candidate with -g0 instead of -g3, then compare again
 ```
 
-**Why:** IDO emits a `.loc` per statement under `-g3`, and as1 restricts
-cross-block motion at those barriers. If the divergent region collapses to
-near-exact under `-g0`, **your C is correct** and the residual is debug-info
-scheduling — source search is over for that region. On `vsprintf`'s float paths
-this took 25 words to 2, replacing roughly 550 blind variants with one command.
+**Why:** IDO emits `.loc` records under `-g3`, and as1 can use their line
+identity as a scheduling constraint or tie-break. If the divergent region
+collapses toward exact under `-g0`, debug metadata participates and the
+assembler can reach the target ordering.
 
-**The negative result is equally load-bearing.** If `-g0` does *not* collapse
-the region, the residual is not `.loc` scheduling and you have exonerated a
-whole hypothesis for one compile. Line joins and comma merges cannot remove the
-barriers, because `.loc` is per statement — do not bother trying.
+That result is **an ownership probe, not source proof**. A freer scheduler can
+rescue a non-original expression or statement shape. `vsprintf` is the
+counterexample that corrected this guide: `-g0` took its float paths from 25
+words to 2, but the eventual match still required replacing pre-subtracted
+padding with one early length expression and live width comparisons. After a
+positive probe, compare source topology and decoded line tags; use
+`replay-as1` or a narrow scheduler trace only when the remaining ordering
+cannot be explained from those two views.
+
+**The negative result is also useful, but scoped.** If `-g0` does *not*
+collapse a region, that region is not explained solely by debug-line
+constraints for the exact source, flags, context, and toolchain you tested.
+Verify those inputs before retiring the hypothesis; do not generalize one
+negative region to the whole function.
 
 **Points here:** `verdict=schedule-mismatch`, `playbook=g0-schedule-probe`.
+The probe narrows layer ownership; it never awards a source match.
 
 ### 4. Flag parity and context parity
 

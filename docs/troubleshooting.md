@@ -4,6 +4,20 @@ Start by rerunning the smallest failing command without parallelism and with
 the exact paths printed in your report. Preserve stderr, the command line, the
 workbench version, and any JSON output.
 
+## Browser and local decomp.me results disagree
+
+Download the scratch export and run:
+
+```sh
+decomp-workbench check-scratch "/path/to/scratch.zip" --show-diff
+```
+
+This compares `target.o` and `current.o` from the same site state, so the
+browser score and local oracle no longer refer to different inputs. For a
+local candidate, use `--compile-command`: compiling `code.c` alone omits the
+site's context and `#line 1 "src.c"` reset, which can change an IDO `-g3`
+schedule. See [the export tutorial](decompme-exports.md).
+
 ## Objdump cannot be found
 
 Pass the executable explicitly:
@@ -15,6 +29,8 @@ decomp-workbench compare target.o candidate.o \
 
 The executable must produce GNU-style `-d -r -z` output. A host objdump that
 does not understand the object’s MIPS format is not interchangeable.
+An explicit `--objdump` path is authoritative: a typo is reported instead of
+silently falling back to a different executable on `PATH`.
 
 ## Objdump produced no instructions
 

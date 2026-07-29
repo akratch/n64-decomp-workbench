@@ -8,6 +8,7 @@ immediate.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -27,18 +28,26 @@ SYMBOL_RE = re.compile(r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$")
 def discover_objdump(explicit: str | None = None) -> str:
     """Find a usable MIPS objdump, preferring an explicit path."""
 
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path.resolve())
+        found = shutil.which(explicit)
+        if found:
+            return found
+        raise FileNotFoundError(
+            f"explicit objdump does not exist or is not executable: {explicit}"
+        )
+
     candidates = [
-        explicit,
         "tools/binutils/mips64-elf-objdump",
         "mips64-elf-objdump",
         "mips-linux-gnu-objdump",
         "objdump",
     ]
     for candidate in candidates:
-        if not candidate:
-            continue
         path = Path(candidate).expanduser()
-        if path.is_file():
+        if path.is_file() and os.access(path, os.X_OK):
             return str(path.resolve())
         found = shutil.which(candidate)
         if found:

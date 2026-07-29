@@ -114,8 +114,10 @@ campaigns:
 - **`schedule-mismatch`** — equal-length reordered output was reported as
   `structure-mismatch`. Under `-g3` IDO emits a `.loc` per statement and the
   assembler restricts motion across those barriers, so rebuilding the candidate
-  with `-g0` is the decisive one-command diagnostic: if the divergent region
-  collapses, the C is correct and the residual is debug-info scheduling.
+  with `-g0` is a high-value ownership probe. If the region collapses, debug
+  metadata constrains the `-g3` schedule and as1 can reach the target ordering.
+  It does **not** prove source correctness: a freer scheduler can rescue a
+  non-original expression or statement shape.
 
 A verdict never suppresses evidence; see the diff-site policy above.
 

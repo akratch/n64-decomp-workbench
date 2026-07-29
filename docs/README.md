@@ -21,6 +21,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want the exact verdict rules and every `compare` option | [Object comparison](object-comparison.md) | MIPS objects or GNU objdump text |
 | You want every `view` option, the alignment rules, and the JSON schema | [Aligned mechanism view](view.md) | Two objects or two reduced dumps |
 | You are sweeping a variant family and want caching and a ledger | [Candidate campaigns](campaigns.md) | A compile-one wrapper |
+| You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
 | You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |
 | A command failed or returned nothing usable | [Troubleshooting](troubleshooting.md) | Command, stderr, and tool identities |

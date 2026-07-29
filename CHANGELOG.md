@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Added `doctor` and `check-scratch` for the human handoff around decomp.me.
+  `doctor` reports local readiness, validates an export or workbench bundle,
+  and prints the exact shell-quoted next command. `check-scratch` safely reads
+  a downloaded ZIP/directory without extraction, shows the browser score only
+  as context, and compares the exported target/current objects (or retained
+  objdump text) with the workbench's aligned oracle. Its optional compile mode
+  reproduces the site's `ctx.c` + `#line 1 "src.c"` + candidate composition,
+  supports explicit environment/cwd/timeout controls, and can retain the exact
+  composed source and object for audit.
+
+- `--objdump PATH` is now authoritative. A misspelled explicit path fails
+  immediately instead of silently selecting a different host executable.
+  `doctor` also verifies the selected reader against an exported `target.o`
+  when available and reports large local campaign caches without modifying
+  them.
+
+- Fixed adjacent instruction swaps being misclassified as allocation or
+  structure when unrelated relocation addends differed elsewhere. The shared
+  aligned view now uses relocation-masked schedule identities, so the
+  redistributable final-two-`li` fixture reports `aligned_schedule=2` and sends
+  the user to the scheduling evidence ladder.
+
+- Corrected an unsafe claim in runtime guidance, tutorials, postmortem, field
+  notes, and the packaged Agent Skill: a region collapsing under `-g0` proves
+  debug metadata participates and as1 can reach the target order, but does not
+  prove source correctness. The eventual `vsprintf` match was the
+  counterexample—a freer scheduler had rescued the wrong source topology.
+
 - `CDX_FORCE` no longer kills the compiler when it names a color the web's
   interference mask already forbids. The instrumented pass **declines** the
   force, records

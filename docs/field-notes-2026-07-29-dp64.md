@@ -323,7 +323,7 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
   instrument — uopt's non-globalcolor register assignment path (v0/v1/a0/a1
   handed out with no p1dec/p2dec record). Highest-value single build.**
 
-## vsprintf campaign (866 variants; plateau with the C proven correct)
+## vsprintf campaign (866 variants; plateau initially misread as source proof)
 
 - **Positional counting hid a near-match**: comparator said 635 words; opcode-
   aligned truth is 27 structural + 8 register (3 "relocation_controlled" were
@@ -334,10 +334,11 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
 - **NEW top-value mechanism: `-g3` is a scheduling constraint.** IDO emits
   `.loc` per statement; as1 restricts cross-block motion at those barriers.
   Diagnostic: recompile the candidate `-g0`; if the divergent region
-  collapses to ~exact (vsprintf %e/%f: 25→2), the C is correct and the
-  residual is debug-info scheduling — STOP searching source space. One
-  command replaces ~550 blind variants. Line joins/comma merges cannot remove
-  the barriers (.loc is per statement). → skill + ido-late-stage-patterns.
+  collapses to ~exact (vsprintf %e/%f: 25→2), debug metadata participates
+  and as1 can reach the target schedule. It does not prove source correctness:
+  the eventual match still required a different length/padding topology.
+  One command can retire many blind scheduling variants, but source topology
+  and line tags remain part of the evidence ladder.
 - `replay-as1` is a differential probe, not byte-faithful for IDO 5.3
   (listing→as0→as1 loses binasm scheduling metadata; silently ignores -Wa
   flags) — document as such.
@@ -774,6 +775,36 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
 - Live hypothesis under test: the original used the two-step cc -S → as
   path (replay-as1 zeroed both float cases; prologue breakage attributed
   to as0-reconstruction infidelity, not the path).
+
+## vsprintf closure (codex matched it) + final IDO facts
+
+- vsprintf fell to a community/codex shape: single-expression length
+  precompute (`a0 = (dash||sign||space) + prec + (prec>0||alt) +
+  (exp>=100) + 5`) with LIVE width comparisons (`while (width-- > a0)`)
+  instead of pre-subtracted PAD — the "early materialization" was the
+  length calc's operands, not scheduling metadata. LESSON for the
+  evidence-ladder: the -g0 diagnostic proves scheduling CAN reach the
+  target from your shape, not that your shape is the original — a freer
+  scheduler can rescue a wrong shape. Treat -g0 collapse as "necessary,
+  not sufficient."
+- An opt-in as1 selection trace reduced the final two-word residual to one
+  ready-set tie: the wrong build chose encoded `li 45` at cycle 4 with
+  source line `0x30f`, then `li 10` at cycle 5 with line `0x311`.
+  Controlled line-identity variants confirmed the lower-line selection
+  behavior. Instrumentation lesson: the temporary 20-word node dump was
+  enough for one investigation but is not a product—any shipped profile
+  needs named fields, scope controls, a pinned generated-source hash, and
+  disabled-trace fidelity gates.
+- **IDO 5.3 inlining facts (three-way verified)**: NO inlining at -O2
+  (umerge never runs; #pragma inline is silently accepted and fully inert
+  — cfe accepts arbitrary unknown pragmas without warning); at -O3 umerge
+  inlines heuristically, pragma-independent; with no inlinable callee,
+  -O3 output is BYTE-IDENTICAL to -O2 — so "was this built -O3?" is
+  answerable per-callee. Inlined code is MORE -g3-sensitive, not less
+  (129 vs 5 g0/g3-differing lines in A/B).
+- `cc -S -O3` silently stops after cfe and drops a .u file in cwd.
+- ido-strings (word-swap) remains unshipped but re-proved its worth: made
+  the pipeline/pass-table archaeology a 30-minute kill.
 
 ## Pending (from subagent campaign runs — append when reports land)
 

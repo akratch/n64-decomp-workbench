@@ -42,6 +42,17 @@ scratch/demo/
 
 Use `--json` to print the manifest after a successful bundle operation.
 
+Validate a received bundle and every recorded checksum before using it:
+
+```sh
+decomp-workbench doctor scratch/demo
+decomp-workbench check-scratch scratch/demo
+```
+
+After creating the scratch and downloading its export, switch to
+[`check-scratch`](decompme-exports.md) for object comparison and site-faithful
+recompilation.
+
 ## Presets
 
 When a known decomp.me preset should be selected, record it with `--preset`.

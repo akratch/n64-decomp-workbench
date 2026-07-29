@@ -256,6 +256,36 @@ different file by default. `--allow-unverified-source` exists for profile
 development, not routine use; review the resulting diff and run all fidelity
 gates.
 
+### Scheduler-selection traces: evidence and product bar
+
+The `vsprintf` endgame used a temporary as1 selection trace to reduce the last
+two-word residual to one ready-set tie. The wrong build selected encoded
+`li 45` at cycle 4 with source line `0x30f`, then `li 10` at cycle 5 with line
+`0x311`. Combined with controlled line-identity variants, that established the
+line-number tie-break and justified a source-line experiment.
+
+That temporary producer is deliberately **not** a workbench profile. It dumped
+20 unlabeled words from a generated node and depended on emulated addresses in
+one private build. Shipping a parser for that output would turn reverse
+engineering the trace into a recurring user task.
+
+A product-quality as1 scheduler profile must instead:
+
+1. pin the static-recompiler revision, generated-source hash, and exact source
+   anchors;
+2. emit named fields—procedure, block, cycle, encoded instruction, decoded
+   source line, ready-set size, and winning tie-break;
+3. be entirely opt-in and section-identical to stock with tracing disabled;
+4. pass an unedited as0/as1 replay before any edited replay is interpreted;
+5. expose enough scope controls to capture one function/region rather than a
+   megabyte of unrelated selections;
+6. state that a scheduling trace explains a compiler decision, not original C.
+
+Until those conditions are met, use `-g0` to narrow ownership, decoded line
+tables to inspect tags, and `replay-as1` to test pass ownership. Capture a
+temporary scheduler trace only for the smallest unresolved tie, and record the
+field mapping beside the result.
+
 ## Required fidelity gates
 
 For each profile and host:

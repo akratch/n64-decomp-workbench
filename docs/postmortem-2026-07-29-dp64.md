@@ -118,26 +118,24 @@ Next moves:
 - Integration cautions in the tracker README are load-bearing (pad3,
   `renderFlags |= 0` position, hasTex dual-role).
 
-## 2. vsprintf — 35 real words (tracker: dp64-vsprintf-wip)
+## 2. vsprintf — exact (tracker: dp64-vsprintf-wip)
 
-State: C proven correct (-g0 collapses the %e/%f regions to ~2 words); the
-residual is `.loc`-barrier scheduling under -g3. 866 variants; line
-layout/statement merging cannot move the barriers.
+Closure corrected one of this postmortem's premises. The `-g0` collapse proved
+that a freer schedule could reach the target; it did not prove the current C
+shape was original. The matching source replaced pre-subtracted padding with a
+single early length expression and kept the width comparisons live
+(`while (width-- > length)`). A final source-line identity adjustment then
+gave IDO/as1 the same tie-break as the reference for two adjacent immediates.
 
-Next moves:
-- **Statement-boundary archaeology**: the barriers are per *statement* —
-  the original's statement structure may differ (e.g. merged assignments,
-  comma expressions inside macro bodies, different PAD/outchar macro
-  shapes). The macro bodies are invisible in our reasoning so far: vary
-  the MACRO DEFINITIONS (outchar/PAD as comma-expressions vs do-while vs
-  statement sequences) — each changes .loc counts inside expansions
-  without changing emitted code. This family was never swept.
-- **Compare against DKR's build**: DKR's matched vsprintf compiles under
-  its own repo — diff its .loc structure (objdump --dwarf=decodedline) vs
-  ours for the same-shaped regions; where DKR's line table is denser or
-  sparser reveals the statement-shape difference to copy.
-- If the macro family fails, this is the strongest candidate for a
-  community ask with the -g0 evidence attached (the tracker README has it).
+Reusable lessons:
+
+- Treat `-g0` collapse as a layer-ownership probe, never as source proof.
+- Re-derive the source topology even when a freer scheduler erases most of the
+  residual; it can be compensating for the wrong topology.
+- Reproduce decomp.me's `ctx.c` + `#line 1 "src.c"` + `code.c` composition
+  before comparing local and browser results under `-g3`.
+- When only a two-instruction ready-set tie remains, inspect the source line
+  tags and as1 selection order instead of launching another broad macro sweep.
 
 ## 3. func_80053B24 (intersect) — 402 banked (tracker: dp64-func_80053B24-wip)
 
