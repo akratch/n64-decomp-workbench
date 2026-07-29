@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Main now identifies itself as `0.3.0.dev0` instead of reusing the published
+  `0.2.0` identity for a substantially different development build.
+
+- Compiler execution now has one lifecycle contract across `check-scratch`,
+  `compile-rank`, and `campaign`: a 120-second per-candidate timeout by
+  default, explicit environment and working-directory controls, and
+  process-group cleanup so a wrapper's assembler or search child cannot
+  outlive a timeout. Campaign ledgers and JSON summaries record the deadline;
+  site-faithful scratch reports also record wrapper identity, cwd, explicit
+  environment, duration, and timeout.
+
+- Hardened scratch handoffs. ZIP members must come from one flat root instead
+  of being silently combined by basename, expanded directories refuse nested
+  or symbolic-link content instead of ignoring it, checksums must be real
+  hexadecimal SHA-256 values, and impossible browser scores are rejected
+  rather than rendered above 100% or below 0%.
+
+- Standardized examples and campaign state on repository-root commands and
+  `.decomp-workbench/`, taught `doctor --cache-dir` to inspect a project's
+  actual cache, schema-versioned the doctor and scratch-check JSON reports,
+  and expanded documentation tests to execute redistributable trace examples.
+
 - Added `doctor` and `check-scratch` for the human handoff around decomp.me.
   `doctor` reports local readiness, validates an export or workbench bundle,
   and prints the exact shell-quoted next command. `check-scratch` safely reads

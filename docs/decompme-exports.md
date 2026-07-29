@@ -6,7 +6,9 @@ engineer its compilation model.
 
 The workbench never logs in, scrapes, or uploads. You download the ZIP through
 decomp.me, then the workbench validates and reads it locally. ZIP members are
-size-bounded and read in memory; they are never extracted.
+size-bounded and read in memory; they are never extracted. Members must share
+one flat archive root, so unrelated directories cannot be silently combined
+by matching basenames.
 
 ## One command first
 
@@ -44,6 +46,10 @@ decomp-workbench doctor "/path/to/downloaded scratch.zip"
 `doctor` validates the export, reports whether an object reader was found, and
 prints a shell-quoted `check-scratch` command you can paste. Retained objdump
 text always works without a compiler or object reader.
+
+By default it also reports `.decomp-workbench/cache`. If a campaign uses a
+different location, pass `doctor --cache-dir /that/path`; the command only
+inspects cache evidence and never removes it.
 
 A normal decomp.me export contains:
 

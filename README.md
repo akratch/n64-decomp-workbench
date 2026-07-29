@@ -120,8 +120,8 @@ decomp-workbench campaign target.o candidates/*.c \
   --function function_name \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl \
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 
@@ -129,7 +129,8 @@ The command template is tokenized and executed without a shell. Every ledger
 record includes source, target, wrapper, objdump, explicit environment, timing,
 and comparison identity. The campaign stops at the first exact match unless
 `--no-stop-on-exact` asks for the whole grid, compares in process, and
-terminates the compilers it started (and their children) if it is interrupted.
+terminates the compilers it started (and their children) if it is interrupted
+or one exceeds the 120-second default `--timeout`.
 
 Package a single-function target, full context, and current source for manual
 decomp.me creation without uploading anything:
@@ -211,8 +212,8 @@ On every command that selects one function — `compare`, `compare-dumps`,
 `--symbol` and `--function` are the same option, so either vocabulary works,
 and passing both with different values is refused rather than silently
 resolved. Every printed label is also the JSON key for that value;
-`--explain-keys` prints the one registry, comparison, campaign, and
-aligned-view keys together.
+`decomp-workbench --explain-keys` prints the one registry of comparison,
+campaign, and aligned-view keys.
 
 ## All documentation
 
@@ -234,6 +235,7 @@ The three narrative pages first, then the focused guides:
 - [Compiler instrumentation][compiler-instrumentation]
 - [Pass replay][pass-replay]
 - [Tooling roadmap from live campaigns][tooling-roadmap]
+- [Elite product review and scoped backlog][elite-product-review]
 - [Castlevania 64 worked examples][cv64-examples]
 - [Troubleshooting][troubleshooting]
 - [Command design principles][principles]
@@ -283,6 +285,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [agent-skill]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/agent-skill.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
 [tooling-roadmap]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/tooling-roadmap.md
+[elite-product-review]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/elite-product-review-2026-07-29.md
 [contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md
 [cv64-examples]: https://github.com/akratch/n64-decomp-workbench/blob/main/examples/cv64/README.md
 [documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md

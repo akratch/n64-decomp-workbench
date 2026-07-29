@@ -21,6 +21,7 @@ from unittest import mock
 
 from decomp_workbench import campaign
 from decomp_workbench.campaign import (
+    CompilerTimeoutError,
     process_group_arguments,
     run_compiler,
     terminate_running_compilers,
@@ -171,6 +172,32 @@ class ProcessLifecycleTests(unittest.TestCase):
             self.assertTrue(
                 wait_until(lambda: not is_running(child_pid)),
                 "a tool spawned by the compiler outlived the campaign",
+            )
+
+    def test_timeout_ends_the_compiler_and_every_spawned_tool(self) -> None:
+        if os.name != "posix":
+            self.skipTest("process-group termination is POSIX-specific")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            compiler = root / "slow_compiler.py"
+            compiler.write_text(SLOW_COMPILER, encoding="utf-8")
+            child_pid_file = root / "child.pid"
+
+            with self.assertRaisesRegex(
+                CompilerTimeoutError, r"--timeout=0\.5 seconds"
+            ):
+                run_compiler(
+                    [sys.executable, str(compiler), str(child_pid_file)],
+                    environment={},
+                    compile_cwd=root,
+                    timeout=0.5,
+                )
+
+            self.assertTrue(child_pid_file.is_file())
+            child_pid = int(child_pid_file.read_text(encoding="utf-8").strip())
+            self.assertTrue(
+                wait_until(lambda: not is_running(child_pid)),
+                "a tool spawned by a timed-out compiler outlived the command",
             )
 
 

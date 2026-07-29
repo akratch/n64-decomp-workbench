@@ -39,6 +39,11 @@ decomp-workbench compare-dumps \
   examples/fixtures/target.objdump \
   examples/fixtures/relocated-match.objdump \
   --fail-on-mismatch
+decomp-workbench doctor examples/fixtures/decompme-export --json
+decomp-workbench check-scratch examples/fixtures/decompme-export --json
+decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
+  --registers t6,t7,t8 \
+  --fail-on-violation
 ```
 
 Inspect both archives. The wheel should contain only the Python package and

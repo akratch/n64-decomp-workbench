@@ -26,8 +26,8 @@ CV64_IDO_VERSION=7.1 decomp-workbench campaign target.o candidates/*.c \
   --symbol function_name \
   --compile-command './compile-one.sh {source} {output}' \
   --env CV64_IDO_VERSION=7.1 \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl
 ```
 
 The workbench hashes the wrapper identity, source, target, objdump, and

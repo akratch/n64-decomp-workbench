@@ -233,6 +233,31 @@ class CliUxTests(unittest.TestCase):
         order = re.sub(r"\s+", "", listing.group(1)).split(",")
         self.assertEqual(order[:4], ["compare", "compare-dumps", "view", "view-dumps"])
 
+    def test_every_compiler_command_has_the_same_runtime_controls(self) -> None:
+        parser = build_parser()
+        cases = {
+            "check-scratch": ["check-scratch", "scratch.zip"],
+            "compile-rank": ["compile-rank", "target.o", "candidate.c"],
+            "campaign": ["campaign", "target.o", "candidate.c"],
+        }
+        for command, arguments in cases.items():
+            with self.subTest(command=command):
+                with self.assertRaises(SystemExit):
+                    self.run_cli([command, "--help"])
+                self.assertIn("--compile-cwd", self.last_stdout)
+                self.assertIn("--env", self.last_stdout)
+                self.assertIn("--timeout", self.last_stdout)
+                parsed = parser.parse_args(
+                    [
+                        *arguments,
+                        "--compile-command",
+                        "cc {source} -o {output}",
+                        "--timeout",
+                        "7",
+                    ]
+                )
+                self.assertEqual(parsed.timeout, 7.0)
+
     def test_show_diff_prints_literal_sites_under_a_register_verdict(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

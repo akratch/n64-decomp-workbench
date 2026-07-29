@@ -12,9 +12,9 @@ decomp-workbench campaign target.o candidates/*.c \
   --compile-cwd /path/to/project \
   --objdump /path/to/mips64-elf-objdump \
   --jobs 8 \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/campaign.jsonl \
-  --keep-objects .workbench/top-objects
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl \
+  --keep-objects .decomp-workbench/top-objects
 ```
 
 `{source}` and `{output}` are required. The template is split with `shlex` and
@@ -67,11 +67,13 @@ Each JSONL record includes:
 - comparison metrics and object hashes;
 - paths that produced the same prepared key, when applicable.
 
-A candidate that fails — a compiler error, an unreadable object, or an
-unexpected error inside the comparison — is recorded as a failed candidate with
-its diagnostics and does not end the campaign. The other candidates keep their
-results and their ledger records. Only an interrupt (`Ctrl-C`) or a process
-exit ends the run.
+A candidate that fails — a compiler error, a 120-second default `--timeout`,
+an unreadable object, or an unexpected error inside the comparison — is
+recorded as a failed candidate with its diagnostics and does not end the
+campaign. The timeout is recorded under `execution.timeout_seconds`; change it
+per run with `--timeout SECONDS`. The other candidates keep their results and
+their ledger records. Only an interrupt (`Ctrl-C`) or a process exit ends the
+run.
 
 The directly invoked wrapper is hashed when it is a file. A wrapper may invoke
 additional binaries or read configuration that the workbench cannot discover.
@@ -86,10 +88,10 @@ different paths are treated as distinct candidates.
 ## Process ownership
 
 Every compiler runs in its own process group, and the campaign ends that group
-when the run fails or is interrupted, escalating from `SIGTERM` to `SIGKILL`
-after a short grace period so a wrapper that traps the polite signal cannot
-outlive the campaign. A leaked parallel job did exactly that in the field and
-degraded two later runs.
+when the run times out, fails, or is interrupted, escalating from `SIGTERM` to
+`SIGKILL` after a short grace period so a wrapper that traps the polite signal
+cannot outlive the campaign. A leaked parallel job did exactly that in the
+field and degraded two later runs.
 
 - **POSIX** — the compiler gets its own process group inside the workbench's
   session (`process_group=0`; Python 3.10 falls back to `start_new_session`,

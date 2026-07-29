@@ -218,6 +218,7 @@ class CampaignTests(unittest.TestCase):
                 records[0]["provenance"]["compile_cwd"],
                 str(Path.cwd().resolve()),
             )
+            self.assertEqual(records[0]["execution"]["timeout_seconds"], 120.0)
 
     def test_campaign_uses_explicit_compiler_working_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

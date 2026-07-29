@@ -5,12 +5,15 @@ redistribution. [The CV64 walkthrough](cv64/README.md) is a separately
 attributed set of complete, single-function scratch materials; it contains no
 ROM or extracted non-code assets.
 
+Run every command below from the repository root. CI executes these same
+commands from that directory, so the examples cannot quietly drift.
+
 ## Object comparison fixtures
 
 ```sh
 decomp-workbench compare-dumps \
-  fixtures/target.objdump \
-  fixtures/relocated-match.objdump \
+  examples/fixtures/target.objdump \
+  examples/fixtures/relocated-match.objdump \
   --fail-on-mismatch
 ```
 
@@ -22,8 +25,8 @@ register change.
 
 ```sh
 decomp-workbench view-dumps \
-  fixtures/phase-shift-target.objdump \
-  fixtures/phase-shift-candidate.objdump \
+  examples/fixtures/phase-shift-target.objdump \
+  examples/fixtures/phase-shift-candidate.objdump \
   --function animStep
 ```
 
@@ -36,12 +39,12 @@ real MIPS words, so byte-level signatures are meaningful.
 ## decomp.me export fixture
 
 ```sh
-decomp-workbench check-scratch fixtures/decompme-export
+decomp-workbench check-scratch examples/fixtures/decompme-export
 ```
 
-`fixtures/decompme-export/` is a synthetic expanded export: metadata, context,
-source, and a redistributable target/current objdump pair. Its two adjacent
-`li` instructions are reversed, reproducing the final shape of a real
+`examples/fixtures/decompme-export/` is a synthetic expanded export: metadata,
+context, source, and a redistributable target/current objdump pair. Its two
+adjacent `li` instructions are reversed, reproducing the final shape of a real
 `99.98%` scheduling residual without shipping compiler output or project code.
 The full workflow is in
 [From a decomp.me export to local truth](../docs/decompme-exports.md).
@@ -49,7 +52,7 @@ The full workflow is in
 ## Ugen FIFO trace
 
 ```sh
-decomp-workbench trace-fifo traces/ugen-fifo.log \
+decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
   --registers t6,t7,t8 \
   --show-events \
   --fail-on-violation
@@ -61,7 +64,7 @@ logical values.
 ## Globalcolor trace
 
 ```sh
-decomp-workbench trace-globalcolor traces/globalcolor.log --dtype 13
+decomp-workbench trace-globalcolor examples/traces/globalcolor.log --dtype 13
 ```
 
 The trace contains two live ranges, color costs, and one later `[CDX]`
@@ -71,7 +74,7 @@ binary.
 ## Alias trace
 
 ```sh
-decomp-workbench trace-alias traces/alias.log --show-queries
+decomp-workbench trace-alias examples/traces/alias.log --show-queries
 ```
 
 The fixture exercises fresh and direct base paths plus one `no-alias` and one
@@ -79,8 +82,8 @@ The fixture exercises fresh and direct base paths plus one `no-alias` and one
 
 ## Instrumentation fidelity microcase
 
-`instrumentation/fidelity-micro.c` is a small, header-free source used to
-check the pinned uopt and generic ugen instrumentation against a real
+`examples/instrumentation/fidelity-micro.c` is a small, header-free source used
+to check the pinned uopt and generic ugen instrumentation against a real
 static-recompiled IDO 5.3 build. It exercises integer and floating-point live
 ranges, a loop, global memory, and alias queries. Use it for the positive and
 negative controls in

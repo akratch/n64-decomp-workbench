@@ -259,7 +259,7 @@ List-valued keys render as a count in the human header (`hunks=1`) and as the
 list in JSON.
 
 These names live in the same metric registry as the comparison and campaign
-keys, so `view --explain-keys` (or `--explain-keys` on any command) prints them
+keys, so `view --explain-keys` (or the root `--explain-keys`) prints them
 with their meanings. A test asserts the registry and the output are *one set* in
 both directions: a key can neither be printed without an explanation nor
 explained without being printed.

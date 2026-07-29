@@ -14,3 +14,16 @@
    explicit environment, outputs, and timing.
 7. **Validate the complete project.** A function-level exact result does not
    replace collateral and final ROM or binary checks.
+8. **Reproduce the real compilation envelope.** Translation-unit context,
+   compiler working directory, explicit environment, and source-line markers
+   are inputs. A reduced harness is a probe, not ground truth.
+9. **Scope negative evidence to the probe.** A `-g0` collapse, forced color,
+   or unchanged mutation rules one mechanism in or out under stated
+   conditions; it does not prove source correctness or a universal wall.
+10. **Own every process and every timeout.** A compiler wrapper's children are
+    part of the command lifecycle. An interrupt, failure, or deadline must not
+    leak work into the next campaign.
+11. **Make examples and metadata trustworthy.** Pasted commands must run from
+    the directory the page names, synthetic fixtures must state what is and is
+    not causally related, and development builds must not reuse a release
+    version.

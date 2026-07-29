@@ -58,8 +58,8 @@ decomp-workbench campaign target.o candidates/*.c \
   --symbol function_name \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl \
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 

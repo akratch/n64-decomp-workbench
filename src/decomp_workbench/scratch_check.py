@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -87,8 +89,8 @@ class ScratchPackage:
         return result
 
 
-def _safe_member_name(raw_name: str) -> str | None:
-    """Return a normalized basename, rejecting traversal and odd archives."""
+def _safe_member_path(raw_name: str) -> PurePosixPath | None:
+    """Return a normalized member path, rejecting traversal and odd archives."""
 
     normalized = raw_name.replace("\\", "/")
     path = PurePosixPath(normalized)
@@ -98,7 +100,7 @@ def _safe_member_name(raw_name: str) -> str | None:
         raise ValueError(f"unsafe scratch member path: {raw_name!r}")
     if not path.name:
         raise ValueError(f"invalid scratch member path: {raw_name!r}")
-    return path.name
+    return path
 
 
 def _validate_member_set(files: dict[str, bytes]) -> None:
@@ -116,6 +118,7 @@ def _validate_member_set(files: dict[str, bytes]) -> None:
 def _read_zip(path: Path) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     folded_names: set[str] = set()
+    parents: set[PurePosixPath] = set()
     try:
         with zipfile.ZipFile(path) as archive:
             members = [item for item in archive.infolist() if not item.is_dir()]
@@ -123,9 +126,11 @@ def _read_zip(path: Path) -> dict[str, bytes]:
                 raise ValueError(f"scratch contains more than {MAX_FILES} files")
             total = 0
             for member in members:
-                name = _safe_member_name(member.filename)
-                if name is None:
+                member_path = _safe_member_path(member.filename)
+                if member_path is None:
                     continue
+                name = member_path.name
+                parents.add(member_path.parent)
                 if member.flag_bits & 0x1:
                     raise ValueError(
                         f"encrypted scratch member is not supported: {name}"
@@ -146,6 +151,12 @@ def _read_zip(path: Path) -> dict[str, bytes]:
                     raise ValueError(f"duplicate scratch member basename: {name}")
                 folded_names.add(folded)
                 files[name] = archive.read(member)
+            if len(parents) > 1:
+                rendered = ", ".join(sorted(str(parent) for parent in parents))
+                raise ValueError(
+                    "scratch ZIP members must share one flat directory; "
+                    f"found: {rendered}"
+                )
     except zipfile.BadZipFile as error:
         raise ValueError(f"not a valid ZIP archive: {path}") from error
     _validate_member_set(files)
@@ -155,7 +166,18 @@ def _read_zip(path: Path) -> dict[str, bytes]:
 def _read_directory(path: Path) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     folded_names: set[str] = set()
-    entries = [item for item in path.iterdir() if item.is_file()]
+    all_entries = list(path.iterdir())
+    links = [item for item in all_entries if item.is_symlink()]
+    if links:
+        raise ValueError(
+            f"scratch directory cannot contain symbolic links: {links[0].name}"
+        )
+    nested = [item for item in all_entries if item.is_dir()]
+    if nested:
+        raise ValueError(
+            f"scratch directory must be flat; found nested directory: {nested[0].name}"
+        )
+    entries = [item for item in all_entries if item.is_file()]
     if len(entries) > MAX_FILES:
         raise ValueError(f"scratch contains more than {MAX_FILES} files")
     for item in entries:
@@ -199,12 +221,23 @@ def _validate_decomp_me(files: dict[str, bytes], metadata: dict[str, Any]) -> No
     for key in ("score", "max_score"):
         value = metadata.get(key)
         if value is not None and (
-            isinstance(value, bool) or not isinstance(value, (int, float))
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
         ):
-            raise ValueError(f"metadata field {key!r} must be a number")
+            raise ValueError(f"metadata field {key!r} must be a finite number")
+    score = metadata.get("score")
     maximum = metadata.get("max_score")
     if isinstance(maximum, (int, float)) and maximum <= 0:
         raise ValueError("metadata field 'max_score' must be positive")
+    if isinstance(score, (int, float)) and score < 0:
+        raise ValueError("metadata field 'score' cannot be negative")
+    if (
+        isinstance(score, (int, float))
+        and isinstance(maximum, (int, float))
+        and score > maximum
+    ):
+        raise ValueError("metadata field 'score' cannot exceed 'max_score'")
 
 
 def _validate_bundle(files: dict[str, bytes], manifest: dict[str, Any]) -> bool:
@@ -216,8 +249,12 @@ def _validate_bundle(files: dict[str, bytes], manifest: dict[str, Any]) -> bool:
     for name, details in recorded.items():
         if not isinstance(name, str) or not isinstance(details, dict):
             raise ValueError("scratch.json contains an invalid file record")
+        if PurePosixPath(name).name != name:
+            raise ValueError(f"scratch.json has an invalid file name: {name!r}")
         expected = details.get("sha256")
-        if not isinstance(expected, str) or len(expected) != 64:
+        if not isinstance(expected, str) or not re.fullmatch(
+            r"[0-9a-fA-F]{64}", expected
+        ):
             raise ValueError(f"scratch.json has an invalid SHA-256 for {name}")
         if name not in files:
             raise ValueError(f"workbench bundle is missing {name}")

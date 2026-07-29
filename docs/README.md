@@ -36,6 +36,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
 | You want the reusable gaps found in live campaigns | [Tooling roadmap](tooling-roadmap.md) |
+| You want the user-story audit and prioritized product backlog | [Elite product review](elite-product-review-2026-07-29.md) |
 
 ## Compiler internals and traces
 
@@ -50,7 +51,7 @@ traces, and three functions have been matched without ever reading one.
 | You need a trace producer for static-recompiled IDO | [Compiler instrumentation](compiler-instrumentation.md) | Generated compiler C and its build |
 | A late scheduling decision is suspect | [Pass replay](pass-replay.md) | A retained listing plus as0/as1 |
 
-Every command has `--help`. `--explain-keys` on any command prints the one
-registry of printed labels, JSON keys, and their meanings — the labels and the
-keys are deliberately one set. Reporting commands expose JSON wherever it is
-useful for scripts and CI.
+Every command has `--help`. `decomp-workbench --explain-keys` prints the one
+registry of printed labels, JSON keys, and their meanings; reporting commands
+that use those metrics accept the same option after the command name.
+Reporting commands expose JSON wherever it is useful for scripts and CI.

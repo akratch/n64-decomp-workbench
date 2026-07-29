@@ -11,13 +11,21 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
-from .campaign import group_object_basins, run_campaign
+from .campaign import (
+    CompilerTimeoutError,
+    executable_identity,
+    file_sha256,
+    group_object_basins,
+    run_campaign,
+    run_compiler,
+)
 from .campaign import render_compile_command as render_campaign_command
 from .census import (
     CensusResult,
@@ -364,39 +372,46 @@ def _scratch_comparison(
     compile_report: dict[str, object] | None = None
     candidate_object: Path | None = None
     if args.compile_command:
+        if package.kind != "decomp.me-export":
+            raise ValueError("site-faithful compilation requires a decomp.me export")
+        if "target.o" not in package.files:
+            raise ValueError("site-faithful compilation needs target.o in the export")
         composed = workspace / "site-source.c"
         composed.write_bytes(compose_site_source(package, args.source).encode("utf-8"))
         output = workspace / "compiled.o"
         command = render_compile_command(args.compile_command, composed, output)
-        environment = os.environ.copy()
-        environment.update(parse_environment(args.env))
+        environment = parse_environment(args.env)
         compile_cwd = (
-            Path(args.compile_cwd).expanduser().resolve() if args.compile_cwd else None
+            Path(args.compile_cwd).expanduser().resolve()
+            if args.compile_cwd
+            else Path.cwd().resolve()
         )
-        if compile_cwd is not None and not compile_cwd.is_dir():
+        if not compile_cwd.is_dir():
             raise ValueError(
                 f"compile working directory is not a directory: {compile_cwd}"
             )
+        started = time.monotonic()
         try:
-            process = subprocess.run(
+            process = run_compiler(
                 command,
-                check=False,
-                capture_output=True,
-                text=True,
-                cwd=compile_cwd,
-                env=environment,
+                compile_cwd=compile_cwd,
+                environment=environment,
                 timeout=args.timeout,
             )
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError(
-                f"compiler exceeded --timeout={args.timeout:g} seconds"
-            ) from error
+        except CompilerTimeoutError as error:
+            raise RuntimeError(str(error)) from error
         compile_report = {
             "command": command,
             "returncode": process.returncode,
             "stdout": process.stdout,
             "stderr": process.stderr,
+            "duration_seconds": time.monotonic() - started,
+            "working_directory": str(compile_cwd),
+            "explicit_environment": environment,
+            "compiler": executable_identity(command, cwd=compile_cwd),
+            "timeout_seconds": args.timeout,
             "source": "override" if args.source else "exported code.c",
+            "composed_source_sha256": file_sha256(composed),
             "site_line_reset": '#line 1 "src.c"',
         }
         if process.returncode:
@@ -420,8 +435,6 @@ def _scratch_comparison(
             compile_report["retained_object"] = str(destination)
 
     if candidate_object is not None:
-        if "target.o" not in package.files:
-            raise ValueError("site-faithful compilation needs target.o in the export")
         target_object = package.materialize("target.o", workspace)
         comparison = compare_objects(
             target_object,
@@ -543,6 +556,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         "checksums_valid": package.checksums_valid,
     }
     payload: dict[str, object] = {
+        "schema": "decomp-workbench-scratch-check-v1",
         "scratch": scratch_payload,
         "external_score": score,
         "evidence": evidence,
@@ -646,11 +660,16 @@ def doctor_command(args: argparse.Namespace) -> int:
         except (OSError, RuntimeError) as error:
             objdump_error = f"object reader failed the supplied target.o: {error}"
 
-    cache = Path.cwd() / ".decomp-workbench" / "cache"
-    cache_files = (
-        [item for item in cache.rglob("*") if item.is_file()] if cache.is_dir() else []
-    )
-    cache_bytes = sum(item.stat().st_size for item in cache_files)
+    cache = Path(args.cache_dir).expanduser().resolve()
+    cache_files: list[Path] = []
+    cache_error: str | None = None
+    try:
+        if cache.is_dir():
+            cache_files = [item for item in cache.rglob("*") if item.is_file()]
+        cache_bytes = sum(item.stat().st_size for item in cache_files)
+    except OSError as error:
+        cache_bytes = 0
+        cache_error = str(error)
     cache_large = cache_bytes >= 1024 * 1024 * 1024
     object_status = (
         "verified"
@@ -660,6 +679,7 @@ def doctor_command(args: argparse.Namespace) -> int:
         else "limited"
     )
     payload: dict[str, object] = {
+        "schema": "decomp-workbench-doctor-v1",
         "workbench_version": __version__,
         "python": ".".join(str(item) for item in sys.version_info[:3]),
         "python_supported": sys.version_info >= (3, 10),
@@ -670,6 +690,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             "files": len(cache_files),
             "bytes": cache_bytes,
             "large": cache_large,
+            "error": cache_error,
         },
         "dump_workflow": "ready",
         "object_workflow": {
@@ -704,11 +725,13 @@ def doctor_command(args: argparse.Namespace) -> int:
         else:
             print("object workflow: LIMITED")
             print(f"  {objdump_error}")
-        cache_label = "LARGE" if cache_large else "OK"
+        cache_label = "UNREADABLE" if cache_error else "LARGE" if cache_large else "OK"
         print(
             f"campaign cache: {cache_label} - {len(cache_files)} file(s), "
             f"{cache_bytes} byte(s) ({display_path(cache)})"
         )
+        if cache_error:
+            print(f"  error: {cache_error}")
         if cache_large:
             print(
                 "  note: inspect this content cache before pruning it; "
@@ -720,7 +743,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             if args.objdump:
                 command.extend(["--objdump", args.objdump])
             print(f"next: {shlex.join(command)}")
-    return 1 if object_required and not object_verified else 0
+    return 1 if (object_required and not object_verified) or cache_error else 0
 
 
 def install_skill_command(args: argparse.Namespace) -> int:
@@ -807,25 +830,53 @@ def compile_sources(
     symbol: str | None,
     section: str,
     keep_objects: str | None,
+    environment: dict[str, str],
+    compile_cwd: Path,
+    timeout: float,
 ) -> list[CompileResult]:
-    """Compile and compare source candidates."""
+    """Compile and compare source candidates through the safe process runner."""
 
     results: list[CompileResult] = []
+    if timeout <= 0:
+        raise ValueError("--timeout must be positive")
+    if not compile_cwd.is_dir():
+        raise NotADirectoryError(
+            f"compiler working directory does not exist: {compile_cwd}"
+        )
+    resolved_sources = [Path(source).expanduser().resolve() for source in sources]
+    missing = [source for source in resolved_sources if not source.is_file()]
+    if missing:
+        raise FileNotFoundError(f"candidate source does not exist: {missing[0]}")
     keep_dir = Path(keep_objects) if keep_objects else None
     if keep_dir:
         keep_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="decomp-workbench-") as temp:
         temp_dir = Path(temp)
-        for index, source_name in enumerate(sources):
-            source = Path(source_name).resolve()
+        for index, source in enumerate(resolved_sources):
             output = temp_dir / f"{index:05d}-{source.stem}.o"
             command = render_compile_command(template, source, output)
-            process = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+            started = time.monotonic()
+            try:
+                process = run_compiler(
+                    command,
+                    environment=environment,
+                    compile_cwd=compile_cwd,
+                    timeout=timeout,
+                )
+            except CompilerTimeoutError as error:
+                results.append(
+                    CompileResult(
+                        source=display_path(source),
+                        command=command,
+                        returncode=124,
+                        stdout=error.stdout,
+                        stderr=f"{error.stderr}\n{error}".strip(),
+                        object_path=None,
+                        comparison=None,
+                        duration_seconds=time.monotonic() - started,
+                    )
+                )
+                continue
             comparison: Comparison | None = None
             kept: str | None = None
             if process.returncode == 0 and output.is_file():
@@ -850,6 +901,7 @@ def compile_sources(
                     stderr=process.stderr,
                     object_path=kept,
                     comparison=comparison,
+                    duration_seconds=time.monotonic() - started,
                 )
             )
     return results
@@ -857,6 +909,12 @@ def compile_sources(
 
 def compile_rank_command(args: argparse.Namespace) -> int:
     try:
+        environment = parse_environment(args.env)
+        compile_cwd = (
+            Path(args.compile_cwd).expanduser().resolve()
+            if args.compile_cwd
+            else Path.cwd().resolve()
+        )
         results = compile_sources(
             args.sources,
             target=args.target,
@@ -865,6 +923,9 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             symbol=args.symbol,
             section=args.section,
             keep_objects=args.keep_objects,
+            environment=environment,
+            compile_cwd=compile_cwd,
+            timeout=args.timeout,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -940,6 +1001,7 @@ def campaign_command(args: argparse.Namespace) -> int:
             compile_cwd=args.compile_cwd,
             keep_objects=args.keep_objects,
             stop_on_exact=args.stop_on_exact,
+            timeout=args.timeout,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -993,6 +1055,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "prepared_candidates": len(duplicates),
                     "stopped_on_exact": bool(unrun) and args.stop_on_exact,
                     "source_files": sum(len(items) for items in duplicates.values()),
+                    "timeout_seconds": args.timeout,
                     "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
                 },
@@ -1431,8 +1494,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="decomp-workbench",
         description=(
-            "MIPS object comparison, candidate campaigns, compiler traces, "
-            "and pass replay"
+            "MIPS object diagnosis, decomp.me handoffs, candidate campaigns, "
+            "compiler traces, and pass replay"
         ),
     )
     parser.add_argument(
@@ -1587,6 +1650,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--objdump",
         help="GNU-compatible MIPS objdump; auto-detected when omitted",
     )
+    doctor_parser.add_argument(
+        "--cache-dir",
+        default=".decomp-workbench/cache",
+        help="campaign cache to inspect (default: .decomp-workbench/cache)",
+    )
     doctor_parser.add_argument("--json", action="store_true", help="emit JSON")
     doctor_parser.set_defaults(handler=doctor_command)
 
@@ -1625,7 +1693,10 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser = commands.add_parser(
         "compile-rank",
         help="compile and rank C source candidates",
-        description="Compile candidates sequentially, then rank their objects.",
+        description=(
+            "Compile candidates sequentially, then rank their objects. Use "
+            "campaign for caching, provenance, parallelism, and early stopping."
+        ),
     )
     compile_parser.add_argument("target", help="reference object")
     compile_parser.add_argument("sources", nargs="+", help="candidate C files")
@@ -1636,6 +1707,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compile_parser.add_argument(
         "--keep-objects", help="directory in which to retain compiled objects"
+    )
+    compile_parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="compiler environment entry; repeatable",
+    )
+    compile_parser.add_argument(
+        "--compile-cwd",
+        help="working directory for compiler processes",
+    )
+    compile_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="per-candidate compiler timeout in seconds (default: 120)",
     )
     compile_parser.add_argument(
         "--limit", type=int, default=20, help="maximum results to show"
@@ -1677,6 +1765,12 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_parser.add_argument(
         "--compile-cwd",
         help="working directory for compiler processes; included in the cache key",
+    )
+    campaign_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="per-candidate compiler timeout in seconds (default: 120)",
     )
     campaign_parser.add_argument(
         "--keep-objects", help="directory in which to retain compiled objects"

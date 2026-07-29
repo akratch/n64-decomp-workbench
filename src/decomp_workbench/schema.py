@@ -280,6 +280,11 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
         "was submitted; candidates already running were still recorded",
     ),
     Metric(
+        "timeout_seconds",
+        "timeout_seconds",
+        "per-candidate compiler deadline; timed-out process groups are ended",
+    ),
+    Metric(
         "object_basins",
         "object_basins",
         "distinct compared-function bytes, with the variants that reached each",

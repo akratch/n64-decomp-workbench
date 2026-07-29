@@ -10,8 +10,8 @@ there.
 The contract a document opts into:
 
 * a ``sh`` fenced block holding a ``decomp-workbench`` command whose arguments
-  mention ``examples/fixtures/`` is executed from the repository root, and must
-  exit ``0``;
+  mention a redistributable fixture or trace under ``examples/`` is executed
+  from the repository root, and must exit ``0``;
 * a ``text`` fenced block is checked against the most recent such command in
   the same document, line by line, with runs of whitespace collapsed and a
   trailing ``...`` meaning "the line continues";
@@ -47,8 +47,8 @@ DOCUMENTS = (
 #: block belongs to the reader's project and cannot be run here.
 PROGRAM = "decomp-workbench"
 
-#: The marker that makes a command line runnable without a ROM or a compiler.
-FIXTURE_MARKER = "examples/fixtures/"
+#: Markers that make a command line runnable without a ROM or compiler.
+RUNNABLE_MARKERS = ("examples/fixtures/", "examples/traces/")
 
 SHELL_LANGUAGES = frozenset({"sh", "shell", "bash", "console"})
 FENCE_RE = re.compile(r"^\s*```(\S*)\s*$")
@@ -144,7 +144,11 @@ def discover() -> list[DocumentedCommand]:
                     arguments = split_arguments(command)
                     if not arguments or arguments[0] != PROGRAM:
                         continue
-                    if not any(FIXTURE_MARKER in item for item in arguments):
+                    if not any(
+                        marker in item
+                        for item in arguments
+                        for marker in RUNNABLE_MARKERS
+                    ):
                         continue
                     pending.append((line, arguments[1:], []))
             elif language == "text" and pending:

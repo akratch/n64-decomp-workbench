@@ -91,6 +91,7 @@ class ScratchCheckTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertEqual(status, 1)
         self.assertEqual(stderr, "")
+        self.assertEqual(payload["schema"], "decomp-workbench-scratch-check-v1")
         self.assertEqual(payload["external_score"]["percentage"], 98.0)
         self.assertEqual(payload["evidence"], "retained-objdump-text")
         self.assertEqual(payload["comparison"]["verdict"], "schedule-mismatch")
@@ -175,13 +176,31 @@ class ScratchCheckTests(unittest.TestCase):
                         str(retained),
                     ]
                 )
+                json_status, json_stdout, json_stderr = self.run_cli(
+                    [
+                        "check-scratch",
+                        str(export),
+                        "--compile-command",
+                        command,
+                        "--env",
+                        "MODE=test",
+                        "--json",
+                    ]
+                )
 
             composed = retained.read_text(encoding="utf-8")
+            compile_report = json.loads(json_stdout)["compile"]
 
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
+        self.assertEqual(json_status, 0)
+        self.assertEqual(json_stderr, "")
         self.assertIn("source composition: site-faithful", stdout)
         self.assertIn(SITE_SOURCE_MARKER.strip(), composed)
+        self.assertEqual(compile_report["explicit_environment"], {"MODE": "test"})
+        self.assertEqual(len(compile_report["composed_source_sha256"]), 64)
+        self.assertIsNotNone(compile_report["compiler"]["sha256"])
+        self.assertEqual(compile_report["timeout_seconds"], 120.0)
         self.assertLess(
             composed.index("typedef int s32"), composed.index(SITE_SOURCE_MARKER)
         )
@@ -193,6 +212,32 @@ class ScratchCheckTests(unittest.TestCase):
         )
         self.assertEqual(status, 2)
         self.assertIn("--source requires --compile-command", stderr)
+
+    def test_compile_mode_preflights_target_before_starting_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root, dumps=False, objects=False)
+            marker = root / "compiler-ran"
+            command = " ".join(
+                (
+                    shlex.quote(sys.executable),
+                    "-c",
+                    shlex.quote(
+                        f"from pathlib import Path; Path({str(marker)!r}).touch()"
+                    ),
+                    "{source}",
+                    "{output}",
+                )
+            )
+
+            status, _, stderr = self.run_cli(
+                ["check-scratch", str(root), "--compile-command", command]
+            )
+            compiler_ran = marker.exists()
+
+        self.assertEqual(status, 2)
+        self.assertIn("needs target.o", stderr)
+        self.assertFalse(compiler_ran)
 
     def test_zip_is_read_without_extracting_members(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -219,6 +264,49 @@ class ScratchCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsafe scratch member path"):
                 load_scratch(archive)
 
+    def test_zip_rejects_members_combined_from_different_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = Path(temporary) / "mixed.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr(
+                    "metadata/metadata.json",
+                    json.dumps({"score": 0, "max_score": 100}),
+                )
+                output.writestr("source/code.c", "int demo(void) { return 0; }\n")
+                output.writestr("context/ctx.c", "")
+
+            with self.assertRaisesRegex(ValueError, "share one flat directory"):
+                load_scratch(archive)
+
+    def test_directory_rejects_nested_content_instead_of_ignoring_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            nested = root / "unexpected"
+            nested.mkdir()
+            (nested / "other-code.c").write_text("int other;\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "must be flat"):
+                load_scratch(root)
+
+    def test_export_rejects_impossible_browser_scores(self) -> None:
+        for score, maximum in ((-1, 100), (101, 100)):
+            with self.subTest(score=score, maximum=maximum):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    write_export(root)
+                    metadata = json.loads(
+                        (root / "metadata.json").read_text(encoding="utf-8")
+                    )
+                    metadata.update(score=score, max_score=maximum)
+                    (root / "metadata.json").write_text(
+                        json.dumps(metadata),
+                        encoding="utf-8",
+                    )
+
+                    with self.assertRaisesRegex(ValueError, "score"):
+                        load_scratch(root)
+
     def test_bundle_checksum_failure_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -236,6 +324,23 @@ class ScratchCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 load_scratch(root)
 
+    def test_bundle_rejects_a_non_hex_checksum(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source.c").write_text("candidate\n", encoding="utf-8")
+            (root / "scratch.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "decomp-workbench-scratch-bundle-v1",
+                        "files": {"source.c": {"sha256": "z" * 64}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "invalid SHA-256"):
+                load_scratch(root)
+
     def test_doctor_validates_scratch_and_prints_quoted_next_command(self) -> None:
         with tempfile.TemporaryDirectory(prefix="scratch with space ") as temporary:
             root = Path(temporary)
@@ -247,6 +352,22 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertIn("scratch: VALID (decomp.me-export", stdout)
         self.assertIn("decomp-workbench check-scratch", stdout)
         self.assertIn("'", stdout)
+
+    def test_doctor_can_inspect_the_cache_used_by_a_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "custom-cache"
+            cache.mkdir()
+            (cache / "candidate.o").write_bytes(b"candidate")
+            status, stdout, stderr = self.run_cli(
+                ["doctor", "--cache-dir", str(cache), "--json"]
+            )
+
+        payload = json.loads(stdout)
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(payload["schema"], "decomp-workbench-doctor-v1")
+        self.assertEqual(payload["cache"]["files"], 1)
+        self.assertEqual(payload["cache"]["bytes"], 9)
 
     def test_doctor_fails_readiness_when_exported_objects_cannot_be_read(
         self,

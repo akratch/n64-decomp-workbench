@@ -247,8 +247,8 @@ decomp-workbench campaign "$TARGET" variants/*.c \
     --objdump "${OBJDUMP:-/opt/mips/bin/mips64-elf-objdump}" \
     --compile-command './tools/compile-one.sh {source} -o {output}' \
     --compile-cwd "$PWD" \
-    --cache-dir .workbench/cache \
-    --ledger ".workbench/$SYMBOL.jsonl" \
+    --cache-dir .decomp-workbench/cache \
+    --ledger ".decomp-workbench/$SYMBOL.jsonl" \
     --jobs 8
 ```
 

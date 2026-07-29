@@ -42,8 +42,8 @@ decomp-workbench campaign target.o candidates/*.c \
   --objdump /path/to/mips-linux-gnu-objdump \
   --compile-command './compile-cv64-candidate {source} {output}' \
   --env CV64_IDO_VERSION=7.1 \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl
 ```
 
 See [IDO version support](../../docs/ido-support.md) for the distinction

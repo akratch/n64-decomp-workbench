@@ -373,8 +373,8 @@ decomp-workbench campaign expected/code/foo.o variants/*.c \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
   --compile-cwd /path/to/project \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl \
+  --cache-dir .decomp-workbench/cache \
+  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 
@@ -504,6 +504,6 @@ rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 | a command failed or printed nothing usable | [Troubleshooting](troubleshooting.md) |
 | you want the reasoning behind the levers | [Final-function campaign lessons](final-function-campaigns.md) |
 
-Every command has `--help`. `--explain-keys` on any command prints the full
+Every command has `--help`. `decomp-workbench --explain-keys` prints the full
 registry of printed labels and JSON keys with their meanings — the labels and
 the keys are one set, deliberately.

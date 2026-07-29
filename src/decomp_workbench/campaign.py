@@ -33,6 +33,24 @@ _RUNNING_COMPILERS: set[subprocess.Popen[str]] = set()
 TERMINATE_GRACE_SECONDS = 2.0
 
 
+class CompilerTimeoutError(RuntimeError):
+    """A compiler exceeded its deadline after its whole process group ended."""
+
+    def __init__(
+        self,
+        command: list[str],
+        timeout: float,
+        *,
+        stdout: str,
+        stderr: str,
+    ) -> None:
+        super().__init__(f"compiler exceeded --timeout={timeout:g} seconds")
+        self.command = command
+        self.timeout = timeout
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 def process_group_arguments() -> dict[str, Any]:
     """Return the arguments that give a compiler its own process group.
 
@@ -122,6 +140,7 @@ def run_compiler(
     *,
     environment: dict[str, str],
     compile_cwd: Path,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one compiler as the owner of its own process group."""
 
@@ -137,7 +156,16 @@ def run_compiler(
         with _RUNNING_LOCK:
             _RUNNING_COMPILERS.add(process)
         try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            terminate_process_group(process)
             stdout, stderr = process.communicate()
+            raise CompilerTimeoutError(
+                command,
+                timeout if timeout is not None else 0.0,
+                stdout=stdout,
+                stderr=stderr,
+            ) from None
         except BaseException:
             terminate_process_group(process)
             raise
@@ -325,6 +353,7 @@ def _compile_candidate(
     environment: dict[str, str],
     compile_cwd: Path,
     keep_dir: Path | None,
+    timeout: float | None,
 ) -> CompileResult:
     started = time.monotonic()
     cached_object = cache_dir / f"{candidate.cache_key}.o"
@@ -347,7 +376,12 @@ def _compile_candidate(
                     command,
                     environment=environment,
                     compile_cwd=compile_cwd,
+                    timeout=timeout,
                 )
+            except CompilerTimeoutError as error:
+                returncode = 124
+                stdout = error.stdout
+                stderr = f"{error.stderr}\n{error}".strip()
             except OSError as error:
                 returncode = 127
                 stderr = str(error)
@@ -407,6 +441,7 @@ def append_ledger(
     *,
     duplicate_sources: list[str],
     provenance: dict[str, object],
+    timeout: float | None,
 ) -> None:
     """Append one self-contained JSONL record."""
 
@@ -415,6 +450,7 @@ def append_ledger(
         "recorded_at_unix": time.time(),
         "duplicate_sources": duplicate_sources,
         "provenance": provenance,
+        "execution": {"timeout_seconds": timeout},
         **result.as_dict(),
     }
     with path.open("a", encoding="utf-8") as stream:
@@ -436,6 +472,7 @@ def run_campaign(
     compile_cwd: str | Path | None = None,
     keep_objects: str | Path | None = None,
     stop_on_exact: bool = True,
+    timeout: float | None = 120.0,
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
     """Compile a candidate set and return results in deterministic order.
 
@@ -450,6 +487,8 @@ def run_campaign(
 
     if jobs < 1:
         raise ValueError("--jobs must be at least 1")
+    if timeout is not None and timeout <= 0:
+        raise ValueError("--timeout must be positive")
     target_path = Path(target).expanduser().resolve()
     if not target_path.is_file():
         raise FileNotFoundError(f"target object does not exist: {target_path}")
@@ -526,6 +565,7 @@ def run_campaign(
                 result,
                 duplicate_sources=duplicates[result.cache_key],
                 provenance=candidate.provenance,
+                timeout=timeout,
             )
         return result
 
@@ -545,6 +585,7 @@ def run_campaign(
                         environment=env,
                         compile_cwd=compile_cwd_path,
                         keep_dir=keep_path,
+                        timeout=timeout,
                     )
                 ] = candidate
 
