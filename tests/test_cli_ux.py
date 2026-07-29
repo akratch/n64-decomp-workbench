@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -273,6 +274,55 @@ class CliUxTests(unittest.TestCase):
         self.assertIn("register=v1", stdout)
         self.assertIn("c2(v1):1.0", stdout)
         self.assertIn("selected c2 (v1)", stdout)
+
+    def test_campaign_reports_what_stopping_early_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "target.o").write_bytes(b"target")
+            compiler = root / "compile.py"
+            compiler.write_text(
+                "import pathlib, sys\n"
+                "pathlib.Path(sys.argv[2]).write_bytes(b'object')\n",
+                encoding="utf-8",
+            )
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            sources = []
+            for index in range(3):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int value = {index};\n", encoding="utf-8")
+                sources.append(str(source))
+            arguments = [
+                "campaign",
+                str(root / "target.o"),
+                *sources,
+                "--function",
+                "demo",
+                "--objdump",
+                str(objdump),
+                "--compile-command",
+                f"{sys.executable} {compiler} {{source}} {{output}}",
+                "--cache-dir",
+                str(root / "cache"),
+                "--jobs",
+                "1",
+            ]
+            status, stdout, _ = self.run_cli(arguments)
+            self.assertEqual(status, 0)
+            self.assertIn("stopped on the first exact match", stdout)
+            self.assertIn("--no-stop-on-exact", stdout)
+
+            status, stdout, _ = self.run_cli([*arguments, "--no-stop-on-exact"])
+            self.assertEqual(status, 0)
+            self.assertNotIn("stopped on the first exact match", stdout)
+            self.assertEqual(stdout.count("verdict="), 3)
 
     def test_install_skill_reports_current_on_second_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

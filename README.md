@@ -116,17 +116,28 @@ decomp-workbench campaign target.o candidates/*.c \
 
 The command template is tokenized and executed without a shell. Every ledger
 record includes source, target, wrapper, objdump, explicit environment, timing,
-and comparison identity.
+and comparison identity. The campaign stops at the first exact match unless
+`--no-stop-on-exact` asks for the whole grid, compares in process, and
+terminates the compilers it started (and their children) if it is interrupted.
+
+`--symbol` and `--function` are the same option, so either vocabulary works.
+Every printed label is also the JSON key for that value; `--explain-keys`
+prints the registry.
 
 ## Pick the next diagnostic
 
 | What the comparison says | Next move |
 |---|---|
-| Instruction count or opcode shape differs | Keep working at the C/control-flow level |
-| Shape matches; registers differ | Capture the narrowest relevant uopt or ugen trace |
-| Raw words differ; relocation-aware words match | Check relocation metadata, then use the project link/ROM check |
-| A late schedule differs | Retain the ugen listing and calibrate `replay-as1` |
+| `structure-mismatch` | Keep working at the C/control-flow level |
+| `constant-mismatch` | Audit the flag/enum against the assembly, then re-derive fakes |
+| `commutative-order` | Change the expression tree (`x \|= y`), not the allocator |
+| `schedule-mismatch` | Regroup statements; rebuild with `-g0` as the diagnostic |
+| `allocation-mismatch` | Capture the narrowest relevant uopt or ugen trace |
+| `relocation-layout-mismatch` | Check relocation metadata, then the project link/ROM check |
 | `exact=true` | Run the project’s normal collateral and full-output verification |
+
+Whatever the verdict, `--show-diff` prints every differing site: no verdict
+suppresses evidence.
 
 Package a single-function target, full context, and current source for manual
 decomp.me creation without uploading anything:
