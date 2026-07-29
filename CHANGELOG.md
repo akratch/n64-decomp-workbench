@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Unified human labels and JSON keys behind one metric registry and added
+  `--explain-keys`. `words=` is now `"words"` in JSON; the previous long-form
+  keys (`word_mismatches`, `candidate_instructions`, `candidate_frame_size`,
+  and the rest) are deprecated and still emitted beside the canonical keys for
+  one release.
 - Reported every differing site regardless of verdict. `--show-diff` no longer
   prints only register groups, so a literal difference counted in `raw` can no
   longer be missing from the displayed evidence.

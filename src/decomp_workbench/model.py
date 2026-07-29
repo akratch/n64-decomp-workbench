@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .schema import canonical_fields
+
 
 @dataclass(frozen=True)
 class Relocation:
@@ -71,7 +73,16 @@ class Comparison:
     diff_site_classes: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Return the report keyed by the schema registry.
+
+        Canonical keys are the same strings the terminal prints. The older
+        long-form keys are emitted beside them as deprecated aliases so
+        existing consumers keep working for one release.
+        """
+
+        payload = asdict(self)
+        payload.update(canonical_fields(self))
+        return payload
 
     @property
     def sort_key(self) -> tuple[int, int, int, int, int, int, str]:

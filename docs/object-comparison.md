@@ -80,7 +80,37 @@ objdump can include zero alignment padding through the end of the section. The
 workbench excludes unreachable zero words after the function's final `jr ra`
 delay slot; the delay-slot instruction itself remains part of the comparison.
 
+## One name per metric
+
+The terminal label and the JSON key are the same string, rendered from one
+registry entry. `words=` in the summary line is `"words"` in `--json`;
+`insns=` is `"insns"`; `frame=` is `"frame"`. Print the whole registry with:
+
+```sh
+decomp-workbench --explain-keys
+```
+
+`--explain-keys` is also accepted by every command that reports comparison
+metrics (`compare`, `compare-dumps`, `rank`, `compile-rank`, `campaign`), and
+prints the table without running the command.
+
+The previous JSON spellings — `word_mismatches`, `raw_word_mismatches`,
+`normalized_distance`, `register_mismatches`, `fp_register_mismatches`,
+`candidate_instructions`, `candidate_frame_size`, `candidate_sha1`, and the
+other long forms listed by `--explain-keys` — **are deprecated but still
+emitted beside the canonical keys for one release**. They carry identical
+values. New consumers should read the canonical key; existing consumers keep
+working until the next release removes the aliases.
+
+This is a bug-class fix, not cosmetics: `words=` versus `word_mismatches` cost
+debugging cycles in two recorded campaigns. A test asserts that every label
+printed on the summary line resolves to a registry key and that both spellings
+carry the same value, so the two surfaces cannot drift again.
+
 ## What the metrics mean
+
+The table below uses the attribute names; the canonical short key for each is
+in `--explain-keys`.
 
 | Field | Meaning | Appropriate use |
 |---|---|---|

@@ -31,6 +31,7 @@ from .instrument_uopt import instrument_uopt_globalcolor
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
+from .schema import explain_keys_text, selected_fields, summary_line
 from .scratch_bundle import bundle_scratch
 from .trace import (
     alias_trace_summary,
@@ -43,6 +44,27 @@ from .trace import (
 )
 
 SYMBOL_OPTION_DEST = "symbol_option"
+
+# Ranking metrics kept in `campaign --json-summary`: no compiler streams, no
+# instruction-level evidence.
+CAMPAIGN_SUMMARY_KEYS = (
+    "exact",
+    "verdict",
+    "structural_exact",
+    "words",
+    "raw",
+    "norm",
+    "opcodes",
+    "regs",
+    "fp",
+    "target_insns",
+    "insns",
+    "insn_delta",
+    "target_frame",
+    "frame",
+    "sha1",
+    "sha256",
+)
 
 
 class SymbolAction(argparse.Action):
@@ -87,6 +109,7 @@ def add_symbol_argument(parser: argparse.ArgumentParser) -> None:
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
     add_symbol_argument(parser)
+    add_explain_keys_argument(parser)
     parser.add_argument(
         "--section", default=".text", help="object section (default: .text)"
     )
@@ -110,18 +133,49 @@ def add_cross_rom_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def comparison_line(item: Comparison) -> str:
-    return (
-        f"verdict={item.verdict} "
-        f"words={item.word_mismatches:4d} "
-        f"raw={item.raw_word_mismatches:4d} "
-        f"norm={item.normalized_distance:4d} "
-        f"regs={item.register_mismatches:4d} "
-        f"fp={item.fp_register_mismatches:4d} "
-        f"insns={item.candidate_instructions:4d} "
-        f"frame={item.candidate_frame_size!s:>5s} "
-        f"sha1={item.candidate_sha1} {item.candidate}"
+class ExplainKeysAction(argparse.Action):
+    """Print the metric registry and exit, like ``--version``."""
+
+    def __init__(
+        self,
+        option_strings: Sequence[str],
+        dest: str = argparse.SUPPRESS,
+        default: str = argparse.SUPPRESS,
+        help: str | None = None,
+    ) -> None:
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            default=default,
+            nargs=0,
+            help=help,
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        print(explain_keys_text())
+        parser.exit()
+
+
+def add_explain_keys_argument(parser: argparse.ArgumentParser) -> None:
+    """Offer the metric registry wherever comparison metrics are printed."""
+
+    parser.add_argument(
+        "--explain-keys",
+        action=ExplainKeysAction,
+        help="print the metric registry (label, JSON key, meaning) and exit",
     )
+
+
+def comparison_line(item: Comparison) -> str:
+    """Render the summary line from the shared metric registry."""
+
+    return summary_line(item)
 
 
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
@@ -526,14 +580,10 @@ def campaign_command(args: argparse.Namespace) -> int:
             "candidate_sha1": comparison.candidate_sha1,
             "variant_count": len(basin),
             "sources": [item.source for item in basin],
-            "best_metrics": {
-                "verdict": comparison.verdict,
-                "exact": comparison.exact,
-                "word_mismatches": comparison.word_mismatches,
-                "normalized_distance": comparison.normalized_distance,
-                "opcode_mismatches": comparison.opcode_mismatches,
-                "register_mismatches": comparison.register_mismatches,
-            },
+            "best_metrics": selected_fields(
+                comparison,
+                ("verdict", "exact", "words", "norm", "opcodes", "regs"),
+            ),
         }
 
     if args.json or args.json_summary:
@@ -552,28 +602,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "cached": item.cached,
                     "duration_seconds": item.duration_seconds,
                     "comparison": (
-                        {
-                            "exact": comparison.exact,
-                            "verdict": comparison.verdict,
-                            "structural_exact": comparison.structural_exact,
-                            "word_mismatches": comparison.word_mismatches,
-                            "raw_word_mismatches": comparison.raw_word_mismatches,
-                            "normalized_distance": comparison.normalized_distance,
-                            "opcode_mismatches": comparison.opcode_mismatches,
-                            "register_mismatches": comparison.register_mismatches,
-                            "fp_register_mismatches": (
-                                comparison.fp_register_mismatches
-                            ),
-                            "target_instructions": comparison.target_instructions,
-                            "candidate_instructions": (
-                                comparison.candidate_instructions
-                            ),
-                            "instruction_delta": comparison.instruction_delta,
-                            "target_frame_size": comparison.target_frame_size,
-                            "candidate_frame_size": (comparison.candidate_frame_size),
-                            "candidate_sha1": comparison.candidate_sha1,
-                            "candidate_sha256": comparison.candidate_sha256,
-                        }
+                        selected_fields(comparison, CAMPAIGN_SUMMARY_KEYS)
                         if comparison
                         else None
                     ),
@@ -1013,6 +1042,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
+    add_explain_keys_argument(parser)
     commands = parser.add_subparsers(dest="command", required=True)
 
     compare_parser = commands.add_parser(
@@ -1044,6 +1074,7 @@ def build_parser() -> argparse.ArgumentParser:
     dumps_parser.add_argument("target", help="reference objdump text")
     dumps_parser.add_argument("candidate", help="candidate objdump text")
     add_symbol_argument(dumps_parser)
+    add_explain_keys_argument(dumps_parser)
     dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps_parser)
     dumps_parser.add_argument(

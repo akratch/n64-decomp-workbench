@@ -206,6 +206,34 @@ class CliUxTests(unittest.TestCase):
         self.assertIn("li $v0,49", stdout)
         self.assertIn("addu $t3,$t1,$t2", stdout)
 
+    def test_explain_keys_is_available_without_positional_arguments(self) -> None:
+        for arguments in (
+            ["--explain-keys"],
+            ["compare", "--explain-keys"],
+            ["campaign", "--explain-keys"],
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_cli(arguments)
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn("words", self.last_stdout)
+                self.assertIn("word_mismatches", self.last_stdout)
+
+    def test_json_reports_both_the_canonical_and_deprecated_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dump = self.write_two_function_dump(Path(temp))
+            _, stdout, _ = self.run_cli(
+                ["compare-dumps", str(dump), str(dump), "--json"]
+            )
+        payload = json.loads(stdout)
+        for key, alias in (
+            ("words", "word_mismatches"),
+            ("insns", "candidate_instructions"),
+            ("frame", "candidate_frame_size"),
+        ):
+            with self.subTest(key=key):
+                self.assertEqual(payload[key], payload[alias])
+
     def test_install_skill_reports_current_on_second_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             arguments = [
