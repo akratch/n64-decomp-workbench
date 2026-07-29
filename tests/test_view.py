@@ -31,7 +31,6 @@ from decomp_workbench.view import (
     MechanismView,
     build_view,
     classify_pair,
-    commutative_swap,
     destination_register,
     schema_keys,
 )
@@ -550,15 +549,6 @@ class LaneTests(unittest.TestCase):
 
 
 class RuleTests(unittest.TestCase):
-    def test_commutative_swap_rule(self) -> None:
-        self.assertTrue(commutative_swap("or", ["t0", "t1", "t2"], ["t0", "t2", "t1"]))
-        self.assertTrue(commutative_swap("mult", ["t1", "t2"], ["t2", "t1"]))
-        self.assertFalse(
-            commutative_swap("subu", ["t0", "t1", "t2"], ["t0", "t2", "t1"])
-        )
-        self.assertFalse(commutative_swap("or", ["t0", "t1", "t2"], ["t0", "t1", "t2"]))
-        self.assertFalse(commutative_swap("or", ["t0", "t1", "t2"], ["t3", "t2", "t1"]))
-
     def test_classify_pair_rules(self) -> None:
         def pair(target: str, candidate: str) -> str:
             left = Instruction(address=0, word="00000000", assembly=target)

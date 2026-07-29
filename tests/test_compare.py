@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from decomp_workbench.compare import (
+    commutative_swap,
     compare_instructions,
     mismatch_ranges,
     normalize_instruction,
@@ -15,6 +16,7 @@ from decomp_workbench.objdump import (
     parse_relocations,
     trim_function_padding,
 )
+from decomp_workbench.view import build_view
 
 TARGET = """
 00000000 <demo>:
@@ -564,6 +566,91 @@ class CompareTests(unittest.TestCase):
             mismatch_ranges([1, 2, 3, 7, 9, 10]),
             [(1, 3), (7, 7), (9, 10)],
         )
+
+
+#: The class name each command prints for one mechanism.  The two vocabularies
+#: differ, the mechanism does not.
+COMMUTATIVE_CLASS_NAMES: dict[str, str] = {
+    "commutative": "commutative-order",
+    "register": "register",
+}
+
+#: One differing site per case, in the two operand shapes that used to be read
+#: differently by the two commands, plus non-commutative controls.  Each entry
+#: is (name, target line, candidate line, mechanism).
+COMMUTATIVE_CASES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "three-operand or",
+        "   0: 00851025  or $v0,$a0,$a1\n",
+        "   0: 00a41025  or $v0,$a1,$a0\n",
+        "commutative",
+    ),
+    (
+        "two-operand mult",
+        "   0: 00850018  mult $a0,$a1\n",
+        "   0: 00a40018  mult $a1,$a0\n",
+        "commutative",
+    ),
+    (
+        "two-operand div",
+        "   0: 0085001a  div $a0,$a1\n",
+        "   0: 00a4001a  div $a1,$a0\n",
+        "register",
+    ),
+    (
+        "three-operand subu",
+        "   0: 00851023  subu $v0,$a0,$a1\n",
+        "   0: 00a41023  subu $v0,$a1,$a0\n",
+        "register",
+    ),
+    (
+        "three-operand or with a moved destination",
+        "   0: 00851025  or $v0,$a0,$a1\n",
+        "   0: 00a41825  or $v1,$a1,$a0\n",
+        "register",
+    ),
+)
+
+
+class CommutativeSwapTests(unittest.TestCase):
+    """One table, one predicate, and two commands that cannot disagree."""
+
+    def test_operand_shapes(self) -> None:
+        self.assertTrue(commutative_swap("or", ["t0", "t1", "t2"], ["t0", "t2", "t1"]))
+        self.assertTrue(commutative_swap("mult", ["t1", "t2"], ["t2", "t1"]))
+        self.assertFalse(
+            commutative_swap("subu", ["t0", "t1", "t2"], ["t0", "t2", "t1"])
+        )
+        self.assertFalse(commutative_swap("div", ["t1", "t2"], ["t2", "t1"]))
+        self.assertFalse(commutative_swap("or", ["t0", "t1", "t2"], ["t0", "t1", "t2"]))
+        self.assertFalse(commutative_swap("or", ["t0", "t1", "t2"], ["t3", "t2", "t1"]))
+        self.assertFalse(commutative_swap("or", ["t0", "t1"], ["t0", "t1", "t2"]))
+
+    def test_both_call_sites_agree(self) -> None:
+        """``compare`` and ``view`` classify one site through one predicate."""
+
+        for name, target, candidate, mechanism in COMMUTATIVE_CASES:
+            with self.subTest(case=name):
+                comparison = compare_instructions(
+                    parse_disassembly(target),
+                    parse_disassembly(candidate),
+                    target_name="target.o",
+                    candidate_name="candidate.o",
+                    symbol=None,
+                )
+                self.assertEqual(
+                    comparison.diff_site_classes,
+                    {COMMUTATIVE_CLASS_NAMES[mechanism]: 1},
+                )
+                view = build_view(
+                    parse_disassembly(target),
+                    parse_disassembly(candidate),
+                    target_name="target.o",
+                    candidate_name="candidate.o",
+                )
+                self.assertEqual(view.counts[mechanism], 1)
+                other = "register" if mechanism == "commutative" else "commutative"
+                self.assertEqual(view.counts[other], 0)
 
 
 if __name__ == "__main__":

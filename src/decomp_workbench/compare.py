@@ -234,30 +234,52 @@ CONSTANT_OPCODES = frozenset(
 )
 
 
-def is_commutative_swap(expected: Instruction, actual: Instruction) -> bool:
-    """Return whether two instructions differ only by swapped source operands.
+def commutative_swap(
+    opcode: str, expected: Sequence[str], actual: Sequence[str]
+) -> bool:
+    """Return whether two operand lists are one swap of a commutative pair.
+
+    This is the single commutative predicate: the positional comparator and the
+    aligned view both classify a site through it. Two independent copies of this
+    rule disagreed about the two-operand multiply form, and a residual that is
+    ``commutative-order`` under one command and ``register`` under the other
+    sends the reader to the allocator for a front-end question.
 
     Both operand shapes are recognized: the three-operand form
     (``or rd,rs,rt``) and the two-operand form used by the multiply and
     divide-style instructions that write ``hi``/``lo`` (``mult rs,rt``).
+
+    ``a | b`` and ``b | a`` canonicalize identically in IDO 5.3, so a residual
+    of this shape is a front-end AST question (compound assignment), never an
+    allocator question.
     """
 
-    if expected.opcode != actual.opcode or expected.opcode not in COMMUTATIVE_OPCODES:
+    if opcode not in COMMUTATIVE_OPCODES:
         return False
-    expected_registers = register_operands(expected.assembly)
-    actual_registers = register_operands(actual.assembly)
-    if len(expected_registers) != len(actual_registers):
+    if len(expected) != len(actual):
         return False
-    if len(expected_registers) == 2:
-        sources, other = expected_registers, actual_registers
-    elif len(expected_registers) == 3:
-        if expected_registers[0] != actual_registers[0]:
+    if len(expected) == 2:
+        sources, other = tuple(expected), tuple(actual)
+    elif len(expected) == 3:
+        if expected[0] != actual[0]:
             return False
-        sources, other = expected_registers[1:], actual_registers[1:]
+        sources, other = tuple(expected[1:]), tuple(actual[1:])
     else:
         return False
     return (
         sources[0] == other[1] and sources[1] == other[0] and sources[0] != sources[1]
+    )
+
+
+def is_commutative_swap(expected: Instruction, actual: Instruction) -> bool:
+    """Return whether two instructions differ only by swapped source operands."""
+
+    if expected.opcode != actual.opcode:
+        return False
+    return commutative_swap(
+        expected.opcode,
+        register_operands(expected.assembly),
+        register_operands(actual.assembly),
     )
 
 

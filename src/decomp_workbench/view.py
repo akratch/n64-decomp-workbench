@@ -37,7 +37,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .compare import frame_size, register_operands, relocation_field_mask
+from .compare import (
+    frame_size,
+    is_commutative_swap,
+    register_operands,
+    relocation_field_mask,
+)
 from .model import Instruction
 
 __all__ = [
@@ -51,7 +56,6 @@ __all__ = [
     "Web",
     "build_view",
     "classify_pair",
-    "commutative_swap",
     "destination_register",
     "schema_keys",
 ]
@@ -145,27 +149,6 @@ REGISTER_CLASS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 DEFAULT_REGISTER_PROFILE = "ido53"
-
-COMMUTATIVE_OPCODES = frozenset(
-    {
-        "add",
-        "addu",
-        "and",
-        "dadd",
-        "daddu",
-        "mult",
-        "multu",
-        "dmult",
-        "dmultu",
-        "nor",
-        "or",
-        "xor",
-        "add.s",
-        "add.d",
-        "mul.s",
-        "mul.d",
-    }
-)
 
 # Opcodes whose first register operand is a source, not a destination.  A lane
 # records definitions only: a store or a branch reads its registers and would
@@ -536,33 +519,6 @@ def _immediates(text: str) -> list[str]:
     return IMMEDIATE_RE.findall(SYMBOL_OPERAND_RE.sub("SYM", text))
 
 
-def commutative_swap(
-    opcode: str, target: Sequence[str], candidate: Sequence[str]
-) -> bool:
-    """Return whether two operand lists are one swap of a commutative pair.
-
-    ``a | b`` and ``b | a`` canonicalize identically in IDO 5.3, so a residual
-    of this shape is a front-end AST question (compound assignment), never an
-    allocator question.
-    """
-
-    if opcode not in COMMUTATIVE_OPCODES:
-        return False
-    if len(target) != len(candidate) or len(target) < 2:
-        return False
-    if list(target) == list(candidate):
-        return False
-    if sorted(target) != sorted(candidate):
-        return False
-    prefix = len(target) - 2
-    if list(target[:prefix]) != list(candidate[:prefix]):
-        return False
-    return (
-        target[prefix] == candidate[prefix + 1]
-        and target[prefix + 1] == candidate[prefix]
-    )
-
-
 def destination_register(assembly: str) -> str | None:
     """Return the register an instruction defines, or ``None``.
 
@@ -606,7 +562,7 @@ def classify_pair(
     target_registers = register_operands(target.assembly)
     candidate_registers = register_operands(candidate.assembly)
     if target_registers != candidate_registers:
-        if commutative_swap(target.opcode, target_registers, candidate_registers):
+        if is_commutative_swap(target, candidate):
             return COMMUTATIVE
         return REGISTER
     if _immediates(target_text) != _immediates(candidate_text):

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Deduplicated the commutative-operand rule: `compare` and `view` shared two
+  independent tables and two independent predicates that disagreed about the
+  two-operand multiply form, so one residual could be `commutative-order` in
+  one command and `register` in the other. Both now classify through
+  `compare.commutative_swap`, and a table-driven test asserts the two commands
+  name the same mechanism for a three-operand `or`, a two-operand `mult`, and
+  the non-commutative controls.
+
 - Kept every candidate a campaign actually ran: stopping on an exact match now
   waits for and records the candidates already in flight instead of discarding
   their objects and their ledger records, and a candidate that raises an
