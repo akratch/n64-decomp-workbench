@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from .cli_options import add_explain_keys_argument, add_symbol_argument
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
 from .view import (
@@ -463,13 +464,29 @@ def view_dumps_command(args: argparse.Namespace) -> int:
     return _emit(view, args)
 
 
-def _add_shared_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--symbol",
-        "--function",
-        dest="symbol",
-        help="view only this exact function (decomp and GNU vocabulary agree here)",
+def _add_shared_arguments(
+    parser: argparse.ArgumentParser, *, object_inputs: bool = False
+) -> None:
+    """Add the view options, in the order ``compare`` establishes.
+
+    Selector first, then the key registry, then how the inputs are read, then
+    the rendering. Two commands that read the same two inputs should not present
+    them in two different orders.
+    """
+
+    add_symbol_argument(
+        parser,
+        help_text="view only this exact symbol; --function is the same option",
     )
+    add_explain_keys_argument(parser)
+    if object_inputs:
+        parser.add_argument(
+            "--section", default=".text", help="object section (default: .text)"
+        )
+        parser.add_argument(
+            "--objdump",
+            help="GNU-compatible MIPS objdump; auto-detected when omitted",
+        )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.add_argument(
         "--report-regs",
@@ -529,14 +546,7 @@ def register_view_commands(commands: argparse._SubParsersAction[Any]) -> None:
     )
     view_parser.add_argument("target", help="reference object")
     view_parser.add_argument("candidate", help="candidate object")
-    view_parser.add_argument(
-        "--section", default=".text", help="object section (default: .text)"
-    )
-    view_parser.add_argument(
-        "--objdump",
-        help="GNU-compatible MIPS objdump; auto-detected when omitted",
-    )
-    _add_shared_arguments(view_parser)
+    _add_shared_arguments(view_parser, object_inputs=True)
     view_parser.set_defaults(handler=view_command)
 
     dumps_parser = commands.add_parser(

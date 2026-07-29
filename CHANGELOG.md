@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Gave `view` and `view-dumps` the same option behavior as every other command
+  that selects one function: `--symbol`/`--function` conflicts are rejected
+  instead of resolved last-one-wins, and `--explain-keys` prints the registry.
+  Both options now come from one shared module rather than a copy per command
+  module. `view` and `view-dumps` also moved next to `compare` and
+  `compare-dumps` in the help listing, where the inputs they read put them.
+
 - Unified the two schema registries the merge left behind. The aligned view's
   keys now live in the shared metric registry beside the comparison and
   campaign keys, so `--explain-keys` explains `view` and `view-dumps` too, and

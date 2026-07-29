@@ -11,14 +11,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
 from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
+from .cli_options import (
+    SYMBOL_OPTION_DEST,
+    add_explain_keys_argument,
+    add_symbol_argument,
+)
 from .compare import compare_instructions, compare_objects
 from .globalcolor import (
     optional_integer,
@@ -38,7 +43,7 @@ from .instrument_uopt import (
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
-from .schema import explain_keys_text, selected_fields, summary_line
+from .schema import selected_fields, summary_line
 from .scratch_bundle import bundle_scratch
 from .trace import (
     alias_trace_summary,
@@ -50,8 +55,6 @@ from .trace import (
     trace_summary,
 )
 from .view_cli import register_view_commands
-
-SYMBOL_OPTION_DEST = "symbol_option"
 
 # Ranking metrics kept in `campaign --json-summary`: no compiler streams, no
 # instruction-level evidence.
@@ -73,46 +76,6 @@ CAMPAIGN_SUMMARY_KEYS = (
     "sha1",
     "sha256",
 )
-
-
-class SymbolAction(argparse.Action):
-    """Accept both vocabularies for one selector.
-
-    Decompilation projects say "function"; GNU tooling says "symbol". Both
-    spellings write the same destination. Passing both with different values
-    is a mistake worth reporting instead of silently keeping the last one.
-    """
-
-    def __call__(
-        self,
-        parser: argparse.ArgumentParser,
-        namespace: argparse.Namespace,
-        values: str | Sequence[Any] | None,
-        option_string: str | None = None,
-    ) -> None:
-        previous = getattr(namespace, self.dest, None)
-        if previous is not None and previous != values:
-            previous_option = getattr(namespace, SYMBOL_OPTION_DEST, "--symbol")
-            raise argparse.ArgumentError(
-                self,
-                f"conflicts with {previous_option} {previous!r}; "
-                "--symbol and --function are two spellings of one selector",
-            )
-        setattr(namespace, self.dest, values)
-        setattr(namespace, SYMBOL_OPTION_DEST, option_string)
-
-
-def add_symbol_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the symbol selector under both accepted spellings."""
-
-    parser.add_argument(
-        "--symbol",
-        "--function",
-        action=SymbolAction,
-        default=None,
-        metavar="NAME",
-        help="compare only this exact symbol; --function is the same option",
-    )
 
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
@@ -138,45 +101,6 @@ def add_cross_rom_argument(parser: argparse.ArgumentParser) -> None:
             "accept structural cross-ROM evidence; never call it an "
             "object-exact source match"
         ),
-    )
-
-
-class ExplainKeysAction(argparse.Action):
-    """Print the metric registry and exit, like ``--version``."""
-
-    def __init__(
-        self,
-        option_strings: Sequence[str],
-        dest: str = argparse.SUPPRESS,
-        default: str = argparse.SUPPRESS,
-        help: str | None = None,
-    ) -> None:
-        super().__init__(
-            option_strings=option_strings,
-            dest=dest,
-            default=default,
-            nargs=0,
-            help=help,
-        )
-
-    def __call__(
-        self,
-        parser: argparse.ArgumentParser,
-        namespace: argparse.Namespace,
-        values: str | Sequence[Any] | None,
-        option_string: str | None = None,
-    ) -> None:
-        print(explain_keys_text())
-        parser.exit()
-
-
-def add_explain_keys_argument(parser: argparse.ArgumentParser) -> None:
-    """Offer the metric registry wherever comparison metrics are printed."""
-
-    parser.add_argument(
-        "--explain-keys",
-        action=ExplainKeysAction,
-        help="print the metric registry (label, JSON key, meaning) and exit",
     )
 
 
@@ -1124,6 +1048,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dumps_parser.set_defaults(handler=compare_dumps_command)
 
+    # `view` and `view-dumps` read the same two inputs as `compare` and
+    # `compare-dumps` and answer the next question about them, so they belong
+    # beside them in the listing.
+    register_view_commands(commands)
+
     skill_parser = commands.add_parser(
         "install-skill",
         help="install the bundled N64 decomp Agent Skill",
@@ -1463,8 +1392,6 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_parser.add_argument("--preset", help="optional decomp.me preset identity")
     bundle_parser.add_argument("--json", action="store_true", help="emit manifest JSON")
     bundle_parser.set_defaults(handler=bundle_scratch_command)
-
-    register_view_commands(commands)
     return parser
 
 

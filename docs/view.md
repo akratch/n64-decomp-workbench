@@ -16,7 +16,9 @@ classified hunks, and a lever footer.
 decomp-workbench view build/target.o build/candidate.o --function animStep
 ```
 
-`--function` and `--symbol` are the same option. Objects are optional:
+`--function` and `--symbol` are the same option, as on every command that
+selects one function; passing both with different values is refused instead of
+silently resolved. Objects are optional:
 `view-dumps` runs the identical analysis on retained GNU objdump text, so every
 screen here works from reduced, redistributable dumps.
 
@@ -267,7 +269,8 @@ vocabularies are listed separately.
 
 | Option | Effect |
 |---|---|
-| `--symbol` / `--function` | select one function (recommended) |
+| `--symbol` / `--function` | select one function (recommended); two spellings of one option, and conflicting values are rejected rather than silently resolved |
+| `--explain-keys` | print the key registry and exit |
 | `--section`, `--objdump` | object inputs only |
 | `--context N` | aligned rows of context around each hunk (default 2) |
 | `--max-hunks N` | render at most N hunks, 0 for all (default 20) |

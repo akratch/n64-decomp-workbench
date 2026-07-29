@@ -121,9 +121,12 @@ and comparison identity. The campaign stops at the first exact match unless
 `--no-stop-on-exact` asks for the whole grid, compares in process, and
 terminates the compilers it started (and their children) if it is interrupted.
 
-`--symbol` and `--function` are the same option, so either vocabulary works.
-Every printed label is also the JSON key for that value; `--explain-keys`
-prints the registry.
+On every command that selects one function — `compare`, `compare-dumps`,
+`view`, `view-dumps`, `rank`, `compile-rank`, `campaign` — `--symbol` and
+`--function` are the same option, so either vocabulary works, and passing both
+with different values is refused rather than silently resolved. Every printed
+label is also the JSON key for that value; `--explain-keys` prints the one
+registry, comparison, campaign, and aligned-view keys together.
 
 ## Pick the next diagnostic
 

@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,19 @@ from pathlib import Path
 from unittest import mock
 
 from decomp_workbench.cli import build_parser, main
+
+#: Every command that selects one function, and therefore owes the reader both
+#: spellings, the conflict check, and the key registry. `view` and `view-dumps`
+#: were merged in with their own copy of the option and had none of the three.
+SYMBOL_COMMANDS = (
+    "compare",
+    "compare-dumps",
+    "view",
+    "view-dumps",
+    "rank",
+    "compile-rank",
+    "campaign",
+)
 
 
 class CliUxTests(unittest.TestCase):
@@ -171,24 +185,27 @@ class CliUxTests(unittest.TestCase):
         self.assertEqual(json.loads(stdout)["symbol"], "first")
 
     def test_conflicting_symbol_and_function_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            dump = self.write_two_function_dump(Path(temp))
-            with self.assertRaises(SystemExit) as raised:
-                self.run_cli(
-                    [
-                        "compare",
-                        str(dump),
-                        str(dump),
-                        "--symbol",
-                        "first",
-                        "--function",
-                        "second",
-                    ]
-                )
-        self.assertEqual(raised.exception.code, 2)
+        for command in SYMBOL_COMMANDS:
+            with self.subTest(command=command):
+                with tempfile.TemporaryDirectory() as temp:
+                    dump = self.write_two_function_dump(Path(temp))
+                    with self.assertRaises(SystemExit) as raised:
+                        self.run_cli(
+                            [
+                                command,
+                                str(dump),
+                                str(dump),
+                                "--symbol",
+                                "first",
+                                "--function",
+                                "second",
+                            ]
+                        )
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("two spellings of one selector", self.last_stderr)
 
     def test_every_symbol_command_documents_the_function_alias(self) -> None:
-        for command in ("compare", "compare-dumps", "rank", "compile-rank", "campaign"):
+        for command in SYMBOL_COMMANDS:
             with self.subTest(command=command):
                 with self.assertRaises(SystemExit):
                     self.run_cli([command, "--help"])
@@ -199,6 +216,14 @@ class CliUxTests(unittest.TestCase):
                 ]
                 self.assertEqual(len(selector), 1)
                 self.assertIn("--function", selector[0])
+
+    def test_the_two_input_commands_are_listed_together(self) -> None:
+        """`view` answers the next question about the inputs `compare` reads."""
+
+        listing = re.search(r"\{([^}]+)\}", build_parser().format_help())
+        assert listing is not None
+        order = re.sub(r"\s+", "", listing.group(1)).split(",")
+        self.assertEqual(order[:4], ["compare", "compare-dumps", "view", "view-dumps"])
 
     def test_show_diff_prints_literal_sites_under_a_register_verdict(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -235,17 +260,17 @@ class CliUxTests(unittest.TestCase):
         self.assertIn("addu $t3,$t1,$t2", stdout)
 
     def test_explain_keys_is_available_without_positional_arguments(self) -> None:
-        for arguments in (
-            ["--explain-keys"],
-            ["compare", "--explain-keys"],
-            ["campaign", "--explain-keys"],
-        ):
+        for command in ("", *SYMBOL_COMMANDS):
+            arguments = [command, "--explain-keys"] if command else ["--explain-keys"]
             with self.subTest(arguments=arguments):
                 with self.assertRaises(SystemExit) as raised:
                     self.run_cli(arguments)
                 self.assertEqual(raised.exception.code, 0)
                 self.assertIn("words", self.last_stdout)
                 self.assertIn("word_mismatches", self.last_stdout)
+                # One registry: the aligned view's keys are explained too.
+                self.assertIn("aligned_rows", self.last_stdout)
+                self.assertIn("Aligned mechanism view keys", self.last_stdout)
 
     def test_json_reports_both_the_canonical_and_deprecated_key(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
