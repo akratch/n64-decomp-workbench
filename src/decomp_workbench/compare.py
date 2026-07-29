@@ -7,6 +7,7 @@ import difflib
 import hashlib
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from .model import Comparison, Instruction, display_path
@@ -636,6 +637,57 @@ def compare_instructions(
     )
 
 
+@dataclass(frozen=True)
+class TargetObject:
+    """A disassembled target retained for repeated comparison.
+
+    Campaigns compare hundreds of candidates against one target. Holding the
+    parsed target removes one objdump process and one parse per candidate.
+    """
+
+    name: str
+    symbol: str | None
+    instructions: list[Instruction]
+
+
+def load_target(
+    target: str | Path,
+    *,
+    objdump: str | None = None,
+    symbol: str | None = None,
+    section: str = ".text",
+) -> TargetObject:
+    """Disassemble the reference object once."""
+
+    _, instructions = dump_object(
+        target, objdump=objdump, symbol=symbol, section=section
+    )
+    return TargetObject(
+        name=display_path(target), symbol=symbol, instructions=instructions
+    )
+
+
+def compare_candidate(
+    target: TargetObject,
+    candidate: str | Path,
+    *,
+    objdump: str | None = None,
+    section: str = ".text",
+) -> Comparison:
+    """Compare one candidate object against an already-parsed target."""
+
+    _, candidate_instructions = dump_object(
+        candidate, objdump=objdump, symbol=target.symbol, section=section
+    )
+    return compare_instructions(
+        target.instructions,
+        candidate_instructions,
+        target_name=target.name,
+        candidate_name=display_path(candidate),
+        symbol=target.symbol,
+    )
+
+
 def compare_objects(
     target: str | Path,
     candidate: str | Path,
@@ -646,16 +698,9 @@ def compare_objects(
 ) -> Comparison:
     """Disassemble and compare two object files."""
 
-    _, target_instructions = dump_object(
-        target, objdump=objdump, symbol=symbol, section=section
-    )
-    _, candidate_instructions = dump_object(
-        candidate, objdump=objdump, symbol=symbol, section=section
-    )
-    return compare_instructions(
-        target_instructions,
-        candidate_instructions,
-        target_name=display_path(target),
-        candidate_name=display_path(candidate),
-        symbol=symbol,
+    return compare_candidate(
+        load_target(target, objdump=objdump, symbol=symbol, section=section),
+        candidate,
+        objdump=objdump,
+        section=section,
     )

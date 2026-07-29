@@ -30,6 +30,16 @@ class CampaignArguments(TypedDict):
     section: str
 
 
+class StopOnExactArguments(TypedDict):
+    target: Path
+    template: str
+    cache_dir: Path
+    objdump: str
+    symbol: str
+    jobs: int
+    ledger: Path
+
+
 class CampaignTests(unittest.TestCase):
     def test_compiler_identity_resolves_relative_executable(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
@@ -278,6 +288,7 @@ class CampaignTests(unittest.TestCase):
                 cache_dir=root / "cache",
                 objdump=str(objdump),
                 symbol="demo",
+                stop_on_exact=False,
             )
             basins = group_object_basins(results)
             self.assertEqual(len(basins), 1)
@@ -293,6 +304,98 @@ class CampaignTests(unittest.TestCase):
             second_comparison.word_mismatches = 0
             basins = group_object_basins(results)
             self.assertIs(basins[0][0], results[1])
+
+    def write_counting_objdump(self, root: Path, counter: Path) -> Path:
+        objdump = root / "objdump"
+        objdump.write_text(
+            "#!/usr/bin/env python3\n"
+            "import pathlib\n"
+            f"pathlib.Path({str(counter)!r}).open('a').write('run\\n')\n"
+            "print('00000000 <demo>:')\n"
+            "print('   0: 03e00008  jr $ra')\n"
+            "print('   4: 00000000  nop')\n",
+            encoding="utf-8",
+        )
+        objdump.chmod(0o755)
+        return objdump
+
+    def write_copying_compiler(self, root: Path) -> Path:
+        compiler = root / "compile.py"
+        compiler.write_text(
+            "import pathlib, sys\n"
+            "pathlib.Path(sys.argv[2]).write_bytes("
+            "pathlib.Path(sys.argv[1]).read_bytes())\n",
+            encoding="utf-8",
+        )
+        return compiler
+
+    def test_target_is_disassembled_once_for_the_whole_campaign(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            counter = root / "objdump-runs.txt"
+            objdump = self.write_counting_objdump(root, counter)
+            compiler = self.write_copying_compiler(root)
+            sources = []
+            for index in range(3):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int candidate = {index};\n", encoding="utf-8")
+                sources.append(source)
+            results, _ = run_campaign(
+                sources,
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+                stop_on_exact=False,
+            )
+            self.assertEqual(len(results), 3)
+            runs = counter.read_text(encoding="utf-8").splitlines()
+            # One target disassembly plus one per candidate; the comparison
+            # itself never leaves the process.
+            self.assertEqual(len(runs), 4)
+
+    def test_stop_on_exact_leaves_later_candidates_uncompiled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            objdump = self.write_counting_objdump(root, root / "runs.txt")
+            compiler = self.write_copying_compiler(root)
+            sources = []
+            for index in range(3):
+                source = root / f"candidate{index}.c"
+                source.write_text(f"int candidate = {index};\n", encoding="utf-8")
+                sources.append(source)
+            ledger = root / "ledger.jsonl"
+            arguments: StopOnExactArguments = {
+                "target": target,
+                "template": f"{sys.executable} {compiler} {{source}} {{output}}",
+                "cache_dir": root / "cache",
+                "objdump": str(objdump),
+                "symbol": "demo",
+                "jobs": 1,
+                "ledger": ledger,
+            }
+            stopped, _ = run_campaign(sources, stop_on_exact=True, **arguments)
+            self.assertEqual(len(stopped), 1)
+            first = stopped[0].comparison
+            if first is None:
+                raise AssertionError("campaign did not compare the compiled object")
+            self.assertTrue(first.exact)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                1,
+            )
+
+            swept, _ = run_campaign(sources, stop_on_exact=False, **arguments)
+            self.assertEqual(len(swept), 3)
+            self.assertEqual(
+                len(ledger.read_text(encoding="utf-8").splitlines()),
+                4,
+            )
 
     def test_parse_environment(self) -> None:
         self.assertEqual(

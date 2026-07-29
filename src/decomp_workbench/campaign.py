@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+import itertools
 import json
 import os
 import shlex
@@ -15,7 +16,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .compare import compare_objects
+from .compare import TargetObject, compare_candidate, load_target
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
 
@@ -187,11 +188,10 @@ def prepare_candidates(
 def _compile_candidate(
     candidate: Candidate,
     *,
-    target: Path,
+    target: TargetObject,
     template: str,
     cache_dir: Path,
     objdump: str | None,
-    symbol: str | None,
     section: str,
     environment: dict[str, str],
     compile_cwd: Path,
@@ -244,11 +244,10 @@ def _compile_candidate(
     kept: str | None = None
     if returncode == 0 and cached_object.is_file():
         try:
-            comparison = compare_objects(
+            comparison = compare_candidate(
                 target,
                 cached_object,
                 objdump=objdump,
-                symbol=symbol,
                 section=section,
             )
             comparison.candidate = display_path(candidate.source)
@@ -310,8 +309,18 @@ def run_campaign(
     environment: dict[str, str] | None = None,
     compile_cwd: str | Path | None = None,
     keep_objects: str | Path | None = None,
+    stop_on_exact: bool = True,
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
-    """Compile a candidate set and return results in deterministic order."""
+    """Compile a candidate set and return results in deterministic order.
+
+    The target is disassembled once and compared in process, so a variant
+    costs one compiler run and one objdump run rather than a comparison
+    subprocess per candidate.
+
+    With ``stop_on_exact`` the campaign stops submitting candidates once one
+    compares exact. Candidates already running are allowed to finish, and the
+    ledger keeps one record for every candidate that actually ran.
+    """
 
     if jobs < 1:
         raise ValueError("--jobs must be at least 1")
@@ -348,35 +357,63 @@ def run_campaign(
         section=section,
         objdump=objdump_path,
     )
+    target_object = load_target(
+        target_path, objdump=objdump_path, symbol=symbol, section=section
+    )
     results: list[CompileResult] = []
+    queue = iter(candidates)
+    pending: dict[concurrent.futures.Future[CompileResult], Candidate] = {}
+
+    def record(result: CompileResult, candidate: Candidate) -> CompileResult:
+        results.append(result)
+        if ledger_path:
+            append_ledger(
+                ledger_path,
+                result,
+                duplicate_sources=duplicates[result.cache_key],
+                provenance=candidate.provenance,
+            )
+        return result
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
-        futures = {
-            executor.submit(
-                _compile_candidate,
-                candidate,
-                target=target_path,
-                template=template,
-                cache_dir=cache_path,
-                objdump=objdump_path,
-                symbol=symbol,
-                section=section,
-                environment=env,
-                compile_cwd=compile_cwd_path,
-                keep_dir=keep_path,
-            ): candidate
-            for candidate in candidates
-        }
-        for future in concurrent.futures.as_completed(futures):
-            candidate = futures[future]
-            result = future.result()
-            results.append(result)
-            if ledger_path:
-                append_ledger(
-                    ledger_path,
-                    result,
-                    duplicate_sources=duplicates[result.cache_key],
-                    provenance=candidate.provenance,
+
+        def submit_next(count: int) -> None:
+            for candidate in itertools.islice(queue, count):
+                pending[
+                    executor.submit(
+                        _compile_candidate,
+                        candidate,
+                        target=target_object,
+                        template=template,
+                        cache_dir=cache_path,
+                        objdump=objdump_path,
+                        section=section,
+                        environment=env,
+                        compile_cwd=compile_cwd_path,
+                        keep_dir=keep_path,
+                    )
+                ] = candidate
+
+        try:
+            # Candidates are submitted in flight-sized batches rather than all
+            # at once so that stopping early actually stops work instead of
+            # cancelling futures the pool has already picked up.
+            submit_next(jobs)
+            stop = False
+            while pending and not stop:
+                done, _ = concurrent.futures.wait(
+                    pending, return_when=concurrent.futures.FIRST_COMPLETED
                 )
+                for future in done:
+                    result = record(future.result(), pending.pop(future))
+                    comparison = result.comparison
+                    if stop_on_exact and comparison is not None and comparison.exact:
+                        stop = True
+                if not stop:
+                    submit_next(len(done))
+        finally:
+            for future in pending:
+                future.cancel()
     results.sort(
         key=lambda item: (
             item.comparison is None,

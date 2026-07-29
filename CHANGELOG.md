@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Stopped campaigns on the first exact match by default (`--no-stop-on-exact`
+  sweeps the whole grid) and removed the repeated target disassembly, so a
+  variant costs one compiler run and one objdump run with the comparison in
+  process.
 - Split three verdicts out of the volume-based classes, each with the field
   lever attached: `constant-mismatch` (audit the flag/enum against the
   assembly), `commutative-order` (compound assignment, not the allocator), and

@@ -21,6 +21,31 @@ decomp-workbench campaign target.o candidates/*.c \
 executed directly; shell expansion, pipes, redirection, and command
 substitution are not evaluated.
 
+## Throughput
+
+A variant costs one compiler process and one objdump process. The comparison
+itself runs in process — `campaign` calls the comparator directly and never
+spawns a `compare` subprocess per candidate — and the reference object is
+disassembled once for the whole campaign rather than once per variant.
+
+On a fast compiler (an IDO wrapper is roughly 0.07 s per translation unit) the
+per-variant overhead used to dominate the compile; removing the repeated target
+disassembly and the comparison subprocess is why a large grid is now worth
+running through `campaign` instead of a hand-rolled import harness.
+
+## Stopping on the first exact match
+
+`--stop-on-exact` is the default: once a candidate compares exact, no further
+candidates are submitted. Candidates already in flight (up to `--jobs` of them)
+finish and are recorded, so the ledger keeps one record for every candidate
+that actually ran and none for candidates that never started. The terminal
+report names how many prepared candidates were skipped, and `--json-summary`
+carries `stopped_on_exact` and `prepared_candidates`.
+
+Pass `--no-stop-on-exact` when the point of the run is the whole grid — basin
+census, per-family comparison, or a corpus that later differential work will
+reuse.
+
 Compiler processes normally inherit the directory in which the workbench was
 started. Use `--compile-cwd` when a project wrapper expects relative include,
 tool, or configuration paths. The resolved directory is recorded in

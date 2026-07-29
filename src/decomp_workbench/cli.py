@@ -564,12 +564,14 @@ def campaign_command(args: argparse.Namespace) -> int:
             environment=environment,
             compile_cwd=args.compile_cwd,
             keep_objects=args.keep_objects,
+            stop_on_exact=args.stop_on_exact,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
     basins = group_object_basins(results)
+    unrun = len(duplicates) - len(results)
 
     def basin_summary(basin: list[CompileResult]) -> dict[str, object]:
         comparison = basin[0].comparison
@@ -613,6 +615,8 @@ def campaign_command(args: argparse.Namespace) -> int:
                 {
                     "schema": "decomp-workbench-campaign-v1",
                     "unique_candidates": len(results),
+                    "prepared_candidates": len(duplicates),
+                    "stopped_on_exact": bool(unrun) and args.stop_on_exact,
                     "source_files": sum(len(items) for items in duplicates.values()),
                     "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
@@ -648,6 +652,12 @@ def campaign_command(args: argparse.Namespace) -> int:
                     f"sha1={comparison.candidate_sha1} {comparison.verdict}\n"
                     f"  {sources}"
                 )
+        if unrun and args.stop_on_exact:
+            print(
+                f"stopped on the first exact match; {unrun} prepared "
+                "candidate(s) were not compiled "
+                "(pass --no-stop-on-exact to sweep them)"
+            )
         duplicate_count = sum(len(items) - 1 for items in duplicates.values())
         if duplicate_count:
             print(f"deduplicated {duplicate_count} identical source file(s)")
@@ -1188,6 +1198,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--json-summary",
         action="store_true",
         help="emit compact JSON without compiler streams or instruction-level diffs",
+    )
+    campaign_parser.add_argument(
+        "--stop-on-exact",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "stop submitting candidates once one compares exact "
+            "(default: enabled; pass --no-stop-on-exact to sweep every "
+            "candidate)"
+        ),
     )
     campaign_parser.add_argument(
         "--show-basins",
