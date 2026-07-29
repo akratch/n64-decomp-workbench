@@ -72,6 +72,18 @@ before any inference about source evaluation order.
 decomp-workbench trace-globalcolor uopt.log --dtype 13 --top 25
 ```
 
+Once a comparison has isolated an allocation residual, inspect a single web
+instead of scanning an entire procedure:
+
+```sh
+decomp-workbench trace-globalcolor uopt.log --proc 46 --web 240
+```
+
+The report names stable callee-saved profile colors when it can (`c17 (s3)`),
+keeps profile-specific colors as `cNN`, and explains whether the web was
+colored or split. A force probe is a causal experiment only: use it to learn
+which lifetime must be reshaped, never as a source-match result.
+
 Supported formats:
 
 - `CSAVE`: one live range/web and its adjusted-save inputs;

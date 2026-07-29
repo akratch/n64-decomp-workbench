@@ -6,6 +6,19 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
+
+def callee_saved_color_name(color: int | None) -> str | None:
+    """Name stable callee-saved colors from the pinned IDO profile.
+
+    Other color values remain compiler colors. Guessing names for them would
+    make a trace friendlier but less reliable across profiles.
+    """
+
+    if color is None or not 14 <= color <= 22:
+        return None
+    return f"s{color - 14}"
+
+
 FLOAT_PATTERN = (
     r"(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
     r"|[-+]?(?:inf|nan))"
@@ -113,6 +126,41 @@ class AllocatorWebDecision:
         value = self.fields.get("totalsave", "nan")
         return float(value)
 
+    @property
+    def assigned_color(self) -> int | None:
+        """Return the selected color when this decision allocated one."""
+
+        value = self.fields.get("bestcolor")
+        if value is None:
+            return None
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+
+    @property
+    def assigned_register(self) -> str | None:
+        """Return a physical register name only when the mapping is stable."""
+
+        return callee_saved_color_name(self.assigned_color)
+
+    @property
+    def explanation(self) -> str:
+        """Human-scale explanation suitable for a focused web inspection."""
+
+        decision = self.fields.get("decision", "unknown")
+        if decision == "split":
+            return (
+                "split: this web was divided instead of receiving one "
+                "allocation; inspect its live range and interference edges"
+            )
+        color = self.assigned_color
+        if color is None:
+            return f"{decision}: no selected color was recorded"
+        register = self.assigned_register
+        target = f"c{color}" + (f" ({register})" if register else "")
+        return f"{decision}: selected {target}"
+
     def as_dict(self) -> dict[str, object]:
         return {
             "proc": self.proc,
@@ -121,6 +169,9 @@ class AllocatorWebDecision:
             "fields": self.fields,
             "detail": self.detail,
             "color_costs": self.color_costs,
+            "assigned_color": self.assigned_color,
+            "assigned_register": self.assigned_register,
+            "explanation": self.explanation,
         }
 
 
@@ -160,6 +211,7 @@ class GlobalColorTrace:
         self,
         *,
         proc: int | None = None,
+        web: int | None = None,
         dtype: int | None = None,
         limit: int | None = None,
     ) -> list[AllocatorWebDecision]:
@@ -194,6 +246,8 @@ class GlobalColorTrace:
                 color_costs=costs.get((item_proc, item_web, item.phase[:2]), []),
             )
             if proc is not None and item_proc != proc:
+                continue
+            if web is not None and item_web != web:
                 continue
             if dtype is not None and joined_item.dtype != dtype:
                 continue

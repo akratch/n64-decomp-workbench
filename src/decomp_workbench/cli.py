@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import cast
 
 from . import __version__
+from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
-from .campaign import run_campaign
 from .compare import compare_instructions, compare_objects
 from .globalcolor import parse_globalcolor_trace
 from .instrument import instrument_ugen
@@ -54,8 +54,22 @@ def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="emit JSON")
 
 
+def add_cross_rom_argument(parser: argparse.ArgumentParser) -> None:
+    """Add structural-only acceptance for a dedicated cross-ROM comparison."""
+
+    parser.add_argument(
+        "--cross-rom",
+        action="store_true",
+        help=(
+            "accept structural cross-ROM evidence; never call it an "
+            "object-exact source match"
+        ),
+    )
+
+
 def comparison_line(item: Comparison) -> str:
     return (
+        f"verdict={item.verdict} "
         f"words={item.word_mismatches:4d} "
         f"raw={item.raw_word_mismatches:4d} "
         f"norm={item.normalized_distance:4d} "
@@ -65,6 +79,20 @@ def comparison_line(item: Comparison) -> str:
         f"frame={item.candidate_frame_size!s:>5s} "
         f"sha1={item.candidate_sha1} {item.candidate}"
     )
+
+
+def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
+    """Render a compact, action-oriented comparison explanation."""
+
+    breakdown = ", ".join(
+        f"{name}={count}" for name, count in item.raw_difference_breakdown.items()
+    )
+    if breakdown:
+        print(f"raw difference classes: {breakdown}")
+    for line in item.guidance:
+        print(f"next: {line}")
+    if cross_rom and item.structural_exact and not item.exact:
+        print("cross-rom acceptance: PASS (structural evidence only)")
 
 
 def compare_command(args: argparse.Namespace) -> int:
@@ -83,6 +111,7 @@ def compare_command(args: argparse.Namespace) -> int:
         print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
     else:
         print(comparison_line(comparison))
+        print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
         print(f"FP ranges: {comparison.fp_mismatch_ranges or 'none'}")
         if comparison.relocation_metadata_mismatches:
@@ -99,7 +128,8 @@ def compare_command(args: argparse.Namespace) -> int:
             for item in comparison.register_diff:
                 print(f"\n[{item['index']}] target    {item['target']}")
                 print(f"    candidate {item['candidate']}")
-    return 1 if args.fail_on_mismatch and not comparison.exact else 0
+    accepted = comparison.exact or (args.cross_rom and comparison.structural_exact)
+    return 1 if args.fail_on_mismatch and not accepted else 0
 
 
 def compare_dumps_command(args: argparse.Namespace) -> int:
@@ -130,6 +160,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
     else:
         print(comparison_line(comparison))
+        print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         if comparison.relocation_metadata_mismatches:
             print(
                 "relocation metadata mismatches: "
@@ -144,7 +175,8 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
             for item in comparison.register_diff:
                 print(f"\n[{item['index']}] target    {item['target']}")
                 print(f"    candidate {item['candidate']}")
-    return 1 if args.fail_on_mismatch and not comparison.exact else 0
+    accepted = comparison.exact or (args.cross_rom and comparison.structural_exact)
+    return 1 if args.fail_on_mismatch and not accepted else 0
 
 
 def bundle_scratch_command(args: argparse.Namespace) -> int:
@@ -357,6 +389,27 @@ def campaign_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
+    basins = group_object_basins(results)
+
+    def basin_summary(basin: list[CompileResult]) -> dict[str, object]:
+        comparison = basin[0].comparison
+        if comparison is None:
+            raise RuntimeError("object basin contains an unsuccessful candidate")
+        return {
+            "candidate_sha256": comparison.candidate_sha256,
+            "candidate_sha1": comparison.candidate_sha1,
+            "variant_count": len(basin),
+            "sources": [item.source for item in basin],
+            "best_metrics": {
+                "verdict": comparison.verdict,
+                "exact": comparison.exact,
+                "word_mismatches": comparison.word_mismatches,
+                "normalized_distance": comparison.normalized_distance,
+                "opcode_mismatches": comparison.opcode_mismatches,
+                "register_mismatches": comparison.register_mismatches,
+            },
+        }
+
     if args.json or args.json_summary:
         serialized_results = []
         for item in shown:
@@ -375,6 +428,8 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "comparison": (
                         {
                             "exact": comparison.exact,
+                            "verdict": comparison.verdict,
+                            "structural_exact": comparison.structural_exact,
                             "word_mismatches": comparison.word_mismatches,
                             "raw_word_mismatches": comparison.raw_word_mismatches,
                             "normalized_distance": comparison.normalized_distance,
@@ -404,6 +459,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "schema": "decomp-workbench-campaign-v1",
                     "unique_candidates": len(results),
                     "source_files": sum(len(items) for items in duplicates.values()),
+                    "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
                 },
                 indent=2,
@@ -422,6 +478,21 @@ def campaign_command(args: argparse.Namespace) -> int:
                 detail = result.stderr.strip().splitlines()
                 message = detail[-1] if detail else f"exit {result.returncode}"
                 print(f"FAIL {result.source}: {message}", file=sys.stderr)
+        print(
+            f"object basins: {len(basins)} across "
+            f"{sum(len(basin) for basin in basins)} successful variants"
+        )
+        if args.show_basins:
+            for number, basin in enumerate(basins, 1):
+                comparison = basin[0].comparison
+                if comparison is None:
+                    continue
+                sources = ", ".join(item.source for item in basin)
+                print(
+                    f"BASIN {number:3d} variants={len(basin):3d} "
+                    f"sha1={comparison.candidate_sha1} {comparison.verdict}\n"
+                    f"  {sources}"
+                )
         duplicate_count = sum(len(items) - 1 for items in duplicates.values())
         if duplicate_count:
             print(f"deduplicated {duplicate_count} identical source file(s)")
@@ -661,7 +732,7 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         return 2
     selected = report.ranked(dtype=args.dtype, limit=args.top)
     allocator_webs = report.allocator_webs(
-        proc=args.proc, dtype=args.dtype, limit=args.top
+        proc=args.proc, web=args.web, dtype=args.dtype, limit=args.top
     )
     decisions = report.decisions_for(args.proc)
     if args.json:
@@ -700,9 +771,11 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
                 f"save={allocator_item.fields.get('save', '?')} "
                 f"nocs={allocator_item.fields.get('nocs', '?')} "
                 f"bestcolor={allocator_item.fields.get('bestcolor', '?')} "
+                f"register={allocator_item.assigned_register or '-'} "
                 f"decision={allocator_item.fields.get('decision', '?')} "
                 f"bb={detail.get('bb', '?')} line={detail.get('line', '?')} "
-                f"costs={cost_text or '-'}"
+                f"costs={cost_text or '-'}\n"
+                f"  {allocator_item.explanation}"
             )
         print(
             f"live-ranges={len(report.live_ranges)} "
@@ -770,6 +843,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("target", help="reference object")
     compare_parser.add_argument("candidate", help="candidate object")
     add_common_compare_arguments(compare_parser)
+    add_cross_rom_argument(compare_parser)
     compare_parser.add_argument(
         "--show-diff", action="store_true", help="show localized register differences"
     )
@@ -789,6 +863,7 @@ def build_parser() -> argparse.ArgumentParser:
     dumps_parser.add_argument("candidate", help="candidate objdump text")
     dumps_parser.add_argument("--symbol", help="compare only this exact symbol")
     dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
+    add_cross_rom_argument(dumps_parser)
     dumps_parser.add_argument(
         "--show-diff", action="store_true", help="show localized register differences"
     )
@@ -879,6 +954,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json-summary",
         action="store_true",
         help="emit compact JSON without compiler streams or instruction-level diffs",
+    )
+    campaign_parser.add_argument(
+        "--show-basins",
+        action="store_true",
+        help="show source variants that compiled to each identical object basin",
     )
     campaign_parser.set_defaults(handler=campaign_command)
 
@@ -1021,6 +1101,11 @@ def build_parser() -> argparse.ArgumentParser:
     color_parser.add_argument("trace", help="captured compiler log")
     color_parser.add_argument(
         "--proc", type=int, help="include only CDX decisions from this procedure"
+    )
+    color_parser.add_argument(
+        "--web",
+        type=int,
+        help="inspect one allocator web; pair with --proc for an unambiguous lookup",
     )
     color_parser.add_argument("--dtype", type=int, help="include only this data type")
     color_parser.add_argument(

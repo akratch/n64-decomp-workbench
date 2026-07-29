@@ -134,6 +134,7 @@ decomp-workbench bundle-scratch scratch/demo \
 Start with [workflow selection][workflows], then use the focused guide:
 
 - [Object comparison][object-comparison]
+- [Lessons from final-function campaigns][final-function-campaigns]
 - [Candidate campaigns][campaigns]
 - [Scratch bundles][scratch-bundles]
 - [IDO version support][ido-support]
@@ -189,6 +190,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md
 [ido-support]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/ido-support.md
 [object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/object-comparison.md
+[final-function-campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/final-function-campaigns.md
 [pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md
 [principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
 [scratch-bundles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/scratch-bundles.md

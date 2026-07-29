@@ -12,6 +12,7 @@ from typing import TypedDict
 from decomp_workbench.campaign import (
     candidate_key,
     executable_identity,
+    group_object_basins,
     prepare_candidates,
     render_compile_command,
     run_campaign,
@@ -128,15 +129,23 @@ class CampaignTests(unittest.TestCase):
             second = root / "second"
             first.mkdir()
             second.mkdir()
-            arguments = {
-                "command": ["./compile", str(source), "{cache_object}"],
-                "target": target,
-                "symbol": None,
-                "environment": {},
-            }
             self.assertNotEqual(
-                candidate_key(source, compile_cwd=first, **arguments),
-                candidate_key(source, compile_cwd=second, **arguments),
+                candidate_key(
+                    source,
+                    command=["./compile", str(source), "{cache_object}"],
+                    target=target,
+                    symbol=None,
+                    environment={},
+                    compile_cwd=first,
+                ),
+                candidate_key(
+                    source,
+                    command=["./compile", str(source), "{cache_object}"],
+                    target=target,
+                    symbol=None,
+                    environment={},
+                    compile_cwd=second,
+                ),
             )
 
     def test_campaign_caches_and_records_provenance(self) -> None:
@@ -237,6 +246,45 @@ class CampaignTests(unittest.TestCase):
                 compile_cwd=project,
             )
             self.assertIsNotNone(results[0].comparison)
+
+    def test_groups_distinct_sources_that_compile_to_one_object_basin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            first = root / "first.c"
+            second = root / "second.c"
+            first.write_text("int first;\n", encoding="utf-8")
+            second.write_text("int second;\n", encoding="utf-8")
+            compiler = root / "compile.py"
+            compiler.write_text(
+                "import pathlib, sys\n"
+                "pathlib.Path(sys.argv[2]).write_bytes(b'constant object')\n",
+                encoding="utf-8",
+            )
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            results, _ = run_campaign(
+                [first, second],
+                target=target,
+                template=f"{sys.executable} {compiler} {{source}} {{output}}",
+                cache_dir=root / "cache",
+                objdump=str(objdump),
+                symbol="demo",
+            )
+            basins = group_object_basins(results)
+            self.assertEqual(len(basins), 1)
+            self.assertEqual(
+                [item.source for item in basins[0]],
+                [str(first.resolve()), str(second.resolve())],
+            )
 
     def test_parse_environment(self) -> None:
         self.assertEqual(

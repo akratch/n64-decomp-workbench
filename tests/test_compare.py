@@ -147,6 +147,59 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.candidate_frame_size, -48)
         self.assertFalse(result.exact)
 
+    def test_register_comparison_accepts_objdump_dialects(self) -> None:
+        target = parse_disassembly(
+            """
+   0: 012a4021  addu $t0,$t1,$t2
+   4: 460c0000  add.s $f0,$f0,$f12
+"""
+        )
+        candidate = parse_disassembly(
+            """
+   0: 012a4021  addu t0,t1,t2
+   4: 460c0000  add.s f0,f0,f12
+"""
+        )
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target",
+            candidate_name="candidate",
+            symbol=None,
+        )
+        self.assertEqual(result.register_mismatches, 0)
+        self.assertEqual(result.fp_register_mismatches, 0)
+        self.assertEqual(result.candidate_fp_register_uses, {"$f0": 2, "$f12": 1})
+
+    def test_register_comparison_detects_prefixless_gp_difference(self) -> None:
+        target = parse_disassembly("   0: 012a4021  addu t0,t1,t2\n")
+        candidate = parse_disassembly("   0: 016c5021  addu t2,t3,t4\n")
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target",
+            candidate_name="candidate",
+            symbol=None,
+        )
+        self.assertEqual(result.register_mismatches, 1)
+        self.assertEqual(
+            result.register_diff[0]["target_registers"],
+            ["t0", "t1", "t2"],
+        )
+
+    def test_symbolized_hex_address_is_not_a_register(self) -> None:
+        target = parse_disassembly("   0: 10000027  bnez at,a0 <demo+0xa0>\n")
+        candidate = parse_disassembly("   0: 10000027  bnez at,85bc <demo+0xa0>\n")
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target",
+            candidate_name="candidate",
+            symbol=None,
+        )
+        self.assertEqual(result.register_mismatches, 0)
+        self.assertEqual(result.fp_register_mismatches, 0)
+
     def test_relocation_fields_are_masked_precisely(self) -> None:
         target = parse_disassembly(RELOC_TARGET)
         candidate = parse_disassembly(RELOC_CANDIDATE)
@@ -160,6 +213,8 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.raw_word_mismatches, 2)
         self.assertEqual(result.word_mismatches, 0)
         self.assertTrue(result.exact)
+        self.assertEqual(result.verdict, "instruction-exact")
+        self.assertEqual(result.raw_difference_breakdown, {"relocation_controlled": 2})
         self.assertEqual(
             [item.kind for item in target[0].relocations],
             ["R_MIPS_26"],
@@ -188,6 +243,34 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.word_mismatches, 0)
         self.assertEqual(result.unknown_relocations, ["R_MIPS_FUTURE"])
         self.assertFalse(result.exact)
+
+    def test_cross_rom_structural_match_is_not_object_exact(self) -> None:
+        target = parse_disassembly(
+            """
+   0: 3c080123  lui t0,0x123
+   4: 25081234  addiu t0,t0,4660
+   8: 8d090020  lw t1,32(t0)
+"""
+        )
+        candidate = parse_disassembly(
+            """
+   0: 3c084567  lui $t0,0x4567
+   4: 250889ab  addiu $t0,$t0,-30293
+   8: 8d090060  lw $t1,96($t0)
+"""
+        )
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="jp.objdump",
+            candidate_name="us.objdump",
+            symbol="demo",
+        )
+        self.assertFalse(result.exact)
+        self.assertTrue(result.structural_exact)
+        self.assertEqual(result.verdict, "cross-rom-structure-exact")
+        self.assertEqual(result.normalized_distance, 0)
+        self.assertEqual(result.register_mismatches, 0)
 
     def test_missing_relocation_cannot_claim_exact(self) -> None:
         target = parse_disassembly(

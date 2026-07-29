@@ -61,6 +61,10 @@ class Comparison:
     candidate_sha1: str
     candidate_sha256: str
     exact: bool
+    structural_exact: bool
+    raw_difference_breakdown: dict[str, int]
+    verdict: str
+    guidance: list[str]
     error: str | None = None
     register_diff: list[dict[str, Any]] = field(default_factory=list)
 

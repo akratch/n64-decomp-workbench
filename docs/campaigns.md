@@ -87,6 +87,13 @@ cache status, and retained-object paths. Unlike the full `--json` report, it
 omits compiler streams, stack/register histograms, and instruction-level
 register diffs, which can be very large for structurally distant candidates.
 
+Campaign output also reports **object basins**: distinct source variants that
+compiled to the same compared function bytes. Use `--show-basins` to list the
+member source files, or consume `object_basins` from `--json-summary`. This is
+especially useful for declaration-order, folded-condition, and expression-form
+grids, where hundreds of source spellings may collapse to a handful of real
+allocator outcomes.
+
 ## Writing transformation generators
 
 Keep generators separate from the campaign runner. A generator should:

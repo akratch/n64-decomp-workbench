@@ -12,8 +12,11 @@ from pathlib import Path
 from .model import Comparison, Instruction, display_path
 from .objdump import dump_object
 
-REGISTER_RE = re.compile(r"\$(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b")
-FP_REGISTER_RE = re.compile(r"\$f\d+\b")
+REGISTER_RE = re.compile(
+    r"(?<![A-Za-z0-9_$])\$?(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b"
+)
+FP_REGISTER_RE = re.compile(r"(?<![A-Za-z0-9_$])\$?f\d+\b")
+SYMBOLIZED_ADDRESS_RE = re.compile(r"\b[0-9a-fA-F]+\s+<[^>]+>")
 STACK_OFFSET_RE = re.compile(r"(-?(?:0x[0-9a-fA-F]+|\d+))\(\$?sp\)")
 FRAME_RE = re.compile(
     r"(?:addiu|daddiu)\s+\$?sp\s*,\s*\$?sp\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))"
@@ -123,11 +126,24 @@ def fp_uses(instructions: list[Instruction]) -> dict[str, int]:
     """Count floating-point register operands."""
 
     counts = collections.Counter(
-        match
+        f"${match.lstrip('$')}"
         for instruction in instructions
         for match in FP_REGISTER_RE.findall(instruction.assembly)
     )
     return dict(sorted(counts.items(), key=lambda item: int(item[0][2:])))
+
+
+def register_operands(assembly: str, *, fp_only: bool = False) -> list[str]:
+    """Return canonical register names across objdump dialects.
+
+    GNU objdump builds disagree on whether MIPS register names are prefixed
+    with ``$``.  Comparisons must treat ``t0`` and ``$t0`` as the same
+    operand while still detecting a real allocation difference.
+    """
+
+    pattern = FP_REGISTER_RE if fp_only else REGISTER_RE
+    operands = SYMBOLIZED_ADDRESS_RE.sub("ADDR", assembly)
+    return [match.lstrip("$") for match in pattern.findall(operands)]
 
 
 def relocation_field_mask(instruction: Instruction) -> tuple[int, list[str]]:
@@ -175,6 +191,128 @@ def relocation_signature(instruction: Instruction) -> tuple[str, ...]:
     return tuple(item.kind for item in instruction.relocations)
 
 
+def raw_difference_breakdown(
+    target: list[Instruction],
+    candidate: list[Instruction],
+    target_words: list[str],
+    candidate_words: list[str],
+) -> dict[str, int]:
+    """Classify raw differences without hiding the reason they disappeared.
+
+    ``raw_word_mismatches`` is deliberately retained because it is useful for
+    checking literal byte identity.  It should not, however, send a user back
+    to source when every differing bit is linker-controlled.  The buckets are
+    positional and sum to the raw mismatch count.
+    """
+
+    result = collections.Counter[str]()
+    aligned = min(len(target), len(candidate))
+    for index in range(aligned):
+        if target[index].word == candidate[index].word:
+            continue
+        if target_words[index] != candidate_words[index]:
+            result["instruction_bits"] += 1
+        elif relocation_signature(target[index]) != relocation_signature(
+            candidate[index]
+        ):
+            result["relocation_layout"] += 1
+        else:
+            result["relocation_controlled"] += 1
+    result["instruction_bits"] += abs(len(target) - len(candidate))
+    return {name: count for name, count in sorted(result.items()) if count}
+
+
+def comparison_guidance(
+    *,
+    exact: bool,
+    structural_exact: bool,
+    raw_difference_breakdown: dict[str, int],
+    relocation_mismatches: int,
+    unknown_relocations: list[str],
+    opcode_mismatches: int,
+    instruction_delta: int,
+    register_mismatches: int,
+) -> tuple[str, list[str]]:
+    """Return a concise verdict and the next useful user action."""
+
+    controlled = raw_difference_breakdown.get("relocation_controlled", 0)
+    if exact:
+        if controlled:
+            return (
+                "instruction-exact",
+                [
+                    "Instruction-exact: raw differences are linker-controlled "
+                    f"relocation fields ({controlled} word(s)). "
+                    "No source change is indicated.",
+                    "Run the project's normal link or ROM verification "
+                    "for the final proof.",
+                ],
+            )
+        return (
+            "byte-identical",
+            [
+                "Byte-identical at the compared object level. "
+                "Run the project's normal final verification.",
+            ],
+        )
+    if structural_exact:
+        return (
+            "cross-rom-structure-exact",
+            [
+                "Opcode, normalized instruction shape, registers, frame, "
+                "and instruction count agree.",
+                "This is strong cross-ROM/compiler-lineage evidence, not "
+                "an object-level source-match proof.",
+            ],
+        )
+    if unknown_relocations:
+        return (
+            "unknown-relocation",
+            [
+                "Known instruction evidence may match, but an unrecognized "
+                "relocation prevents a safe exact verdict.",
+                "Add the relocation kind with a precise field mask before "
+                "trusting this comparison.",
+            ],
+        )
+    if relocation_mismatches and not raw_difference_breakdown.get("instruction_bits"):
+        return (
+            "relocation-layout-mismatch",
+            [
+                "Instruction bits match after relocation masking, but "
+                "relocation layouts differ.",
+                "Check translation-unit context, symbol spelling, and "
+                "linked/ROM output before changing source.",
+            ],
+        )
+    if opcode_mismatches or instruction_delta:
+        return (
+            "structure-mismatch",
+            [
+                "Instruction shape differs: work at the C/control-flow or "
+                "expression-tree level first.",
+                "Avoid allocator-only experiments until the instruction "
+                "count and opcode schedule stabilize.",
+            ],
+        )
+    if register_mismatches:
+        return (
+            "allocation-mismatch",
+            [
+                "Opcode shape matches but register allocation differs.",
+                "Capture a narrow globalcolor/UGEN trace and inspect live "
+                "ranges before adding local fakes.",
+            ],
+        )
+    return (
+        "operand-mismatch",
+        [
+            "Instruction shape is close, but operands or immediates still "
+            "differ. Inspect the localized diff.",
+        ],
+    )
+
+
 def compare_instructions(
     target: list[Instruction],
     candidate: list[Instruction],
@@ -199,10 +337,10 @@ def compare_instructions(
     fp_bad: list[int] = []
     register_diff: list[dict[str, object]] = []
     for index, (expected, actual) in enumerate(zip(target, candidate, strict=False)):
-        expected_registers = REGISTER_RE.findall(expected.assembly)
-        actual_registers = REGISTER_RE.findall(actual.assembly)
-        expected_fp = FP_REGISTER_RE.findall(expected.assembly)
-        actual_fp = FP_REGISTER_RE.findall(actual.assembly)
+        expected_registers = register_operands(expected.assembly)
+        actual_registers = register_operands(actual.assembly)
+        expected_fp = register_operands(expected.assembly, fp_only=True)
+        actual_fp = register_operands(actual.assembly, fp_only=True)
         if expected_registers != actual_registers:
             register_bad.append(index)
             register_diff.append(
@@ -227,6 +365,31 @@ def compare_instructions(
         [relocation_signature(item) for item in candidate],
     )
     candidate_payload = "".join(raw_candidate_words).encode("ascii")
+    structural_exact = (
+        len(target) == len(candidate)
+        and sequence_distance(target_normalized, candidate_normalized) == 0
+        and positional_mismatches(target_opcodes, candidate_opcodes) == 0
+        and register_count == 0
+        and fp_count == 0
+        and frame_size("\n".join(item.assembly for item in target))
+        == frame_size("\n".join(item.assembly for item in candidate))
+    )
+    breakdown = raw_difference_breakdown(
+        target, candidate, target_words, candidate_words
+    )
+    exact = (
+        exact_mismatches == 0 and relocation_mismatches == 0 and not unknown_relocations
+    )
+    verdict, guidance = comparison_guidance(
+        exact=exact,
+        structural_exact=structural_exact,
+        raw_difference_breakdown=breakdown,
+        relocation_mismatches=relocation_mismatches,
+        unknown_relocations=unknown_relocations,
+        opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
+        instruction_delta=len(candidate) - len(target),
+        register_mismatches=register_count,
+    )
     return Comparison(
         candidate=candidate_name,
         target=target_name,
@@ -252,11 +415,11 @@ def compare_instructions(
             candidate_payload, usedforsecurity=False
         ).hexdigest()[:12],
         candidate_sha256=hashlib.sha256(candidate_payload).hexdigest(),
-        exact=(
-            exact_mismatches == 0
-            and relocation_mismatches == 0
-            and not unknown_relocations
-        ),
+        exact=exact,
+        structural_exact=structural_exact,
+        raw_difference_breakdown=breakdown,
+        verdict=verdict,
+        guidance=guidance,
         register_diff=register_diff,
     )
 

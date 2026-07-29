@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added action-oriented comparison verdicts, relocation-only raw-difference
+  explanations, and a deliberately separate cross-ROM structural-evidence
+  mode.
+- Made register diagnostics portable across GNU objdump dialects that do or do
+  not print MIPS register names with a `$` prefix.
+- Added object-basin reporting to campaigns, so source variants that compile
+  to the same function bytes are visible in both terminal and JSON summaries.
+- Added focused `trace-globalcolor --proc ... --web ...` inspection with
+  trustworthy callee-saved register names for the pinned compiler profile.
+- Published a final-function campaign guide covering the Hartley, Titania, and
+  Aquas evidence patterns and the safe next action for each residual class.
 - Refocused the documentation on decompilation problems, command outputs, and
   support boundaries.
 - Replaced project-specific research narratives with concise workflows,

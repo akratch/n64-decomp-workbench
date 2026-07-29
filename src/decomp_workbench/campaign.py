@@ -385,3 +385,29 @@ def run_campaign(
         )
     )
     return results, duplicates
+
+
+def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileResult]]:
+    """Group successful variants that compiled to the same function bytes.
+
+    Source-equivalent experiments often look different while collapsing to one
+    allocator basin. Reporting that collapse prevents a campaign from
+    overstating how many independent ideas it actually tested.
+    """
+
+    buckets: dict[str, list[CompileResult]] = {}
+    for result in results:
+        comparison = result.comparison
+        if comparison is None:
+            continue
+        buckets.setdefault(comparison.candidate_sha256, []).append(result)
+    grouped = list(buckets.values())
+    for basin in grouped:
+        basin.sort(key=lambda item: item.source)
+    grouped.sort(
+        key=lambda basin: (
+            basin[0].comparison.sort_key if basin[0].comparison else (),
+            basin[0].comparison.candidate_sha256 if basin[0].comparison else "",
+        )
+    )
+    return grouped

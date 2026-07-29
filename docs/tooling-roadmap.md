@@ -151,6 +151,15 @@ explicit summary such as “instruction-exact; four relocation-addend words
 differ.” JSON output should include the classified count so downstream campaign
 tools do not mislabel an exact result as contradictory or incomplete.
 
+Also classify relocation aliases that resolve to the same linked address. This
+occurs when a loop endpoint can be spelled either as `array + count` or as the
+next adjacent symbol: a ROM-derived target may choose the successor symbol
+while the compiler object retains the base symbol plus an addend. Reports
+should identify these as resolved-address-equivalent aliases, list both
+spellings, and recommend the project link/ROM check instead of prompting source
+changes. External score importers should keep this class separate from genuine
+instruction mismatches.
+
 ### Deeper late-pass controls
 
 Extend opt-in UGEN/AS1 diagnostics to cover expression evaluation order,

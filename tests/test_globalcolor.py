@@ -71,10 +71,23 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual((items[0].proc, items[0].web), (2, 15))
         self.assertEqual(items[0].phase, "p1dec")
         self.assertEqual(items[0].fields["bestcolor"], "30")
+        self.assertIsNone(items[0].assigned_register)
+        self.assertIn("selected c30", items[0].explanation)
         self.assertEqual(items[0].detail["line"], "5")
         self.assertEqual([cost["color"] for cost in items[0].color_costs], ["1", "2"])
         self.assertEqual(items[0].color_costs[1]["best_before"], "22.250000")
         self.assertEqual(report.allocator_webs(dtype=6), [])
+
+    def test_names_stable_callee_saved_colors_and_filters_webs(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec proc=46 web=240 sym=240 class=1 save=1 "
+            "nocs=2 totalsave=2 bestcost=0 bestcolor=17 decision=color\n"
+        )
+        item = report.allocator_webs(proc=46, web=240)[0]
+        self.assertEqual(item.assigned_color, 17)
+        self.assertEqual(item.assigned_register, "s3")
+        self.assertEqual(item.explanation, "color: selected c17 (s3)")
+        self.assertEqual(report.allocator_webs(proc=46, web=241), [])
 
     def test_ranks_nan_save_last(self) -> None:
         report = parse_globalcolor_trace(

@@ -24,6 +24,20 @@ decomp-workbench compare target.o candidate.o \
 `--fail-on-mismatch` returns nonzero unless the relocation-aware words and
 relocation-kind layout match and every encountered type is understood.
 
+Every human-readable report starts with a verdict and next action. This is
+intentional: `raw_word_mismatches` is evidence about literal file identity, not
+an instruction-matching score. For example:
+
+```text
+verdict=instruction-exact words=   0 raw=  48 ...
+raw difference classes: relocation_controlled=48
+next: Instruction-exact: raw differences are linker-controlled relocation fields.
+```
+
+This prevents a common late-stage failure mode: continuing to mutate source
+solely because a UI or raw comparison reports a nonzero number after the object
+oracle has already proved the instructions exact.
+
 When `--symbol` selects an assembly-defined symbol without an ELF size, GNU
 objdump can include zero alignment padding through the end of the section. The
 workbench excludes unreachable zero words after the function's final `jr ra`
@@ -43,6 +57,9 @@ delay slot; the delay-slot instruction itself remains part of the comparison.
 | `candidate_frame_size` | First `addiu sp,sp,N` adjustment | Stack topology |
 | `candidate_stack_offsets` | Histogram of `N(sp)` operands | Spill and local-home comparison |
 | `candidate_fp_register_uses` | Histogram of FP operands | Promotion/allocation comparison |
+| `verdict` | Product-level classification of the evidence | Decide whether to edit source, trace allocation, or verify the link |
+| `raw_difference_breakdown` | Why literal words differ | Separate instruction bits from relocation-controlled words |
+| `structural_exact` | Opcode, normalized shape, registers, frame, and count agree | Cross-ROM/compiler-lineage evidence only |
 
 The sort order for `rank` and `campaign` is exact word mismatches, unknown and
 mismatched relocation metadata, normalized distance, register mismatches,
@@ -71,6 +88,16 @@ metric remains useful when comparing an extracted/link-resolved target and an
 unlinked candidate, but the report does not silently call unequal relocation
 layouts exact.
 
+### Linked-address aliases
+
+Two equivalent endpoints can have different spellings: `array + count` in an
+unlinked candidate and the next adjacent BSS/data symbol in a linked target.
+Their final linked address may be identical even though their relocation symbol
+or addend presentation differs. Treat this as a translation-unit/linker-context
+question, not proof that the function's C needs a fake expression. The
+workbench calls such a case `relocation-layout-mismatch`; verify the linked
+object or final ROM before changing source.
+
 ## Compare retained text
 
 `compare-dumps` accepts GNU objdump text directly:
@@ -84,6 +111,22 @@ This is useful for bug reports and tests because the text can be reduced to a
 small redistributable fixture. When a dump contains several functions,
 `--symbol` selects the exact objdump label. It uses the same relocation parser
 and metrics as object comparison.
+
+## Cross-ROM structural evidence
+
+Projects with regional or revision ROMs can compare retained dumps or objects
+with `--cross-rom`:
+
+```sh
+decomp-workbench compare-dumps jp.objdump us.objdump \
+  --symbol function_name --cross-rom --fail-on-mismatch
+```
+
+This accepts `structural_exact`: equal opcode sequence, normalized instruction
+shape, register operands, frame, and instruction count. It is useful evidence
+that the source/compiler lineage is shared across ROMs even when linked
+addresses, data offsets, and absolute immediates differ. It never changes
+`exact=true`, and it must not replace project-level object or ROM matching.
 
 ## Ranking is not proof
 
