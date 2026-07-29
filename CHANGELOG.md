@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Established the packaged bundle under `src/decomp_workbench/skills` as the
+  only skill tree, with a test that fails if a root-level `skills/` directory
+  exists without matching what `install-skill` ships.
 - Made the globalcolor instrumentation phase-explicit and self-describing:
   records carry `phase=p1`/`phase=p2`, `CDX_FORCE` keys must be phase-qualified
   (`p2:w55=c2`) and are rejected with both namespaces named — by `campaign

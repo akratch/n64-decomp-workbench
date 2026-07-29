@@ -12,6 +12,12 @@ adjacent `agents/openai.yaml` provides optional Codex UI metadata and is not
 required by Claude Code. The skill ships in wheels and source distributions as
 well as the repository checkout.
 
+That directory is the *only* copy. `install-skill` ships exactly that tree, so
+there is no second skill directory at the repository root to keep in sync — a
+hollow one there would make the skill look empty to anyone browsing the
+repository. A test enforces this: if a root-level `skills/` directory exists,
+its contents must match the packaged bundle file for file.
+
 ## Install for Codex
 
 ```sh

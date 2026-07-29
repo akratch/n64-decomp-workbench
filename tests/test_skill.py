@@ -51,6 +51,43 @@ class AgentSkillTests(unittest.TestCase):
     def test_bundled_skill_path_is_the_validated_source(self) -> None:
         self.assertEqual(bundled_skill_path(), SKILL.parent)
 
+    def test_the_repository_has_no_second_skill_tree(self) -> None:
+        """The packaged bundle is the only copy.
+
+        A root-level `skills/n64-decomp-campaign/` once held empty `agents/`
+        and `references/` directories, which made the skill look hollow to
+        anyone browsing the repository while `install-skill` shipped a
+        populated bundle from `src/`. Either the root tree matches what is
+        installed, or it does not exist.
+        """
+
+        root_skills = ROOT / "skills"
+        if not root_skills.exists():
+            return
+        packaged = bundled_skill_path()
+        checked_in = {
+            item.relative_to(root_skills).as_posix()
+            for item in root_skills.rglob("*")
+            if item.is_file()
+        }
+        shipped = {
+            f"{packaged.name}/{item.relative_to(packaged).as_posix()}"
+            for item in packaged.rglob("*")
+            if item.is_file()
+        }
+        self.assertEqual(
+            checked_in,
+            shipped,
+            f"{root_skills} does not match the packaged skill; check the "
+            "content in or remove the directory",
+        )
+        for name in sorted(checked_in):
+            with self.subTest(path=name):
+                self.assertEqual(
+                    (root_skills / name).read_bytes(),
+                    (packaged.parent / name).read_bytes(),
+                )
+
     def test_installer_is_idempotent_and_refuses_different_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp) / "skills"
