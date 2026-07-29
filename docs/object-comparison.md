@@ -21,6 +21,11 @@ decomp-workbench compare target.o candidate.o \
   --json > comparison.json
 ```
 
+Every command that selects one function accepts `--symbol` and `--function`
+as two spellings of the same option, because decompilation projects say
+"function" and GNU tooling says "symbol". Passing both with different values
+is an error rather than a silent last-one-wins.
+
 `--fail-on-mismatch` returns nonzero unless the relocation-aware words and
 relocation-kind layout match and every encountered type is understood. With an
 explicit `--cross-rom`, structural equality is accepted for the command but

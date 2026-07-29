@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accepted `--function` as a second spelling of `--symbol` on every command
+  that selects one function, and rejected conflicting values instead of
+  silently keeping the last one.
+
 - Completed a release-quality UX pass: packaged the Agent Skill with the
   distribution, added a safe installer, clarified comparison proof scope and
   cross-ROM JSON acceptance, hardened focused web lookups, and selected the

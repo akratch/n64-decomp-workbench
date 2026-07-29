@@ -11,9 +11,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
@@ -42,9 +42,51 @@ from .trace import (
     trace_summary,
 )
 
+SYMBOL_OPTION_DEST = "symbol_option"
+
+
+class SymbolAction(argparse.Action):
+    """Accept both vocabularies for one selector.
+
+    Decompilation projects say "function"; GNU tooling says "symbol". Both
+    spellings write the same destination. Passing both with different values
+    is a mistake worth reporting instead of silently keeping the last one.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        previous = getattr(namespace, self.dest, None)
+        if previous is not None and previous != values:
+            previous_option = getattr(namespace, SYMBOL_OPTION_DEST, "--symbol")
+            raise argparse.ArgumentError(
+                self,
+                f"conflicts with {previous_option} {previous!r}; "
+                "--symbol and --function are two spellings of one selector",
+            )
+        setattr(namespace, self.dest, values)
+        setattr(namespace, SYMBOL_OPTION_DEST, option_string)
+
+
+def add_symbol_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the symbol selector under both accepted spellings."""
+
+    parser.add_argument(
+        "--symbol",
+        "--function",
+        action=SymbolAction,
+        default=None,
+        metavar="NAME",
+        help="compare only this exact symbol; --function is the same option",
+    )
+
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--symbol", help="compare only this exact symbol")
+    add_symbol_argument(parser)
     parser.add_argument(
         "--section", default=".text", help="object section (default: .text)"
     )
@@ -981,7 +1023,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dumps_parser.add_argument("target", help="reference objdump text")
     dumps_parser.add_argument("candidate", help="candidate objdump text")
-    dumps_parser.add_argument("--symbol", help="compare only this exact symbol")
+    add_symbol_argument(dumps_parser)
     dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps_parser)
     dumps_parser.add_argument(

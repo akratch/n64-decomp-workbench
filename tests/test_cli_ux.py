@@ -13,15 +13,22 @@ from decomp_workbench.cli import main
 
 
 class CliUxTests(unittest.TestCase):
+    last_stdout = ""
+    last_stderr = ""
+
     def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
-        with (
-            contextlib.redirect_stdout(stdout),
-            contextlib.redirect_stderr(stderr),
-        ):
-            status = main(arguments)
-        return status, stdout.getvalue(), stderr.getvalue()
+        try:
+            with (
+                contextlib.redirect_stdout(stdout),
+                contextlib.redirect_stderr(stderr),
+            ):
+                status = main(arguments)
+        finally:
+            self.last_stdout = stdout.getvalue()
+            self.last_stderr = stderr.getvalue()
+        return status, self.last_stdout, self.last_stderr
 
     def test_web_lookup_requires_procedure(self) -> None:
         status, _, stderr = self.run_cli(
@@ -93,6 +100,77 @@ class CliUxTests(unittest.TestCase):
         self.assertFalse(payload["exact"])
         self.assertTrue(payload["accepted"])
         self.assertEqual(payload["acceptance_basis"], "cross-rom-structural")
+
+    def write_two_function_dump(self, root: Path) -> Path:
+        dump = root / "two.objdump"
+        dump.write_text(
+            "00000000 <first>:\n"
+            "   0: 24020021  li $v0,33\n"
+            "00000004 <second>:\n"
+            "   4: 03e00008  jr $ra\n"
+            "   8: 00000000  nop\n",
+            encoding="utf-8",
+        )
+        return dump
+
+    def test_function_is_accepted_as_a_symbol_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dump = self.write_two_function_dump(Path(temp))
+            status, stdout, _ = self.run_cli(
+                ["compare-dumps", str(dump), str(dump), "--function", "first", "--json"]
+            )
+        payload = json.loads(stdout)
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["symbol"], "first")
+        self.assertEqual(payload["candidate_instructions"], 1)
+
+    def test_repeated_symbol_spellings_agree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dump = self.write_two_function_dump(Path(temp))
+            status, stdout, _ = self.run_cli(
+                [
+                    "compare-dumps",
+                    str(dump),
+                    str(dump),
+                    "--symbol",
+                    "first",
+                    "--function",
+                    "first",
+                    "--json",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(stdout)["symbol"], "first")
+
+    def test_conflicting_symbol_and_function_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dump = self.write_two_function_dump(Path(temp))
+            with self.assertRaises(SystemExit) as raised:
+                self.run_cli(
+                    [
+                        "compare",
+                        str(dump),
+                        str(dump),
+                        "--symbol",
+                        "first",
+                        "--function",
+                        "second",
+                    ]
+                )
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_every_symbol_command_documents_the_function_alias(self) -> None:
+        for command in ("compare", "compare-dumps", "rank", "compile-rank", "campaign"):
+            with self.subTest(command=command):
+                with self.assertRaises(SystemExit):
+                    self.run_cli([command, "--help"])
+                selector = [
+                    line
+                    for line in self.last_stdout.splitlines()
+                    if line.strip().startswith("--symbol")
+                ]
+                self.assertEqual(len(selector), 1)
+                self.assertIn("--function", selector[0])
 
     def test_install_skill_reports_current_on_second_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
