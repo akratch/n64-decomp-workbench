@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Wrote the documentation for the person who arrives with one almost-matched
+  function and no idea what the next command is. Three new narrative pages sit
+  above the reference material and are the first thing the README points at:
+
+  - `docs/START_HERE.md` — ten minutes, in order: run `compare`, read the
+    verdict, run `view`, read the lanes and hunks, take the lever from the
+    `next:` footer, change one thing, repeat. Every command in it runs against
+    the shipped fixtures with no ROM, compiler, or toolchain, so a reader can
+    follow the whole loop before touching their own project. It answers the
+    three questions people actually arrive with, where they arise: you do not
+    isolate the function (`compare` and `view` are symbol-scoped against your
+    normal full-TU build, and isolation changes codegen); you do not need an
+    agent or a permuter (the verdict names the mechanism and the footer names
+    the lever — the permuter is a hypothesis generator, not a solver); and
+    traces are the last resort for one verdict class, not the first step.
+  - `docs/field-guide.md` — the IDO codegen levers as a playbook. Nineteen
+    entries, each with the diff signature that points to it, the C before and
+    after, why it works, the function it was proven on with the measured
+    effect, and the verdict or playbook name that routes here. Plus the dead
+    families, which are worth as much as the levers: `a|b` versus `b|a`,
+    declaration-order permutation, bare discarded expressions, and the
+    permuter on varargs.
+  - `docs/walkthrough-30-near-matches.md` — batch triage for a backlog rather
+    than a function: classify the whole pile with `compare --json` and
+    `view --json`, rank by verdict class rather than word count, clear the
+    one-variant classes first, then structure, then the register lanes, with
+    portable POSIX shell for each step.
+
+  The docs index is now a journey rather than an alphabet, every entry carries
+  a "read this if...", and the compiler-internals pages are explicitly marked
+  as the last resort they are. `tests/test_doc_commands.py` extracts every
+  documented command line that reads a shipped fixture, runs it, and checks it
+  against the output the page promises — so a command line that stops working,
+  or a verdict that changes wording, fails the build instead of misleading a
+  reader.
+
 - Gave `view` and `view-dumps` the same option behavior as every other command
   that selects one function: `--symbol`/`--function` conflicts are rejected
   instead of resolved last-one-wins, and `--explain-keys` prints the registry.

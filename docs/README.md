@@ -1,24 +1,55 @@
 # Documentation
 
-| Guide | Use it when | You need |
+Read in this order. The first three pages are the whole workflow; everything
+below them is reference you consult when you need it.
+
+## Start
+
+| Read this if... | Document |
+|---|---|
+| You have an almost-matched function and do not know what to do next | **[Start here](START_HERE.md)** |
+| `view` named a mechanism and you need the C that moves it | **[Field guide](field-guide.md)** |
+| You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
+
+New here? [Start here](START_HERE.md) takes ten minutes, and every command in
+it runs against shipped fixtures — no ROM, no compiler, no toolchain.
+
+## The commands
+
+| Read this if... | Document | You need |
 |---|---|---|
-| [Workflows](workflows.md) | You know the symptom but not the command | A target and a current hypothesis |
-| [Object comparison](object-comparison.md) | You need an exact verdict or mismatch classification | MIPS objects or GNU objdump text |
-| [Aligned mechanism view](view.md) | A residual is small but you do not know which layer owns it | Two objects or two reduced dumps |
-| [Final-function campaign lessons](final-function-campaigns.md) | You want the reusable reasoning from a difficult finish | A late-stage residual or completed campaign |
-| [Agent skill](agent-skill.md) | You want Codex or Claude Code to apply the campaign method | A local workbench checkout |
-| [Candidate campaigns](campaigns.md) | You have a source generator or variant set | A compile-one wrapper |
-| [Scratch bundles](scratch-bundles.md) | You need a complete local decomp.me handoff | Target assembly, context, source, settings |
-| [IDO version support](ido-support.md) | You need to know which 5.3 and 7.1 workflows are validated | Project compiler/pass identities |
-| [Trace analysis](trace-analysis.md) | Structure matches but allocation or aliasing does not | A supported trace |
-| [Compiler instrumentation](compiler-instrumentation.md) | You need a trace producer for static-recompiled IDO | Generated compiler C and its build |
-| [Pass replay](pass-replay.md) | A late scheduling decision is suspect | A retained listing plus as0/as1 |
-| [Troubleshooting](troubleshooting.md) | A command fails or returns no usable result | Command, stderr, and tool identities |
-| [Tooling roadmap](tooling-roadmap.md) | You want the reusable gaps found in live campaigns | Evidence from a completed or late-stage match |
+| You want the exact verdict rules and every `compare` option | [Object comparison](object-comparison.md) | MIPS objects or GNU objdump text |
+| You want every `view` option, the alignment rules, and the JSON schema | [Aligned mechanism view](view.md) | Two objects or two reduced dumps |
+| You are sweeping a variant family and want caching and a ledger | [Candidate campaigns](campaigns.md) | A compile-one wrapper |
+| You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
+| You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |
+| A command failed or returned nothing usable | [Troubleshooting](troubleshooting.md) | Command, stderr, and tool identities |
 
-[Principles](principles.md) explains the safety and evidence rules behind the
-commands. [Provenance](provenance.md) records the small amount of source history
-needed to audit the package.
+## Reasoning and reference
 
-Every command has `--help`. Reporting commands expose JSON where it is useful
-for scripts and CI.
+| Read this if... | Document |
+|---|---|
+| You want the longer reasoning behind a difficult finish | [Final-function campaign lessons](final-function-campaigns.md) |
+| You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
+| You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
+| You want to know why the commands refuse what they refuse | [Principles](principles.md) |
+| You are auditing where this package came from | [Provenance](provenance.md) |
+| You want the reusable gaps found in live campaigns | [Tooling roadmap](tooling-roadmap.md) |
+
+## Compiler internals and traces
+
+Reach for these **last**, and only when the residual is register-only, the
+[field guide](field-guide.md) lever families are exhausted, and your project
+has an instrumented static-recompiled IDO. Stock IDO does not emit these
+traces, and three functions have been matched without ever reading one.
+
+| Read this if... | Document | You need |
+|---|---|---|
+| Structure matches but allocation or aliasing does not | [Trace analysis](trace-analysis.md) | A supported trace |
+| You need a trace producer for static-recompiled IDO | [Compiler instrumentation](compiler-instrumentation.md) | Generated compiler C and its build |
+| A late scheduling decision is suspect | [Pass replay](pass-replay.md) | A retained listing plus as0/as1 |
+
+Every command has `--help`. `--explain-keys` on any command prints the one
+registry of printed labels, JSON keys, and their meanings — the labels and the
+keys are deliberately one set. Reporting commands expose JSON wherever it is
+useful for scripts and CI.

@@ -4,10 +4,80 @@
 
 Find the cause of late-stage MIPS decompilation mismatches.
 
-The workbench compares objects without being fooled by relocations, runs
-reproducible source-candidate campaigns, turns compiler traces into useful
-reports, and replays late compiler passes. It complements asm-differ; it does
-not replace your project’s build or matching checks.
+## You have an almost-matched function. Now what?
+
+**→ Read [docs/START_HERE.md](docs/START_HERE.md).** Ten minutes, in order,
+with every command runnable right now against fixtures in this repository — no
+ROM, no compiler, no toolchain, no AI.
+
+It answers the three questions people actually arrive with:
+
+- *Do I need to isolate the function so asm-processor stays out of it?* **No.**
+  Compare your normal full-TU build against the expected object; `--function`
+  scopes it. Isolation changes codegen, so a harness is the wrong ground truth.
+- *Do I need a permuter or an agent to use this?* **No.** The verdict names the
+  mechanism, the `next:` footer names the lever, and the field guide gives you
+  the C. The permuter is optional, and it is a hypothesis generator rather than
+  a solver.
+- *Am I supposed to read `trace.lst`?* **Not yet, and probably not at all.**
+  Traces are the last resort for one verdict class, and only if your project
+  built an instrumented compiler.
+
+Three pages are the entire workflow:
+
+| Page | What it is for |
+|---|---|
+| [Start here](docs/START_HERE.md) | One function, ten minutes: compare → verdict → view → lever → repeat |
+| [Field guide](docs/field-guide.md) | "The diff looks like X" → the C that moves it, with the measured effect |
+| [Backlog walkthrough](docs/walkthrough-30-near-matches.md) | Thirty near matches: batch triage, and which classes to knock out first |
+
+Everything below is reference.
+
+## Try it in 60 seconds
+
+Install (Python 3.10 or newer, no runtime dependencies):
+
+```sh
+git clone https://github.com/akratch/n64-decomp-workbench.git
+cd n64-decomp-workbench
+python3 -m pip install -e .
+```
+
+Compare two fixture dumps whose raw words differ only in relocated fields:
+
+```sh
+decomp-workbench compare-dumps \
+  examples/fixtures/target.objdump \
+  examples/fixtures/relocated-match.objdump \
+  --fail-on-mismatch
+```
+
+```text
+verdict=instruction-exact words=   0 raw=   2 norm=   0 regs=   0 fp=   0 ...
+raw difference classes: relocation_controlled=2
+next: Instruction-exact: raw differences are linker-controlled relocation fields ...
+```
+
+`words=0` is the relocation-aware result. `raw=2` shows why a literal word
+comparison would have rejected the candidate.
+
+Now diagnose a real residual — one screen, four sections, ending in a lever:
+
+```sh
+decomp-workbench view-dumps \
+  examples/fixtures/phase-shift-target.objdump \
+  examples/fixtures/phase-shift-candidate.objdump \
+  --function animStep
+```
+
+```text
+verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
+signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
+```
+
+Six register differences, one upstream cause. [Start
+here](docs/START_HERE.md#minutes-4-6--run-view-and-read-the-four-sections)
+walks the rest of that screen.
 
 ## Is this for me?
 
@@ -22,7 +92,85 @@ You do not need a ROM or compiler to try the included fixtures. Real object
 comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
 need binaries supplied by your project.
 
-## What it delivers
+## Use it in a decomp project
+
+Compare one function, out of your normal full-translation-unit build:
+
+```sh
+decomp-workbench compare target.o candidate.o \
+  --function function_name \
+  --objdump /path/to/mips64-elf-objdump \
+  --show-diff
+```
+
+Diagnose the mechanism behind the residual:
+
+```sh
+decomp-workbench view target.o candidate.o \
+  --function function_name \
+  --objdump /path/to/mips64-elf-objdump
+```
+
+Run generated source variants through your existing compile wrapper. Each
+`{source}` is a full translation unit, compiled the way your project compiles
+one file:
+
+```sh
+decomp-workbench campaign target.o candidates/*.c \
+  --function function_name \
+  --objdump /path/to/mips64-elf-objdump \
+  --compile-command './compile-one.sh {source} -o {output}' \
+  --cache-dir .workbench/cache \
+  --ledger .workbench/results.jsonl \
+  --jobs 8
+```
+
+The command template is tokenized and executed without a shell. Every ledger
+record includes source, target, wrapper, objdump, explicit environment, timing,
+and comparison identity. The campaign stops at the first exact match unless
+`--no-stop-on-exact` asks for the whole grid, compares in process, and
+terminates the compilers it started (and their children) if it is interrupted.
+
+Package a single-function target, full context, and current source for manual
+decomp.me creation without uploading anything:
+
+```sh
+decomp-workbench bundle-scratch scratch/demo \
+  --target-assembly target.s \
+  --context ctx.c \
+  --source candidate.c \
+  --platform n64 \
+  --compiler 'IDO 7.1' \
+  --compiler-flags='-O2 -mips2' \
+  --diff-label demo
+```
+
+Install the campaign skill for your preferred agent — optional, and it runs the
+same commands you would:
+
+```sh
+decomp-workbench install-skill codex
+# or
+decomp-workbench install-skill claude
+```
+
+## Pick the next diagnostic
+
+| What the comparison says | Next move |
+|---|---|
+| `structure-mismatch` | Keep working at the C/control-flow level |
+| `constant-mismatch` | Audit the flag/enum against the assembly, then re-derive fakes |
+| `commutative-order` | Change the expression tree (`x \|= y`), not the allocator |
+| `schedule-mismatch` | Regroup statements; rebuild with `-g0` as the diagnostic |
+| `allocation-mismatch` | Run `view`, then the pool/temp levers in the field guide |
+| `relocation-layout-mismatch` | Check relocation metadata, then the project link/ROM check |
+| `exact=true` | Run the project’s normal collateral and full-output verification |
+
+Whatever the verdict, `--show-diff` prints every differing site: no verdict
+suppresses evidence. [The field guide](docs/field-guide.md) turns each of these
+rows into the C that moves it.
+
+## Command reference
 
 | Problem | Command | Output |
 |---|---|---|
@@ -40,87 +188,6 @@ need binaries supplied by your project.
 | Can an agent follow the proven campaign method? | `install-skill` | Portable Codex or Claude Code Agent Skill |
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
-## Install
-
-Python 3.10 or newer:
-
-```sh
-git clone https://github.com/akratch/n64-decomp-workbench.git
-cd n64-decomp-workbench
-python3 -m pip install -e .
-```
-
-The installed package has no runtime dependencies outside the Python standard
-library.
-
-## Try it in 60 seconds
-
-Compare two fixture dumps whose raw words differ only in relocated fields:
-
-```sh
-decomp-workbench compare-dumps \
-  examples/fixtures/target.objdump \
-  examples/fixtures/relocated-match.objdump \
-  --fail-on-mismatch
-```
-
-Expected result:
-
-```text
-verdict=instruction-exact words=   0 raw=   2 norm=   0 regs=   0 fp=   0 ...
-raw difference classes: relocation_controlled=2
-next: Instruction-exact: raw differences are linker-controlled relocation fields ...
-```
-
-`words=0` is the relocation-aware result. `raw=2` shows why a literal word
-comparison would have rejected the candidate.
-
-Install the campaign skill for your preferred agent:
-
-```sh
-decomp-workbench install-skill codex
-# or
-decomp-workbench install-skill claude
-```
-
-Now inspect a real register mismatch:
-
-```sh
-decomp-workbench compare-dumps \
-  examples/fixtures/target.objdump \
-  examples/fixtures/register-mismatch.objdump \
-  --show-diff
-```
-
-## Use it in a decomp project
-
-Compare one function:
-
-```sh
-decomp-workbench compare target.o candidate.o \
-  --symbol function_name \
-  --objdump /path/to/mips64-elf-objdump \
-  --show-diff
-```
-
-Run generated source variants through your existing compile wrapper:
-
-```sh
-decomp-workbench campaign target.o candidates/*.c \
-  --symbol function_name \
-  --objdump /path/to/mips64-elf-objdump \
-  --compile-command './compile-one.sh {source} -o {output}' \
-  --cache-dir .workbench/cache \
-  --ledger .workbench/results.jsonl \
-  --jobs 8
-```
-
-The command template is tokenized and executed without a shell. Every ledger
-record includes source, target, wrapper, objdump, explicit environment, timing,
-and comparison identity. The campaign stops at the first exact match unless
-`--no-stop-on-exact` asks for the whole grid, compares in process, and
-terminates the compilers it started (and their children) if it is interrupted.
-
 On every command that selects one function — `compare`, `compare-dumps`,
 `view`, `view-dumps`, `rank`, `compile-rank`, `campaign` — `--symbol` and
 `--function` are the same option, so either vocabulary works, and passing both
@@ -128,47 +195,25 @@ with different values is refused rather than silently resolved. Every printed
 label is also the JSON key for that value; `--explain-keys` prints the one
 registry, comparison, campaign, and aligned-view keys together.
 
-## Pick the next diagnostic
+## All documentation
 
-| What the comparison says | Next move |
-|---|---|
-| `structure-mismatch` | Keep working at the C/control-flow level |
-| `constant-mismatch` | Audit the flag/enum against the assembly, then re-derive fakes |
-| `commutative-order` | Change the expression tree (`x \|= y`), not the allocator |
-| `schedule-mismatch` | Regroup statements; rebuild with `-g0` as the diagnostic |
-| `allocation-mismatch` | Capture the narrowest relevant uopt or ugen trace |
-| `relocation-layout-mismatch` | Check relocation metadata, then the project link/ROM check |
-| `exact=true` | Run the project’s normal collateral and full-output verification |
+The three narrative pages first, then the focused guides:
 
-Whatever the verdict, `--show-diff` prints every differing site: no verdict
-suppresses evidence.
-
-Package a single-function target, full context, and current source for manual
-decomp.me creation without uploading anything:
-
-```sh
-decomp-workbench bundle-scratch scratch/demo \
-  --target-assembly target.s \
-  --context ctx.c \
-  --source candidate.c \
-  --platform n64 \
-  --compiler 'IDO 7.1' \
-  --compiler-flags='-O2 -mips2' \
-  --diff-label demo
-```
-
-Start with [workflow selection][workflows], then use the focused guide:
-
+- [Start here][start-here] — an almost-matched function, end to end
+- [Field guide][field-guide] — the IDO codegen levers, with the C
+- [Backlog walkthrough][walkthrough] — thirty near matches, in triage order
+- [Workflow selection][workflows]
 - [Object comparison][object-comparison]
-- [Lessons from final-function campaigns][final-function-campaigns]
-- [Portable Codex and Claude Code skill][agent-skill]
+- [Aligned mechanism view][view]
 - [Candidate campaigns][campaigns]
 - [Scratch bundles][scratch-bundles]
+- [Lessons from final-function campaigns][final-function-campaigns]
+- [Portable Codex and Claude Code skill][agent-skill]
 - [IDO version support][ido-support]
 - [Trace analysis][trace-analysis]
 - [Compiler instrumentation][compiler-instrumentation]
-- [Tooling roadmap from live campaigns][tooling-roadmap]
 - [Pass replay][pass-replay]
+- [Tooling roadmap from live campaigns][tooling-roadmap]
 - [Castlevania 64 worked examples][cv64-examples]
 - [Troubleshooting][troubleshooting]
 - [Command design principles][principles]
@@ -209,6 +254,10 @@ instrumentation profile, or trace format.
 
 CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 
+[start-here]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/START_HERE.md
+[field-guide]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/field-guide.md
+[walkthrough]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/walkthrough-30-near-matches.md
+[view]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/view.md
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
 [agent-skill]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/agent-skill.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
