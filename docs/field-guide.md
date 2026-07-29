@@ -474,6 +474,14 @@ force from exact. The workbench now requires phase-qualified force keys
 (`p2:w55=c2`) for exactly this reason. See
 [Trace analysis](trace-analysis.md).
 
+**A second trap, now defused:** forcing a color the web's interference mask
+already forbids used to abort the compiler. The pass now declines the force,
+records `force_declined … forbidden=0x…`, and lets the natural coloring stand,
+so a sweep runs to completion and the declines tell you which endpoints do not
+exist. Read them ahead of time from `trace-globalcolor`'s `forbidden_colors`
+on any logging run. See
+[Compiler instrumentation](compiler-instrumentation.md#a-forbidden-color-is-declined-not-fatal).
+
 ---
 
 ## Dead families — do not spend variants here

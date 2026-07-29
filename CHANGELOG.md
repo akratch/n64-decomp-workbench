@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `CDX_FORCE` no longer kills the compiler when it names a color the web's
+  interference mask already forbids. The instrumented pass **declines** the
+  force, records
+  `[CDX] force_declined phase=p2 site=dec proc=11 web=300 color=2 reg=v1 forbidden=0x…`,
+  and lets the natural coloring stand. Six oracle probes across three campaigns
+  could not be run at all because that case raised `SIGABRT`, and a sweep that
+  hit one lost every result after it.
+
+  The record prints whether or not `CDX_LOG` is set, and that is the semantic
+  change worth knowing: a declined force is now *visible* and distinguishable
+  from a force the pass never saw, so "the object did not change" no longer has
+  two meanings. `site=dec` and `site=color` name which of the two force points
+  declined. Forcing the split path (`p1:w9=s`) is never declined — no color
+  mask can forbid it.
+
+  The mask decode is now one rule in two places: `color_is_forbidden` in
+  `globalcolor.py` and the generated C, checked against one table in the tests,
+  anchored on the recorded observation that `forbidden0=0x7f800000` means
+  exactly c1–c8. `trace-globalcolor` reports `forbidden_colors` on every
+  allocator web, so a force sweep can be planned from one logging run instead
+  of discovered one abort at a time.
+
 - New `--census KEY=VALUE[,KEY=VALUE...]` on `compare`, `compare-dumps`,
   `view`, and `view-dumps`: assert values the command already reports and read
   the answer as an exit code — `0` when every predicate held, `3` when one

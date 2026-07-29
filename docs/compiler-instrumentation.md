@@ -179,6 +179,41 @@ this prevents an experimental choice from being applied to the same web number
 in unrelated procedures. Here `wN` is the allocator bit position printed as
 `web=N`; `sym` is reported separately and is not the force key.
 
+#### A forbidden color is declined, not fatal
+
+A web's interference mask forbids some colors outright. Forcing one of those
+used to abort the compiler with `SIGABRT`: six probes across three campaigns
+could not be run at all, including an endpoint confirmation that would have
+closed a residual, and a sweep that hit one lost every result after it.
+
+The pass now **declines** such a force. It records the decline and lets the
+natural decision stand:
+
+```text
+[CDX] force_declined phase=p2 site=dec proc=11 web=300 color=2 reg=v1 \
+  forbidden=0x7f80000000000000
+```
+
+- `site=dec` is the allocate-or-split decision; `site=color` is the assignment
+  that follows it. A force that is declined at both prints twice, because the
+  pass made two decisions and honored neither.
+- `forbidden` is the web's two mask words concatenated, high word first. Color
+  `c` occupies bit `31 - c` of the high word (`0x7f800000` is exactly c1–c8),
+  and bit `63 - c` of the low word above c31. `trace-globalcolor` decodes the
+  same mask into `forbidden_colors`, so a sweep can be planned from a single
+  logging run instead of discovered one abort at a time.
+- The record prints **whether or not `CDX_LOG` is set**. This is the point of
+  the change: a declined force that behaved like a silent no-op would be
+  indistinguishable from a force the pass never saw, and "the object did not
+  change" would then have two very different meanings.
+- `p1:w9=s` forces the split path rather than a color, so no mask can forbid it
+  and it is never declined.
+
+A declined force is evidence, not a failure: it says the endpoint you were
+probing for does not exist under this interference, which is often the answer
+the probe was asking for. The sweep still finishes, and every other entry in it
+still applies.
+
 ### Alias and base-provenance profile
 
 ```sh

@@ -31,6 +31,40 @@ def register_for_color(color: int | None) -> str | None:
     return None if color is None else COLOR_REGISTERS.get(color)
 
 
+#: Highest color the two forbidden/available mask words can describe.
+MAX_MASK_COLOR = 63
+
+
+def color_is_forbidden(forbidden0: int, forbidden1: int, color: int) -> bool:
+    """Return whether a web's interference mask rules one color out.
+
+    The decode ring is ``1 << (31 - color)`` in the first word, confirmed
+    against a recorded trace where ``forbidden0=0x7f800000`` meant exactly
+    c1-c8. The second word continues the same convention for colors 32-63; no
+    color the profile can name reaches it, so that half is a documented
+    extrapolation rather than an observation.
+
+    This is the same rule the instrumented pass applies before honoring a
+    ``CDX_FORCE``, so a probe can be checked against a trace without running it.
+    """
+
+    if color < 0 or color > MAX_MASK_COLOR:
+        return False
+    if color < 32:
+        return bool((forbidden0 >> (31 - color)) & 1)
+    return bool((forbidden1 >> (63 - color)) & 1)
+
+
+def decode_forbidden_colors(forbidden0: int, forbidden1: int) -> list[int]:
+    """Return every color the two mask words rule out, in ascending order."""
+
+    return [
+        color
+        for color in range(MAX_MASK_COLOR + 1)
+        if color_is_forbidden(forbidden0, forbidden1, color)
+    ]
+
+
 FLOAT_PATTERN = (
     r"(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
     r"|[-+]?(?:inf|nan))"
@@ -184,6 +218,21 @@ class AllocatorWebDecision:
         return register_for_color(self.assigned_color)
 
     @property
+    def forbidden_colors(self) -> list[int]:
+        """Return the colors this web's interference mask rules out.
+
+        A ``CDX_FORCE`` naming one of these is declined by the instrumented
+        pass, so this is the list to read before spending a probe on an
+        endpoint that cannot exist.
+        """
+
+        first = optional_integer(self.fields.get("forbidden0"))
+        if first is None:
+            return []
+        second = optional_integer(self.fields.get("forbidden1")) or 0
+        return decode_forbidden_colors(first, second)
+
+    @property
     def explanation(self) -> str:
         """Human-scale explanation suitable for a focused web inspection."""
 
@@ -212,6 +261,7 @@ class AllocatorWebDecision:
             "color_costs": self.color_costs,
             "assigned_color": self.assigned_color,
             "assigned_register": self.assigned_register,
+            "forbidden_colors": self.forbidden_colors,
             "explanation": self.explanation,
         }
 

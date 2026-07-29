@@ -83,6 +83,29 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(items[0].color_costs[1]["best_before"], "22.250000")
         self.assertEqual(report.allocator_webs(dtype=6), [])
 
+    def test_a_decision_names_the_colors_a_force_cannot_take(self) -> None:
+        """The mask decodes to the endpoints a CDX_FORCE probe would be declined for.
+
+        `forb=0x7f800000` was recorded on a campaign web and read there as
+        "c1-c8 forbidden"; the instrumented pass now declines exactly these
+        colors instead of aborting the compiler, so the two must name one set.
+        """
+
+        report = parse_globalcolor_trace(
+            "[CDX] p2dec phase=p2 proc=11 web=300 sym=300 class=1 save=1 "
+            "nocs=2 totalsave=2 bestcost=0 bestcolor=-1 "
+            "forbidden0=0x7f800000 forbidden1=0x00000000 decision=no-color\n"
+        )
+        item = report.allocator_webs(proc=11, web=300)[0]
+        self.assertEqual(item.forbidden_colors, [1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual(item.as_dict()["forbidden_colors"], [1, 2, 3, 4, 5, 6, 7, 8])
+
+    def test_a_decision_without_a_mask_claims_nothing(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec proc=46 web=240 bestcolor=17 decision=color\n"
+        )
+        self.assertEqual(report.allocator_webs(proc=46)[0].forbidden_colors, [])
+
     def test_names_stable_callee_saved_colors_and_filters_webs(self) -> None:
         report = parse_globalcolor_trace(
             "[CDX] p1dec proc=46 web=240 sym=240 class=1 save=1 "

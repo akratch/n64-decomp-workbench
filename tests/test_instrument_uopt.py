@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from decomp_workbench.globalcolor import COLOR_REGISTERS
+from decomp_workbench.globalcolor import COLOR_REGISTERS, color_is_forbidden
 from decomp_workbench.instrument_uopt import (
     HEADER,
     MARKER,
@@ -73,6 +73,7 @@ int main(void) {
     (void)dkwb_cdx_active(0);
     (void)dkwb_cdx_lookup(0, "p1", 9);
     (void)dkwb_cdx_lookup(0, "p2", 9);
+    (void)dkwb_cdx_force_color(0, "p1", "dec", 9, 0, 0);
     (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
     dkwb_cdx_log_interference(dkwb_test_memory, 0, 9, 0);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
@@ -80,6 +81,54 @@ int main(void) {
     return 0;
 }
 """
+
+# A driver for the force path: it prints what the pass would do with the
+# CDX_FORCE in the environment against the interference mask given on the
+# command line. -2 is "no override", -1 is "force the split path", and a
+# non-negative value is the color the pass will install.
+FORCE_DRIVER = """\
+int main(int argc, char **argv) {
+    uint32_t forbidden0 = (uint32_t)strtoul(argv[1], 0, 0);
+    uint32_t forbidden1 = (uint32_t)strtoul(argv[2], 0, 0);
+    int web = (int)strtol(argv[3], 0, 0);
+    (void)argc;
+    dkwb_cdx_init();
+    printf("force=%d\\n",
+        dkwb_cdx_force_color(0, "p1", "dec", web, forbidden0, forbidden1));
+    (void)dkwb_cdx_active(0);
+    (void)dkwb_cdx_lookup(0, "p2", 9);
+    (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
+    dkwb_cdx_log_interference(dkwb_test_memory, 0, 9, 0);
+    DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
+    DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
+    dkwb_cdx_procindex();
+    dkwb_cdx_finish();
+    return 0;
+}
+"""
+
+# One decode ring, two implementations. forbidden0=0x7f800000 meaning exactly
+# c1-c8 is the recorded observation this table is anchored on; a workbench that
+# read the mask differently from the pass would predict the wrong endpoints and
+# send a campaign after probes that cannot run.
+FORBIDDEN_MASKS: tuple[tuple[int, int, int, bool], ...] = (
+    (0x7F800000, 0, 1, True),
+    (0x7F800000, 0, 8, True),
+    (0x7F800000, 0, 9, False),
+    (0x7F800000, 0, 0, False),
+    (0x00000000, 0, 2, False),
+    (0x80000000, 0, 0, True),
+    (0x20000000, 0, 2, True),
+    (0x20000000, 0, 3, False),
+    (0x00000001, 0, 31, True),
+    (0x00000001, 0, 30, False),
+    (0x08CBBF00, 0, 4, True),
+    (0x08CBBF00, 0, 5, False),
+    (0, 0x80000000, 32, True),
+    (0, 0x80000000, 33, False),
+    (0, 0x00000001, 63, True),
+    (0xFFFFFFFF, 0xFFFFFFFF, 23, True),
+)
 
 # One table, two validators. The workbench refuses a malformed force control
 # before a campaign spends a compile on it, and the instrumented pass refuses
@@ -172,8 +221,11 @@ class UoptInstrumentationTests(unittest.TestCase):
             SOURCE, allow_unverified_source=True
         ).source
         self.assertIn('snprintf(key, sizeof(key), "%s:w%d=", phase, web)', source)
-        self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p1"'), 2)
-        self.assertEqual(source.count('dkwb_cdx_lookup(dkwb_cdx_ordinal, "p2"'), 2)
+        # Both force sites of each phase go through the decline wrapper, which
+        # is the only caller of the raw lookup.
+        self.assertEqual(source.count('dkwb_cdx_force_color(dkwb_cdx_ordinal, "p1"'), 2)
+        self.assertEqual(source.count('dkwb_cdx_force_color(dkwb_cdx_ordinal, "p2"'), 2)
+        self.assertEqual(source.count("dkwb_cdx_lookup(ordinal, phase, web)"), 1)
         self.assertIn("is not a phase-qualified force ", source)
         self.assertIn("disjoint ", source)
         self.assertIn("web spaces", source)
@@ -215,7 +267,7 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("dkwb_cdx_proc_decisions++", source)
         self.assertIn("atexit(dkwb_cdx_finish)", source)
 
-    def build_header_program(self, root: Path) -> Path:
+    def build_header_program(self, root: Path, driver: str = COMPILE_DRIVER) -> Path:
         """Compile the injected header on its own and return the binary."""
 
         compiler = shutil.which("cc") or shutil.which("gcc")
@@ -228,7 +280,7 @@ class UoptInstrumentationTests(unittest.TestCase):
         end = source.index("static void f_compute_save")
         program = root / "header.c"
         program.write_text(
-            COMPILE_PRELUDE + source[start:end] + COMPILE_DRIVER,
+            COMPILE_PRELUDE + source[start:end] + driver,
             encoding="utf-8",
         )
         binary = root / "header"
@@ -293,6 +345,113 @@ class UoptInstrumentationTests(unittest.TestCase):
                     else:
                         self.assertEqual(completed.returncode, 2, completed.stdout)
                         self.assertIn("phase-qualified", completed.stderr)
+
+    def test_a_forbidden_force_is_declined_at_every_force_site(self) -> None:
+        """The four sites that honor a force all go through the decline."""
+
+        source = instrument_uopt_globalcolor(
+            SOURCE, allow_unverified_source=True
+        ).source
+        self.assertIn("[CDX] force_declined phase=%s site=%s", source)
+        self.assertIn("dkwb_cdx_color_forbidden", source)
+        for phase, site in (
+            ("p1", "dec"),
+            ("p1", "color"),
+            ("p2", "dec"),
+            ("p2", "color"),
+        ):
+            with self.subTest(phase=phase, site=site):
+                self.assertIn(
+                    f'dkwb_cdx_force_color(dkwb_cdx_ordinal, "{phase}", "{site}"',
+                    source,
+                )
+        # Every force site reads the web's own mask, and the raw lookup is no
+        # longer reachable from one: an undeclined path would still abort.
+        self.assertEqual(source.count("MEM_U32(s5 + 40), MEM_U32(s5 + 44));"), 4)
+        self.assertEqual(source.count("dkwb_cdx_lookup(dkwb_cdx_ordinal,"), 0)
+
+    def test_the_workbench_and_the_pass_decode_one_mask(self) -> None:
+        for forbidden0, forbidden1, color, forbidden in FORBIDDEN_MASKS:
+            with self.subTest(mask=(hex(forbidden0), hex(forbidden1)), color=color):
+                self.assertEqual(
+                    color_is_forbidden(forbidden0, forbidden1, color), forbidden
+                )
+
+    def test_the_generated_pass_declines_the_colors_the_workbench_names(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(Path(temp), FORCE_DRIVER)
+            for forbidden0, forbidden1, color, forbidden in FORBIDDEN_MASKS:
+                with self.subTest(mask=hex(forbidden0), color=color):
+                    completed = subprocess.run(
+                        [str(binary), hex(forbidden0), hex(forbidden1), "9"],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            "CDX_FORCE": f"p1:w9=c{color}",
+                            "CDX_PROC": "0",
+                            "PATH": os.environ.get("PATH", ""),
+                        },
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    if forbidden:
+                        # -2 is "no override": the natural coloring stands.
+                        self.assertIn("force=-2", completed.stdout)
+                        self.assertIn("[CDX] force_declined", completed.stderr)
+                        self.assertIn(f"color={color}", completed.stderr)
+                        self.assertIn(
+                            f"forbidden=0x{forbidden0:08x}{forbidden1:08x}",
+                            completed.stderr,
+                        )
+                    else:
+                        self.assertIn(f"force={color}", completed.stdout)
+                        self.assertNotIn("force_declined", completed.stderr)
+
+    def test_a_decline_is_recorded_even_with_tracing_off(self) -> None:
+        """A silent no-op is exactly what the record exists to prevent."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(Path(temp), FORCE_DRIVER)
+            completed = subprocess.run(
+                [str(binary), "0x20000000", "0x0", "9"],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={
+                    "CDX_FORCE": "p1:w9=c2",
+                    "CDX_PROC": "0",
+                    "PATH": os.environ.get("PATH", ""),
+                },
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        # CDX_LOG is unset, so nothing else printed; the decline still did.
+        self.assertIn(
+            "[CDX] force_declined phase=p1 site=dec proc=0 web=9", completed.stderr
+        )
+        self.assertIn("reg=v1", completed.stderr)
+        self.assertNotIn("[CDX] p1cost", completed.stderr)
+
+    def test_the_split_force_is_never_declined(self) -> None:
+        """`s` asks for the split path, which no color mask can forbid."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(Path(temp), FORCE_DRIVER)
+            completed = subprocess.run(
+                [str(binary), "0xffffffff", "0xffffffff", "9"],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={
+                    "CDX_FORCE": "p1:w9=s",
+                    "CDX_PROC": "0",
+                    "PATH": os.environ.get("PATH", ""),
+                },
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("force=-1", completed.stdout)
+        self.assertNotIn("force_declined", completed.stderr)
 
     def test_refuses_double_instrumentation(self) -> None:
         once = instrument_uopt_globalcolor(SOURCE, allow_unverified_source=True).source

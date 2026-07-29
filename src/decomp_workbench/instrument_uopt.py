@@ -294,6 +294,42 @@ static int dkwb_cdx_lookup(int ordinal, const char *phase, int web) {
     }
     return -2;
 }
+/* A forced color the web has already been forbidden is not a probe: the pass
+ * asserts on it and the compiler dies with SIGABRT, which killed six oracle
+ * probes across three campaigns and left holes where builds should have been.
+ * The force is declined instead -- recorded, then the natural decision stands.
+ * A sweep therefore runs to completion and the log says which endpoints do not
+ * exist, which is itself the answer the sweep was asking for.
+ *
+ * The decline record is printed whether or not CDX_LOG is set. A declined
+ * force that looked like a silent no-op would be indistinguishable from a force
+ * the pass never saw, and telling those two apart is the whole point.
+ *
+ * Mask decode, confirmed against a recorded trace where forbidden0=0x7f800000
+ * meant exactly c1-c8: color c occupies bit (31 - c) of forbidden0 for c <= 31,
+ * and bit (63 - c) of forbidden1 above that. */
+static int dkwb_cdx_color_forbidden(
+        uint32_t forbidden0, uint32_t forbidden1, int color) {
+    if (color < 0 || color > 63) return 0;
+    if (color <= 31) return (int)((forbidden0 >> (31 - color)) & 1u);
+    return (int)((forbidden1 >> (63 - color)) & 1u);
+}
+static int dkwb_cdx_force_color(
+        int ordinal, const char *phase, const char *site, int web,
+        uint32_t forbidden0, uint32_t forbidden1) {
+    int color = dkwb_cdx_lookup(ordinal, phase, web);
+    if (color < 0 || !dkwb_cdx_color_forbidden(forbidden0, forbidden1, color))
+        return color;
+    if (!dkwb_cdx_output) dkwb_cdx_output = stderr;
+    fprintf(dkwb_cdx_output,
+        "[CDX] force_declined phase=%s site=%s proc=%d web=%d color=%d "
+        "reg=%s forbidden=0x%08x%08x\n",
+        phase, site, ordinal, web, color,
+        dkwb_cdx_register_name(color),
+        (unsigned int)forbidden0, (unsigned int)forbidden1);
+    fflush(dkwb_cdx_output);
+    return -2;
+}
 #define DKWB_CDX_LOG(ordinal, ...) do { \
     if (dkwb_cdx_log && dkwb_cdx_active(ordinal)) \
         fprintf(dkwb_cdx_output, __VA_ARGS__); \
@@ -438,8 +474,9 @@ def instrument_uopt_globalcolor(
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 268);\n"
         "    dkwb_cdx_proc_decisions++;\n"
-        "    dkwb_cdx_decision = dkwb_cdx_lookup("
-        'dkwb_cdx_ordinal, "p1", dkwb_web);\n'
+        "    dkwb_cdx_decision = dkwb_cdx_force_color("
+        'dkwb_cdx_ordinal, "p1", "dec", dkwb_web,\n'
+        "        MEM_U32(s5 + 40), MEM_U32(s5 + 44));\n"
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
         '"[CDX] p1dec phase=p1 proc=%d web=%d sym=%d class=%d save=%.6f '
         "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d bestreg=%s "
@@ -472,8 +509,9 @@ def instrument_uopt_globalcolor(
         "L471d6c:\n"
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 268);\n"
-        "    int dkwb_force = dkwb_cdx_lookup("
-        'dkwb_cdx_ordinal, "p1", dkwb_web);\n'
+        "    int dkwb_force = dkwb_cdx_force_color("
+        'dkwb_cdx_ordinal, "p1", "color", dkwb_web,\n'
+        "        MEM_U32(s5 + 40), MEM_U32(s5 + 44));\n"
         "    if (dkwb_force >= 0) {\n"
         "        MEM_U32(sp + 220) = (uint32_t)dkwb_force;\n"
         "        t8 = (uint32_t)dkwb_force;\n"
@@ -517,8 +555,9 @@ def instrument_uopt_globalcolor(
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 272);\n"
         "    dkwb_cdx_proc_decisions++;\n"
-        "    dkwb_cdx_decision = dkwb_cdx_lookup("
-        'dkwb_cdx_ordinal, "p2", dkwb_web);\n'
+        "    dkwb_cdx_decision = dkwb_cdx_force_color("
+        'dkwb_cdx_ordinal, "p2", "dec", dkwb_web,\n'
+        "        MEM_U32(s5 + 40), MEM_U32(s5 + 44));\n"
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
         '"[CDX] p2dec phase=p2 proc=%d web=%d sym=%d class=%d save=%.6f '
         "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d bestreg=%s "
@@ -551,8 +590,9 @@ def instrument_uopt_globalcolor(
         "L4727d4:\n"
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 272);\n"
-        "    int dkwb_force = dkwb_cdx_lookup("
-        'dkwb_cdx_ordinal, "p2", dkwb_web);\n'
+        "    int dkwb_force = dkwb_cdx_force_color("
+        'dkwb_cdx_ordinal, "p2", "color", dkwb_web,\n'
+        "        MEM_U32(s5 + 40), MEM_U32(s5 + 44));\n"
         "    if (dkwb_force >= 0) {\n"
         "        MEM_U32(sp + 220) = (uint32_t)dkwb_force;\n"
         "        t0 = (uint32_t)dkwb_force;\n"
