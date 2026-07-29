@@ -252,9 +252,106 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
     Metric("results", "results", "per-candidate records, best rank first"),
 )
 
+# Aligned mechanism view keys (``view`` / ``view-dumps``). The view reports
+# aligned rows rather than positional words, so it is its own vocabulary: a few
+# spellings it shares with the comparison registry (``target_instructions``,
+# ``candidate_frame_size``) are canonical here and deprecated there, and that is
+# the point -- an aligned count and a positional count are different numbers and
+# must not be read through one name. Every key here is already its own printed
+# label, so none of them carries a deprecated alias.
+VIEW_METRICS: tuple[Metric, ...] = (
+    Metric("symbol", "symbol", "function selected from both inputs"),
+    Metric("target", "target", "reference input name"),
+    Metric("candidate", "candidate", "candidate input name"),
+    Metric(
+        "register_profile",
+        "register_profile",
+        "register class table used for the lanes",
+    ),
+    Metric(
+        "target_instructions",
+        "target_instructions",
+        "instructions parsed from the target",
+    ),
+    Metric(
+        "candidate_instructions",
+        "candidate_instructions",
+        "instructions parsed from the candidate",
+    ),
+    Metric("aligned_rows", "aligned_rows", "rows in the LCS alignment"),
+    Metric("target_frame_size", "target_frame_size", "target stack frame adjustment"),
+    Metric(
+        "candidate_frame_size",
+        "candidate_frame_size",
+        "candidate stack frame adjustment",
+    ),
+    Metric("match", "match", "aligned rows whose instructions are identical"),
+    Metric(
+        "displacement",
+        "displacement",
+        "aligned rows differing only in an alignment-controlled branch offset",
+    ),
+    Metric(
+        "structural",
+        "structural",
+        "aligned rows with an opcode or operand shape difference",
+    ),
+    Metric("schedule", "schedule", "aligned rows in a pure reordering hunk"),
+    Metric(
+        "register", "register", "aligned rows differing only in register allocation"
+    ),
+    Metric("constant", "constant", "aligned rows differing only in an immediate"),
+    Metric(
+        "commutative",
+        "commutative",
+        "aligned rows with a swapped commutative operand pair",
+    ),
+    Metric(
+        "relocation",
+        "relocation",
+        "aligned rows differing only in linker-controlled fields",
+    ),
+    Metric("verdict", "verdict", "cheapest mechanism that explains the residual"),
+    Metric("playbook", "playbook", "named lever family for the verdict"),
+    Metric("signature", "signature", "orthogonal modifiers attached to the verdict"),
+    Metric(
+        "prefix_exact",
+        "prefix_exact",
+        "first aligned row whose instruction words differ",
+    ),
+    Metric("hunks", "hunks", "contiguous runs of non-matching aligned rows"),
+    Metric("lanes", "lanes", "per-class register assignment sequences"),
+    Metric("webs", "webs", "consistent register substitutions, grouped"),
+    Metric("next", "next", "lever guidance for the dominant class"),
+    Metric(
+        "register_report",
+        "register_report",
+        "per aligned row register operands, matches included",
+    ),
+    Metric("hunk", "hunk", "hunk number"),
+    Metric("class", "class", "classification label"),
+    Metric("classes", "classes", "per-class row counts inside a hunk"),
+    Metric("rows", "rows", "aligned row range"),
+    Metric("target_bytes", "target_bytes", "target section offsets covered"),
+    Metric("candidate_bytes", "candidate_bytes", "candidate section offsets covered"),
+    Metric("index", "index", "aligned row index"),
+    Metric("divergence", "divergence", "first lane slot where the two sides differ"),
+    Metric(
+        "rotation",
+        "rotation",
+        "cyclic offset that maps the target lane tail onto the candidate",
+    ),
+    Metric("slots", "slots", "lane slots rendered out of the total"),
+    Metric("web", "web", "web identifier"),
+    Metric("count", "count", "number of sites"),
+)
+
 METRICS_BY_KEY: dict[str, Metric] = {
     item.key: item for item in (*METRICS, *CAMPAIGN_METRICS)
 }
+#: The view report is a separate namespace, so it gets a separate lookup: the
+#: two registries share spellings that mean different numbers.
+VIEW_METRICS_BY_KEY: dict[str, Metric] = {item.key: item for item in VIEW_METRICS}
 SUMMARY_METRICS: tuple[Metric, ...] = tuple(item for item in METRICS if item.summary)
 DEPRECATED_KEYS: dict[str, str] = {
     alias: item.key for item in METRICS for alias in item.deprecated_keys
@@ -323,8 +420,12 @@ def explain_keys_text() -> str:
 
     rows = describe(METRICS)
     campaign_rows = describe(CAMPAIGN_METRICS)
+    view_rows = describe(VIEW_METRICS)
     widths = [
-        max(len(titles[column]), *(len(row[column]) for row in rows + campaign_rows))
+        max(
+            len(titles[column]),
+            *(len(row[column]) for row in rows + campaign_rows + view_rows),
+        )
         for column in range(3)
     ]
 
@@ -360,5 +461,16 @@ def explain_keys_text() -> str:
             format_columns(titles),
             separator,
             *format_rows(campaign_rows),
+            "",
+            "Aligned mechanism view keys (view / view-dumps). These count "
+            "aligned rows, not",
+            "positional words, so a spelling shared with the comparison "
+            "registry above is a",
+            "different number. Nested keys (hunks, lanes, webs) are listed "
+            "with the rest.",
+            "",
+            format_columns(titles),
+            separator,
+            *format_rows(view_rows),
         ]
     )

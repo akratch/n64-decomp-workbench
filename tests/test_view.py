@@ -76,6 +76,34 @@ def body(*lines: str) -> list[str]:
     return [*PROLOGUE, *lines, *EPILOGUE]
 
 
+def emitted_keys(view: MechanismView) -> set[str]:
+    """Return every key this view actually prints, from both renderings.
+
+    Nested JSON objects count: ``hunk`` and ``web`` are keys a consumer reads,
+    and a key nobody explains is exactly the failure the registry exists to
+    prevent.  ``slots`` appears only on the human lane rendering, which is why
+    the screen is scanned as well as the payload.
+    """
+
+    keys: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            keys.update(str(key) for key in node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(view.as_dict(report_regs=True))
+    for line in render_view(view, report_regs=True):
+        if line.startswith("next: ") or line.startswith("      "):
+            continue
+        keys.update(re.findall(r"\b([a-z_]+)=", line))
+    return keys
+
+
 class AssemblerFixtureTests(unittest.TestCase):
     """The fixture generator itself has to be trustworthy."""
 
@@ -610,6 +638,24 @@ class RenderingTests(unittest.TestCase):
         for section in ("hunks", "lanes", "webs", "register_report"):
             for entry in payload[section]:
                 self.assertLessEqual(set(entry), allowed, section)
+
+    def test_the_registry_and_the_output_are_one_set(self) -> None:
+        """Completeness, both directions.
+
+        ``<=`` in either direction alone is satisfiable by cheating: a registry
+        that lists everything imaginable passes the "emitted keys are
+        registered" half, and a command that prints nothing passes the other.
+        Equality is the property worth having -- a key can neither be printed
+        without an explanation nor explained without being printed.
+        """
+
+        view = view_of(
+            body("li v0,33", "lw t8,0(s0)", "sw t8,4(s0)"),
+            body("li v0,49", "lw t6,0(s0)", "sw t6,4(s0)"),
+        )
+        emitted = emitted_keys(view)
+        self.assertEqual(emitted - schema_keys(), set(), "printed but unregistered")
+        self.assertEqual(schema_keys() - emitted, set(), "registered but never printed")
 
     def test_json_counts_agree_with_the_printed_header(self) -> None:
         view = view_of(

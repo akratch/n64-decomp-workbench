@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Unified the two schema registries the merge left behind. The aligned view's
+  keys now live in the shared metric registry beside the comparison and
+  campaign keys, so `--explain-keys` explains `view` and `view-dumps` too, and
+  a test asserts the registry and the view's output are one set in both
+  directions: a key can neither be printed without an explanation nor
+  explained without being printed. The view keeps its own namespace, because a
+  spelling it shares with the comparison registry (`target_instructions`) is an
+  aligned count there and a positional count here.
+
 - Deduplicated the commutative-operand rule: `compare` and `view` shared two
   independent tables and two independent predicates that disagreed about the
   two-operand multiply form, so one residual could be `commutative-order` in

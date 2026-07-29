@@ -20,9 +20,12 @@ from decomp_workbench.schema import (
     DEPRECATED_KEYS,
     METRICS,
     METRICS_BY_KEY,
+    VIEW_METRICS,
+    VIEW_METRICS_BY_KEY,
     explain_keys_text,
     selected_fields,
 )
+from decomp_workbench.view import schema_keys
 
 TARGET = """
 00000000 <demo>:
@@ -114,12 +117,43 @@ class SchemaTests(unittest.TestCase):
 
     def test_explain_keys_lists_every_metric(self) -> None:
         text = explain_keys_text()
-        for metric in (*METRICS, *CAMPAIGN_METRICS):
+        for metric in (*METRICS, *CAMPAIGN_METRICS, *VIEW_METRICS):
             with self.subTest(key=metric.key):
                 self.assertIn(metric.key, text)
                 self.assertIn(metric.description.split(";")[0][:40], text)
         self.assertIn("word_mismatches", text)
         self.assertIn("Campaign report keys", text)
+        self.assertIn("Aligned mechanism view keys", text)
+
+    def test_the_view_registry_is_the_view_vocabulary(self) -> None:
+        """One registry, and the view reads its keys from it, not a copy."""
+
+        self.assertEqual(schema_keys(), frozenset(VIEW_METRICS_BY_KEY))
+        keys = [metric.key for metric in VIEW_METRICS]
+        self.assertEqual(len(keys), len(set(keys)))
+        for metric in VIEW_METRICS:
+            with self.subTest(key=metric.key):
+                # The view shipped with label == key from the start, so it has
+                # no compatibility spellings to carry.
+                self.assertEqual(metric.key, metric.attribute)
+                self.assertEqual(metric.deprecated_keys, ())
+
+    def test_the_two_registries_keep_separate_namespaces(self) -> None:
+        """A shared spelling is a different number, so the lookups stay apart.
+
+        ``target_instructions`` is a deprecated comparison key and a canonical
+        view key. Merging the lookups would silently give one of them the
+        other's meaning.
+        """
+
+        shared = frozenset(VIEW_METRICS_BY_KEY) & frozenset(METRICS_BY_KEY)
+        self.assertIn("verdict", shared)
+        self.assertEqual(
+            METRICS_BY_KEY["target_insns"].attribute, "target_instructions"
+        )
+        self.assertEqual(DEPRECATED_KEYS["target_instructions"], "target_insns")
+        self.assertNotIn("target_instructions", METRICS_BY_KEY)
+        self.assertIn("target_instructions", VIEW_METRICS_BY_KEY)
 
     def test_campaign_report_keys_are_all_registered(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -44,11 +44,11 @@ from .compare import (
     relocation_field_mask,
 )
 from .model import Instruction
+from .schema import VIEW_METRICS_BY_KEY
 
 __all__ = [
     "DEFAULT_REGISTER_PROFILE",
     "REGISTER_CLASS_PROFILES",
-    "SCHEMA",
     "AlignedRow",
     "Hunk",
     "Lane",
@@ -67,57 +67,16 @@ __all__ = [
 # Human output prints ``key=value`` using these exact keys, and JSON output
 # uses the same keys, so the two audiences can never drift apart again.  List
 # valued keys render as a count in the human header and as the list in JSON.
+# The names live in the shared metric registry beside the comparison and
+# campaign keys, so ``--explain-keys`` explains this command too and there is
+# one place a key can be added.
 # ---------------------------------------------------------------------------
-
-SCHEMA: tuple[tuple[str, str], ...] = (
-    ("symbol", "function selected from both inputs"),
-    ("target", "reference input name"),
-    ("candidate", "candidate input name"),
-    ("register_profile", "register class table used for the lanes"),
-    ("target_instructions", "instructions parsed from the target"),
-    ("candidate_instructions", "instructions parsed from the candidate"),
-    ("aligned_rows", "rows in the LCS alignment"),
-    ("target_frame_size", "target stack frame adjustment"),
-    ("candidate_frame_size", "candidate stack frame adjustment"),
-    ("match", "aligned rows whose instructions are identical"),
-    (
-        "displacement",
-        "aligned rows differing only in an alignment-controlled branch offset",
-    ),
-    ("structural", "aligned rows with an opcode or operand shape difference"),
-    ("schedule", "aligned rows in a pure reordering hunk"),
-    ("register", "aligned rows differing only in register allocation"),
-    ("constant", "aligned rows differing only in an immediate"),
-    ("commutative", "aligned rows with a swapped commutative operand pair"),
-    ("relocation", "aligned rows differing only in linker-controlled fields"),
-    ("verdict", "cheapest mechanism that explains the residual"),
-    ("playbook", "named lever family for the verdict"),
-    ("signature", "orthogonal modifiers attached to the verdict"),
-    ("prefix_exact", "first aligned row whose instruction words differ"),
-    ("hunks", "contiguous runs of non-matching aligned rows"),
-    ("lanes", "per-class register assignment sequences"),
-    ("webs", "consistent register substitutions, grouped"),
-    ("next", "lever guidance for the dominant class"),
-    ("register_report", "per aligned row register operands, matches included"),
-    ("hunk", "hunk number"),
-    ("class", "classification label"),
-    ("classes", "per-class row counts inside a hunk"),
-    ("rows", "aligned row range"),
-    ("target_bytes", "target section offsets covered"),
-    ("candidate_bytes", "candidate section offsets covered"),
-    ("index", "aligned row index"),
-    ("divergence", "first lane slot where the two sides differ"),
-    ("rotation", "cyclic offset that maps the target lane tail onto the candidate"),
-    ("slots", "lane slots rendered out of the total"),
-    ("web", "web identifier"),
-    ("count", "number of sites"),
-)
 
 
 def schema_keys() -> frozenset[str]:
     """Return every key the human and JSON renderings are allowed to print."""
 
-    return frozenset(key for key, _ in SCHEMA)
+    return frozenset(VIEW_METRICS_BY_KEY)
 
 
 # ---------------------------------------------------------------------------

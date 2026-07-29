@@ -250,8 +250,18 @@ agent dialect and no human dialect.
 | `register_report` | present with `--report-regs` |
 
 List-valued keys render as a count in the human header (`hunks=1`) and as the
-list in JSON. A test asserts every printed `key=` token resolves to a schema
-key, so the two renderings cannot drift.
+list in JSON.
+
+These names live in the same metric registry as the comparison and campaign
+keys, so `view --explain-keys` (or `--explain-keys` on any command) prints them
+with their meanings. A test asserts the registry and the output are *one set* in
+both directions: a key can neither be printed without an explanation nor
+explained without being printed.
+
+The view counts aligned rows; `compare` counts positional words. Where a
+spelling appears in both registries — `target_instructions`,
+`candidate_frame_size` — it is a different number, which is why the two
+vocabularies are listed separately.
 
 ## Options
 
