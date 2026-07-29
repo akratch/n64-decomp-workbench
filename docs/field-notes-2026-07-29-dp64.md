@@ -748,6 +748,33 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
 - dino.py extract-dll/configure must run under .venv python (the python3
   shebang dies on spimdisasm AFTER deleting the asm dir).
 
+## vsprintf endgame science (kill + flags rounds)
+
+- **Two false premises retired with evidence**: (1) no original DWARF
+  exists anywhere (target vsprintf is a ROM-extracted GLOBAL_ASM blob; the
+  .mdebug in build objects is OUR compile) — the "line-table archaeology"
+  idea is dead for this project; (2) `cc -S` emits `.loc` per statement
+  REGARDLESS of -g — every .loc-count measurement in earlier campaigns was
+  a rendering artifact. Real -g difference in the body: 12 .bgnb/.endb
+  scope pairs only.
+- **cfe's -Xg is a binary switch** (g1≡g2≡g3; only g0 differs) — the whole
+  statement/layout family measures identically by construction. Also:
+  uopt WARNS and silently disables -O2 under -g1/-g2 ("use -g3").
+- **Invocation space exonerated** (26 probes): O3/O1/g-levels, 7.1-cfe
+  cross (byte-identical no-op!), full-7.1, and uopt's ENTIRE internal flag
+  table (-docodehoist/-moremotion/-loopunroll N/-no_const_in_reg/-doassoc/
+  -docopy/-createbb/-norlodrstropt/-do_opt_saved_regs/-noheurAB) — nothing
+  approaches the target's float-region scheduling. `-loopunroll` REQUIRES
+  a numeric arg or it eats the output filename (trap).
+- **TOOL GEM: IDO binaries' rodata is 4-byte-word-swapped in the
+  static-recomp builds** — plain `strings` shows garbage ("tpoup.mc");
+  byte-swap every 4-byte word first and the full internal flag tables
+  become greppable. Ship as `decomp-workbench ido-strings`. This recovered
+  the entire uopt option table.
+- Live hypothesis under test: the original used the two-step cc -S → as
+  path (replay-as1 zeroed both float cases; prologue breakage attributed
+  to as0-reconstruction infidelity, not the path).
+
 ## Pending (from subagent campaign runs — append when reports land)
 
 ## texDPTextures kill-mission (148 -> 74w; temp cascade solved, 2 structural sites left)

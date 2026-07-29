@@ -230,7 +230,7 @@ value that contains one — `verdict=mixed(constant:1, register:2)` — survives
 |---|---|
 | `0` | the report was produced and every predicate held |
 | `3` | the report was produced and at least one predicate failed |
-| `2` | the census could not be evaluated: bad syntax, an unknown key, a non-scalar key, or a value of the wrong type |
+| `2` | the census could not be evaluated: bad syntax, an unknown key, a key this run did not produce, a non-scalar key, or a value of the wrong type |
 
 `3` is deliberately not `1`. `--fail-on-mismatch` already answers with `1` and
 means "this candidate is not a match"; the two questions are independent,

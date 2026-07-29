@@ -156,7 +156,15 @@ def evaluate_census(
 
     results: list[CensusResult] = []
     for predicate in predicates:
-        actual = payload.get(predicate.metric)
+        if predicate.metric not in payload:
+            # A registered key the report did not carry this time -- a view key
+            # that needs --report-regs, say. Comparing it against nothing would
+            # answer a question the run cannot answer.
+            raise ValueError(
+                f"census key {predicate.key!r} is not in this report; the "
+                "option that produces it may not have been passed"
+            )
+        actual = payload[predicate.metric]
         if isinstance(actual, list | dict):
             raise ValueError(
                 f"census key {predicate.key!r} reports a "

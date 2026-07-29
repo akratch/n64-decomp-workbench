@@ -97,6 +97,14 @@ class CensusPredicateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not a single value"):
             evaluate_census(predicates, {"diff_sites": [{"index": 0}]})
 
+    def test_a_key_the_report_did_not_carry_is_refused(self) -> None:
+        """Missing is not `none`: one is an absent key, the other is a value."""
+
+        predicates = parse_census(["symbol=none"], allowed=COMPARISON_CENSUS_KEYS)
+        self.assertTrue(evaluate_census(predicates, {"symbol": None})[0].passed)
+        with self.assertRaisesRegex(ValueError, "not in this report"):
+            evaluate_census(predicates, {"words": 0})
+
 
 class CensusCommandTests(unittest.TestCase):
     """The exit status is the answer; the printed lines say which predicate."""
