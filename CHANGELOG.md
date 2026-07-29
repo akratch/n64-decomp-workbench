@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reported every differing site regardless of verdict. `--show-diff` no longer
+  prints only register groups, so a literal difference counted in `raw` can no
+  longer be missing from the displayed evidence.
 - Accepted `--function` as a second spelling of `--symbol` on every command
   that selects one function, and rejected conflicting values instead of
   silently keeping the last one.

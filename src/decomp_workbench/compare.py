@@ -191,6 +191,155 @@ def relocation_signature(instruction: Instruction) -> tuple[str, ...]:
     return tuple(item.kind for item in instruction.relocations)
 
 
+# Integer and floating-point operations whose two source operands are
+# interchangeable.  A swap here is front-end expression shape, never register
+# allocation.
+COMMUTATIVE_OPCODES = frozenset(
+    {
+        "add",
+        "addu",
+        "and",
+        "dadd",
+        "daddu",
+        "dmult",
+        "dmultu",
+        "mult",
+        "multu",
+        "nor",
+        "or",
+        "xor",
+        "add.d",
+        "add.s",
+        "mul.d",
+        "mul.s",
+    }
+)
+
+# Instructions whose differing field is a materialized constant rather than a
+# memory offset.  Stack-frame adjustments are excluded: a frame delta is spill
+# evidence, not a wrong flag or enum.
+CONSTANT_OPCODES = frozenset(
+    {
+        "addiu",
+        "andi",
+        "daddiu",
+        "li",
+        "lui",
+        "ori",
+        "slti",
+        "sltiu",
+        "xori",
+    }
+)
+
+
+def is_commutative_swap(expected: Instruction, actual: Instruction) -> bool:
+    """Return whether two instructions differ only by swapped source operands."""
+
+    if expected.opcode != actual.opcode or expected.opcode not in COMMUTATIVE_OPCODES:
+        return False
+    expected_registers = register_operands(expected.assembly)
+    actual_registers = register_operands(actual.assembly)
+    if len(expected_registers) != 3 or len(actual_registers) != 3:
+        return False
+    return (
+        expected_registers[0] == actual_registers[0]
+        and expected_registers[1] == actual_registers[2]
+        and expected_registers[2] == actual_registers[1]
+        and expected_registers[1] != expected_registers[2]
+    )
+
+
+def is_constant_difference(expected: Instruction, actual: Instruction) -> bool:
+    """Return whether two instructions differ only by a materialized constant."""
+
+    if expected.opcode != actual.opcode or expected.opcode not in CONSTANT_OPCODES:
+        return False
+    if FRAME_RE.search(expected.assembly) or FRAME_RE.search(actual.assembly):
+        return False
+    return register_operands(expected.assembly) == register_operands(actual.assembly)
+
+
+def classify_diff_site(
+    expected: Instruction, actual: Instruction, *, masked_equal: bool
+) -> str:
+    """Name the cheapest mechanism that explains one differing site."""
+
+    if masked_equal:
+        if relocation_signature(expected) != relocation_signature(actual):
+            return "relocation-layout"
+        return "relocation-controlled"
+    if expected.opcode != actual.opcode:
+        return "opcode"
+    if is_commutative_swap(expected, actual):
+        return "commutative-order"
+    if register_operands(expected.assembly) != register_operands(actual.assembly):
+        return "register"
+    if is_constant_difference(expected, actual):
+        return "constant"
+    return "operand"
+
+
+def diff_sites(
+    target: list[Instruction],
+    candidate: list[Instruction],
+    target_words: list[str],
+    candidate_words: list[str],
+) -> list[dict[str, object]]:
+    """Return every differing site, classified and never filtered.
+
+    A verdict chooses emphasis; it must never hide evidence.  A register-range
+    summary once omitted a ``li v0,33`` versus ``li v0,49`` literal difference
+    that the same report counted in ``raw``, and the omission cost a
+    mis-scoped experiment.  Every position that differs in instruction words or
+    in relocation kinds appears here, whatever the verdict says.
+    """
+
+    sites: list[dict[str, object]] = []
+    aligned = min(len(target), len(candidate))
+    for index in range(aligned):
+        expected = target[index]
+        actual = candidate[index]
+        masked_equal = target_words[index] == candidate_words[index]
+        if expected.word == actual.word and relocation_signature(
+            expected
+        ) == relocation_signature(actual):
+            continue
+        sites.append(
+            {
+                "index": index,
+                "class": classify_diff_site(
+                    expected, actual, masked_equal=masked_equal
+                ),
+                "target": expected.assembly,
+                "candidate": actual.assembly,
+                "target_word": expected.word,
+                "candidate_word": actual.word,
+            }
+        )
+    for index in range(aligned, max(len(target), len(candidate))):
+        expected_extra = target[index] if index < len(target) else None
+        actual_extra = candidate[index] if index < len(candidate) else None
+        sites.append(
+            {
+                "index": index,
+                "class": "instruction-count",
+                "target": expected_extra.assembly if expected_extra else "-",
+                "candidate": actual_extra.assembly if actual_extra else "-",
+                "target_word": expected_extra.word if expected_extra else "-",
+                "candidate_word": actual_extra.word if actual_extra else "-",
+            }
+        )
+    return sites
+
+
+def diff_site_classes(sites: list[dict[str, object]]) -> dict[str, int]:
+    """Count differing sites per class in a stable order."""
+
+    counts = collections.Counter(str(site["class"]) for site in sites)
+    return dict(sorted(counts.items()))
+
+
 def raw_difference_breakdown(
     target: list[Instruction],
     candidate: list[Instruction],
@@ -378,6 +527,7 @@ def compare_instructions(
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
+    sites = diff_sites(target, candidate, target_words, candidate_words)
     exact = (
         exact_mismatches == 0 and relocation_mismatches == 0 and not unknown_relocations
     )
@@ -422,6 +572,8 @@ def compare_instructions(
         verdict=verdict,
         guidance=guidance,
         register_diff=register_diff,
+        diff_sites=sites,
+        diff_site_classes=diff_site_classes(sites),
     )
 
 

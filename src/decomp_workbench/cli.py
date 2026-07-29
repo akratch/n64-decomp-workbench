@@ -153,6 +153,11 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
     )
     if breakdown:
         print(f"raw difference classes: {breakdown}")
+    if item.diff_sites:
+        classes = ", ".join(
+            f"{name}={count}" for name, count in item.diff_site_classes.items()
+        )
+        print(f"diff sites: {len(item.diff_sites)} ({classes})")
     for line in item.guidance:
         print(f"next: {line}")
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
@@ -160,6 +165,23 @@ def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
         print("acceptance: PASS (cross-ROM structural evidence only; exact=false)")
     elif not accepted and cross_rom:
         print("acceptance: FAIL (cross-ROM structure also differs)")
+
+
+def print_diff_sites(item: Comparison) -> None:
+    """Print every differing site, whatever the verdict emphasizes.
+
+    The verdict selects the cheapest explanation; it never filters evidence.
+    Grouping is by class so a literal difference cannot hide behind a register
+    summary.
+    """
+
+    for name in item.diff_site_classes:
+        for site in item.diff_sites:
+            if site["class"] != name:
+                continue
+            print(f"\n[{site['index']:4d}] {name}")
+            print(f"       target    {site['target_word']}  {site['target']}")
+            print(f"       candidate {site['candidate_word']}  {site['candidate']}")
 
 
 def compare_command(args: argparse.Namespace) -> int:
@@ -199,9 +221,7 @@ def compare_command(args: argparse.Namespace) -> int:
                 + ", ".join(comparison.unknown_relocations)
             )
         if args.show_diff:
-            for item in comparison.register_diff:
-                print(f"\n[{item['index']}] target    {item['target']}")
-                print(f"    candidate {item['candidate']}")
+            print_diff_sites(comparison)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -252,9 +272,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
                 + ", ".join(comparison.unknown_relocations)
             )
         if args.show_diff:
-            for item in comparison.register_diff:
-                print(f"\n[{item['index']}] target    {item['target']}")
-                print(f"    candidate {item['candidate']}")
+            print_diff_sites(comparison)
     return 1 if args.fail_on_mismatch and not accepted else 0
 
 
@@ -1007,7 +1025,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_compare_arguments(compare_parser)
     add_cross_rom_argument(compare_parser)
     compare_parser.add_argument(
-        "--show-diff", action="store_true", help="show localized register differences"
+        "--show-diff",
+        action="store_true",
+        help="print every differing site, grouped by class",
     )
     compare_parser.add_argument(
         "--fail-on-mismatch",
@@ -1027,7 +1047,9 @@ def build_parser() -> argparse.ArgumentParser:
     dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps_parser)
     dumps_parser.add_argument(
-        "--show-diff", action="store_true", help="show localized register differences"
+        "--show-diff",
+        action="store_true",
+        help="print every differing site, grouped by class",
     )
     dumps_parser.add_argument(
         "--fail-on-mismatch",

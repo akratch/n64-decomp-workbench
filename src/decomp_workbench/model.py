@@ -67,6 +67,8 @@ class Comparison:
     guidance: list[str]
     error: str | None = None
     register_diff: list[dict[str, Any]] = field(default_factory=list)
+    diff_sites: list[dict[str, Any]] = field(default_factory=list)
+    diff_site_classes: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

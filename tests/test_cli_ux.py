@@ -172,6 +172,40 @@ class CliUxTests(unittest.TestCase):
                 self.assertEqual(len(selector), 1)
                 self.assertIn("--function", selector[0])
 
+    def test_show_diff_prints_literal_sites_under_a_register_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.objdump"
+            candidate = root / "candidate.objdump"
+            target.write_text(
+                "00000000 <demo>:\n"
+                "   0: 24020021  li $v0,33\n"
+                "   4: 012a4021  addu $t0,$t1,$t2\n",
+                encoding="utf-8",
+            )
+            candidate.write_text(
+                "00000000 <demo>:\n"
+                "   0: 24020031  li $v0,49\n"
+                "   4: 012a5821  addu $t3,$t1,$t2\n",
+                encoding="utf-8",
+            )
+            status, stdout, _ = self.run_cli(
+                [
+                    "compare-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "demo",
+                    "--show-diff",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("verdict=allocation-mismatch", stdout)
+        self.assertIn("diff sites: 2 (constant=1, register=1)", stdout)
+        self.assertIn("li $v0,33", stdout)
+        self.assertIn("li $v0,49", stdout)
+        self.assertIn("addu $t3,$t1,$t2", stdout)
+
     def test_install_skill_reports_current_on_second_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             arguments = [

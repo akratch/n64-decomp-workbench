@@ -48,6 +48,26 @@ RELOC_CANDIDATE = """
 """
 
 
+# A register-range residual that also carries one literal difference. The
+# comparator once counted the `li` site in `raw` and printed only the register
+# groups, which cost a mis-scoped experiment.
+MIXED_TARGET = """
+00000000 <demo>:
+   0: 24020021  li $v0,33
+   4: 012a4021  addu $t0,$t1,$t2
+   8: 03e00008  jr $ra
+   c: 00000000  nop
+"""
+
+MIXED_CANDIDATE = """
+00000000 <demo>:
+   0: 24020031  li $v0,49
+   4: 012a5821  addu $t3,$t1,$t2
+   8: 03e00008  jr $ra
+   c: 00000000  nop
+"""
+
+
 class CompareTests(unittest.TestCase):
     def test_parse_and_normalize(self) -> None:
         instructions = parse_disassembly(TARGET)
@@ -301,6 +321,79 @@ class CompareTests(unittest.TestCase):
         )
         self.assertTrue(result.exact)
         self.assertEqual(result.verdict, "instruction-words-identical")
+
+    def test_register_verdict_still_reports_the_literal_site(self) -> None:
+        result = compare_instructions(
+            parse_disassembly(MIXED_TARGET, symbol="demo"),
+            parse_disassembly(MIXED_CANDIDATE, symbol="demo"),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+        self.assertEqual(result.register_mismatch_ranges, [(1, 1)])
+        self.assertEqual(result.raw_word_mismatches, 2)
+        self.assertEqual(result.diff_site_classes, {"constant": 1, "register": 1})
+        literal = [site for site in result.diff_sites if site["class"] == "constant"]
+        self.assertEqual(len(literal), 1)
+        self.assertEqual(literal[0]["index"], 0)
+        self.assertEqual(literal[0]["target"], "li $v0,33")
+        self.assertEqual(literal[0]["candidate"], "li $v0,49")
+
+    def test_every_differing_word_becomes_a_diff_site(self) -> None:
+        pairs = (
+            (TARGET, CANDIDATE),
+            (MIXED_TARGET, MIXED_CANDIDATE),
+            (RELOC_TARGET, RELOC_CANDIDATE),
+            (TARGET, MIXED_CANDIDATE),
+        )
+        for target_text, candidate_text in pairs:
+            with self.subTest(target=target_text.splitlines()[1]):
+                result = compare_instructions(
+                    parse_disassembly(target_text),
+                    parse_disassembly(candidate_text),
+                    target_name="target.o",
+                    candidate_name="candidate.o",
+                    symbol=None,
+                )
+                differing = [
+                    site
+                    for site in result.diff_sites
+                    if site["target_word"] != site["candidate_word"]
+                ]
+                self.assertEqual(len(differing), result.raw_word_mismatches)
+                self.assertEqual(
+                    sum(result.diff_site_classes.values()),
+                    len(result.diff_sites),
+                )
+
+    def test_length_difference_is_a_diff_site(self) -> None:
+        result = compare_instructions(
+            parse_disassembly("   0: 03e00008  jr $ra\n   4: 00000000  nop\n"),
+            parse_disassembly(
+                "   0: 03e00008  jr $ra\n"
+                "   4: 00000000  nop\n"
+                "   8: 24020001  li $v0,1\n"
+            ),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertEqual(result.diff_site_classes, {"instruction-count": 1})
+        self.assertEqual(result.diff_sites[0]["target"], "-")
+        self.assertEqual(result.diff_sites[0]["candidate"], "li $v0,1")
+
+    def test_relocation_layout_difference_is_a_diff_site(self) -> None:
+        result = compare_instructions(
+            parse_disassembly(
+                "  0: 0c001234 jal 48d0 <callee>\n  0: R_MIPS_26 callee\n"
+            ),
+            parse_disassembly("  0: 0c005678 jal 159e0 <callee>\n"),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertEqual(result.diff_site_classes, {"relocation-layout": 1})
 
     def test_parse_relocations(self) -> None:
         relocations = parse_relocations(RELOC_TARGET)

@@ -45,6 +45,36 @@ This prevents a common late-stage failure mode: continuing to mutate source
 solely because a UI or raw comparison reports a nonzero number after the object
 oracle has already proved the instructions exact.
 
+## No verdict may suppress a diff site
+
+The verdict chooses emphasis and the next action. It never filters evidence.
+Every position where the instruction words or the relocation kinds differ is
+reported as a *diff site*, classified but never dropped:
+
+```text
+verdict=allocation-mismatch words=   2 raw=   2 ...
+diff sites: 2 (constant=1, register=1)
+
+[   0] constant
+       target    24020021  li $v0,33
+       candidate 24020031  li $v0,49
+
+[   1] register
+       target    012a4021  addu $t0,$t1,$t2
+       candidate 012a5821  addu $t3,$t1,$t2
+```
+
+The site count and class histogram always print; `--show-diff` adds the sites
+themselves. Site classes are `constant`, `register`, `commutative-order`,
+`opcode`, `operand`, `relocation-layout`, `relocation-controlled`, and
+`instruction-count`. This is a policy, not a patch: a register-range summary
+once hid a `li v0,33` versus `li v0,49` literal that the same report counted
+in `raw`, and the omission scoped an experiment to two sites when there were
+three. The invariant is covered by a test: every differing word is a site.
+
+`diff_sites` and `diff_site_classes` carry the same evidence in `--json`.
+`register_diff` remains for compatibility and is the register-classed subset.
+
 When `--symbol` selects an assembly-defined symbol without an ELF size, GNU
 objdump can include zero alignment padding through the end of the section. The
 workbench excludes unreachable zero words after the function's final `jr ra`
@@ -66,6 +96,8 @@ delay slot; the delay-slot instruction itself remains part of the comparison.
 | `candidate_fp_register_uses` | Histogram of FP operands | Promotion/allocation comparison |
 | `verdict` | Product-level classification of the evidence | Decide whether to edit source, trace allocation, or verify the link |
 | `raw_difference_breakdown` | Why literal words differ | Separate instruction bits from relocation-controlled words |
+| `diff_sites` | Every differing site with its class | Read the residual without the verdict filtering it |
+| `diff_site_classes` | Count of differing sites per class | See the mechanism mix at a glance |
 | `structural_exact` | Opcode, normalized shape, registers, frame, and count agree | Cross-ROM/compiler-lineage evidence only |
 | `accepted` | Whether this invocation satisfies `--fail-on-mismatch` | Automation for `compare` and `compare-dumps` |
 | `acceptance_basis` | `function-exact`, `cross-rom-structural`, or `mismatch` | Explain why the command accepted or rejected the comparison |
