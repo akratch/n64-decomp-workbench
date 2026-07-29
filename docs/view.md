@@ -86,7 +86,7 @@ The shipped insertion fixture reproduces the effect in miniature:
 decomp-workbench compare-dumps \
   examples/fixtures/shifted-insertion-target.objdump \
   examples/fixtures/shifted-insertion-candidate.objdump --symbol blockSum
-# verdict=structure-mismatch words=11 regs=10 fp=1
+# verdict=structure-mismatch aligned_total=1 words=11 regs=10 fp=1
 
 decomp-workbench view-dumps \
   examples/fixtures/shifted-insertion-target.objdump \
@@ -97,6 +97,10 @@ decomp-workbench view-dumps \
 Eleven positional words; one inserted `sll`, plus one branch whose encoded
 offset moved because of it. Everything else was the same instruction in a
 different place.
+
+`compare` reports the aligned counts too — `aligned_total` and its class split
+come from this same analysis, and they are what ranks candidates. `view` is
+what tells you **where**: the hunk, the lane, the web, and the lever.
 
 Two anchorings are built with `difflib.SequenceMatcher(autojunk=False)`, and
 the one that explains more of the function as identical wins:

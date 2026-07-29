@@ -83,7 +83,8 @@ class SchemaTests(unittest.TestCase):
         comparison = build_comparison()
         self.assertEqual(
             comparison_line(comparison),
-            "verdict=allocation-mismatch words=   2 raw=   2 norm=   1 "
+            "verdict=allocation-mismatch aligned_total=   2 words=   2 "
+            "raw=   2 norm=   1 "
             "regs=   1 fp=   0 insns=   4 frame=  -48 "
             f"sha1={comparison.candidate_sha1} candidate.o",
         )

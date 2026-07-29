@@ -36,7 +36,7 @@ intentional: `raw_word_mismatches` is evidence about literal instruction-word
 identity, not an instruction-matching score. For example:
 
 ```text
-verdict=instruction-exact words=   0 raw=  48 ...
+verdict=instruction-exact aligned_total=   0 words=   0 raw=  48 ...
 raw difference classes: relocation_controlled=48
 next: Instruction-exact: raw differences are linker-controlled relocation fields.
 ```
@@ -52,7 +52,8 @@ Every position where the instruction words or the relocation kinds differ is
 reported as a *diff site*, classified but never dropped:
 
 ```text
-verdict=allocation-mismatch words=   2 raw=   2 ...
+verdict=allocation-mismatch aligned_total=   2 words=   2 raw=   2 ...
+aligned residual classes: aligned_register=1, aligned_constant=1
 diff_sites=2 (constant=1, register=1)
 
 [   0] constant
@@ -153,7 +154,9 @@ in `--explain-keys`.
 | Field | Meaning | Appropriate use |
 |---|---|---|
 | `raw_word_mismatches` | Positional 32-bit word differences before masking | Detect whether files are literally identical |
-| `word_mismatches` | Positional differences after masking known linker-controlled fields | Final function-level matching oracle |
+| `word_mismatches` | Positional differences after masking known linker-controlled fields | Final function-level matching oracle at zero; a tiebreaker above it |
+| `aligned_total` | LCS-aligned differing rows a source change controls | Rank candidates against each other |
+| `aligned_structural`, `aligned_schedule`, `aligned_register`, `aligned_constant`, `aligned_commutative` | The aligned residual split by mechanism | See which lever family the residual belongs to before opening `view` |
 | `opcode_mismatches` | Positional mnemonic differences | Distinguish structure from operands |
 | `normalized_distance` | Sequence edit distance after masking addresses, immediates, and stack offsets | Search guidance only |
 | `register_mismatches` | Positional register-operand differences | Locate allocation phases |
@@ -174,10 +177,35 @@ in `--explain-keys`.
 words and known relocation-kind layout agree. It does not claim that the whole
 object file, symbol table, or final ROM is byte-identical.
 
-The sort order for `rank` and `campaign` is exact word mismatches, unknown and
-mismatched relocation metadata, normalized distance, register mismatches,
-instruction-count delta, then path. It is a convenient default, not a claim
-that one scalar ordering captures every useful transition.
+## Aligned counts, and why they rank
+
+`words=` counts positions. An inserted or deleted instruction shifts every
+later position, so a candidate one edit away from the target reports a long
+cascade while a candidate with a dozen unrelated allocation differences reports
+a short one. That inversion misranked candidates in six recorded campaigns; in
+one, positional words ranked two variants identically at 95 words when the
+aligned split (10 structural versus 8) picked the only one that composed with
+the next edit.
+
+`compare` and `compare-dumps` therefore also report the LCS-aligned residual,
+computed by the same analysis `view` renders — not a second aligner:
+
+- `aligned_total` — the ranking number, and the sum of the five class counts;
+- `aligned_structural`, `aligned_schedule`, `aligned_register`,
+  `aligned_constant`, `aligned_commutative` — the residual split by mechanism.
+
+Aligned rows classed `match`, `displacement` (an encoded branch offset that
+moved because something was inserted between here and there), and `relocation`
+(a linker-supplied field) are not in the total: none of them is a difference a
+source change owns.
+
+The sort order for `rank`, `campaign`, and `compile-rank` is the aligned
+residual first, then exact word mismatches, unknown and mismatched relocation
+metadata, normalized distance, register mismatches, instruction-count delta,
+then path. `words=` still decides between two candidates of the same aligned
+shape, where it is exactly the right question, and `words=0` with
+`exact=true` remains the only matching claim. This is a convenient default, not
+a claim that one scalar ordering captures every useful transition.
 
 ## Relocations
 

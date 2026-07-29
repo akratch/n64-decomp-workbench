@@ -48,6 +48,12 @@ class Comparison:
     instruction_delta: int
     raw_word_mismatches: int
     word_mismatches: int
+    aligned_total: int
+    aligned_structural: int
+    aligned_schedule: int
+    aligned_register: int
+    aligned_constant: int
+    aligned_commutative: int
     relocation_metadata_mismatches: int
     unknown_relocations: list[str]
     opcode_mismatches: int
@@ -85,8 +91,19 @@ class Comparison:
         return payload
 
     @property
-    def sort_key(self) -> tuple[int, int, int, int, int, int, str]:
+    def sort_key(self) -> tuple[int, int, int, int, int, int, int, str]:
+        """Rank on the aligned residual, with the positional count as a tiebreak.
+
+        Positional word counts misranked candidates in six recorded campaigns:
+        an inserted instruction shifts everything after it, so the candidate one
+        edit away sorts below a candidate with a dozen unrelated allocation
+        differences. The aligned residual is the ranking number; ``words`` still
+        separates two candidates of the same aligned shape, where it is exactly
+        the right question.
+        """
+
         return (
+            self.aligned_total,
             self.word_mismatches,
             len(self.unknown_relocations),
             self.relocation_metadata_mismatches,

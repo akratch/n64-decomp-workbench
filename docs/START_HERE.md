@@ -95,7 +95,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=instruction-exact words=   0 raw=   2 norm=   0 regs=   0 fp=   0
+verdict=instruction-exact aligned_total=   0 words=   0 raw=   2 norm=   0
 raw difference classes: relocation_controlled=2
 next: Instruction-exact: raw differences are linker-controlled relocation fields
 ```
@@ -110,7 +110,8 @@ Read the line left to right:
 | Field | Meaning |
 |---|---|
 | `verdict` | the mechanism, not the volume — this is the field that decides your next move |
-| `words` | relocation-aware instruction differences: **the number that matters** |
+| `aligned_total` | LCS-aligned differences: **the number to rank candidates by** |
+| `words` | relocation-aware positional differences: the matching oracle at zero, a tiebreaker above it |
 | `raw` | literal word differences, including linker-controlled fields |
 | `regs`, `fp` | how many differences are register-only |
 | `insns` | instruction count, target and candidate |
@@ -131,7 +132,8 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=allocation-mismatch words=   1 raw=   3 norm=   1 regs=   1 fp=   1
+verdict=allocation-mismatch aligned_total=   1 words=   1 raw=   3 norm=   1
+aligned residual classes: aligned_register=1
 diff_sites=3 (register=1, relocation-controlled=2)
 next: Opcode shape matches but register allocation differs.
 ```
@@ -286,10 +288,13 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=structure-mismatch words=  11 raw=  11 norm=   1 regs=  10 fp=   1
+verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 norm=   1
+aligned residual classes: aligned_structural=1
 ```
 
-Eleven words. Now the aligned truth:
+Eleven positional words, one aligned difference — and `aligned_total` is the
+number `rank` and `campaign` sort on, because `words` is the one that misranks.
+Now the aligned truth in full:
 
 ```sh
 decomp-workbench view-dumps \
@@ -308,8 +313,8 @@ HUNK 1  class=structural rows=5..5 target=none candidate=5..5
 instructions shifted by one slot, and the eleventh was a branch whose encoded
 offset moved because of the insertion. On a real function this effect has been
 measured at 635 positional words against an aligned truth of 27 structural plus
-8 register. If you are triaging a batch by word count, you are sorting by
-noise.
+8 register. If you are triaging a batch by `words=`, you are sorting by noise —
+which is why `aligned_total=` leads the line and owns the ranking.
 
 ---
 

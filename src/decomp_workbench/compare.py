@@ -234,6 +234,49 @@ CONSTANT_OPCODES = frozenset(
 )
 
 
+#: Report keys for the LCS-aligned residual, one per aligned class a source
+#: change controls.  The spellings are prefixed because an aligned count and a
+#: positional count are different numbers: ``regs`` counts positions,
+#: ``aligned_register`` counts aligned rows, and reading one through the other's
+#: name is the mistake the whole registry exists to prevent.
+ALIGNED_CLASS_KEYS: tuple[str, ...] = (
+    "aligned_structural",
+    "aligned_schedule",
+    "aligned_register",
+    "aligned_constant",
+    "aligned_commutative",
+)
+
+
+def aligned_residual(
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
+) -> dict[str, int]:
+    """Return the LCS-aligned residual counts, keyed for the report.
+
+    Positional counting misranked candidates in six recorded campaigns: one
+    inserted instruction shifts every later position, so a candidate that is one
+    edit away reads as a long cascade and a candidate with a dozen scattered
+    allocation differences looks closer.  The counts come from the ``view``
+    analysis; nothing here re-implements the alignment.
+    """
+
+    # ``view`` is built on top of this module, so the import is deferred rather
+    # than inverting the layering for one call.
+    from .view import aligned_class_counts
+
+    if not target or not candidate:
+        # There is nothing to align against, so every instruction the other side
+        # holds is structure.  Reporting zero would claim agreement that no
+        # evidence supports.
+        counts = dict.fromkeys(ALIGNED_CLASS_KEYS, 0)
+        counts["aligned_structural"] = max(len(target), len(candidate))
+        return counts
+    return {
+        f"aligned_{name}": count
+        for name, count in aligned_class_counts(target, candidate).items()
+    }
+
+
 def commutative_swap(
     opcode: str, expected: Sequence[str], actual: Sequence[str]
 ) -> bool:
@@ -646,6 +689,7 @@ def compare_instructions(
         and frame_size("\n".join(item.assembly for item in target))
         == frame_size("\n".join(item.assembly for item in candidate))
     )
+    aligned = aligned_residual(target, candidate)
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
@@ -678,6 +722,12 @@ def compare_instructions(
         instruction_delta=len(candidate) - len(target),
         raw_word_mismatches=raw_mismatches,
         word_mismatches=exact_mismatches,
+        aligned_total=sum(aligned.values()),
+        aligned_structural=aligned["aligned_structural"],
+        aligned_schedule=aligned["aligned_schedule"],
+        aligned_register=aligned["aligned_register"],
+        aligned_constant=aligned["aligned_constant"],
+        aligned_commutative=aligned["aligned_commutative"],
         relocation_metadata_mismatches=relocation_mismatches,
         unknown_relocations=unknown_relocations,
         opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),

@@ -54,6 +54,7 @@ __all__ = [
     "Lane",
     "MechanismView",
     "Web",
+    "aligned_class_counts",
     "build_view",
     "classify_pair",
     "destination_register",
@@ -215,6 +216,20 @@ MIXED_PRECEDENCE: tuple[str, ...] = (
     SCHEDULE,
     COMMUTATIVE,
     REGISTER,
+)
+
+#: The classes a source change controls, and therefore the ones a residual
+#: count may include.  ``match`` is agreement; ``displacement`` is an encoded
+#: branch offset that moved because something was inserted elsewhere; and
+#: ``relocation`` is a linker-supplied field.  None of the three is a number a
+#: candidate should be ranked on, and counting them would re-introduce exactly
+#: the phantom volume the alignment exists to remove.
+RESIDUAL_CLASSES: tuple[str, ...] = (
+    STRUCTURAL,
+    SCHEDULE,
+    REGISTER,
+    CONSTANT,
+    COMMUTATIVE,
 )
 
 
@@ -1401,6 +1416,32 @@ def build_view(
         webs=webs,
         guidance=_guidance(verdict, counts, lanes, webs, hunks),
     )
+
+
+def aligned_class_counts(
+    target: Sequence[Instruction],
+    candidate: Sequence[Instruction],
+    *,
+    register_profile: str = DEFAULT_REGISTER_PROFILE,
+) -> dict[str, int]:
+    """Return the aligned residual counts for one pair of instruction streams.
+
+    This is the analysis :func:`build_view` already performs, reduced to the
+    numbers a comparison reports.  It exists so that ``compare`` can rank on
+    aligned counts without growing a second aligner: two LCS implementations of
+    one idea would eventually put different numbers under the same name in two
+    commands, which is the class of defect the shared commutative predicate and
+    the shared metric registry were introduced to end.
+    """
+
+    view = build_view(
+        target,
+        candidate,
+        target_name="",
+        candidate_name="",
+        register_profile=register_profile,
+    )
+    return {name: view.counts.get(name, 0) for name in RESIDUAL_CLASSES}
 
 
 def _joined(instructions: Iterable[Instruction]) -> str:

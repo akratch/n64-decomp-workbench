@@ -63,13 +63,48 @@ METRICS: tuple[Metric, ...] = (
         summary=True,
     ),
     Metric(
-        "words",
-        "word_mismatches",
-        "positional word differences after masking known linker-controlled "
-        "fields; the function-level matching oracle",
+        "aligned_total",
+        "aligned_total",
+        "LCS-aligned differing rows a source change controls; the ranking "
+        "metric, and the sum of the aligned_* class counts below",
         summary=True,
         width=4,
         kind="integer",
+    ),
+    Metric(
+        "words",
+        "word_mismatches",
+        "positional word differences after masking known linker-controlled "
+        "fields; the function-level matching oracle, and the tiebreaker "
+        "between two candidates of the same aligned shape",
+        summary=True,
+        width=4,
+        kind="integer",
+    ),
+    Metric(
+        "aligned_structural",
+        "aligned_structural",
+        "aligned rows with an opcode or operand shape difference",
+    ),
+    Metric(
+        "aligned_schedule",
+        "aligned_schedule",
+        "aligned rows in a pure reordering hunk",
+    ),
+    Metric(
+        "aligned_register",
+        "aligned_register",
+        "aligned rows differing only in register allocation",
+    ),
+    Metric(
+        "aligned_constant",
+        "aligned_constant",
+        "aligned rows differing only in an immediate",
+    ),
+    Metric(
+        "aligned_commutative",
+        "aligned_commutative",
+        "aligned rows with a swapped commutative operand pair",
     ),
     Metric(
         "raw",

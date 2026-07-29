@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import unittest
 
+from mips_asm import assemble
+
 from decomp_workbench.compare import (
+    ALIGNED_CLASS_KEYS,
+    aligned_residual,
     commutative_swap,
     compare_instructions,
     mismatch_ranges,
@@ -16,7 +20,7 @@ from decomp_workbench.objdump import (
     parse_relocations,
     trim_function_padding,
 )
-from decomp_workbench.view import build_view
+from decomp_workbench.view import RESIDUAL_CLASSES, build_view
 
 TARGET = """
 00000000 <demo>:
@@ -651,6 +655,156 @@ class CommutativeSwapTests(unittest.TestCase):
                 self.assertEqual(view.counts[mechanism], 1)
                 other = "register" if mechanism == "commutative" else "commutative"
                 self.assertEqual(view.counts[other], 0)
+
+
+# One target and two candidates that positional counting ranks backwards.
+# `SHIFTED` inserts a single instruction, which moves every later position and
+# reads as a long cascade; `RECOLORED` really does allocate three registers
+# differently. The aligned truth is 1 versus 3, and positional words say the
+# opposite.
+ALIGN_TARGET = [
+    "addiu sp,sp,-32",
+    "sw ra,28(sp)",
+    "lw t0,0(a0)",
+    "lw t1,4(a0)",
+    "addu t2,t0,t1",
+    "sw t2,8(a0)",
+    "lw ra,28(sp)",
+    "jr ra",
+    "addiu sp,sp,32",
+]
+SHIFTED = [
+    "addiu sp,sp,-32",
+    "sw ra,28(sp)",
+    "nop",
+    "lw t0,0(a0)",
+    "lw t1,4(a0)",
+    "addu t2,t0,t1",
+    "sw t2,8(a0)",
+    "lw ra,28(sp)",
+    "jr ra",
+    "addiu sp,sp,32",
+]
+RECOLORED = [
+    "addiu sp,sp,-32",
+    "sw ra,28(sp)",
+    "lw t4,0(a0)",
+    "lw t5,4(a0)",
+    "addu t2,t4,t5",
+    "sw t2,8(a0)",
+    "lw ra,28(sp)",
+    "jr ra",
+    "addiu sp,sp,32",
+]
+
+
+def compare_lines(target: list[str], candidate: list[str]) -> Comparison:
+    """Compare two assembled instruction lists as one function."""
+
+    return compare_instructions(
+        parse_disassembly(assemble(target, symbol="demo"), symbol="demo"),
+        parse_disassembly(assemble(candidate, symbol="demo"), symbol="demo"),
+        target_name="target.o",
+        candidate_name="candidate.o",
+        symbol="demo",
+    )
+
+
+class AlignedResidualTests(unittest.TestCase):
+    """Positional word counts misranked candidates in six recorded campaigns.
+
+    The comparison therefore carries LCS-aligned counts beside the positional
+    ones, and they come from the `view` analysis rather than from a second
+    aligner living here: two implementations of one idea would put different
+    numbers under the same name in two commands.
+    """
+
+    def test_the_counts_are_the_view_counts(self) -> None:
+        target = parse_disassembly(assemble(ALIGN_TARGET, symbol="demo"), symbol="demo")
+        candidate = parse_disassembly(assemble(SHIFTED, symbol="demo"), symbol="demo")
+        comparison = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        view = build_view(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        for name in RESIDUAL_CLASSES:
+            with self.subTest(classification=name):
+                self.assertEqual(
+                    getattr(comparison, f"aligned_{name}"), view.counts[name]
+                )
+        self.assertEqual(
+            comparison.aligned_total,
+            sum(getattr(comparison, key) for key in ALIGNED_CLASS_KEYS),
+        )
+
+    def test_an_insertion_is_one_aligned_difference_not_a_cascade(self) -> None:
+        comparison = compare_lines(ALIGN_TARGET, SHIFTED)
+        self.assertEqual(comparison.aligned_structural, 1)
+        self.assertEqual(comparison.aligned_total, 1)
+        # The positional count is the cascade the alignment exists to remove.
+        self.assertGreater(comparison.word_mismatches, comparison.aligned_total)
+
+    def test_ranking_follows_the_aligned_residual(self) -> None:
+        shifted = compare_lines(ALIGN_TARGET, SHIFTED)
+        recolored = compare_lines(ALIGN_TARGET, RECOLORED)
+        self.assertEqual(recolored.aligned_register, 3)
+        # Positional counting ranks these backwards, which is the recorded
+        # defect: the one-insertion candidate is the closer base.
+        self.assertGreater(shifted.word_mismatches, recolored.word_mismatches)
+        self.assertLess(shifted.aligned_total, recolored.aligned_total)
+        shifted.candidate = "shifted.o"
+        recolored.candidate = "recolored.o"
+        self.assertEqual(
+            [
+                item.candidate
+                for item in sorted([recolored, shifted], key=lambda item: item.sort_key)
+            ],
+            ["shifted.o", "recolored.o"],
+        )
+
+    def test_positional_words_break_an_aligned_tie(self) -> None:
+        """Same aligned residual, so the positional count still decides."""
+
+        far = compare_lines(ALIGN_TARGET, RECOLORED)
+        far.candidate = "far.o"
+        near = compare_lines(ALIGN_TARGET, RECOLORED)
+        near.candidate = "near.o"
+        near.word_mismatches -= 1
+        self.assertEqual(far.aligned_total, near.aligned_total)
+        self.assertEqual(
+            [
+                item.candidate
+                for item in sorted([far, near], key=lambda item: item.sort_key)
+            ],
+            ["near.o", "far.o"],
+        )
+
+    def test_relocation_and_match_rows_are_not_residual(self) -> None:
+        """The residual counts only what a source change controls."""
+
+        self.assertEqual(
+            set(ALIGNED_CLASS_KEYS),
+            {f"aligned_{name}" for name in RESIDUAL_CLASSES},
+        )
+        for excluded in ("match", "displacement", "relocation"):
+            with self.subTest(classification=excluded):
+                self.assertNotIn(f"aligned_{excluded}", ALIGNED_CLASS_KEYS)
+
+    def test_an_empty_side_is_never_reported_as_agreement(self) -> None:
+        target = parse_disassembly(assemble(ALIGN_TARGET, symbol="demo"), symbol="demo")
+        counts = aligned_residual(target, [])
+        self.assertEqual(counts["aligned_structural"], len(target))
+        self.assertEqual(sum(counts.values()), len(target))
+        self.assertEqual(aligned_residual([], []), dict.fromkeys(ALIGNED_CLASS_KEYS, 0))
 
 
 if __name__ == "__main__":

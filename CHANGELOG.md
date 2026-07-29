@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- `compare` and `compare-dumps` now report the LCS-aligned residual beside the
+  positional one, and **candidate ranking moved to it**. `aligned_total` leads
+  the summary line; `aligned_structural`, `aligned_schedule`,
+  `aligned_register`, `aligned_constant`, and `aligned_commutative` split it by
+  mechanism in `--json`, in `campaign --json-summary`, and on a human line
+  under the verdict. `rank`, `compile-rank`, `campaign`, and the object-basin
+  order sort on `aligned_total` first, with the positional `words=` count as
+  the tiebreaker.
+
+  This was the most expensive tool gap of the dp64 campaign day: positional
+  counting shifts on every insertion, so the candidate one edit away reads as
+  a cascade while a candidate with a dozen unrelated allocation differences
+  reads as close. It misranked candidates in six separate campaigns — a
+  one-hunk 11-word variant sorted below a five-site 5-word variant, and two
+  variants tied at 95 words that the aligned split (10 structural versus 8)
+  separated immediately. The shipped insertion fixture reproduces it in
+  miniature: `words=11`, `aligned_total=1`.
+
+  The counts come from `view`'s alignment, not from a second aligner in
+  `compare`: campaigns rebuilt an ad-hoc LCS ranker six times in one day, and
+  two implementations of one idea would eventually print different numbers
+  under the same name in two commands. `words=` is unchanged and still the
+  matching oracle — a match is `exact=true` with `words=0`, and aligned rows
+  that are relocation-controlled or displaced by an insertion are outside the
+  residual by design, because neither is a difference a source change owns.
+
 - Wrote the documentation for the person who arrives with one almost-matched
   function and no idea what the next command is. Three new narrative pages sit
   above the reference material and are the first thing the README points at:

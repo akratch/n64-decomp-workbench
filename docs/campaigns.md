@@ -128,16 +128,41 @@ campaign.
 
 Keep several axes visible:
 
-1. instruction count and frame size;
-2. exact or relocation-aware word mismatches;
-3. insertion/deletion/reorder penalties from the project’s native diff tool;
-4. opcode and normalized structure;
-5. register and FP-register ranges;
-6. trace signature when candidates enter the same structural basin.
+1. the aligned residual and its class split;
+2. instruction count and frame size;
+3. exact or relocation-aware word mismatches;
+4. insertion/deletion/reorder penalties from the project’s native diff tool;
+5. opcode and normalized structure;
+6. register and FP-register ranges;
+7. trace signature when candidates enter the same structural basin.
 
 A candidate with a numerically worse score can still remove structural
 differences and leave only a register permutation. Inspect individual metrics,
 not only rank.
+
+### Ranking is aligned-first
+
+Results are ordered by `aligned_total` — the LCS-aligned differing rows a
+source change controls — with the positional `words=` count as the tiebreaker,
+then the relocation, normalized-distance, register, and instruction-delta keys,
+then the source path. `rank`, `compile-rank`, `campaign`, and the object-basin
+ordering all use that one key.
+
+The reason is measured, not aesthetic: positional counting shifts on every
+insertion, and it misranked candidates in six recorded campaigns. In one, a
+one-hunk 11-word variant sorted below a five-site 5-word variant and nearly
+steered the search into the wrong family; in another, two variants tied at 95
+positional words while the aligned split (10 structural versus 8) picked the
+only one that composed with the next edit.
+
+Two consequences worth stating plainly:
+
+- **`words=` is still the oracle.** A match is `exact=true` with `words=0`;
+  `aligned_total=0` alone is not a match, because relocation-controlled and
+  displacement rows are outside the residual by design.
+- **Ranking moved, verdicts did not.** The `verdict=` taxonomy is unchanged, so
+  a saved ledger from an earlier release compares to a new one on every field
+  except result order.
 
 Campaign output uses the same metric registry as `compare`: the printed label
 and the JSON key are one string, and `decomp-workbench campaign --explain-keys`

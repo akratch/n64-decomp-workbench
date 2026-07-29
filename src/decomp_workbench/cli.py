@@ -24,7 +24,7 @@ from .cli_options import (
     add_explain_keys_argument,
     add_symbol_argument,
 )
-from .compare import compare_instructions, compare_objects
+from .compare import ALIGNED_CLASS_KEYS, compare_instructions, compare_objects
 from .globalcolor import (
     optional_integer,
     parse_globalcolor_trace,
@@ -62,6 +62,12 @@ CAMPAIGN_SUMMARY_KEYS = (
     "exact",
     "verdict",
     "structural_exact",
+    "aligned_total",
+    "aligned_structural",
+    "aligned_schedule",
+    "aligned_register",
+    "aligned_constant",
+    "aligned_commutative",
     "words",
     "raw",
     "norm",
@@ -134,6 +140,13 @@ def comparison_payload(item: Comparison, *, cross_rom: bool) -> dict[str, object
 def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
     """Render a compact, action-oriented comparison explanation."""
 
+    aligned = ", ".join(
+        f"{key}={getattr(item, key)}"
+        for key in ALIGNED_CLASS_KEYS
+        if getattr(item, key)
+    )
+    if aligned:
+        print(f"aligned residual classes: {aligned}")
     breakdown = ", ".join(
         f"{name}={count}" for name, count in item.raw_difference_breakdown.items()
     )
