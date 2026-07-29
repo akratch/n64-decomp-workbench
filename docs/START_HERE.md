@@ -391,7 +391,26 @@ The ledger is JSONL, one record per candidate, with the source, the rendered
 command, the compiler identity, the timing, and the comparison metrics. It is
 what you will grep next week when you have forgotten what you tried.
 
-See [Candidate campaigns](campaigns.md) for the full option set.
+To filter a pile of objects on one property, do not grep the report or parse
+its JSON — ask, and read the exit code:
+
+```sh
+for object in build/variants/*.o; do
+    decomp-workbench compare expected/code/foo.o "$object" \
+      --function func_802963D0_6A7A80 \
+      --census aligned_register=0,frame=-128 >/dev/null && echo "$object"
+done
+```
+
+`--census KEY=VALUE` works on `compare`, `compare-dumps`, `view`, and
+`view-dumps`, over any key those commands report. Exit `0` means every
+predicate held, `3` means one failed, and `2` means the question itself was
+wrong — a misspelled key is caught before the inputs are read, so it costs
+nothing in a long sweep.
+
+See [Candidate campaigns](campaigns.md) for the full option set, and
+[object comparison](object-comparison.md#ask-a-question-and-read-the-exit-code---census)
+for the census contract.
 
 ---
 

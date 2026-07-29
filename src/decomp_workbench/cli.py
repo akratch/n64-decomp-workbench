@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -19,8 +19,16 @@ from . import __version__
 from .agent_skill import install_agent_skill
 from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
+from .census import (
+    CensusResult,
+    census_status,
+    evaluate_census,
+    parse_census,
+    print_census,
+)
 from .cli_options import (
     SYMBOL_OPTION_DEST,
+    add_census_argument,
     add_explain_keys_argument,
     add_symbol_argument,
 )
@@ -43,7 +51,7 @@ from .instrument_uopt import (
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
-from .schema import selected_fields, summary_line
+from .schema import COMPARISON_CENSUS_KEYS, selected_fields, summary_line
 from .scratch_bundle import bundle_scratch
 from .trace import (
     alias_trace_summary,
@@ -126,15 +134,23 @@ def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, s
     return False, "mismatch"
 
 
-def comparison_payload(item: Comparison, *, cross_rom: bool) -> dict[str, object]:
+def comparison_payload(
+    item: Comparison,
+    *,
+    cross_rom: bool,
+    census: Sequence[CensusResult] = (),
+) -> dict[str, object]:
     """Add command-level acceptance context to a comparison JSON result."""
 
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
-    return {
+    payload: dict[str, object] = {
         **item.as_dict(),
         "accepted": accepted,
         "acceptance_basis": basis,
     }
+    if census:
+        payload["census"] = [result.as_dict() for result in census]
+    return payload
 
 
 def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
@@ -185,6 +201,13 @@ def print_diff_sites(item: Comparison) -> None:
 
 def compare_command(args: argparse.Namespace) -> int:
     try:
+        # Parsed before any work: a sweep that spends a compile per candidate
+        # should not spend one to discover a misspelled key.
+        predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    try:
         comparison = compare_objects(
             args.target,
             args.candidate,
@@ -196,10 +219,15 @@ def compare_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
+    try:
+        census = evaluate_census(predicates, comparison.as_dict())
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     if args.json:
         print(
             json.dumps(
-                comparison_payload(comparison, cross_rom=args.cross_rom),
+                comparison_payload(comparison, cross_rom=args.cross_rom, census=census),
                 indent=2,
                 sort_keys=True,
             )
@@ -221,10 +249,18 @@ def compare_command(args: argparse.Namespace) -> int:
             )
         if args.show_diff:
             print_diff_sites(comparison)
-    return 1 if args.fail_on_mismatch and not accepted else 0
+        print_census(census)
+    return census_status(
+        census, otherwise=1 if args.fail_on_mismatch and not accepted else 0
+    )
 
 
 def compare_dumps_command(args: argparse.Namespace) -> int:
+    try:
+        predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     try:
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
@@ -249,10 +285,15 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         symbol=args.symbol,
     )
     accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
+    try:
+        census = evaluate_census(predicates, comparison.as_dict())
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     if args.json:
         print(
             json.dumps(
-                comparison_payload(comparison, cross_rom=args.cross_rom),
+                comparison_payload(comparison, cross_rom=args.cross_rom, census=census),
                 indent=2,
                 sort_keys=True,
             )
@@ -272,7 +313,10 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
             )
         if args.show_diff:
             print_diff_sites(comparison)
-    return 1 if args.fail_on_mismatch and not accepted else 0
+        print_census(census)
+    return census_status(
+        census, otherwise=1 if args.fail_on_mismatch and not accepted else 0
+    )
 
 
 def bundle_scratch_command(args: argparse.Namespace) -> int:
@@ -1036,6 +1080,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
     )
+    add_census_argument(compare_parser)
     compare_parser.set_defaults(handler=compare_command)
 
     dumps_parser = commands.add_parser(
@@ -1059,6 +1104,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
     )
+    add_census_argument(dumps_parser)
     dumps_parser.set_defaults(handler=compare_dumps_command)
 
     # `view` and `view-dumps` read the same two inputs as `compare` and

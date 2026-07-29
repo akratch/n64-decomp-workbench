@@ -103,3 +103,24 @@ def add_explain_keys_argument(parser: argparse.ArgumentParser) -> None:
         action=ExplainKeysAction,
         help="print the metric registry (label, JSON key, meaning) and exit",
     )
+
+
+def add_census_argument(parser: argparse.ArgumentParser) -> None:
+    """Offer the report predicate wherever a report is produced.
+
+    One spelling and one exit-code contract on every command that reports
+    metrics: a filter whose meaning depended on which command ran it would be
+    worse than the ad-hoc regular expressions it replaces.
+    """
+
+    parser.add_argument(
+        "--census",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE[,KEY=VALUE...]",
+        help=(
+            "assert reported values; exit 3 if any predicate fails "
+            "(2 for an unknown key), and print one PASS/FAIL line each. "
+            "Repeatable"
+        ),
+    )

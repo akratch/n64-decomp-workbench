@@ -284,6 +284,29 @@ vocabularies are listed separately.
 | `--color auto\|always\|never` | ANSI web coloring |
 | `--json` | machine-readable output |
 | `--fail-on-mismatch` | exit 1 unless the verdict is `exact` or `words-identical` |
+| `--census KEY=VALUE[,...]` | assert reported values; exit 3 if any predicate fails, 2 for an unknown key |
+
+`--census` takes this command's keys — `structural=0`, `verdict=phase-shift`,
+`prefix_exact=12`, `candidate_frame_size=-128` — and turns a shell loop into a
+filter without a JSON parser in it:
+
+```sh
+decomp-workbench view-dumps \
+  examples/fixtures/phase-shift-target.objdump \
+  examples/fixtures/phase-shift-candidate.objdump \
+  --function animStep --census verdict=phase-shift,register=6
+```
+
+```text
+census: PASS verdict=phase-shift
+census: PASS register=6
+```
+
+The exit-code contract is shared with `compare` and documented once, in
+[object comparison](object-comparison.md#ask-a-question-and-read-the-exit-code---census).
+The view's keys are its own: `register` here counts aligned rows, and
+`aligned_register` on `compare` is the same number under the comparison
+registry's spelling.
 
 ## Boundaries
 

@@ -381,6 +381,35 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("count", "count", "number of sites"),
 )
 
+# Keys a command wraps around a report rather than measures. They answer
+# "what did this invocation decide", not "what do these two objects look like",
+# which is why they are not in the comparison registry -- but a key nobody
+# explains is the defect the registry exists to prevent, so they are registered
+# and ``--explain-keys`` prints them too.
+COMMAND_METRICS: tuple[Metric, ...] = (
+    Metric(
+        "accepted",
+        "accepted",
+        "whether this invocation satisfies --fail-on-mismatch",
+    ),
+    Metric(
+        "acceptance_basis",
+        "acceptance_basis",
+        "function-exact, cross-rom-structural, or mismatch: why the command "
+        "accepted or rejected the comparison",
+    ),
+    Metric(
+        "census",
+        "census",
+        "--census predicate results; exit 3 when any of them fails, which is "
+        "distinct from the exit 1 of --fail-on-mismatch",
+    ),
+    Metric("key", "key", "the metric one census predicate asked about"),
+    Metric("expected", "expected", "the value a census predicate was written with"),
+    Metric("actual", "actual", "the value the report carried for that key"),
+    Metric("pass", "pass", "whether one census predicate held"),
+)
+
 METRICS_BY_KEY: dict[str, Metric] = {
     item.key: item for item in (*METRICS, *CAMPAIGN_METRICS)
 }
@@ -391,6 +420,17 @@ SUMMARY_METRICS: tuple[Metric, ...] = tuple(item for item in METRICS if item.sum
 DEPRECATED_KEYS: dict[str, str] = {
     alias: item.key for item in METRICS for alias in item.deprecated_keys
 }
+#: Spellings ``--census`` accepts on a comparison, mapped to the report key
+#: each one reads. The deprecated aliases are accepted for as long as the JSON
+#: still emits them: a predicate should not stop working one release before the
+#: key it names does.
+COMPARISON_CENSUS_KEYS: dict[str, str] = {
+    **{item.key: item.key for item in METRICS},
+    **DEPRECATED_KEYS,
+}
+#: Spellings ``--census`` accepts on the aligned view. The view has no
+#: compatibility spellings, so its keys are exactly its own.
+VIEW_CENSUS_KEYS: dict[str, str] = {item.key: item.key for item in VIEW_METRICS}
 
 
 def summary_line(item: Any) -> str:
@@ -456,10 +496,14 @@ def explain_keys_text() -> str:
     rows = describe(METRICS)
     campaign_rows = describe(CAMPAIGN_METRICS)
     view_rows = describe(VIEW_METRICS)
+    command_rows = describe(COMMAND_METRICS)
     widths = [
         max(
             len(titles[column]),
-            *(len(row[column]) for row in rows + campaign_rows + view_rows),
+            *(
+                len(row[column])
+                for row in rows + campaign_rows + view_rows + command_rows
+            ),
         )
         for column in range(3)
     ]
@@ -507,5 +551,16 @@ def explain_keys_text() -> str:
             format_columns(titles),
             separator,
             *format_rows(view_rows),
+            "",
+            "Command result keys. These describe what one invocation decided "
+            "rather than what",
+            "the two inputs look like: acceptance, and the --census predicate "
+            "results (exit 3",
+            "when any predicate fails, distinct from the exit 1 of "
+            "--fail-on-mismatch).",
+            "",
+            format_columns(titles),
+            separator,
+            *format_rows(command_rows),
         ]
     )

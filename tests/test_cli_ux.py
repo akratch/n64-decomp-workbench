@@ -28,6 +28,9 @@ SYMBOL_COMMANDS = (
     "campaign",
 )
 
+#: Every command that produces one report a predicate can be asked about.
+CENSUS_COMMANDS = ("compare", "compare-dumps", "view", "view-dumps")
+
 
 class CliUxTests(unittest.TestCase):
     last_stdout = ""
@@ -271,6 +274,21 @@ class CliUxTests(unittest.TestCase):
                 # One registry: the aligned view's keys are explained too.
                 self.assertIn("aligned_rows", self.last_stdout)
                 self.assertIn("Aligned mechanism view keys", self.last_stdout)
+
+    def test_census_is_offered_by_every_command_that_reports(self) -> None:
+        """One spelling, one exit-code contract, four commands.
+
+        The key is validated before the inputs are read, so this also proves
+        the promise a sweep depends on: a misspelled predicate costs nothing.
+        """
+
+        for command in CENSUS_COMMANDS:
+            with self.subTest(command=command):
+                status, _, stderr = self.run_cli(
+                    [command, "missing-target", "missing-candidate", "--census", "x=1"]
+                )
+                self.assertEqual(status, 2)
+                self.assertIn("unknown census key 'x'", stderr)
 
     def test_json_reports_both_the_canonical_and_deprecated_key(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

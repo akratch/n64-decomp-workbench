@@ -124,6 +124,13 @@ quality gate fails. Commands return two for invalid input, missing files,
 tool-discovery failures, or failed external stages. Ranking and trace-summary
 commands can also return one when they produce no usable result.
 
+Commands given `--census` return **three** when the report was produced and at
+least one predicate failed. Three rather than one, because `--fail-on-mismatch`
+already owns one and answers a different question: a variant can be the shape
+the census is looking for and still not be a match. A malformed or unknown
+census key is a usage error and returns two like every other one, before the
+inputs are read.
+
 Use `--json` for machine-readable details, but retain stderr as well: setup and
 external-tool failures are written there.
 

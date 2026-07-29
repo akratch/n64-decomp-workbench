@@ -232,7 +232,11 @@ dial rather than search. On `texLoadTextureActual`, one read left 5 words and
 two reads left zero.
 
 **Practical note:** this is the cheapest possible campaign — a one-dimensional
-sweep of *n* reads at one site, not a permutation search.
+sweep of *n* reads at one site, not a permutation search. Filter the results
+with `--census aligned_register=0` (or whichever key the dial is supposed to
+move) rather than by reading each report: the exit code is `0` when the
+predicate holds and `3` when it does not, so the sweep prints only the *n* that
+worked.
 
 ### 10. The chain-split dead read
 

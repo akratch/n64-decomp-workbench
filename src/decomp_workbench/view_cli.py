@@ -19,9 +19,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
-from .cli_options import add_explain_keys_argument, add_symbol_argument
+from .census import (
+    Predicate,
+    census_status,
+    evaluate_census,
+    parse_census,
+    print_census,
+)
+from .cli_options import (
+    add_census_argument,
+    add_explain_keys_argument,
+    add_symbol_argument,
+)
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
+from .schema import VIEW_CENSUS_KEYS
 from .view import (
     DEFAULT_REGISTER_PROFILE,
     MATCH,
@@ -374,13 +386,21 @@ def render_view(
 # ---------------------------------------------------------------------------
 
 
-def _emit(view: MechanismView, args: argparse.Namespace) -> int:
+def _emit(
+    view: MechanismView,
+    args: argparse.Namespace,
+    predicates: Sequence[Predicate] = (),
+) -> int:
+    payload = view.as_dict(report_regs=args.report_regs)
+    try:
+        census = evaluate_census(predicates, payload)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     if args.json:
-        print(
-            json.dumps(
-                view.as_dict(report_regs=args.report_regs), indent=2, sort_keys=True
-            )
-        )
+        if census:
+            payload["census"] = [item.as_dict() for item in census]
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(args.color))
         for line in render_view(
@@ -392,9 +412,12 @@ def _emit(view: MechanismView, args: argparse.Namespace) -> int:
             painter=painter,
         ):
             print(line)
-    if args.fail_on_mismatch and view.verdict not in {"exact", "words-identical"}:
-        return 1
-    return 0
+        print_census(census)
+    mismatched = args.fail_on_mismatch and view.verdict not in {
+        "exact",
+        "words-identical",
+    }
+    return census_status(census, otherwise=1 if mismatched else 0)
 
 
 def _symbol(args: argparse.Namespace) -> str | None:
@@ -408,6 +431,11 @@ def view_command(args: argparse.Namespace) -> int:
     """Render the aligned mechanism view for two object files."""
 
     symbol = _symbol(args)
+    try:
+        predicates = parse_census(args.census, allowed=VIEW_CENSUS_KEYS)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     try:
         _, target = dump_object(
             args.target, objdump=args.objdump, symbol=symbol, section=args.section
@@ -426,13 +454,18 @@ def view_command(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    return _emit(view, args)
+    return _emit(view, args, predicates)
 
 
 def view_dumps_command(args: argparse.Namespace) -> int:
     """Render the aligned mechanism view from retained GNU objdump text."""
 
     symbol = _symbol(args)
+    try:
+        predicates = parse_census(args.census, allowed=VIEW_CENSUS_KEYS)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     try:
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
@@ -461,7 +494,7 @@ def view_dumps_command(args: argparse.Namespace) -> int:
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    return _emit(view, args)
+    return _emit(view, args, predicates)
 
 
 def _add_shared_arguments(
@@ -530,6 +563,7 @@ def _add_shared_arguments(
         action="store_true",
         help="return exit 1 unless the verdict is exact or words-identical",
     )
+    add_census_argument(parser)
 
 
 def register_view_commands(commands: argparse._SubParsersAction[Any]) -> None:

@@ -207,6 +207,57 @@ shape, where it is exactly the right question, and `words=0` with
 `exact=true` remains the only matching claim. This is a convenient default, not
 a claim that one scalar ordering captures every useful transition.
 
+## Ask a question and read the exit code: `--census`
+
+`compare`, `compare-dumps`, `view`, and `view-dumps` accept predicates over the
+keys they already report:
+
+```sh
+decomp-workbench compare target.o candidate.o --symbol texDPTextures \
+  --census aligned_register=0,frame=-128
+```
+
+```text
+census: PASS aligned_register=0
+census: FAIL frame=-128 (actual -96)
+```
+
+One `KEY=VALUE` per predicate, comma-separated, and `--census` may be repeated.
+A comma only separates entries when what follows it starts another `KEY=`, so a
+value that contains one — `verdict=mixed(constant:1, register:2)` — survives.
+
+| Status | Meaning |
+|---|---|
+| `0` | the report was produced and every predicate held |
+| `3` | the report was produced and at least one predicate failed |
+| `2` | the census could not be evaluated: bad syntax, an unknown key, a non-scalar key, or a value of the wrong type |
+
+`3` is deliberately not `1`. `--fail-on-mismatch` already answers with `1` and
+means "this candidate is not a match"; the two questions are independent,
+because a variant can be exactly the shape you are looking for and still not be
+the match. When both are passed and a predicate fails, the status is `3`.
+
+Any key the command reports can be named, including the deprecated JSON
+spellings for as long as they are emitted; `--explain-keys` prints the list.
+Keys whose value is a list or an object (`diff_sites`, `hunks`, `lanes`) are
+refused rather than silently compared. Values are compared by the reported
+type: `exact=true` reads a boolean, `frame=-0x80` reads an integer in any base,
+`target_frame=none` reads a missing value, and a verdict compares as text.
+
+Predicates are checked against the registry **before** the inputs are read, so
+a misspelled key in a 2500-variant sweep costs one process, not one compile.
+That is the point of the feature: campaign agents rebuilt this filter as an
+objdump-and-regular-expression layer at least seven times in one day, and the
+regular expression version keyed on the wrong thing at least once.
+
+```sh
+# Keep only the variants whose register residual is gone.
+for object in build/variants/*.o; do
+    decomp-workbench compare target.o "$object" --symbol texDPTextures \
+      --census aligned_register=0 >/dev/null && echo "$object"
+done
+```
+
 ## Relocations
 
 The workbench invokes GNU-compatible objdump with `-d -r -z`. At each aligned

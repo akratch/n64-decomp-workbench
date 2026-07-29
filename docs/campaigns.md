@@ -169,6 +169,12 @@ and the JSON key are one string, and `decomp-workbench campaign --explain-keys`
 prints the mapping (including the deprecated long-form keys still emitted for
 one release).
 
+To ask one yes/no question about a single candidate — inside a shell loop, a
+generator, or a fidelity gate — use `compare --census` and read the exit code
+instead of parsing the campaign's JSON. It answers `0` when every predicate
+holds, `3` when one fails, and `2` when the question itself is wrong; see
+[object comparison](object-comparison.md#ask-a-question-and-read-the-exit-code---census).
+
 Use `--json-summary` for automation that only needs ranking metrics, hashes,
 cache status, and retained-object paths. Unlike the full `--json` report, it
 omits compiler streams, stack/register histograms, and instruction-level

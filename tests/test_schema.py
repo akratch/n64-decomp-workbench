@@ -17,9 +17,12 @@ from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.schema import (
     CAMPAIGN_METRICS,
+    COMMAND_METRICS,
+    COMPARISON_CENSUS_KEYS,
     DEPRECATED_KEYS,
     METRICS,
     METRICS_BY_KEY,
+    VIEW_CENSUS_KEYS,
     VIEW_METRICS,
     VIEW_METRICS_BY_KEY,
     explain_keys_text,
@@ -118,13 +121,32 @@ class SchemaTests(unittest.TestCase):
 
     def test_explain_keys_lists_every_metric(self) -> None:
         text = explain_keys_text()
-        for metric in (*METRICS, *CAMPAIGN_METRICS, *VIEW_METRICS):
+        for metric in (*METRICS, *CAMPAIGN_METRICS, *VIEW_METRICS, *COMMAND_METRICS):
             with self.subTest(key=metric.key):
                 self.assertIn(metric.key, text)
                 self.assertIn(metric.description.split(";")[0][:40], text)
         self.assertIn("word_mismatches", text)
         self.assertIn("Campaign report keys", text)
         self.assertIn("Aligned mechanism view keys", text)
+        self.assertIn("Command result keys", text)
+
+    def test_census_accepts_exactly_the_keys_a_command_reports(self) -> None:
+        """A predicate may name any reported key, and nothing else.
+
+        Both directions matter: a key the report carries but the census refuses
+        sends the reader back to a JSON parser, and a key the census accepts but
+        the report never carries would answer every question with `None`.
+        """
+
+        self.assertEqual(
+            set(COMPARISON_CENSUS_KEYS),
+            {metric.key for metric in METRICS} | set(DEPRECATED_KEYS),
+        )
+        self.assertEqual(set(VIEW_CENSUS_KEYS), {metric.key for metric in VIEW_METRICS})
+        payload = build_comparison().as_dict()
+        for spelling, key in COMPARISON_CENSUS_KEYS.items():
+            with self.subTest(key=spelling):
+                self.assertIn(key, payload)
 
     def test_the_view_registry_is_the_view_vocabulary(self) -> None:
         """One registry, and the view reads its keys from it, not a copy."""

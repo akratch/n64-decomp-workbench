@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- New `--census KEY=VALUE[,KEY=VALUE...]` on `compare`, `compare-dumps`,
+  `view`, and `view-dumps`: assert values the command already reports and read
+  the answer as an exit code — `0` when every predicate held, `3` when one
+  failed, `2` when the question itself was wrong. One `PASS`/`FAIL` line prints
+  per predicate, `--json` carries them under `census`, and the option is
+  repeatable.
+
+  Campaign agents rebuilt this filter at least seven times in one day as an
+  objdump-and-regular-expression layer outside the workbench, and at least one
+  of those copies keyed on the wrong instruction. `3` is deliberately not `1`:
+  `--fail-on-mismatch` already means "this candidate is not a match", and a
+  variant can be exactly the shape you are filtering for and still not be the
+  match.
+
+  Any key the command reports can be named, including the deprecated JSON
+  spellings while they are still emitted; keys whose value is a list or an
+  object are refused rather than silently compared; values compare by the
+  reported type, so `exact=true` reads a boolean and `frame=-0x80` reads an
+  integer in any base. Predicates are validated against the registry before the
+  inputs are read, so a misspelled key in a long sweep costs one process rather
+  than one compile. `--explain-keys` gained a fourth section for the keys a
+  command wraps around a report (`accepted`, `acceptance_basis`, and the census
+  results), which had never been explained anywhere.
+
 - `compare` and `compare-dumps` now report the LCS-aligned residual beside the
   positional one, and **candidate ranking moved to it**. `aligned_total` leads
   the summary line; `aligned_structural`, `aligned_schedule`,
