@@ -9,10 +9,83 @@ default instead of pretending the patch is portable across IDO releases.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
+
+from .globalcolor import COLOR_REGISTERS
 
 MARKER = "DKWB_UOPT_GLOBALCOLOR_V1"
 IDO_53_V12_SHA256 = "b0058f1559441c1a194d649271eb43b8637ec255682cfdd629031340b915b13f"
+
+FORCE_ENTRY_RE = re.compile(r"^(?P<phase>p[12]):w(?P<web>\d+)=(?:c(?P<color>\d+)|s)$")
+
+UNQUALIFIED_FORCE_MESSAGE = (
+    "is not phase-qualified; write p1:w9=c30 for the phase-one "
+    "(callee-saved) sweep or p2:w9=c30 for the phase-two (caller-saved) "
+    "sweep. p1 and p2 are disjoint web spaces: the same web number is a "
+    "different web in each phase"
+)
+
+
+@dataclass(frozen=True)
+class ForceEntry:
+    """One phase-qualified globalcolor force control."""
+
+    phase: str
+    web: int
+    color: int | None
+    """Target color, or ``None`` for the split/no-color path."""
+
+    def __str__(self) -> str:
+        choice = "s" if self.color is None else f"c{self.color}"
+        return f"{self.phase}:w{self.web}={choice}"
+
+
+def parse_force_specification(value: str) -> list[ForceEntry]:
+    """Parse a ``CDX_FORCE`` string, rejecting unqualified web keys.
+
+    An unqualified ``w55=c2`` is ambiguous: phase one colors callee-saved
+    webs and phase two colors caller-saved webs, and their web numbering is
+    disjoint. A bare key once made an exhaustive phase-one sweep look like an
+    exhaustive sweep of everything and produced a wrong conclusion, so it is
+    rejected here and by the instrumented pass rather than guessed.
+    """
+
+    entries: list[ForceEntry] = []
+    for raw in value.split(","):
+        entry = raw.strip()
+        if not entry:
+            continue
+        match = FORCE_ENTRY_RE.match(entry)
+        if match is None:
+            raise ValueError(f"CDX_FORCE entry {entry!r} {UNQUALIFIED_FORCE_MESSAGE}")
+        color = match.group("color")
+        entries.append(
+            ForceEntry(
+                phase=match.group("phase"),
+                web=int(match.group("web")),
+                color=None if color is None else int(color),
+            )
+        )
+    if not entries:
+        raise ValueError("CDX_FORCE is empty; write p1:w9=c30 or p2:w9=c30")
+    return entries
+
+
+def color_register_table() -> str:
+    """Render the color decode table as C, from the one Python mapping."""
+
+    highest = max(COLOR_REGISTERS)
+    values = ", ".join(
+        f'"{COLOR_REGISTERS[color]}"' if color in COLOR_REGISTERS else "0"
+        for color in range(highest + 1)
+    )
+    return (
+        f"#define DKWB_CDX_MAX_COLOR {highest}\n"
+        f"static const char *dkwb_cdx_colors[DKWB_CDX_MAX_COLOR + 1] = "
+        f"{{{values}}};\n"
+    )
+
 
 HEADER = r"""
 /* DKWB_UOPT_GLOBALCOLOR_V1
@@ -27,16 +100,58 @@ static int dkwb_cdx_log;
 static int dkwb_cdx_proc = -1;
 static int dkwb_cdx_detail_web = -1;
 static int dkwb_cdx_globalcolor_ordinal = -1;
+static int dkwb_cdx_proc_decisions;
+static char dkwb_cdx_proc_symbol[256];
 static char dkwb_cdx_force[16384];
 static FILE *dkwb_cdx_output;
+DKWB_CDX_COLOR_TABLE
+static const char *dkwb_cdx_register_name(int color) {
+    if (color >= 1 && color <= DKWB_CDX_MAX_COLOR && dkwb_cdx_colors[color])
+        return dkwb_cdx_colors[color];
+    return "?";
+}
+/* Both phases index the same color space, so an unqualified force key is
+ * ambiguous: p1 colors callee-saved webs and p2 colors caller-saved webs
+ * with disjoint web numbering. Refusing the bare form is deliberate; a
+ * silently phase-one-only sweep once produced a wrong conclusion. */
+static void dkwb_cdx_validate_force(void) {
+    const char *cursor = dkwb_cdx_force;
+    while (*cursor) {
+        char entry[64];
+        const char *comma = strchr(cursor, ',');
+        size_t length = comma ? (size_t)(comma - cursor) : strlen(cursor);
+        if (length >= sizeof(entry)) length = sizeof(entry) - 1;
+        memcpy(entry, cursor, length);
+        entry[length] = '\0';
+        if (!(entry[0] == 'p' && (entry[1] == '1' || entry[1] == '2') &&
+                entry[2] == ':' && entry[3] == 'w')) {
+            fprintf(stderr,
+                "DKWB: CDX_FORCE entry \"%s\" is not phase-qualified; write "
+                "p1:w9=c30 for the phase-one (callee-saved) sweep or "
+                "p2:w9=c30 for the phase-two (caller-saved) sweep. "
+                "p1 and p2 are disjoint web spaces: the same web number is a "
+                "different web in each phase.\n", entry);
+            exit(2);
+        }
+        cursor = comma ? comma + 1 : cursor + strlen(cursor);
+    }
+}
+static void dkwb_cdx_procindex(void) {
+    if (dkwb_cdx_globalcolor_ordinal < 0) return;
+    if (!dkwb_cdx_log && !dkwb_cdx_proc_symbol[0]) return;
+    fprintf(dkwb_cdx_output, "[CDX] procindex proc=%d decisions=%d\n",
+        dkwb_cdx_globalcolor_ordinal, dkwb_cdx_proc_decisions);
+}
+static void dkwb_cdx_finish(void) {
+    dkwb_cdx_procindex();
+    if (dkwb_cdx_output) fflush(dkwb_cdx_output);
+}
 static void dkwb_cdx_init(void) {
     const char *value;
     if (dkwb_cdx_ready) return;
     dkwb_cdx_ready = 1;
     value = getenv("CDX_LOG");
     dkwb_cdx_log = value ? atoi(value) : 0;
-    value = getenv("CDX_PROC");
-    dkwb_cdx_proc = value ? atoi(value) : -1;
     value = getenv("CDX_DETAIL_WEB");
     dkwb_cdx_detail_web =
         value && strcmp(value, "all") == 0 ? -2 : (value ? atoi(value) : -1);
@@ -48,10 +163,40 @@ static void dkwb_cdx_init(void) {
     value = getenv("CDX_OUT");
     dkwb_cdx_output = value && *value ? fopen(value, "w") : stderr;
     if (!dkwb_cdx_output) dkwb_cdx_output = stderr;
-    if (dkwb_cdx_force[0] && dkwb_cdx_proc < 0) {
-        fprintf(stderr, "DKWB: CDX_FORCE ignored without CDX_PROC\n");
-        dkwb_cdx_force[0] = '\0';
+    value = getenv("CDX_PROC");
+    if (value && *value) {
+        char *end;
+        long ordinal = strtol(value, &end, 10);
+        if (*end == '\0') {
+            dkwb_cdx_proc = (int)ordinal;
+        } else {
+            /* globalcolor sees procedure ordinals and symbol numbers, never
+             * linker names. Silently atoi()ing a name to procedure 0 caused
+             * two wrong conclusions, so the name is refused and the ordinal
+             * table is emitted instead. */
+            strncpy(dkwb_cdx_proc_symbol, value,
+                sizeof(dkwb_cdx_proc_symbol) - 1);
+            dkwb_cdx_proc_symbol[sizeof(dkwb_cdx_proc_symbol) - 1] = '\0';
+            dkwb_cdx_proc = -1;
+            fprintf(stderr,
+                "DKWB: CDX_PROC=\"%s\" is a symbol name, which this profile "
+                "cannot resolve: globalcolor sees procedure ordinals and "
+                "symbol numbers, not linker names. Every procedure is now "
+                "logged and a [CDX] procindex table of "
+                "ordinal -> allocator-decision count is emitted; pick the "
+                "ordinal for your function and re-run with "
+                "CDX_PROC=<ordinal>. Force controls stay disabled until an "
+                "ordinal is selected.\n", value);
+        }
     }
+    if (dkwb_cdx_force[0]) {
+        dkwb_cdx_validate_force();
+        if (dkwb_cdx_proc < 0) {
+            fprintf(stderr, "DKWB: CDX_FORCE ignored without CDX_PROC\n");
+            dkwb_cdx_force[0] = '\0';
+        }
+    }
+    atexit(dkwb_cdx_finish);
 }
 static int dkwb_cdx_active(int ordinal) {
     return dkwb_cdx_proc < 0 || ordinal == dkwb_cdx_proc;
@@ -98,13 +243,14 @@ static void dkwb_cdx_log_ichain(
         (unsigned int)MEM_U32(ichain + 24),
         (unsigned int)MEM_U32(ichain + 32));
 }
-/* -2: no override, -1: force split/no-color, >=0: force color. */
-static int dkwb_cdx_lookup(int ordinal, int web) {
+/* -2: no override, -1: force split/no-color, >=0: force color.
+ * Keys are phase-qualified: p1:w9=c30 and p2:w9=c30 are different webs. */
+static int dkwb_cdx_lookup(int ordinal, const char *phase, int web) {
     char key[32];
     const char *cursor;
     int key_length;
     if (!dkwb_cdx_force[0] || !dkwb_cdx_active(ordinal)) return -2;
-    key_length = snprintf(key, sizeof(key), "w%d=", web);
+    key_length = snprintf(key, sizeof(key), "%s:w%d=", phase, web);
     cursor = dkwb_cdx_force;
     while ((cursor = strstr(cursor, key)) != NULL) {
         if (cursor == dkwb_cdx_force || cursor[-1] == ',') {
@@ -124,9 +270,11 @@ static int dkwb_cdx_lookup(int ordinal, int web) {
     if (dkwb_cdx_log && dkwb_cdx_active(ordinal) && \
             ((web) == dkwb_cdx_detail_web || dkwb_cdx_detail_web == -2)) \
         fprintf(dkwb_cdx_output, \
-            "[CDX] %scost proc=%d web=%d color=%d kind=%s " \
+            "[CDX] %scost phase=%s proc=%d web=%d color=%d reg=%s kind=%s " \
             "cost=%.6f best_before=%.6f\n", \
-            phase, ordinal, web, reg, kind, (double)(cost), (double)(best)); \
+            phase, phase, ordinal, web, reg, \
+            dkwb_cdx_register_name(reg), kind, \
+            (double)(cost), (double)(best)); \
 } while (0)
 static void dkwb_cdx_log_interference(
         uint8_t *mem, int ordinal, int web, uint32_t liverange) {
@@ -192,10 +340,11 @@ def instrument_uopt_globalcolor(
             "every anchor and running a disabled-instrumentation fidelity test"
         )
 
+    header = HEADER.replace("DKWB_CDX_COLOR_TABLE\n", color_register_table())
     result = _replace_once(
         source,
         "static void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {\n",
-        HEADER
+        header
         + "\nstatic void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {\n",
         "instrumentation header",
     )
@@ -206,6 +355,8 @@ def instrument_uopt_globalcolor(
         "int dkwb_cdx_ordinal;\n"
         "int dkwb_cdx_decision;\n"
         "dkwb_cdx_init();\n"
+        "dkwb_cdx_procindex();\n"
+        "dkwb_cdx_proc_decisions = 0;\n"
         "dkwb_cdx_globalcolor_ordinal++;\n"
         "dkwb_cdx_ordinal = dkwb_cdx_globalcolor_ordinal;\n"
         'DKWB_CDX_LOG(dkwb_cdx_ordinal, "[CDX] globalcolor proc=%d\\n", '
@@ -219,7 +370,7 @@ def instrument_uopt_globalcolor(
         "L471758:\ns5 = MEM_U32(sp + 276);\n//nop;\n"
         "f0.w[0] = MEM_U32(s5 + 48);\n"
         "DKWB_CDX_LOG(dkwb_cdx_ordinal, "
-        '"[CDX] p1cand proc=%d web=%d sym=%d save=%.6f '
+        '"[CDX] p1cand phase=p1 proc=%d web=%d sym=%d save=%.6f '
         'nocs=%d best=%.6f\\n", dkwb_cdx_ordinal, '
         "(int)MEM_U32(sp + 272), "
         "(int)MEM_U16(MEM_U32(s5 + 0) + 2), (double)f0.f[0], "
@@ -254,11 +405,12 @@ def instrument_uopt_globalcolor(
         "cf = f6.f[0] <= f20.f[0];\n"
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 268);\n"
+        "    dkwb_cdx_proc_decisions++;\n"
         "    dkwb_cdx_decision = dkwb_cdx_lookup("
-        "dkwb_cdx_ordinal, dkwb_web);\n"
+        'dkwb_cdx_ordinal, "p1", dkwb_web);\n'
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
-        '"[CDX] p1dec proc=%d web=%d sym=%d class=%d save=%.6f '
-        "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d "
+        '"[CDX] p1dec phase=p1 proc=%d web=%d sym=%d class=%d save=%.6f '
+        "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d bestreg=%s "
         "forbidden0=0x%08x forbidden1=0x%08x regsleft=%d numintf=%d "
         "available0=0x%08x available1=0x%08x allcallersave=%d "
         "taken1=%d taken2=%d "
@@ -266,6 +418,7 @@ def instrument_uopt_globalcolor(
         "(int)MEM_U16(MEM_U32(s5 + 0) + 2), (int)s6, "
         "(double)f10.f[0], (int)t2, (double)f6.f[0], "
         "(double)f20.f[0], (int)MEM_U32(sp + 220), "
+        "dkwb_cdx_register_name((int)MEM_U32(sp + 220)), "
         "(unsigned int)MEM_U32(s5 + 40), (unsigned int)MEM_U32(s5 + 44), "
         "(int)MEM_U8(s5 + 33), (int)MEM_U32(s5 + 36), "
         "(unsigned int)MEM_U32(sp + 212), "
@@ -288,16 +441,18 @@ def instrument_uopt_globalcolor(
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 268);\n"
         "    int dkwb_force = dkwb_cdx_lookup("
-        "dkwb_cdx_ordinal, dkwb_web);\n"
+        'dkwb_cdx_ordinal, "p1", dkwb_web);\n'
         "    if (dkwb_force >= 0) {\n"
         "        MEM_U32(sp + 220) = (uint32_t)dkwb_force;\n"
         "        t8 = (uint32_t)dkwb_force;\n"
         "    }\n"
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
-        '"[CDX] p1color proc=%d web=%d sym=%d color=%d forced=%d\\n", '
+        '"[CDX] p1color phase=p1 proc=%d web=%d sym=%d '
+        'color=%d reg=%s forced=%d\\n", '
         "dkwb_cdx_ordinal, dkwb_web, "
         "(int)MEM_U16(MEM_U32(s5 + 0) + 2), "
-        "(int)MEM_U32(sp + 220), dkwb_force);\n"
+        "(int)MEM_U32(sp + 220), "
+        "dkwb_cdx_register_name((int)MEM_U32(sp + 220)), dkwb_force);\n"
         "}\n"
         "t5 = MEM_U32(sp + 220);",
         "phase-one color",
@@ -329,11 +484,12 @@ def instrument_uopt_globalcolor(
         "cf = f20.f[0] < f10.f[0];\n"
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 272);\n"
+        "    dkwb_cdx_proc_decisions++;\n"
         "    dkwb_cdx_decision = dkwb_cdx_lookup("
-        "dkwb_cdx_ordinal, dkwb_web);\n"
+        'dkwb_cdx_ordinal, "p2", dkwb_web);\n'
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
-        '"[CDX] p2dec proc=%d web=%d sym=%d class=%d save=%.6f '
-        "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d "
+        '"[CDX] p2dec phase=p2 proc=%d web=%d sym=%d class=%d save=%.6f '
+        "nocs=%d totalsave=%.6f bestcost=%.6f bestcolor=%d bestreg=%s "
         "forbidden0=0x%08x forbidden1=0x%08x regsleft=%d numintf=%d "
         "available0=0x%08x available1=0x%08x allcallersave=%d "
         "taken1=%d taken2=%d "
@@ -341,6 +497,7 @@ def instrument_uopt_globalcolor(
         "(int)MEM_U16(MEM_U32(s5 + 0) + 2), (int)s6, "
         "(double)f8.f[0], (int)t0, (double)f10.f[0], "
         "(double)f20.f[0], (int)MEM_U32(sp + 220), "
+        "dkwb_cdx_register_name((int)MEM_U32(sp + 220)), "
         "(unsigned int)MEM_U32(s5 + 40), (unsigned int)MEM_U32(s5 + 44), "
         "(int)MEM_U8(s5 + 33), (int)MEM_U32(s5 + 36), "
         "(unsigned int)MEM_U32(sp + 212), "
@@ -363,16 +520,18 @@ def instrument_uopt_globalcolor(
         "{\n"
         "    int dkwb_web = (int)MEM_U32(sp + 272);\n"
         "    int dkwb_force = dkwb_cdx_lookup("
-        "dkwb_cdx_ordinal, dkwb_web);\n"
+        'dkwb_cdx_ordinal, "p2", dkwb_web);\n'
         "    if (dkwb_force >= 0) {\n"
         "        MEM_U32(sp + 220) = (uint32_t)dkwb_force;\n"
         "        t0 = (uint32_t)dkwb_force;\n"
         "    }\n"
         "    DKWB_CDX_LOG(dkwb_cdx_ordinal, "
-        '"[CDX] p2color proc=%d web=%d sym=%d color=%d forced=%d\\n", '
+        '"[CDX] p2color phase=p2 proc=%d web=%d sym=%d '
+        'color=%d reg=%s forced=%d\\n", '
         "dkwb_cdx_ordinal, dkwb_web, "
         "(int)MEM_U16(MEM_U32(s5 + 0) + 2), "
-        "(int)MEM_U32(sp + 220), dkwb_force);\n"
+        "(int)MEM_U32(sp + 220), "
+        "dkwb_cdx_register_name((int)MEM_U32(sp + 220)), dkwb_force);\n"
         "}\n"
         "t8 = MEM_U32(sp + 220);",
         "phase-two color",

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Made the globalcolor instrumentation phase-explicit and self-describing:
+  records carry `phase=p1`/`phase=p2`, `CDX_FORCE` keys must be phase-qualified
+  (`p2:w55=c2`) and are rejected with both namespaces named — by `campaign
+  --env` before a compile and by the pass itself — colors are decoded to
+  machine registers in every record and in `trace-globalcolor`, and a
+  symbol-named `CDX_PROC` now prints a procedure index table instead of
+  silently selecting procedure 0.
+- Documented the instrumentation fidelity gates as section-scoped
+  (`.text`/`.rodata`/`.data`/relocations/symbols), because stock IDO under
+  `-g3` is not file-level reproducible.
 - Gave the campaign runner ownership of the processes it starts: compilers run
   in their own process group and are terminated with their children when a run
   fails or is interrupted, so a spawned search or assembler cannot outlive its

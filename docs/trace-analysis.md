@@ -104,7 +104,10 @@ Non-finite values become `"inf"`, `"-inf"`, or `"nan"` in JSON.
 
 - Compare the same procedure ordinal and compiler profile.
 - Keep source-line tags stable or record source hashes.
-- Establish an instrumentation-off byte-identical control.
+- Establish an instrumentation-off control that is byte-identical per section
+  (`.text`, `.rodata`, `.data`, relocations, symbols); `.mdebug` varies between
+  runs of stock IDO under `-g3`, so file-level hashes are not a usable gate.
+- Compare the same allocator phase: `p1` and `p2` web numbers are disjoint.
 - Use a small positive-control source to prove the event hook fires.
 - Treat force-choice output as a causal experiment, not as historical
   provenance.

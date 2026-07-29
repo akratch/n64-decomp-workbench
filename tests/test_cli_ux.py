@@ -234,6 +234,46 @@ class CliUxTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(payload[key], payload[alias])
 
+    def test_unqualified_force_key_is_rejected_before_compiling(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "candidate.c").write_text("int candidate;\n", encoding="utf-8")
+            (root / "target.o").write_bytes(b"target")
+            status, _, stderr = self.run_cli(
+                [
+                    "campaign",
+                    str(root / "target.o"),
+                    str(root / "candidate.c"),
+                    "--compile-command",
+                    "cc {source} -o {output}",
+                    "--env",
+                    "CDX_FORCE=w55=c2",
+                ]
+            )
+        self.assertEqual(status, 2)
+        self.assertIn("not phase-qualified", stderr)
+        self.assertIn("p2:w9=c30", stderr)
+
+    def test_trace_globalcolor_decodes_colors_and_force_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] p2cost phase=p2 proc=7 web=55 color=2 reg=v1 "
+                "kind=caller cost=1.0 best_before=2.0\n"
+                "[CDX] p2dec phase=p2 proc=7 web=55 sym=55 class=1 save=1 "
+                "nocs=2 totalsave=2 bestcost=0 bestcolor=2 bestreg=v1 "
+                "decision=color\n",
+                encoding="utf-8",
+            )
+            status, stdout, _ = self.run_cli(
+                ["trace-globalcolor", str(trace), "--proc", "7", "--web", "55"]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("force_key=p2:w55", stdout)
+        self.assertIn("register=v1", stdout)
+        self.assertIn("c2(v1):1.0", stdout)
+        self.assertIn("selected c2 (v1)", stdout)
+
     def test_install_skill_reports_current_on_second_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             arguments = [

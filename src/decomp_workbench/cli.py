@@ -20,14 +20,21 @@ from .agent_skill import install_agent_skill
 from .campaign import group_object_basins, run_campaign
 from .campaign import render_compile_command as render_campaign_command
 from .compare import compare_instructions, compare_objects
-from .globalcolor import parse_globalcolor_trace
+from .globalcolor import (
+    optional_integer,
+    parse_globalcolor_trace,
+    register_for_color,
+)
 from .instrument import instrument_ugen
 from .instrument_alias import instrument_uopt_alias
 from .instrument_profiles import (
     SUPPORTED_PROFILES,
     instrument_uopt_profiles,
 )
-from .instrument_uopt import instrument_uopt_globalcolor
+from .instrument_uopt import (
+    instrument_uopt_globalcolor,
+    parse_force_specification,
+)
 from .model import Comparison, CompileResult, display_path
 from .objdump import parse_disassembly
 from .pass_replay import ListingEdit, replay_as1
@@ -527,7 +534,11 @@ def compile_rank_command(args: argparse.Namespace) -> int:
 
 
 def parse_environment(values: list[str]) -> dict[str, str]:
-    """Parse explicit NAME=VALUE compiler environment entries."""
+    """Parse explicit NAME=VALUE compiler environment entries.
+
+    Known instrumentation controls are validated here so a malformed probe
+    fails before a campaign spends a compile on it.
+    """
 
     result: dict[str, str] = {}
     for value in values:
@@ -539,6 +550,8 @@ def parse_environment(values: list[str]) -> dict[str, str]:
         ):
             raise ValueError(f"invalid environment entry: {value!r}")
         result[name] = content
+    if "CDX_FORCE" in result:
+        parse_force_specification(result["CDX_FORCE"])
     return result
 
 
@@ -837,6 +850,15 @@ def trace_alias_command(args: argparse.Namespace) -> int:
     return 0 if report["events"] else 1
 
 
+def decoded_color(cost: dict[str, str]) -> str:
+    """Return the machine register for a recorded color, in parentheses."""
+
+    register = cost.get("reg") or register_for_color(
+        optional_integer(cost.get("color"))
+    )
+    return f"({register})" if register else ""
+
+
 def parse_register_list(value: str | None) -> list[int] | None:
     if value is None:
         return None
@@ -978,12 +1000,14 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         for allocator_item in allocator_webs:
             detail = allocator_item.detail
             cost_text = ",".join(
-                f"c{cost.get('color', '?')}:{cost.get('cost', '?')}"
+                f"c{cost.get('color', '?')}{decoded_color(cost)}:"
+                f"{cost.get('cost', '?')}"
                 for cost in allocator_item.color_costs
             )
             print(
                 f"proc={allocator_item.proc} web={allocator_item.web} "
                 f"phase={allocator_item.phase} "
+                f"force_key={allocator_item.force_key} "
                 f"dtype={detail.get('dtype', '?')} "
                 f"save={allocator_item.fields.get('save', '?')} "
                 f"nocs={allocator_item.fields.get('nocs', '?')} "

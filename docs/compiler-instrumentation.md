@@ -86,11 +86,68 @@ decomp-workbench instrument-uopt-globalcolor \
 |---|---|
 | `CDX_LOG=1` | Emit `[CDX]` decision records |
 | `CDX_PROC=N` | Restrict logs and controls to globalcolor invocation `N` |
+| `CDX_PROC=name` | Refused with an explanation; emits the `procindex` table so the ordinal can be chosen |
 | `CDX_DETAIL_WEB=N` | Emit IR metadata, interference neighbors, and every evaluated color cost for web `N` |
 | `CDX_DETAIL_WEB=all` | Emit IR metadata and every evaluated color cost for all allocator decisions, without neighbor expansion |
 | `CDX_OUT=FILE` | Write diagnostics to a file instead of stderr |
-| `CDX_FORCE=w9=c30` | Force web 9 to color 30 for the selected procedure |
-| `CDX_FORCE=w9=s` | Force the split/no-color path for web 9 in the selected procedure |
+| `CDX_FORCE=p1:w9=c30` | Force phase-one web 9 to color 30 for the selected procedure |
+| `CDX_FORCE=p2:w55=c2` | Force phase-two web 55 to color 2 for the selected procedure |
+| `CDX_FORCE=p1:w9=s` | Force the split/no-color path for phase-one web 9 |
+
+#### Phases are separate web spaces
+
+Phase one colors callee-saved candidates and phase two colors caller-saved
+candidates, and the two emit **disjoint** web numbering: `w55` in phase one and
+`w55` in phase two are different webs. Every record carries `phase=p1` or
+`phase=p2`, and every force key must name its phase.
+
+An unqualified `CDX_FORCE=w55=c2` is refused — by `campaign --env` before a
+compile is spent, and by the instrumented pass itself, which exits with a
+message naming both namespaces. This is a correctness gate: an "exhaustive"
+26-web sweep that was silently phase-one only produced a wrong exoneration in
+the field, and the residual turned out to be phase-two web 55.
+
+`trace-globalcolor` prints the ready-to-use key for every reported web as
+`force_key=p2:w55`.
+
+#### Colors are decoded to registers
+
+Records print the machine register beside the color (`bestcolor=2 bestreg=v1`,
+`color=2 reg=v1`), and `trace-globalcolor` decodes recorded colors the same
+way, including in the per-color cost list (`c2(v1):22.25`). The mapping is one
+table in the workbench, rendered into the generated C so the pass and the
+reader can never disagree:
+
+| Colors | Registers |
+|---|---|
+| c1–c6 | `v0 v1 a0 a1 a2 a3` |
+| c7–c12 | `t0`–`t5` |
+| c14–c22 | `s0`–`s8` |
+| c23 | `ra` |
+
+Colors outside the table (including c13) stay numeric. Naming them would be a
+guess, and a wrong register name is worse than a number.
+
+#### Selecting a procedure by name
+
+`CDX_PROC` takes the globalcolor invocation ordinal. A symbol name cannot be
+resolved at this layer — the instrumented sites see procedure ordinals and
+symbol *numbers*, never linker names — so a non-numeric value is refused with
+an explanation instead of being `atoi()`d to procedure 0, which twice produced
+a wrong conclusion by tracing an unrelated function.
+
+When a name is given, the pass logs every procedure and emits an index table:
+
+```text
+[CDX] procindex proc=0 decisions=12
+[CDX] procindex proc=1 decisions=147
+[CDX] procindex proc=2 decisions=3
+```
+
+`decisions` counts allocator decisions in that invocation. It is a size proxy,
+not an instruction count, and it is enough to align ordinals with functions in
+compilation order. Pick the ordinal and re-run with `CDX_PROC=<ordinal>`; force
+controls stay disabled until one is selected.
 
 `trace-globalcolor` joins `p1dec`/`p2dec` records to matching target
 `webdetail` records and reports them as allocator webs. `--proc` and `--dtype`
@@ -107,11 +164,11 @@ setting, and whether colors 1 and 2 are already present in the procedure's
 register-use table. Those fields explain the allocator's secondary preference
 when several colors have equal cost.
 
-Multiple force entries are comma-separated. `CDX_FORCE` is ignored unless
-`CDX_PROC` selects one globalcolor invocation; this prevents an experimental
-choice from being applied to the same web number in unrelated procedures.
-Here `wN` is the allocator bit position printed as `web=N`; `sym` is reported
-separately and is not the force key.
+Multiple force entries are comma-separated (`p1:w9=c30,p2:w55=c2`).
+`CDX_FORCE` is ignored unless `CDX_PROC` selects one globalcolor invocation;
+this prevents an experimental choice from being applied to the same web number
+in unrelated procedures. Here `wN` is the allocator bit position printed as
+`web=N`; `sym` is reported separately and is not the force key.
 
 ### Alias and base-provenance profile
 
@@ -162,16 +219,38 @@ For each profile and host:
 1. Hash the unmodified generated source.
 2. Build stock and instrumented passes with identical host flags.
 3. Compile a positive-control microcase with tracing off through both.
-4. Compare pass outputs byte for byte.
-5. Compile the target translation unit through both.
+4. Compare pass outputs **section by section**: `.text`, `.rodata`, `.data`,
+   relocations, and the symbol table must be byte-identical.
+5. Compile the target translation unit through both, with the same
+   section-scoped comparison.
 6. Compare the target and already-matching collateral functions.
 7. Rebuild and verify the complete ROM or binary.
 8. Turn tracing on and prove the expected diagnostic appears.
 9. If using a behavioral control, prove the disabled control returns to the
    stock output.
 
-The workbench’s synthetic unit tests prove anchor validation and trace parsing.
-They cannot substitute for these user-input-dependent integration gates.
+### Byte identity is section-scoped, not file-scoped
+
+Gate on sections, not on whole-file hashes. Stock IDO `cc` under `-g3` is not
+file-level reproducible: `.mdebug` varies between runs of the *unmodified*
+compiler, so a whole-file comparison reports a difference that has nothing to
+do with the instrumentation and hides the sections that matter. Compare
+`.text`, `.rodata`, `.data`, relocations, and symbols; treat `.mdebug`
+differences under `-g3` as expected noise, and if debug-section fidelity itself
+matters, gate it separately with `-g0` or `-g1`.
+
+### What the workbench's own tests cover
+
+The unit tests cover *generation*: the pinned source hash, every anchor, the
+emitted record schema (phase tags, decoded registers, the `procindex` table),
+the phase-qualified force-key parser, and a host-compiler build of the injected
+header so a syntax or type error cannot ship. They deliberately stop there.
+
+Executing the instrumented pass needs the external research toolchain — a
+statically recompiled IDO build that is neither redistributable nor
+reproducible from this repository — so the gates above remain user-run
+integration checks. A green test suite means the patch is well-formed, not
+that a particular host build is faithful.
 
 ## Profile development
 
