@@ -199,6 +199,13 @@ moved because something was inserted between here and there), and `relocation`
 (a linker-supplied field) are not in the total: none of them is a difference a
 source change owns.
 
+**What it costs.** The alignment is quadratic in the worst case and runs once
+per comparison. Measured on a synthetic function with one inserted instruction
+and one recolored register: 500 instructions 0.02 s, 1500 0.10 s, 3000 0.29 s,
+for the whole comparison. Those are per-candidate costs against a compile, and
+in that same 1500-instruction case the positional count is 1106 and the aligned
+residual is 2 — which is the number the ranking needed.
+
 The sort order for `rank`, `campaign`, and `compile-rank` is the aligned
 residual first, then exact word mismatches, unknown and mismatched relocation
 metadata, normalized distance, register mismatches, instruction-count delta,

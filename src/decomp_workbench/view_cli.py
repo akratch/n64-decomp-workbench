@@ -391,7 +391,11 @@ def _emit(
     args: argparse.Namespace,
     predicates: Sequence[Predicate] = (),
 ) -> int:
-    payload = view.as_dict(report_regs=args.report_regs)
+    # The payload is only built when something reads it: the human rendering
+    # walks the view itself, and `--report-regs` makes this a per-row list.
+    payload = (
+        view.as_dict(report_regs=args.report_regs) if args.json or predicates else {}
+    )
     try:
         census = evaluate_census(predicates, payload)
     except ValueError as error:
