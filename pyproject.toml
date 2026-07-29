@@ -71,4 +71,4 @@ strict = true
 # "tne" is the MIPS trap-if-not-equal mnemonic; "pavin" is the uopt
 # partial-availability-in per-block field decoded in the dp64 field notes.
 ignore-words-list = "disjointness,dout,pavin,tne,nd"
-skip = "examples/cv64/scratches/*/context.c"
+skip = "examples/cv64/scratches/*/context.c,./research-archive"
