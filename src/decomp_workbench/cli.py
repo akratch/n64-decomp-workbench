@@ -41,6 +41,7 @@ from .trace import (
     replay_fifo,
     trace_summary,
 )
+from .view_cli import register_view_commands
 
 
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1323,6 +1324,8 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_parser.add_argument("--preset", help="optional decomp.me preset identity")
     bundle_parser.add_argument("--json", action="store_true", help="emit manifest JSON")
     bundle_parser.set_defaults(handler=bundle_scratch_command)
+
+    register_view_commands(commands)
     return parser
 
 

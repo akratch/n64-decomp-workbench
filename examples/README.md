@@ -18,6 +18,21 @@ decomp-workbench compare-dumps \
 `R_MIPS_HI16` and `R_MIPS_26`. `register-mismatch.objdump` adds one real FP
 register change.
 
+## Aligned mechanism view fixtures
+
+```sh
+decomp-workbench view-dumps \
+  fixtures/phase-shift-target.objdump \
+  fixtures/phase-shift-candidate.objdump \
+  --function animStep
+```
+
+`phase-shift-*.objdump` differ only by a temp-rotation phase: six register
+substitutions, four webs, one upstream cause. `shifted-insertion-*.objdump`
+carry one extra instruction, where positional counting reports eleven differing
+words and the alignment reports one hunk. Both pairs are synthetic and encode
+real MIPS words, so byte-level signatures are meaningful.
+
 ## Ugen FIFO trace
 
 ```sh

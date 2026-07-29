@@ -68,5 +68,6 @@ python_version = "3.10"
 strict = true
 
 [tool.codespell]
-ignore-words-list = "disjointness,dout"
+# "tne" is the MIPS trap-if-not-equal mnemonic.
+ignore-words-list = "disjointness,dout,tne"
 skip = "examples/cv64/scratches/*/context.c"

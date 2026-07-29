@@ -1,0 +1,1287 @@
+"""Aligned mechanism view: LCS alignment, class lanes, and hunk taxonomy.
+
+Positional diffing lies.  One upstream register-role swap on a live campaign
+function turned into roughly 76 phantom scattered differences under positional
+comparison; the LCS-aligned truth was roughly 43 hunks.  Every count produced
+here is therefore an *aligned* count, never a positional one.
+
+The pipeline is two passes, as proven by the ad-hoc aligners three separate
+campaigns were forced to build in one day:
+
+1. Align the normalized *opcode* streams with ``difflib.SequenceMatcher``
+   (``autojunk=False`` is mandatory: opcode streams are full of repeats that
+   the junk heuristic would discard).  Unequal blocks are structural or
+   schedule hunks.
+2. Within each aligned pair, classify the operand-level difference:
+   register, commutative-order, constant, relocation, or match.
+
+Register lanes are extracted from the *whole* aligned stream, including the
+instructions that match.  That is not an optimization: the decisive signal in
+the modLoadAnimActual campaign was in the temps that matched, and a view that
+only shows mismatched instructions hides the queue.
+"""
+
+from __future__ import annotations
+
+import difflib
+import re
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from .compare import frame_size, register_operands, relocation_field_mask
+from .model import Instruction
+
+__all__ = [
+    "DEFAULT_REGISTER_PROFILE",
+    "REGISTER_CLASS_PROFILES",
+    "SCHEMA",
+    "AlignedRow",
+    "Hunk",
+    "Lane",
+    "MechanismView",
+    "Web",
+    "build_view",
+    "classify_pair",
+    "commutative_swap",
+    "destination_register",
+    "schema_keys",
+]
+
+
+# ---------------------------------------------------------------------------
+# Schema: one vocabulary, two renderings.
+#
+# Human output prints ``key=value`` using these exact keys, and JSON output
+# uses the same keys, so the two audiences can never drift apart again.  List
+# valued keys render as a count in the human header and as the list in JSON.
+# ---------------------------------------------------------------------------
+
+SCHEMA: tuple[tuple[str, str], ...] = (
+    ("symbol", "function selected from both inputs"),
+    ("target", "reference input name"),
+    ("candidate", "candidate input name"),
+    ("register_profile", "register class table used for the lanes"),
+    ("target_instructions", "instructions parsed from the target"),
+    ("candidate_instructions", "instructions parsed from the candidate"),
+    ("aligned_rows", "rows in the LCS alignment"),
+    ("target_frame_size", "target stack frame adjustment"),
+    ("candidate_frame_size", "candidate stack frame adjustment"),
+    ("match", "aligned rows whose instructions are identical"),
+    ("structural", "aligned rows with an opcode or operand shape difference"),
+    ("schedule", "aligned rows in a pure reordering hunk"),
+    ("register", "aligned rows differing only in register allocation"),
+    ("constant", "aligned rows differing only in an immediate"),
+    ("commutative", "aligned rows with a swapped commutative operand pair"),
+    ("relocation", "aligned rows differing only in linker-controlled fields"),
+    ("verdict", "cheapest mechanism that explains the residual"),
+    ("playbook", "named lever family for the verdict"),
+    ("signature", "orthogonal modifiers attached to the verdict"),
+    ("prefix_exact", "first aligned row whose instruction words differ"),
+    ("hunks", "contiguous runs of non-matching aligned rows"),
+    ("lanes", "per-class register assignment sequences"),
+    ("webs", "consistent register substitutions, grouped"),
+    ("next", "lever guidance for the dominant class"),
+    ("register_report", "per aligned row register operands, matches included"),
+    ("hunk", "hunk number"),
+    ("class", "classification label"),
+    ("rows", "aligned row range"),
+    ("target_bytes", "target section offsets covered"),
+    ("candidate_bytes", "candidate section offsets covered"),
+    ("index", "aligned row index"),
+    ("divergence", "first lane slot where the two sides differ"),
+    ("rotation", "cyclic offset that maps the target lane tail onto the candidate"),
+    ("slots", "lane slots rendered out of the total"),
+    ("web", "web identifier"),
+    ("count", "number of sites"),
+)
+
+
+def schema_keys() -> frozenset[str]:
+    """Return every key the human and JSON renderings are allowed to print."""
+
+    return frozenset(key for key, _ in SCHEMA)
+
+
+# ---------------------------------------------------------------------------
+# Register class tables (per-toolchain profile data, not hardcoded policy).
+#
+# The IDO 5.3 tables come from black-box pool probing during the
+# rarezipUncompress campaign and were confirmed by the ugen deep dive: the
+# coloring pool hands out v0/v1/a0-a3/t0-t5, while a separate rotation serves
+# expression temps.
+# ---------------------------------------------------------------------------
+
+REGISTER_CLASS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "ido53": {
+        "pool": (
+            "v0",
+            "v1",
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "t0",
+            "t1",
+            "t2",
+            "t3",
+            "t4",
+            "t5",
+        ),
+        "temp": ("t6", "t7", "t8", "t9", "s8"),
+    },
+}
+DEFAULT_REGISTER_PROFILE = "ido53"
+
+COMMUTATIVE_OPCODES = frozenset(
+    {
+        "add",
+        "addu",
+        "and",
+        "dadd",
+        "daddu",
+        "mult",
+        "multu",
+        "dmult",
+        "dmultu",
+        "nor",
+        "or",
+        "xor",
+        "add.s",
+        "add.d",
+        "mul.s",
+        "mul.d",
+    }
+)
+
+# Opcodes whose first register operand is a source, not a destination.  A lane
+# records definitions only: a store or a branch reads its registers and would
+# otherwise inject phantom slots into the sequence.
+NO_DESTINATION_OPCODES = frozenset(
+    {
+        "b",
+        "bal",
+        "bc1f",
+        "bc1fl",
+        "bc1t",
+        "bc1tl",
+        "beq",
+        "beql",
+        "beqz",
+        "bgez",
+        "bgezal",
+        "bgezl",
+        "bgtz",
+        "bgtzl",
+        "blez",
+        "blezl",
+        "bltz",
+        "bltzal",
+        "bltzl",
+        "bne",
+        "bnel",
+        "bnez",
+        "break",
+        "cache",
+        "ctc1",
+        "ddiv",
+        "ddivu",
+        "div",
+        "divu",
+        "dmtc1",
+        "dmult",
+        "dmultu",
+        "j",
+        "jal",
+        "jalr",
+        "jr",
+        "mtc0",
+        "mtc1",
+        "mthi",
+        "mtlo",
+        "mult",
+        "multu",
+        "nop",
+        "sb",
+        "sc",
+        "scd",
+        "sd",
+        "sdc1",
+        "sdc2",
+        "sdl",
+        "sdr",
+        "sh",
+        "sw",
+        "swc1",
+        "swc2",
+        "swl",
+        "swr",
+        "sync",
+        "syscall",
+        "teq",
+        "tne",
+    }
+)
+
+SYMBOL_OPERAND_RE = re.compile(r"\b([0-9a-fA-F]+)\s+<([^>]+)>")
+IMMEDIATE_RE = re.compile(r"(?<![A-Za-z0-9_$.])-?(?:0x[0-9a-fA-F]+|\d+)\b")
+SELF_BRANCH_OPCODES = frozenset({"b", "j", "bal"})
+#: Placeholder written in place of a branch destination that resolves inside
+#: the function, so destinations compare by aligned row instead of by address.
+ALIGNED_TARGET = "@row"
+
+MATCH = "match"
+STRUCTURAL = "structural"
+SCHEDULE = "schedule"
+REGISTER = "register"
+CONSTANT = "constant"
+COMMUTATIVE = "commutative"
+RELOCATION = "relocation"
+
+#: Classes in report order.  ``match`` is deliberately first: the header leads
+#: with how much already agrees.
+CLASS_ORDER: tuple[str, ...] = (
+    MATCH,
+    STRUCTURAL,
+    SCHEDULE,
+    REGISTER,
+    CONSTANT,
+    COMMUTATIVE,
+    RELOCATION,
+)
+
+#: Precedence for composite verdicts.  Constants cascade, so they are fixed
+#: first; register classes are last because they are usually downstream.
+MIXED_PRECEDENCE: tuple[str, ...] = (
+    CONSTANT,
+    STRUCTURAL,
+    SCHEDULE,
+    COMMUTATIVE,
+    REGISTER,
+)
+
+
+@dataclass(frozen=True)
+class AlignedRow:
+    """One row of the LCS alignment, with its operand-level classification."""
+
+    index: int
+    classification: str
+    target_index: int | None = None
+    candidate_index: int | None = None
+    target: str | None = None
+    candidate: str | None = None
+    target_address: int | None = None
+    candidate_address: int | None = None
+    target_registers: tuple[str, ...] = ()
+    candidate_registers: tuple[str, ...] = ()
+    substitutions: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def matched(self) -> bool:
+        return self.classification == MATCH
+
+
+@dataclass(frozen=True)
+class Hunk:
+    """A contiguous run of non-matching aligned rows."""
+
+    hunk: int
+    classification: str
+    start: int
+    end: int
+    target_range: tuple[int, int] | None
+    candidate_range: tuple[int, int] | None
+    target_bytes: tuple[int, int] | None
+    candidate_bytes: tuple[int, int] | None
+    classes: dict[str, int]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "hunk": self.hunk,
+            "class": self.classification,
+            "rows": [self.start, self.end],
+            "target": list(self.target_range) if self.target_range else None,
+            "candidate": list(self.candidate_range) if self.candidate_range else None,
+            "target_bytes": _byte_range(self.target_bytes),
+            "candidate_bytes": _byte_range(self.candidate_bytes),
+            "classes": dict(self.classes),
+        }
+
+
+@dataclass(frozen=True)
+class Lane:
+    """A per-class register assignment sequence, matching instructions included."""
+
+    classification: str
+    target: tuple[str, ...]
+    candidate: tuple[str, ...]
+    target_rows: tuple[int, ...]
+    candidate_rows: tuple[int, ...]
+    divergence: int | None
+    divergence_row: int | None
+    rotation: int | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "class": self.classification,
+            "target": list(self.target),
+            "candidate": list(self.candidate),
+            "rows": list(self.target_rows),
+            "divergence": self.divergence,
+            "index": self.divergence_row,
+            "rotation": self.rotation,
+        }
+
+
+@dataclass(frozen=True)
+class Web:
+    """One consistent register substitution across the aligned stream."""
+
+    web: str
+    target: str
+    candidate: str
+    count: int
+    rows: tuple[int, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "web": self.web,
+            "target": self.target,
+            "candidate": self.candidate,
+            "count": self.count,
+            "rows": list(self.rows),
+        }
+
+
+@dataclass(frozen=True)
+class MechanismView:
+    """The aligned mechanism view of one target/candidate pair."""
+
+    symbol: str | None
+    target: str
+    candidate: str
+    register_profile: str
+    target_instructions: int
+    candidate_instructions: int
+    target_frame_size: int | None
+    candidate_frame_size: int | None
+    counts: dict[str, int]
+    verdict: str
+    playbook: str
+    signature: tuple[str, ...]
+    prefix_exact: int | None
+    rows: tuple[AlignedRow, ...]
+    hunks: tuple[Hunk, ...]
+    lanes: tuple[Lane, ...]
+    webs: tuple[Web, ...]
+    guidance: tuple[str, ...]
+
+    @property
+    def aligned_rows(self) -> int:
+        return len(self.rows)
+
+    @property
+    def upstream_byte_invisible(self) -> bool:
+        return "upstream-byte-invisible" in self.signature
+
+    def register_report(self) -> list[dict[str, Any]]:
+        """Per aligned row register operands, including the matching rows.
+
+        This is the readout a campaign agent otherwise reconstructs by running
+        objdump and a regular expression once per variant.
+        """
+
+        return [
+            {
+                "index": row.index,
+                "class": row.classification,
+                "target": list(row.target_registers),
+                "candidate": list(row.candidate_registers),
+            }
+            for row in self.rows
+        ]
+
+    def as_dict(self, *, report_regs: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "symbol": self.symbol,
+            "target": self.target,
+            "candidate": self.candidate,
+            "register_profile": self.register_profile,
+            "target_instructions": self.target_instructions,
+            "candidate_instructions": self.candidate_instructions,
+            "aligned_rows": self.aligned_rows,
+            "target_frame_size": self.target_frame_size,
+            "candidate_frame_size": self.candidate_frame_size,
+            "verdict": self.verdict,
+            "playbook": self.playbook,
+            "signature": list(self.signature),
+            "prefix_exact": self.prefix_exact,
+            "hunks": [item.as_dict() for item in self.hunks],
+            "lanes": [item.as_dict() for item in self.lanes],
+            "webs": [item.as_dict() for item in self.webs],
+            "next": list(self.guidance),
+        }
+        for name in CLASS_ORDER:
+            payload[name] = self.counts.get(name, 0)
+        if report_regs:
+            payload["register_report"] = self.register_report()
+        return payload
+
+
+def _byte_range(value: tuple[int, int] | None) -> list[str] | None:
+    return None if value is None else [f"0x{value[0]:x}", f"0x{value[1]:x}"]
+
+
+# ---------------------------------------------------------------------------
+# Normalization
+# ---------------------------------------------------------------------------
+
+
+def _address_index(instructions: Sequence[Instruction]) -> dict[int, int]:
+    return {item.address: index for index, item in enumerate(instructions)}
+
+
+def normalized_text(
+    instruction: Instruction,
+    *,
+    address_index: dict[int, int],
+    row_of_index: dict[int, int],
+) -> str:
+    """Return comparison text with alignment-relative branch destinations.
+
+    A symbolized operand is rewritten to the *aligned row* of its destination
+    when it resolves inside this function, so inserting an instruction does not
+    turn every later branch into a phantom difference.  Relocated operands are
+    never resolved that way: their address field is linker-supplied, and
+    ``jal 0 <helper>`` would otherwise resolve to row 0.
+    """
+
+    relocated = bool(instruction.relocations)
+    opcode = instruction.opcode
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(2)
+        if relocated:
+            return f"<{name.split('+')[0]}>"
+        if opcode not in SELF_BRANCH_OPCODES and not opcode.startswith("b"):
+            return f"<{name.split('+')[0]}>"
+        index = address_index.get(int(match.group(1), 16))
+        if index is None:
+            return f"<{name}>"
+        row = row_of_index.get(index)
+        return f"{ALIGNED_TARGET}{row}" if row is not None else f"@insn{index}"
+
+    return SYMBOL_OPERAND_RE.sub(replace, instruction.assembly).replace("$", "")
+
+
+def _relocation_signature(
+    instruction: Instruction,
+) -> tuple[tuple[str, str | None], ...]:
+    return tuple((item.kind, item.symbol) for item in instruction.relocations)
+
+
+def _relocation_equivalent(target: Instruction, candidate: Instruction) -> bool:
+    """Return whether the two words agree outside linker-controlled bits."""
+
+    target_mask, target_unknown = relocation_field_mask(target)
+    candidate_mask, candidate_unknown = relocation_field_mask(candidate)
+    if target_unknown or candidate_unknown:
+        return False
+    keep = ~(target_mask | candidate_mask) & 0xFFFFFFFF
+    return (target.word_value & keep) == (candidate.word_value & keep)
+
+
+def _immediates(text: str) -> list[str]:
+    return IMMEDIATE_RE.findall(SYMBOL_OPERAND_RE.sub("SYM", text))
+
+
+def commutative_swap(
+    opcode: str, target: Sequence[str], candidate: Sequence[str]
+) -> bool:
+    """Return whether two operand lists are one swap of a commutative pair.
+
+    ``a | b`` and ``b | a`` canonicalize identically in IDO 5.3, so a residual
+    of this shape is a front-end AST question (compound assignment), never an
+    allocator question.
+    """
+
+    if opcode not in COMMUTATIVE_OPCODES:
+        return False
+    if len(target) != len(candidate) or len(target) < 2:
+        return False
+    if list(target) == list(candidate):
+        return False
+    if sorted(target) != sorted(candidate):
+        return False
+    prefix = len(target) - 2
+    if list(target[:prefix]) != list(candidate[:prefix]):
+        return False
+    return (
+        target[prefix] == candidate[prefix + 1]
+        and target[prefix + 1] == candidate[prefix]
+    )
+
+
+def destination_register(assembly: str) -> str | None:
+    """Return the register an instruction defines, or ``None``.
+
+    Lane extraction records definitions in emission order; stores, branches and
+    jumps read their operands and must not add slots.
+    """
+
+    if not assembly:
+        return None
+    opcode = assembly.split(maxsplit=1)[0]
+    if opcode in NO_DESTINATION_OPCODES or opcode.startswith("c."):
+        return None
+    operands = register_operands(assembly)
+    return operands[0] if operands else None
+
+
+def classify_pair(
+    target: Instruction,
+    candidate: Instruction,
+    *,
+    target_text: str,
+    candidate_text: str,
+) -> str:
+    """Classify one aligned instruction pair by the cheapest explanation."""
+
+    if target_text == candidate_text:
+        if target.word == candidate.word and _relocation_signature(
+            target
+        ) == _relocation_signature(candidate):
+            return MATCH
+        if ALIGNED_TARGET in target_text:
+            # A branch to the same aligned row whose encoded displacement moved
+            # because something was inserted between here and there.  Counting
+            # it would re-introduce the phantom cascade the alignment removes.
+            return MATCH
+        if _relocation_equivalent(target, candidate):
+            return RELOCATION
+        return STRUCTURAL
+    target_registers = register_operands(target.assembly)
+    candidate_registers = register_operands(candidate.assembly)
+    if target_registers != candidate_registers:
+        if commutative_swap(target.opcode, target_registers, candidate_registers):
+            return COMMUTATIVE
+        return REGISTER
+    if _immediates(target_text) != _immediates(candidate_text):
+        if _relocation_signature(target) == _relocation_signature(
+            candidate
+        ) and _relocation_equivalent(target, candidate):
+            # The differing field is supplied by the linker, not by the source.
+            return RELOCATION
+        return CONSTANT
+    return STRUCTURAL
+
+
+# ---------------------------------------------------------------------------
+# Alignment
+# ---------------------------------------------------------------------------
+
+
+def _alignment_blocks(
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
+) -> list[tuple[str, int, int, int, int]]:
+    matcher = difflib.SequenceMatcher(
+        a=[item.opcode for item in target],
+        b=[item.opcode for item in candidate],
+        autojunk=False,
+    )
+    return list(matcher.get_opcodes())
+
+
+def _skeleton(
+    blocks: Sequence[tuple[str, int, int, int, int]],
+) -> list[tuple[str, int | None, int | None]]:
+    """Expand LCS blocks into one row per aligned position."""
+
+    rows: list[tuple[str, int | None, int | None]] = []
+    for tag, target_start, target_end, candidate_start, candidate_end in blocks:
+        if tag == "equal":
+            for offset in range(target_end - target_start):
+                rows.append(("equal", target_start + offset, candidate_start + offset))
+            continue
+        width = max(target_end - target_start, candidate_end - candidate_start)
+        for offset in range(width):
+            target_index = (
+                target_start + offset if target_start + offset < target_end else None
+            )
+            candidate_index = (
+                candidate_start + offset
+                if candidate_start + offset < candidate_end
+                else None
+            )
+            rows.append((tag, target_index, candidate_index))
+    return rows
+
+
+def _substitutions(
+    target_registers: Sequence[str], candidate_registers: Sequence[str]
+) -> tuple[tuple[str, str], ...]:
+    if len(target_registers) != len(candidate_registers):
+        return ()
+    return tuple(
+        (left, right)
+        for left, right in zip(target_registers, candidate_registers, strict=True)
+        if left != right
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lanes, webs, and signatures
+# ---------------------------------------------------------------------------
+
+
+def _register_class(register: str, profile: dict[str, tuple[str, ...]]) -> str | None:
+    for name, members in profile.items():
+        if register in members:
+            return name
+    return None
+
+
+def _lane_rotation(
+    target: Sequence[str], candidate: Sequence[str], cycle: Sequence[str], start: int
+) -> int | None:
+    """Return the constant cyclic offset mapping the target tail onto the candidate.
+
+    A temp rotation whose phase entered the block one slot early shows up as a
+    single non-zero offset shared by every later slot: one upstream event, not
+    N independent allocation decisions.
+
+    ``cycle`` is the *observed* rotation cycle -- the profile members that this
+    function actually uses, in profile order.  Measuring against the full class
+    table would hide a rotation whenever a function leaves one register unused.
+    """
+
+    if len(target) != len(candidate) or not cycle or start >= len(target):
+        return None
+    size = len(cycle)
+    order = {name: index for index, name in enumerate(cycle)}
+    offsets = set()
+    for slot in range(start, len(target)):
+        left = order.get(target[slot])
+        right = order.get(candidate[slot])
+        if left is None or right is None:
+            return None
+        offsets.add((right - left) % size)
+    if len(offsets) != 1:
+        return None
+    offset = offsets.pop()
+    return offset or None
+
+
+def _build_lanes(
+    rows: Sequence[AlignedRow], profile: dict[str, tuple[str, ...]]
+) -> tuple[Lane, ...]:
+    target_lanes: dict[str, list[tuple[str, int]]] = {name: [] for name in profile}
+    candidate_lanes: dict[str, list[tuple[str, int]]] = {name: [] for name in profile}
+    for row in rows:
+        for assembly, bucket in (
+            (row.target, target_lanes),
+            (row.candidate, candidate_lanes),
+        ):
+            if assembly is None:
+                continue
+            register = destination_register(assembly)
+            if register is None:
+                continue
+            name = _register_class(register, profile)
+            if name is not None:
+                bucket[name].append((register, row.index))
+
+    lanes: list[Lane] = []
+    for name in profile:
+        target_slots = tuple(item[0] for item in target_lanes[name])
+        candidate_slots = tuple(item[0] for item in candidate_lanes[name])
+        target_rows = tuple(item[1] for item in target_lanes[name])
+        candidate_rows = tuple(item[1] for item in candidate_lanes[name])
+        if not target_slots and not candidate_slots:
+            continue
+        divergence: int | None = None
+        for slot in range(max(len(target_slots), len(candidate_slots))):
+            left = target_slots[slot] if slot < len(target_slots) else None
+            right = candidate_slots[slot] if slot < len(candidate_slots) else None
+            if left != right:
+                divergence = slot
+                break
+        divergence_row: int | None = None
+        if divergence is not None:
+            candidates_rows = [
+                rows_[divergence]
+                for rows_ in (target_rows, candidate_rows)
+                if divergence < len(rows_)
+            ]
+            divergence_row = min(candidates_rows) if candidates_rows else None
+        observed = set(target_slots) | set(candidate_slots)
+        cycle = tuple(item for item in profile[name] if item in observed)
+        rotation = (
+            None
+            if divergence is None
+            else _lane_rotation(target_slots, candidate_slots, cycle, divergence)
+        )
+        lanes.append(
+            Lane(
+                classification=name,
+                target=target_slots,
+                candidate=candidate_slots,
+                target_rows=target_rows,
+                candidate_rows=candidate_rows,
+                divergence=divergence,
+                divergence_row=divergence_row,
+                rotation=rotation,
+            )
+        )
+    return tuple(lanes)
+
+
+def _build_webs(rows: Sequence[AlignedRow]) -> tuple[Web, ...]:
+    """Group register substitutions so one swap reads as one web, not N sites."""
+
+    order: list[tuple[str, str]] = []
+    sites: dict[tuple[str, str], list[int]] = {}
+    for row in rows:
+        if row.classification not in {REGISTER, COMMUTATIVE}:
+            continue
+        for pair in dict.fromkeys(row.substitutions):
+            if pair not in sites:
+                sites[pair] = []
+                order.append(pair)
+            sites[pair].append(row.index)
+    return tuple(
+        Web(
+            web=f"w{number}",
+            target=pair[0],
+            candidate=pair[1],
+            count=len(sites[pair]),
+            rows=tuple(sites[pair]),
+        )
+        for number, pair in enumerate(order, 1)
+    )
+
+
+def _consistent_permutation(webs: Sequence[Web]) -> bool:
+    """Return whether the register substitutions form one bijection."""
+
+    if not webs:
+        return False
+    forward: dict[str, str] = {}
+    backward: dict[str, str] = {}
+    for web in webs:
+        if forward.setdefault(web.target, web.candidate) != web.candidate:
+            return False
+        if backward.setdefault(web.candidate, web.target) != web.target:
+            return False
+    return True
+
+
+def _prefix_exact(rows: Sequence[AlignedRow]) -> int | None:
+    """Return the first aligned row whose instruction words differ."""
+
+    for row in rows:
+        if row.classification in {MATCH, RELOCATION}:
+            continue
+        return row.index
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Verdict and guidance
+# ---------------------------------------------------------------------------
+
+
+def _verdict(
+    counts: dict[str, int], lanes: Sequence[Lane], webs: Sequence[Web]
+) -> tuple[str, str]:
+    present = [name for name in MIXED_PRECEDENCE if counts.get(name)]
+    if not present:
+        if counts.get(RELOCATION):
+            return "words-identical", "relocation-only"
+        return "exact", "done"
+    if present == [REGISTER]:
+        if any(lane.rotation for lane in lanes):
+            return "phase-shift", "temp-fifo-phase"
+        if _consistent_permutation(webs):
+            return "register-permutation", "forced-color-oracle"
+        return "allocation", "pool-position"
+    if len(present) == 1:
+        single = present[0]
+        return {
+            CONSTANT: ("constant", "constant-audit"),
+            STRUCTURAL: ("structure", "structure-buckets"),
+            SCHEDULE: ("schedule", "g0-schedule-probe"),
+            COMMUTATIVE: ("commutative-order", "ast-shape"),
+        }[single]
+    composition = ", ".join(f"{name}:{counts[name]}" for name in present)
+    _, playbook = _verdict({present[0]: counts[present[0]]}, lanes, webs)
+    return f"mixed({composition})", playbook
+
+
+def _primary_class(counts: dict[str, int]) -> str | None:
+    for name in MIXED_PRECEDENCE:
+        if counts.get(name):
+            return name
+    return RELOCATION if counts.get(RELOCATION) else None
+
+
+def _guidance(
+    verdict: str,
+    counts: dict[str, int],
+    lanes: Sequence[Lane],
+    webs: Sequence[Web],
+    hunks: Sequence[Hunk],
+) -> tuple[str, ...]:
+    """Return the lever family for the dominant class.
+
+    Every line here is a field-note finding, not general advice: the point of
+    the footer is to stop the next round from being spent on a dead family.
+    """
+
+    lines: list[str] = []
+    if verdict.startswith("mixed("):
+        lines.append(
+            "mixed residual: fix constants first (they cascade), structure "
+            "second, register classes last."
+        )
+    primary = _primary_class(counts)
+    if primary is None:
+        return (
+            "aligned instructions and relocation layout are identical for this "
+            "function.",
+            "run the project's normal collateral and full-output verification.",
+        )
+    if primary == RELOCATION:
+        return (
+            "every aligned difference is a linker-controlled relocation field.",
+            "do not mutate source; verify with the project's link or ROM check.",
+        )
+    if primary == CONSTANT:
+        lines.extend(
+            [
+                "audit the flag, enum, or literal against the target assembly "
+                "FIRST: the assembly encodes the truth.",
+                "one wrong identifier can present as a large structural cascade "
+                "(183 words from a single flag mix-up).",
+                "after fixing a constant, re-derive any fakes: they may have "
+                "been fitted to the wrong body.",
+                "a literal search is outside decomp_permuter's mutation space; "
+                "this is hand work.",
+            ]
+        )
+    elif primary == STRUCTURAL:
+        first = hunks[0].hunk if hunks else 1
+        lines.extend(
+            [
+                f"work the largest hunk first (hunk {first} is the earliest); "
+                "bucket by region above ~500 instructions.",
+                "if a hunk starts at a constant materialization (lui/andi/li), "
+                "audit that constant before anything else.",
+                "hold allocator experiments until the instruction count and "
+                "opcode schedule stabilize.",
+            ]
+        )
+    elif primary == SCHEDULE:
+        lines.extend(
+            [
+                "equal instruction multiset in a different order: this is late "
+                "scheduling, not allocation.",
+                "recompile the candidate with -g0. If the divergent region "
+                "collapses, the C is correct and the residual is -g3 .loc "
+                "scheduling; stop searching source space.",
+                "statement and expression grouping is the source lever; "
+                "replay-as1 tests whether as1 owns the ordering.",
+            ]
+        )
+    elif primary == COMMUTATIVE:
+        lines.extend(
+            [
+                "same opcode and operand multiset with the pair swapped: front-end "
+                "AST shape, not allocation.",
+                "`a | b` versus `b | a` canonicalizes identically (dead family); "
+                "`x |= y` is a distinct AST and flips the emitted operand order.",
+                "do not trace the allocator for this residual.",
+            ]
+        )
+    elif verdict == "phase-shift":
+        lane = next(
+            (item for item in lanes if item.rotation and item.divergence is not None),
+            None,
+        )
+        where = ""
+        if lane is not None and lane.divergence is not None:
+            where = (
+                f" ({lane.classification} lane, slot {lane.divergence}, "
+                f"aligned row {lane.divergence_row}, rotation +{lane.rotation})"
+            )
+        lines.extend(
+            [
+                f"one upstream event, not {counts.get(REGISTER, 0)} sites{where}.",
+                "perturb the PRECEDING block: hoist a call-argument expression "
+                "into a named local, which reorders value deaths.",
+                "or materialize a phantom pool get with `(x == C) != 0` inside a "
+                "real `if`; a bare discarded expression is dropped with no "
+                "codegen effect.",
+                "do not fix the divergent sites individually; declaration-order "
+                "permutation is a dead family here.",
+            ]
+        )
+    elif verdict == "register-permutation":
+        mapping = ", ".join(f"{web.target}->{web.candidate}" for web in webs)
+        lines.extend(
+            [
+                f"all register differences form one bijection ({mapping}): report "
+                "it as a single decision, not N sites.",
+                "callee-saved tie-breaks resist source search; prefer a forced "
+                "color probe on an instrumented toolchain over more variants.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "register allocation differs with no consistent permutation. "
+                "Name the family before searching:",
+                "  temp-queue phase: perturb the preceding block, since value "
+                "deaths set the phase entering it.",
+                "  pool position: dead-web placement (`if (g) {}`) takes the NEXT "
+                "FREE slot and cannot reach past a live web.",
+                "  coalescing: return type (void versus implicit int) or CSE "
+                "multiplicity.",
+                "capture a globalcolor or ugen pool trace only if an instrumented "
+                "toolchain is already configured.",
+            ]
+        )
+    return tuple(lines)
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def _hunks(rows: Sequence[AlignedRow]) -> tuple[Hunk, ...]:
+    hunks: list[Hunk] = []
+    current: list[AlignedRow] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        classes: dict[str, int] = {}
+        for row in current:
+            classes[row.classification] = classes.get(row.classification, 0) + 1
+        if len(classes) == 1:
+            label = next(iter(classes))
+        else:
+            label = (
+                "mixed("
+                + ", ".join(
+                    f"{name}:{classes[name]}" for name in CLASS_ORDER if name in classes
+                )
+                + ")"
+            )
+        target_indexes = [
+            row.target_index for row in current if row.target_index is not None
+        ]
+        candidate_indexes = [
+            row.candidate_index for row in current if row.candidate_index is not None
+        ]
+        target_addresses = [
+            row.target_address for row in current if row.target_address is not None
+        ]
+        candidate_addresses = [
+            row.candidate_address
+            for row in current
+            if row.candidate_address is not None
+        ]
+        hunks.append(
+            Hunk(
+                hunk=len(hunks) + 1,
+                classification=label,
+                start=current[0].index,
+                end=current[-1].index,
+                target_range=(
+                    (min(target_indexes), max(target_indexes))
+                    if target_indexes
+                    else None
+                ),
+                candidate_range=(
+                    (min(candidate_indexes), max(candidate_indexes))
+                    if candidate_indexes
+                    else None
+                ),
+                target_bytes=(
+                    (min(target_addresses), max(target_addresses))
+                    if target_addresses
+                    else None
+                ),
+                candidate_bytes=(
+                    (min(candidate_addresses), max(candidate_addresses))
+                    if candidate_addresses
+                    else None
+                ),
+                classes=classes,
+            )
+        )
+        current.clear()
+
+    for row in rows:
+        if row.matched:
+            flush()
+        else:
+            current.append(row)
+    flush()
+    return tuple(hunks)
+
+
+def _runs(labels: Sequence[str]) -> list[tuple[int, int]]:
+    """Return inclusive ranges of consecutive non-matching rows."""
+
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, label in enumerate(labels):
+        if label == MATCH:
+            if start is not None:
+                runs.append((start, index - 1))
+                start = None
+        elif start is None:
+            start = index
+    if start is not None:
+        runs.append((start, len(labels) - 1))
+    return runs
+
+
+def _relabel_reorderings(
+    labels: list[str],
+    skeleton: Sequence[tuple[str, int | None, int | None]],
+    target_text: Sequence[str],
+    candidate_text: Sequence[str],
+) -> None:
+    """Promote pure reorderings from ``structural`` to ``schedule``.
+
+    Opcode-level LCS reports a swap of two differently-named instructions as an
+    adjacent delete and insert, which reads as new structure by volume.  A run
+    whose two sides carry the same instructions in a different order is a late
+    scheduling decision, and the lever for it (`-g0` as a diagnostic) has
+    nothing to do with the levers for real structure.
+    """
+
+    def sides(start: int, end: int) -> tuple[list[str], list[str]]:
+        left = [
+            target_text[index]
+            for _, index, _ in skeleton[start : end + 1]
+            if index is not None
+        ]
+        right = [
+            candidate_text[index]
+            for _, _, index in skeleton[start : end + 1]
+            if index is not None
+        ]
+        return sorted(left), sorted(right)
+
+    runs = _runs(labels)
+    if runs and all(
+        labels[index] == STRUCTURAL
+        for start, end in runs
+        for index in range(start, end + 1)
+    ):
+        # Whole-function reordering: equal instruction multiset, different order.
+        if sorted(target_text) == sorted(candidate_text) and target_text:
+            for start, end in runs:
+                for index in range(start, end + 1):
+                    labels[index] = SCHEDULE
+            return
+    for start, end in runs:
+        if any(labels[index] != STRUCTURAL for index in range(start, end + 1)):
+            continue
+        left, right = sides(start, end)
+        if left and left == right:
+            for index in range(start, end + 1):
+                labels[index] = SCHEDULE
+
+
+def _unknown_relocations(*streams: Sequence[Instruction]) -> list[str]:
+    """Return relocation kinds with no known field mask.
+
+    Guessing a mask would turn a linker-controlled field into a false source
+    problem, or worse, excuse a real one.  The classifier stays conservative and
+    the signature says so out loud.
+    """
+
+    kinds: set[str] = set()
+    for stream in streams:
+        for item in stream:
+            kinds.update(relocation_field_mask(item)[1])
+    return sorted(kinds)
+
+
+def _signature(
+    rows: Sequence[AlignedRow],
+    lanes: Sequence[Lane],
+    prefix_exact: int | None,
+    unknown_relocations: Sequence[str] = (),
+) -> tuple[str, ...]:
+    signature: list[str] = []
+    signature.append(
+        "prefix-exact@all" if prefix_exact is None else f"prefix-exact@{prefix_exact}"
+    )
+    for lane in lanes:
+        if lane.divergence is not None:
+            signature.append(
+                f"state-divergence@{lane.classification}:{lane.divergence}"
+            )
+    if prefix_exact is not None:
+        row = rows[prefix_exact]
+        earliest = [
+            lane.divergence_row for lane in lanes if lane.divergence_row is not None
+        ]
+        if (
+            row.classification in {REGISTER, COMMUTATIVE}
+            and earliest
+            and min(earliest) <= prefix_exact
+        ):
+            signature.append("upstream-byte-invisible")
+    signature.extend(f"unknown-relocation:{kind}" for kind in unknown_relocations)
+    return tuple(signature)
+
+
+def build_view(
+    target: Sequence[Instruction],
+    candidate: Sequence[Instruction],
+    *,
+    target_name: str,
+    candidate_name: str,
+    symbol: str | None = None,
+    register_profile: str = DEFAULT_REGISTER_PROFILE,
+) -> MechanismView:
+    """Align two instruction streams and classify the residual by mechanism."""
+
+    try:
+        profile = REGISTER_CLASS_PROFILES[register_profile]
+    except KeyError:
+        known = ", ".join(sorted(REGISTER_CLASS_PROFILES))
+        raise ValueError(
+            f"unknown register profile {register_profile!r}; known profiles: {known}"
+        ) from None
+
+    blocks = _alignment_blocks(target, candidate)
+    skeleton = _skeleton(blocks)
+    row_of_target = {
+        target_index: row
+        for row, (_, target_index, _) in enumerate(skeleton)
+        if target_index is not None
+    }
+    row_of_candidate = {
+        candidate_index: row
+        for row, (_, _, candidate_index) in enumerate(skeleton)
+        if candidate_index is not None
+    }
+    target_addresses = _address_index(target)
+    candidate_addresses = _address_index(candidate)
+    target_text = [
+        normalized_text(
+            item, address_index=target_addresses, row_of_index=row_of_target
+        )
+        for item in target
+    ]
+    candidate_text = [
+        normalized_text(
+            item, address_index=candidate_addresses, row_of_index=row_of_candidate
+        )
+        for item in candidate
+    ]
+
+    labels: list[str] = []
+    for tag, target_index, candidate_index in skeleton:
+        if tag == "equal" and target_index is not None and candidate_index is not None:
+            labels.append(
+                classify_pair(
+                    target[target_index],
+                    candidate[candidate_index],
+                    target_text=target_text[target_index],
+                    candidate_text=candidate_text[candidate_index],
+                )
+            )
+        else:
+            labels.append(STRUCTURAL)
+    _relabel_reorderings(labels, skeleton, target_text, candidate_text)
+
+    rows: list[AlignedRow] = []
+    counts: dict[str, int] = {name: 0 for name in CLASS_ORDER}
+    for index, (_, target_index, candidate_index) in enumerate(skeleton):
+        target_item = target[target_index] if target_index is not None else None
+        candidate_item = (
+            candidate[candidate_index] if candidate_index is not None else None
+        )
+        classification = labels[index]
+        target_registers = (
+            tuple(register_operands(target_item.assembly))
+            if target_item is not None
+            else ()
+        )
+        candidate_registers = (
+            tuple(register_operands(candidate_item.assembly))
+            if candidate_item is not None
+            else ()
+        )
+        rows.append(
+            AlignedRow(
+                index=index,
+                classification=classification,
+                target_index=target_index,
+                candidate_index=candidate_index,
+                target=target_item.assembly if target_item is not None else None,
+                candidate=(
+                    candidate_item.assembly if candidate_item is not None else None
+                ),
+                target_address=(
+                    target_item.address if target_item is not None else None
+                ),
+                candidate_address=(
+                    candidate_item.address if candidate_item is not None else None
+                ),
+                target_registers=target_registers,
+                candidate_registers=candidate_registers,
+                substitutions=(
+                    _substitutions(target_registers, candidate_registers)
+                    if classification in {REGISTER, COMMUTATIVE}
+                    else ()
+                ),
+            )
+        )
+        counts[classification] = counts.get(classification, 0) + 1
+
+    lanes = _build_lanes(rows, profile)
+    webs = _build_webs(rows)
+    hunks = _hunks(rows)
+    prefix_exact = _prefix_exact(rows)
+    verdict, playbook = _verdict(counts, lanes, webs)
+    return MechanismView(
+        symbol=symbol,
+        target=target_name,
+        candidate=candidate_name,
+        register_profile=register_profile,
+        target_instructions=len(target),
+        candidate_instructions=len(candidate),
+        target_frame_size=frame_size(_joined(target)),
+        candidate_frame_size=frame_size(_joined(candidate)),
+        counts=counts,
+        verdict=verdict,
+        playbook=playbook,
+        signature=_signature(
+            rows,
+            lanes,
+            prefix_exact,
+            _unknown_relocations(target, candidate),
+        ),
+        prefix_exact=prefix_exact,
+        rows=tuple(rows),
+        hunks=hunks,
+        lanes=lanes,
+        webs=webs,
+        guidance=_guidance(verdict, counts, lanes, webs, hunks),
+    )
+
+
+def _joined(instructions: Iterable[Instruction]) -> str:
+    return "\n".join(item.assembly for item in instructions)

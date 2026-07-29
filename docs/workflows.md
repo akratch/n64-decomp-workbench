@@ -22,6 +22,20 @@ decomp-workbench compare target.o candidate.o \
 Use `--json` to save the report and `--fail-on-mismatch` in automation. See
 [Object comparison](object-comparison.md).
 
+## Mechanism diagnosis
+
+When the residual is small but the layer that owns it is unclear, or when the
+count looks large because the streams are shifted:
+
+```sh
+decomp-workbench view target.o candidate.o --function function_name
+```
+
+The output aligns the two streams, classifies every hunk, prints the per-class
+register lanes (including the matching instructions), reports where the byte
+prefix ends, and names the lever family. `view-dumps` runs the same analysis on
+retained objdump text. See [Aligned mechanism view](view.md).
+
 ## Candidate search
 
 Use `campaign` once you can compile one arbitrary source path to one output
