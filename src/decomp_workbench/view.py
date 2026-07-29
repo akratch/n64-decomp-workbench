@@ -5,15 +5,23 @@ function turned into roughly 76 phantom scattered differences under positional
 comparison; the LCS-aligned truth was roughly 43 hunks.  Every count produced
 here is therefore an *aligned* count, never a positional one.
 
-The pipeline is two passes, as proven by the ad-hoc aligners three separate
-campaigns were forced to build in one day:
+The pipeline is two passes of ``difflib.SequenceMatcher`` (``autojunk=False``
+is mandatory: instruction streams are full of repeats that the junk heuristic
+would discard), plus a classification step:
 
-1. Align the normalized *opcode* streams with ``difflib.SequenceMatcher``
-   (``autojunk=False`` is mandatory: opcode streams are full of repeats that
-   the junk heuristic would discard).  Unequal blocks are structural or
-   schedule hunks.
-2. Within each aligned pair, classify the operand-level difference:
-   register, commutative-order, constant, relocation, or match.
+1. Anchor on the normalized instruction *text*.  Identical text is
+   interchangeable, so these anchors carry no ambiguity.
+2. Inside each unmatched region, pair by *opcode*, so an operand-level
+   difference is classified rather than shown as a deletion beside an
+   insertion.  Anything left unpaired is structure or schedule.
+3. Classify every pair: register, commutative-order, constant, relocation,
+   displacement, or match.
+
+The ad-hoc aligners three campaigns built in one day ran the opcode pass
+first.  That order cannot resolve a run of repeated opcodes -- eight ``addu``
+instructions with one inserted among them align position by position, and four
+correct instructions are then reported as register differences beside a
+phantom insertion -- so the text pass anchors first here.
 
 Register lanes are extracted from the *whole* aligned stream, including the
 instructions that match.  That is not an optimization: the decisive signal in
@@ -68,6 +76,10 @@ SCHEMA: tuple[tuple[str, str], ...] = (
     ("target_frame_size", "target stack frame adjustment"),
     ("candidate_frame_size", "candidate stack frame adjustment"),
     ("match", "aligned rows whose instructions are identical"),
+    (
+        "displacement",
+        "aligned rows differing only in an alignment-controlled branch offset",
+    ),
     ("structural", "aligned rows with an opcode or operand shape difference"),
     ("schedule", "aligned rows in a pure reordering hunk"),
     ("register", "aligned rows differing only in register allocation"),
@@ -85,6 +97,7 @@ SCHEMA: tuple[tuple[str, str], ...] = (
     ("register_report", "per aligned row register operands, matches included"),
     ("hunk", "hunk number"),
     ("class", "classification label"),
+    ("classes", "per-class row counts inside a hunk"),
     ("rows", "aligned row range"),
     ("target_bytes", "target section offsets covered"),
     ("candidate_bytes", "candidate section offsets covered"),
@@ -231,6 +244,7 @@ SELF_BRANCH_OPCODES = frozenset({"b", "j", "bal"})
 ALIGNED_TARGET = "@row"
 
 MATCH = "match"
+DISPLACEMENT = "displacement"
 STRUCTURAL = "structural"
 SCHEDULE = "schedule"
 REGISTER = "register"
@@ -242,6 +256,7 @@ RELOCATION = "relocation"
 #: with how much already agrees.
 CLASS_ORDER: tuple[str, ...] = (
     MATCH,
+    DISPLACEMENT,
     STRUCTURAL,
     SCHEDULE,
     REGISTER,
@@ -279,7 +294,20 @@ class AlignedRow:
 
     @property
     def matched(self) -> bool:
+        """Whether the two sides are byte-identical."""
+
         return self.classification == MATCH
+
+    @property
+    def reported(self) -> bool:
+        """Whether this row belongs in a hunk.
+
+        A displacement row differs in bytes but not in anything a source change
+        controls, so it is counted and annotated in context without opening a
+        hunk of its own.
+        """
+
+        return self.classification not in {MATCH, DISPLACEMENT}
 
 
 @dataclass(frozen=True)
@@ -382,8 +410,20 @@ class MechanismView:
         return len(self.rows)
 
     @property
-    def upstream_byte_invisible(self) -> bool:
-        return "upstream-byte-invisible" in self.signature
+    def register_first_divergence(self) -> bool:
+        """Whether the first divergence is a register-class divergence.
+
+        Two disassembly streams are the only evidence this command has, so a
+        state divergence that leaves the bytes alone is not observable here:
+        anything that changes a lane also changes an instruction.  What *is*
+        observable, and what redirected a campaign that had spent 13 variants
+        on the visible block, is that the first divergence is a register-class
+        divergence rather than a structural one -- which says the decision was
+        made upstream even though it surfaces here.  Proving where upstream
+        needs a pool trace, which this command does not read.
+        """
+
+        return "register-first-divergence" in self.signature
 
     def register_report(self) -> list[dict[str, Any]]:
         """Per aligned row register operands, including the matching rows.
@@ -555,9 +595,11 @@ def classify_pair(
             return MATCH
         if ALIGNED_TARGET in target_text:
             # A branch to the same aligned row whose encoded displacement moved
-            # because something was inserted between here and there.  Counting
-            # it would re-introduce the phantom cascade the alignment removes.
-            return MATCH
+            # because something was inserted between here and there.  Treating
+            # it as a source difference would re-introduce the phantom cascade
+            # the alignment removes, and calling it `match` would overclaim
+            # byte identity, so it gets its own name.
+            return DISPLACEMENT
         if _relocation_equivalent(target, candidate):
             return RELOCATION
         return STRUCTURAL
@@ -582,39 +624,150 @@ def classify_pair(
 # ---------------------------------------------------------------------------
 
 
-def _alignment_blocks(
-    target: Sequence[Instruction], candidate: Sequence[Instruction]
+def alignment_key(instruction: Instruction) -> str:
+    """Return the text an instruction is anchored on during alignment.
+
+    Symbolized operands collapse to the bare symbol: the numeric address and
+    the ``+0x..`` offset both move when anything upstream changes size, and an
+    anchor that moves is not an anchor.  Destinations are compared properly
+    later, against the alignment this produces.
+    """
+
+    return SYMBOL_OPERAND_RE.sub(
+        lambda match: f"<{match.group(2).split('+')[0]}>", instruction.assembly
+    ).replace("$", "")
+
+
+def _blocks(
+    left: Sequence[str], right: Sequence[str]
 ) -> list[tuple[str, int, int, int, int]]:
-    matcher = difflib.SequenceMatcher(
-        a=[item.opcode for item in target],
-        b=[item.opcode for item in candidate],
-        autojunk=False,
-    )
+    matcher = difflib.SequenceMatcher(a=list(left), b=list(right), autojunk=False)
     return list(matcher.get_opcodes())
 
 
 def _skeleton(
-    blocks: Sequence[tuple[str, int, int, int, int]],
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
 ) -> list[tuple[str, int | None, int | None]]:
-    """Expand LCS blocks into one row per aligned position."""
+    """Pair the two streams, choosing between two anchorings by evidence.
+
+    Neither anchoring is safe alone, and both failures are real:
+
+    * anchoring on opcodes cannot resolve a run of repeated opcodes.  Eight
+      ``addu`` instructions with one inserted among them align position by
+      position, and four correct instructions are then reported as register
+      differences beside a phantom insertion;
+    * anchoring on instruction text inherits ``difflib``'s greedy longest-block
+      anchor.  On a stream whose text repeats -- a 64-instruction idiom copied
+      down a long function -- the longest single common run can sit on the far
+      side of the change, and the aligner throws away everything before it.
+
+    So both are built and the one that explains more of the function as
+    identical wins.  Ties go to the text anchoring, which is the one that
+    cannot mispair by construction.
+    """
+
+    target_keys = [alignment_key(item) for item in target]
+    candidate_keys = [alignment_key(item) for item in candidate]
+    target_opcodes = [item.opcode for item in target]
+    candidate_opcodes = [item.opcode for item in candidate]
+    anchored = _pair(target_keys, candidate_keys, target_opcodes, candidate_opcodes)
+    best = _alignment_score(anchored, target_keys, candidate_keys)
+    if best[0] == min(len(target), len(candidate)):
+        # Every instruction of the shorter side is already explained as
+        # identical.  No alignment can beat that, so the second pass is skipped:
+        # this is the common shape near the end of a campaign.
+        return anchored
+    alternative = _pair(target_opcodes, candidate_opcodes, target_keys, candidate_keys)
+    if _alignment_score(alternative, target_keys, candidate_keys) > best:
+        return alternative
+    return anchored
+
+
+def _alignment_score(
+    rows: Sequence[tuple[str, int | None, int | None]],
+    target_keys: Sequence[str],
+    candidate_keys: Sequence[str],
+) -> tuple[int, int]:
+    """Score an alignment: identical pairs first, then compactness.
+
+    This is the objective the greedy anchor only approximates -- explain as
+    many instructions as possible as unchanged -- evaluated directly.
+    """
+
+    identical = sum(
+        1
+        for _, target_index, candidate_index in rows
+        if target_index is not None
+        and candidate_index is not None
+        and target_keys[target_index] == candidate_keys[candidate_index]
+    )
+    return identical, -len(rows)
+
+
+def _pair(
+    target_primary: Sequence[str],
+    candidate_primary: Sequence[str],
+    target_secondary: Sequence[str],
+    candidate_secondary: Sequence[str],
+) -> list[tuple[str, int | None, int | None]]:
+    """Align on the primary key, then pair inside each gap on the secondary."""
 
     rows: list[tuple[str, int | None, int | None]] = []
-    for tag, target_start, target_end, candidate_start, candidate_end in blocks:
+    for tag, target_start, target_end, candidate_start, candidate_end in _blocks(
+        target_primary, candidate_primary
+    ):
         if tag == "equal":
-            for offset in range(target_end - target_start):
-                rows.append(("equal", target_start + offset, candidate_start + offset))
+            rows.extend(
+                ("equal", target_start + offset, candidate_start + offset)
+                for offset in range(target_end - target_start)
+            )
             continue
-        width = max(target_end - target_start, candidate_end - candidate_start)
+        rows.extend(
+            _pair_within(
+                target_secondary[target_start:target_end],
+                candidate_secondary[candidate_start:candidate_end],
+                target_offset=target_start,
+                candidate_offset=candidate_start,
+            )
+        )
+    return rows
+
+
+def _pair_within(
+    target: Sequence[str],
+    candidate: Sequence[str],
+    *,
+    target_offset: int,
+    candidate_offset: int,
+) -> list[tuple[str, int | None, int | None]]:
+    """Pair instructions inside one unmatched region on the secondary key.
+
+    A pair produced here shares the secondary key but not the primary one, so
+    it is exactly the population that operand-level classification exists for:
+    same opcode, different registers or immediates.
+    """
+
+    rows: list[tuple[str, int | None, int | None]] = []
+    for tag, target_start, target_end, candidate_start, candidate_end in _blocks(
+        target, candidate
+    ):
+        width = (
+            target_end - target_start
+            if tag == "equal"
+            else max(target_end - target_start, candidate_end - candidate_start)
+        )
         for offset in range(width):
-            target_index = (
-                target_start + offset if target_start + offset < target_end else None
+            target_index = target_start + offset
+            candidate_index = candidate_start + offset
+            rows.append(
+                (
+                    tag,
+                    target_offset + target_index if target_index < target_end else None,
+                    candidate_offset + candidate_index
+                    if candidate_index < candidate_end
+                    else None,
+                )
             )
-            candidate_index = (
-                candidate_start + offset
-                if candidate_start + offset < candidate_end
-                else None
-            )
-            rows.append((tag, target_index, candidate_index))
     return rows
 
 
@@ -642,6 +795,35 @@ def _register_class(register: str, profile: dict[str, tuple[str, ...]]) -> str |
     return None
 
 
+#: Evidence bar for calling a lane difference a rotation.  A constant cyclic
+#: offset is findable over almost any small set of registers -- every swap of
+#: two registers is trivially a rotation of a two-element cycle -- so a claim
+#: this specific has to be paid for.  Both thresholds are deliberately blunt.
+MINIMUM_ROTATION_CYCLE = 3
+MINIMUM_ROTATION_SLOTS = 3
+
+
+def _rotation_cycle(
+    members: Sequence[str], observed: set[str]
+) -> tuple[str, ...] | None:
+    """Return the rotation cycle a lane is turning through, if there is one.
+
+    The cycle is the observed registers in profile order, and it must be a
+    *contiguous* run of the class table.  Measuring against the whole table
+    would hide a real rotation whenever a function leaves one member unused
+    (the IDO 5.3 temp class contains ``s8``, which no rotation visits), while
+    accepting an arbitrary subset would let any two cherry-picked registers
+    manufacture a cycle.  Contiguity is what a queue actually produces.
+    """
+
+    positions = [index for index, name in enumerate(members) if name in observed]
+    if len(positions) < MINIMUM_ROTATION_CYCLE:
+        return None
+    if positions != list(range(positions[0], positions[-1] + 1)):
+        return None
+    return tuple(members[index] for index in positions)
+
+
 def _lane_rotation(
     target: Sequence[str], candidate: Sequence[str], cycle: Sequence[str], start: int
 ) -> int | None:
@@ -649,14 +831,14 @@ def _lane_rotation(
 
     A temp rotation whose phase entered the block one slot early shows up as a
     single non-zero offset shared by every later slot: one upstream event, not
-    N independent allocation decisions.
-
-    ``cycle`` is the *observed* rotation cycle -- the profile members that this
-    function actually uses, in profile order.  Measuring against the full class
-    table would hide a rotation whenever a function leaves one register unused.
+    N independent allocation decisions.  Fewer than
+    ``MINIMUM_ROTATION_SLOTS`` diverging slots is not a phase; it is a swap
+    that happens to be describable as one.
     """
 
     if len(target) != len(candidate) or not cycle or start >= len(target):
+        return None
+    if len(target) - start < MINIMUM_ROTATION_SLOTS:
         return None
     size = len(cycle)
     order = {name: index for index, name in enumerate(cycle)}
@@ -715,11 +897,10 @@ def _build_lanes(
                 if divergence < len(rows_)
             ]
             divergence_row = min(candidates_rows) if candidates_rows else None
-        observed = set(target_slots) | set(candidate_slots)
-        cycle = tuple(item for item in profile[name] if item in observed)
+        cycle = _rotation_cycle(profile[name], set(target_slots) | set(candidate_slots))
         rotation = (
             None
-            if divergence is None
+            if divergence is None or cycle is None
             else _lane_rotation(target_slots, candidate_slots, cycle, divergence)
         )
         lanes.append(
@@ -781,7 +962,7 @@ def _prefix_exact(rows: Sequence[AlignedRow]) -> int | None:
     """Return the first aligned row whose instruction words differ."""
 
     for row in rows:
-        if row.classification in {MATCH, RELOCATION}:
+        if row.classification in {MATCH, RELOCATION, DISPLACEMENT}:
             continue
         return row.index
     return None
@@ -792,16 +973,33 @@ def _prefix_exact(rows: Sequence[AlignedRow]) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+def _phase_shift(lanes: Sequence[Lane]) -> bool:
+    """Return whether the lanes support a phase-shift claim.
+
+    `phase-shift` is the most specific register verdict in the taxonomy and it
+    dispatches the reader to a very particular lever (perturb the preceding
+    block).  Being wrong about it is expensive, so it requires that *every*
+    diverging lane is explained by a rotation.  One class turning while another
+    diverges arbitrarily is two mechanisms, and the honest name for two
+    mechanisms is `allocation`.
+    """
+
+    diverging = [lane for lane in lanes if lane.divergence is not None]
+    if not diverging:
+        return False
+    return all(lane.rotation for lane in diverging)
+
+
 def _verdict(
     counts: dict[str, int], lanes: Sequence[Lane], webs: Sequence[Web]
 ) -> tuple[str, str]:
     present = [name for name in MIXED_PRECEDENCE if counts.get(name)]
     if not present:
-        if counts.get(RELOCATION):
+        if counts.get(RELOCATION) or counts.get(DISPLACEMENT):
             return "words-identical", "relocation-only"
         return "exact", "done"
     if present == [REGISTER]:
-        if any(lane.rotation for lane in lanes):
+        if _phase_shift(lanes):
             return "phase-shift", "temp-fifo-phase"
         if _consistent_permutation(webs):
             return "register-permutation", "forced-color-oracle"
@@ -1026,21 +1224,26 @@ def _hunks(rows: Sequence[AlignedRow]) -> tuple[Hunk, ...]:
         current.clear()
 
     for row in rows:
-        if row.matched:
-            flush()
-        else:
+        if row.reported:
             current.append(row)
+        else:
+            flush()
     flush()
     return tuple(hunks)
 
 
 def _runs(labels: Sequence[str]) -> list[tuple[int, int]]:
-    """Return inclusive ranges of consecutive non-matching rows."""
+    """Return inclusive ranges of consecutive rows that need reporting.
+
+    ``match`` and ``displacement`` rows do not start a run: neither is a source
+    difference, and letting an alignment-controlled branch offset open a hunk
+    would scatter one insertion across every branch that spans it.
+    """
 
     runs: list[tuple[int, int]] = []
     start: int | None = None
     for index, label in enumerate(labels):
-        if label == MATCH:
+        if label in {MATCH, DISPLACEMENT}:
             if start is not None:
                 runs.append((start, index - 1))
                 start = None
@@ -1080,20 +1283,17 @@ def _relabel_reorderings(
         return sorted(left), sorted(right)
 
     runs = _runs(labels)
-    if runs and all(
-        labels[index] == STRUCTURAL
-        for start, end in runs
-        for index in range(start, end + 1)
-    ):
+    if runs and sorted(target_text) == sorted(candidate_text) and target_text:
         # Whole-function reordering: equal instruction multiset, different order.
-        if sorted(target_text) == sorted(candidate_text) and target_text:
-            for start, end in runs:
-                for index in range(start, end + 1):
-                    labels[index] = SCHEDULE
-            return
+        # The run labels are irrelevant here.  Two same-opcode instructions that
+        # swapped places pair up as register differences, not as a delete beside
+        # an insert, and counting those as allocation sends the reader to the
+        # allocator for a scheduling decision.
+        for start, end in runs:
+            for index in range(start, end + 1):
+                labels[index] = SCHEDULE
+        return
     for start, end in runs:
-        if any(labels[index] != STRUCTURAL for index in range(start, end + 1)):
-            continue
         left, right = sides(start, end)
         if left and left == right:
             for index in range(start, end + 1):
@@ -1140,7 +1340,7 @@ def _signature(
             and earliest
             and min(earliest) <= prefix_exact
         ):
-            signature.append("upstream-byte-invisible")
+            signature.append("register-first-divergence")
     signature.extend(f"unknown-relocation:{kind}" for kind in unknown_relocations)
     return tuple(signature)
 
@@ -1163,9 +1363,14 @@ def build_view(
         raise ValueError(
             f"unknown register profile {register_profile!r}; known profiles: {known}"
         ) from None
+    if not target or not candidate:
+        missing = "target" if not target else "candidate"
+        raise ValueError(
+            f"no instructions to align on the {missing} side; "
+            "check the symbol name and the section"
+        )
 
-    blocks = _alignment_blocks(target, candidate)
-    skeleton = _skeleton(blocks)
+    skeleton = _skeleton(target, candidate)
     row_of_target = {
         target_index: row
         for row, (_, target_index, _) in enumerate(skeleton)

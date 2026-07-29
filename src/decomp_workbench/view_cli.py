@@ -17,7 +17,7 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
@@ -31,7 +31,6 @@ from .view import (
     build_view,
 )
 
-ASSEMBLY_WIDTH = 34
 WEB_COLORS = ("36", "33", "35", "32", "34", "31")
 
 
@@ -54,7 +53,7 @@ class Painter:
         return self._wrap(WEB_COLORS[(number - 1) % len(WEB_COLORS)], text)
 
 
-def resolve_color(choice: str, *, stream: Any = None) -> bool:
+def resolve_color(choice: str, *, stream: TextIO | None = None) -> bool:
     """Decide whether ANSI output is appropriate."""
 
     if choice == "always":
@@ -80,10 +79,9 @@ def _byte_range(value: tuple[int, int] | None) -> str:
 
 
 def _cell(text: str | None, width: int) -> str:
-    value = "-" if text is None else text
-    if len(value) > width:
-        value = value[: width - 1] + "~"
-    return value.ljust(width)
+    """Render one assembly column, padded but never truncated."""
+
+    return ("-" if text is None else text).ljust(width)
 
 
 def render_header(view: MechanismView) -> list[str]:
@@ -100,6 +98,7 @@ def render_header(view: MechanismView) -> list[str]:
                 ("match", counts.get(MATCH, 0)),
                 ("target_frame_size", view.target_frame_size),
                 ("candidate_frame_size", view.candidate_frame_size),
+                ("register_profile", view.register_profile),
             )
         )
     )
@@ -109,7 +108,7 @@ def render_header(view: MechanismView) -> list[str]:
         ("register", counts.get("register", 0)),
         ("constant", counts.get("constant", 0)),
     ]
-    for optional in ("commutative", "relocation"):
+    for optional in ("commutative", "relocation", "displacement"):
         if counts.get(optional):
             verdict_tokens.append((optional, counts[optional]))
     verdict_tokens.append(("hunks", len(view.hunks)))
@@ -189,17 +188,24 @@ def _annotation(
     return " ".join(parts)
 
 
-def _assembly_width(view: MechanismView) -> int:
-    widest = max(
+def _assembly_width(rows: Sequence[AlignedRow]) -> int:
+    """Return the column width needed to render these rows in full.
+
+    Columns are sized per hunk window and never capped.  A fixed cap truncates,
+    and two instructions that differ only near their end then render as the
+    same text -- a screen whose whole purpose is to show that difference would
+    be hiding it.  A wide row is allowed to be wide.
+    """
+
+    return max(
         (
             len(text)
-            for row in view.rows
+            for row in rows
             for text in (row.target, row.candidate)
             if text is not None
         ),
         default=1,
     )
-    return min(widest, ASSEMBLY_WIDTH)
 
 
 def render_hunks(
@@ -214,10 +220,10 @@ def render_hunks(
     webs = {
         (web.target, web.candidate): index for index, web in enumerate(view.webs, 1)
     }
-    width = _assembly_width(view)
     lines: list[str] = []
     shown = view.hunks[:max_hunks] if max_hunks else view.hunks
-    for hunk in shown:
+    windows = _context_windows(view, shown, context=context)
+    for hunk, window in zip(shown, windows, strict=True):
         lines.append("")
         lines.append(
             painter.bold(f"HUNK {hunk.hunk}")
@@ -234,9 +240,7 @@ def render_hunks(
             )
         )
         lines.extend(
-            _render_hunk_rows(
-                view, hunk, context=context, webs=webs, painter=painter, width=width
-            )
+            _render_hunk_rows(view, hunk, window=window, webs=webs, painter=painter)
         )
     if max_hunks and len(view.hunks) > max_hunks:
         lines.append("")
@@ -247,23 +251,50 @@ def render_hunks(
     return lines
 
 
+def _context_windows(
+    view: MechanismView, hunks: Sequence[Hunk], *, context: int
+) -> list[tuple[int, int]]:
+    """Return the inclusive row range to print for each hunk.
+
+    Context is clamped to the midpoint between neighbouring hunks so that no
+    aligned row is ever printed twice.  A row shown under two hunks reads as
+    two separate findings.
+    """
+
+    windows: list[tuple[int, int]] = []
+    last = len(view.rows) - 1
+    for position, hunk in enumerate(hunks):
+        low = max(0, hunk.start - context)
+        high = min(last, hunk.end + context)
+        if position:
+            previous = hunks[position - 1]
+            low = max(low, (previous.end + hunk.start) // 2 + 1)
+        if position + 1 < len(hunks):
+            following = hunks[position + 1]
+            high = min(high, (hunk.end + following.start) // 2)
+        windows.append((low, max(low, high)))
+    return windows
+
+
 def _render_hunk_rows(
     view: MechanismView,
     hunk: Hunk,
     *,
-    context: int,
+    window: tuple[int, int],
     webs: dict[tuple[str, str], int],
     painter: Painter,
-    width: int,
 ) -> list[str]:
+    start, end = window
+    rows = view.rows[start : end + 1]
+    width = _assembly_width(rows)
     lines: list[str] = []
-    start = max(0, hunk.start - context)
-    end = min(len(view.rows) - 1, hunk.end + context)
-    for row in view.rows[start : end + 1]:
+    for row in rows:
         inside = hunk.start <= row.index <= hunk.end
         marker = ">" if inside else " "
         annotation = _annotation(row, webs, painter) if inside else ""
-        if inside and not annotation and not row.matched:
+        if not annotation and not row.matched:
+            # Context rows carry their class too: a displacement never opens a
+            # hunk, and it must still be visible where it happens.
             annotation = row.classification
         lines.append(
             f"  {row.index:5d} {marker} "
@@ -315,11 +346,12 @@ def render_view(
 
     brush = painter or Painter(False)
     lines = render_header(view)
-    if view.upstream_byte_invisible:
+    if view.register_first_divergence:
         lines.append(
             brush.warn(
-                "state diverges at the first byte difference and the class is "
-                "register: the lever is UPSTREAM of hunk 1, not inside it."
+                "the FIRST divergence is a register-class divergence, not a "
+                "structural one: the decision was made upstream of hunk 1 even "
+                "though it surfaces there."
             )
         )
     lines.extend(render_lanes(view, window=lane_window))
@@ -365,7 +397,9 @@ def _emit(view: MechanismView, args: argparse.Namespace) -> int:
 
 
 def _symbol(args: argparse.Namespace) -> str | None:
-    value = getattr(args, "symbol", None) or getattr(args, "function", None)
+    """Return the selected function.  ``--symbol`` and ``--function`` share it."""
+
+    value = args.symbol
     return str(value) if value else None
 
 

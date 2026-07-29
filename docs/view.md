@@ -3,8 +3,8 @@
 `compare` answers *how different are these two objects?* Mid-campaign the
 question is different, and `view` is built for it:
 
-1. Where does the divergence actually begin — not where the first byte differs,
-   but where the compiler's state first diverges?
+1. Where does the divergence actually begin, and is the first thing that
+   diverges a *shape* difference or a *register* difference?
 2. Which mechanism owns it — allocation, temp phase, schedule, a constant, an
    expression shape, or real structure?
 3. Which lever family moves it?
@@ -30,10 +30,10 @@ decomp-workbench view-dumps \
 ## Reading the screen
 
 ```text
-view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32
+view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32 register_profile=ido53
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
-signature: prefix-exact@12 state-divergence@temp:5 upstream-byte-invisible
-state diverges at the first byte difference and the class is register: the lever is UPSTREAM of hunk 1, not inside it.
+signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
+the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
 
 REGISTER LANES (per-class assignment sequences, matching instructions included)
   pool  target     t0 t1 a0   slots=0..2/3
@@ -89,16 +89,34 @@ decomp-workbench compare-dumps \
 decomp-workbench view-dumps \
   examples/fixtures/shifted-insertion-target.objdump \
   examples/fixtures/shifted-insertion-candidate.objdump --symbol blockSum
-# verdict: structure  structural=1 ... hunks=1
+# verdict: structure  structural=1 ... displacement=1 hunks=1
 ```
 
-Eleven positional words, ten of them phantom; one inserted `sll`.
+Eleven positional words; one inserted `sll`, plus one branch whose encoded
+offset moved because of it. Everything else was the same instruction in a
+different place.
 
-Two passes run over the streams:
+Two anchorings are built with `difflib.SequenceMatcher(autojunk=False)`, and
+the one that explains more of the function as identical wins:
 
-1. `difflib.SequenceMatcher(autojunk=False)` aligns the **opcode** streams.
-   Unequal blocks become structural or schedule hunks.
-2. Inside each aligned pair, the operand difference is classified.
+1. anchor on normalized instruction **text**, then pair by **opcode** inside
+   each unmatched region;
+2. anchor on **opcode**, then pair by text inside each unmatched region.
+
+Neither is safe alone, and both failures are real. Opcode anchoring cannot
+resolve a run of repeated opcodes: eight `addu` instructions with one inserted
+among them align position by position, and four correct instructions are then
+reported as register differences beside a phantom insertion. Text anchoring
+inherits `difflib`'s greedy longest-block anchor: on a function whose text
+repeats, the longest single common run can sit past the change, and everything
+before it is discarded — on one 1500-instruction fixture that produced 61
+matches and 2079 structural rows. Scoring both against "how many instructions
+are explained as unchanged" settles it; ties go to the text anchoring, which
+cannot mispair by construction.
+
+Instructions paired inside an unmatched region are the population that
+operand-level classification exists for: same opcode, different registers or
+immediates.
 
 Branch destinations are compared by *aligned row*, not by encoded displacement,
 so an insertion does not turn every later branch into a phantom difference. A
@@ -113,12 +131,20 @@ core counts, and adds `commutative` and `relocation` when they are non-zero.
 | Class | Rule |
 |---|---|
 | `match` | identical instruction words and relocation layout |
+| `displacement` | same aligned branch destination, different encoded offset |
 | `relocation` | differs only in linker-controlled relocation fields |
 | `constant` | same opcode and registers, different immediate |
 | `commutative` | same opcode and operand multiset, commutative pair swapped |
 | `register` | same opcode, different register operands |
 | `schedule` | a run whose two sides hold the same instructions in another order |
 | `structural` | everything else: opcode shape, symbols, control flow |
+
+`displacement` is what an insertion does to every branch that spans it. The
+bytes differ, so the row is not `match`, but nothing a source change controls
+differs either, so the row does not open a hunk: it is counted in the header,
+annotated where it happens, and left out of the prefix signature. Letting it
+open hunks would scatter one insertion across the whole function, which is the
+phantom cascade this command exists to remove.
 
 The verdict names the cheapest mechanism that explains the whole residual.
 
@@ -146,19 +172,27 @@ a campaign a mis-framed brief, and suppression is a defect here by definition.
 
 Signatures are modifiers, never verdicts.
 
-* `prefix-exact@N` — aligned rows `0..N-1` are byte-identical; `N` is the first
+* `prefix-exact@N` — aligned rows `0..N-1` are identical outside
+  relocation-controlled and alignment-controlled fields; `N` is the first
   divergent aligned row. `prefix-exact@all` means nothing diverged. Relocation
-  fields are masked here exactly as they are in `compare`, so a linker-supplied
-  address never shortens the prefix.
+  fields are masked exactly as they are in `compare`, and a branch whose
+  encoded offset moved because of an insertion does not shorten the prefix
+  either — both are counted and printed, neither is a source difference.
 * `state-divergence@<class>:<slot>` — the first lane slot where a register class
   diverges.
 * `unknown-relocation:KIND` — a relocation kind with no known field mask is
   present. Nothing is guessed: an affected difference is reported as a real
   difference rather than excused.
-* `upstream-byte-invisible` — the first byte difference *is* a register-class
-  state divergence. The visible block is where the divergence surfaces, not
-  where it was decided; the lever is upstream. One campaign round burned 13
-  variants on the visible block before this was understood.
+* `register-first-divergence` — the first divergence is a register-class
+  divergence rather than a structural one. The block where it surfaces is not
+  the block where it was decided, so the lever is upstream; one campaign round
+  burned 13 variants on the visible block before that was understood.
+
+  This command reads two disassemblies, so a state divergence that leaves the
+  bytes alone is not observable from here: anything that changes a lane also
+  changes an instruction. Proving *where* upstream needs a pool trace, which
+  this command does not read. The signature says what is actually in evidence
+  and no more.
 
 ## Register lanes
 
@@ -206,7 +240,7 @@ agent dialect and no human dialect.
 | `symbol`, `target`, `candidate` | inputs |
 | `target_instructions`, `candidate_instructions`, `aligned_rows` | sizes |
 | `target_frame_size`, `candidate_frame_size` | stack frame adjustments |
-| `match`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation` | aligned row counts |
+| `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation` | aligned row counts |
 | `verdict`, `playbook`, `signature`, `prefix_exact` | diagnosis |
 | `hunks` | `hunk`, `class`, `rows`, `target`, `candidate`, `target_bytes`, `candidate_bytes`, `classes` |
 | `lanes` | `class`, `target`, `candidate`, `rows`, `divergence`, `index`, `rotation` |
@@ -239,9 +273,15 @@ key, so the two renderings cannot drift.
 * `view` diagnoses; it never claims a match. `exact` here means the aligned
   instructions and relocation layout agree for the selected function — run the
   project's normal link or ROM verification for proof.
-* A reordering of two instructions that share an opcode cannot be distinguished
-  from an operand change by opcode alignment; it is reported as the operand
-  class it looks like.
+* A run whose two sides hold the same instructions in a different order is
+  reported as `schedule`, whether the alignment paired those instructions or
+  left them unpaired. A reordering that is *also* a register change in the same
+  rows cannot be separated from allocation by this evidence.
+* Alignment is quadratic in the worst case. Measured end to end, including
+  rendering: 500 instructions 0.008 s, 1500 0.035 s, 3000 0.11 s, 6000 0.37 s.
+  A pathological stream (every instruction sharing one opcode) costs about
+  0.22 s at 1500. Interactive well past vsprintf scale, but not linear.
+* An empty selection is refused rather than reported as `exact`.
 * Lane classes describe IDO 5.3 behavior. On another toolchain, add a profile
   rather than reading the `ido53` lanes as universal.
 * Pool-trace and HTML renderings are not part of this command yet.

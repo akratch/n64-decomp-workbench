@@ -27,6 +27,7 @@ from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.view import (
     REGISTER_CLASS_PROFILES,
+    AlignedRow,
     MechanismView,
     build_view,
     classify_pair,
@@ -121,7 +122,8 @@ class AlignmentTests(unittest.TestCase):
         self.assertEqual(view.counts["structural"], 1)
         self.assertEqual(len(view.hunks), 1)
         self.assertEqual(view.verdict, "structure")
-        self.assertEqual(view.counts["match"], len(target))
+        self.assertEqual(view.counts["displacement"], 1)
+        self.assertEqual(view.counts["match"], len(target) - 1)
 
         positional = compare_instructions(
             parse_disassembly(assemble(target, symbol=SYMBOL), symbol=SYMBOL),
@@ -140,8 +142,13 @@ class AlignmentTests(unittest.TestCase):
             body("bne a0,zero,@11", "nop", "nop", "nop", "nop", "nop", "nop"),
         )
         branch = next(row for row in view.rows if (row.target or "").startswith("bne"))
-        self.assertTrue(branch.matched)
+        self.assertEqual(branch.classification, "displacement")
         self.assertNotEqual(branch.target, branch.candidate)
+        # The encoded offset moved, so this is not byte-identical, but it is
+        # not a source difference either: it must not open a hunk.
+        self.assertFalse(branch.matched)
+        self.assertFalse(branch.reported)
+        self.assertTrue(all(hunk.start != branch.index for hunk in view.hunks))
 
     def test_relocated_call_is_never_read_as_a_local_branch(self) -> None:
         view = view_of(
@@ -150,6 +157,158 @@ class AlignmentTests(unittest.TestCase):
             relocations={4: "R_MIPS_26 helper"},
         )
         self.assertEqual(view.verdict, "exact")
+
+
+class DuplicatedRunTests(unittest.TestCase):
+    """Opcode-level LCS cannot resolve a run of repeated opcodes on its own."""
+
+    def test_insertion_into_a_duplicated_opcode_run_is_one_hunk(self) -> None:
+        target = body(*[f"addu t{index},t0,t1" for index in (2, 3, 4, 5)])
+        candidate = body(
+            "addu t2,t0,t1",
+            "addu t3,t0,t1",
+            "addu t9,t0,t1",
+            "addu t4,t0,t1",
+            "addu t5,t0,t1",
+        )
+        view = view_of(target, candidate)
+        self.assertEqual(view.verdict, "structure")
+        self.assertEqual(view.counts["structural"], 1)
+        self.assertEqual(view.counts["register"], 0)
+        self.assertEqual(len(view.hunks), 1)
+        self.assertEqual(view.counts["match"], len(target))
+
+    def test_the_better_of_the_two_anchorings_wins(self) -> None:
+        """Identical text is an unambiguous anchor; the score picks the winner."""
+
+        target = body("addu t2,t0,t1", "addu t2,t0,t1", "addu t2,t0,t1")
+        candidate = body(
+            "addu t2,t0,t1", "addu t2,t0,t1", "addu t2,t0,t1", "addu t2,t0,t1"
+        )
+        view = view_of(target, candidate)
+        self.assertEqual(view.counts["match"], len(target))
+        self.assertEqual(view.counts["structural"], 1)
+
+
+class PhaseShiftEvidenceTests(unittest.TestCase):
+    """`phase-shift` sends the reader upstream; it has to be paid for.
+
+    A constant cyclic offset is findable over almost any small register set --
+    every swap of two registers is a rotation of a two-element cycle -- so the
+    claim requires a real cycle, real length, and no unexplained lane.
+    """
+
+    def test_one_substitution_is_not_a_phase(self) -> None:
+        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+        self.assertNotEqual(view.verdict, "phase-shift")
+        self.assertEqual(view.verdict, "register-permutation")
+
+    def test_two_register_swap_is_a_permutation_not_a_phase(self) -> None:
+        view = view_of(
+            body("lw t6,0(s0)", "lw t7,4(s0)", "sw t6,8(s0)", "sw t7,12(s0)"),
+            body("lw t7,0(s0)", "lw t6,4(s0)", "sw t7,8(s0)", "sw t6,12(s0)"),
+        )
+        self.assertEqual(view.verdict, "register-permutation")
+        temp = next(lane for lane in view.lanes if lane.classification == "temp")
+        self.assertIsNone(temp.rotation)
+
+    def test_inconsistent_substitutions_are_not_a_phase(self) -> None:
+        view = view_of(
+            body(
+                "lw t6,0(s0)",
+                "lw t8,4(s0)",
+                "lw t9,8(s0)",
+                "addu t6,t6,t8",
+                "sw t6,12(s0)",
+            ),
+            body(
+                "lw t7,0(s0)",
+                "lw t6,4(s0)",
+                "lw t7,8(s0)",
+                "addu t7,t7,t6",
+                "sw t7,12(s0)",
+            ),
+        )
+        self.assertNotEqual(view.verdict, "phase-shift")
+        self.assertEqual(view.verdict, "allocation")
+
+    def test_a_reordered_stream_is_not_a_phase(self) -> None:
+        view = view_of(
+            body("lw t6,0(s0)", "lw t7,4(s0)", "lw t8,8(s0)"),
+            body("lw t8,8(s0)", "lw t7,4(s0)", "lw t6,0(s0)"),
+        )
+        self.assertNotEqual(view.verdict, "phase-shift")
+        self.assertEqual(view.verdict, "schedule")
+
+    def test_a_diverging_lane_without_a_rotation_blocks_the_claim(self) -> None:
+        """One class turning while another diverges freely is two mechanisms."""
+
+        view = view_of(
+            body(
+                "lw t6,0(s0)",
+                "lw t7,4(s0)",
+                "addu t8,t6,t7",
+                "lw t9,8(s0)",
+                "addu t6,t8,t9",
+                "andi t7,t6,0xff",
+                "sll t8,t7,2",
+                "lw t0,16(s0)",
+                "sw t0,20(s0)",
+                "lw t0,24(s0)",
+            ),
+            body(
+                "lw t6,0(s0)",
+                "lw t7,4(s0)",
+                "addu t8,t6,t7",
+                "lw t9,8(s0)",
+                "addu t7,t8,t9",
+                "andi t8,t7,0xff",
+                "sll t9,t8,2",
+                "lw t3,16(s0)",
+                "sw t3,20(s0)",
+                "lw t4,24(s0)",
+            ),
+        )
+        self.assertEqual(view.verdict, "allocation")
+        temp = next(lane for lane in view.lanes if lane.classification == "temp")
+        pool = next(lane for lane in view.lanes if lane.classification == "pool")
+        self.assertEqual(temp.rotation, 1)
+        self.assertIsNone(pool.rotation)
+
+
+class DisplacementTests(unittest.TestCase):
+    """A shifted branch offset is neither byte identity nor a source problem."""
+
+    def test_displacement_is_counted_but_does_not_open_a_hunk(self) -> None:
+        view = view_of(
+            body("bne a0,zero,@8", "nop", "nop", "nop"),
+            body("bne a0,zero,@9", "nop", "nop", "nop", "nop"),
+        )
+        self.assertEqual(view.counts["displacement"], 1)
+        self.assertEqual(len(view.hunks), 1)
+        self.assertEqual(view.hunks[0].classification, "structural")
+
+    def test_displacement_does_not_claim_byte_identity(self) -> None:
+        view = view_of(
+            body("bne a0,zero,@8", "nop", "nop", "nop"),
+            body("bne a0,zero,@9", "nop", "nop", "nop", "nop"),
+        )
+        branch = next(row for row in view.rows if (row.target or "").startswith("bne"))
+        self.assertEqual(branch.classification, "displacement")
+        self.assertNotIn(branch.classification, {"match"})
+        payload = view.as_dict()
+        self.assertEqual(payload["displacement"], 1)
+        self.assertEqual(
+            payload["match"] + payload["displacement"], view.aligned_rows - 1
+        )
+
+    def test_displacement_is_visible_in_the_rendered_screen(self) -> None:
+        view = view_of(
+            body("bne a0,zero,@8", "nop", "nop", "nop"),
+            body("bne a0,zero,@9", "nop", "nop", "nop", "nop"),
+        )
+        screen = "\n".join(render_view(view, context=6))
+        self.assertIn("displacement", screen)
 
 
 class ClassificationTests(unittest.TestCase):
@@ -201,7 +360,9 @@ class ClassificationTests(unittest.TestCase):
                 "addu t8,t6,t7",
                 "lw t9,8(s0)",
                 "addu t6,t8,t9",
-                "sw t6,12(s0)",
+                "andi t7,t6,0xff",
+                "sll t8,t7,2",
+                "sw t8,12(s0)",
             ),
             body(
                 "lw t6,0(s0)",
@@ -209,7 +370,9 @@ class ClassificationTests(unittest.TestCase):
                 "addu t8,t6,t7",
                 "lw t9,8(s0)",
                 "addu t7,t8,t9",
-                "sw t7,12(s0)",
+                "andi t8,t7,0xff",
+                "sll t9,t8,2",
+                "sw t9,12(s0)",
             ),
         )
         self.assertEqual(view.verdict, "phase-shift")
@@ -240,6 +403,18 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(view.verdict, "schedule")
         self.assertEqual(view.counts["structural"], 0)
         self.assertGreater(view.counts["schedule"], 0)
+        self.assertIn("-g0", " ".join(view.guidance))
+
+    def test_same_opcode_reorder_is_schedule_not_allocation(self) -> None:
+        """Two loads that swapped places pair up as register differences."""
+
+        view = view_of(
+            body("lw t6,0(s0)", "lw t7,4(s0)", "sw t6,8(s0)", "sw t7,12(s0)"),
+            body("lw t7,4(s0)", "lw t6,0(s0)", "sw t6,8(s0)", "sw t7,12(s0)"),
+        )
+        self.assertEqual(view.verdict, "schedule")
+        self.assertEqual(view.counts["register"], 0)
+        self.assertEqual(view.counts["schedule"], 2)
         self.assertIn("-g0", " ".join(view.guidance))
 
     def test_relocation_only_difference_is_linker_controlled(self) -> None:
@@ -306,9 +481,9 @@ class SignatureTests(unittest.TestCase):
         )
         self.assertEqual(view.prefix_exact, 6)
         self.assertIn("prefix-exact@6", view.signature)
-        self.assertFalse(view.upstream_byte_invisible)
+        self.assertFalse(view.register_first_divergence)
 
-    def test_state_divergence_before_the_visible_block_is_called_out(self) -> None:
+    def test_register_first_divergence_is_called_out(self) -> None:
         view = view_of(
             body(
                 "lw t6,0(s0)",
@@ -328,9 +503,9 @@ class SignatureTests(unittest.TestCase):
             ),
         )
         self.assertIn("state-divergence@temp:4", view.signature)
-        self.assertTrue(view.upstream_byte_invisible)
+        self.assertTrue(view.register_first_divergence)
         screen = "\n".join(render_view(view))
-        self.assertIn("UPSTREAM of hunk 1", screen)
+        self.assertIn("upstream of hunk 1", screen)
 
 
 class LaneTests(unittest.TestCase):
@@ -444,7 +619,7 @@ class RenderingTests(unittest.TestCase):
         self.assertLessEqual(set(payload), allowed)
         for section in ("hunks", "lanes", "webs", "register_report"):
             for entry in payload[section]:
-                self.assertLessEqual(set(entry) - {"classes"}, allowed, section)
+                self.assertLessEqual(set(entry), allowed, section)
 
     def test_json_counts_agree_with_the_printed_header(self) -> None:
         view = view_of(
@@ -509,27 +684,135 @@ class RenderingTests(unittest.TestCase):
         screen.encode("ascii")
 
 
+OPCODE_CYCLE = (
+    "lw t{a},0(s0)",
+    "addu t{a},t{a},t{b}",
+    "sw t{a},4(s0)",
+    "andi t{b},t{a},0xff",
+    "sll t{b},t{b},2",
+    "lbu t{a},8(s0)",
+    "or t{b},t{a},t{b}",
+    "subu t{a},t{b},t{a}",
+)
+
+
+def long_function(count: int, *, swap_at: int = -1) -> list[str]:
+    """Return a long body whose text repeats, as real idiomatic code does."""
+
+    lines = list(PROLOGUE)
+    for index in range(count):
+        registers = {"a": 6, "b": 7} if index != swap_at else {"a": 8, "b": 9}
+        lines.append(
+            OPCODE_CYCLE[index % len(OPCODE_CYCLE)].format(
+                a=registers["a"], b=registers["b"]
+            )
+        )
+    return lines + EPILOGUE
+
+
+class EvidenceTests(unittest.TestCase):
+    """Nothing the screen shows may be narrower than the truth it reports."""
+
+    def test_long_rows_are_widened_never_truncated(self) -> None:
+        target = body("jal aVeryLongSymbolNameThatKeepsGoingAndGoing1", "nop")
+        candidate = body("jal aVeryLongSymbolNameThatKeepsGoingAndGoing2", "nop")
+        view = view_of(target, candidate)
+        screen = render_view(view)
+        self.assertIn("aVeryLongSymbolNameThatKeepsGoingAndGoing1", "\n".join(screen))
+        self.assertIn("aVeryLongSymbolNameThatKeepsGoingAndGoing2", "\n".join(screen))
+
+    def test_every_rendered_hunk_row_shows_a_visible_difference(self) -> None:
+        """A row whose sides differ must never render as two identical cells."""
+
+        cases = (
+            (
+                body("jal aLongSymbolNameUsedToForceColumnPadding1", "nop"),
+                body("jal aLongSymbolNameUsedToForceColumnPadding2", "nop"),
+            ),
+            (
+                body("lw t6,0(s0)", "andi t6,t6,0x1234"),
+                body("lw t6,0(s0)", "andi t6,t6,0x1235"),
+            ),
+        )
+        for target, candidate in cases:
+            with self.subTest(target=target[4]):
+                view = view_of(target, candidate)
+                rendered = {
+                    row.index: line
+                    for row, line in _hunk_row_lines(view)
+                    if row.target != row.candidate
+                }
+                self.assertTrue(rendered)
+                for index, line in rendered.items():
+                    left, _, right = line.partition(" | ")
+                    self.assertNotEqual(left.strip(), right.strip(), index)
+
+    def test_context_windows_never_print_a_row_twice(self) -> None:
+        target = body(
+            "lw t6,0(s0)",
+            "nop",
+            "nop",
+            "lw t7,4(s0)",
+            "nop",
+            "nop",
+            "lw t8,8(s0)",
+        )
+        candidate = body(
+            "lw t9,0(s0)",
+            "nop",
+            "nop",
+            "lw t6,4(s0)",
+            "nop",
+            "nop",
+            "lw t7,8(s0)",
+        )
+        view = view_of(target, candidate)
+        self.assertGreaterEqual(len(view.hunks), 3)
+        indexes = [row.index for row, _ in _hunk_row_lines(view, context=4)]
+        self.assertEqual(sorted(indexes), sorted(set(indexes)))
+
+    def test_header_names_the_register_profile(self) -> None:
+        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+        self.assertIn("register_profile=ido53", render_view(view)[0])
+
+
+def _hunk_row_lines(
+    view: MechanismView, *, context: int = 2
+) -> list[tuple[AlignedRow, str]]:
+    """Return the aligned rows a rendered screen prints, with their lines."""
+
+    pairs: list[tuple[AlignedRow, str]] = []
+    for line in render_view(view, context=context):
+        match = re.match(r"^\s+(\d+) [ >] ", line)
+        if match:
+            pairs.append((view.rows[int(match.group(1))], line))
+    return pairs
+
+
+class InputTests(unittest.TestCase):
+    def test_empty_input_is_refused_not_called_exact(self) -> None:
+        instructions = parse_disassembly(
+            assemble(body("nop"), symbol=SYMBOL), symbol=SYMBOL
+        )
+        for target, candidate in (([], instructions), (instructions, []), ([], [])):
+            with self.subTest(target=len(target), candidate=len(candidate)):
+                with self.assertRaises(ValueError) as error:
+                    build_view(target, candidate, target_name="t", candidate_name="c")
+                self.assertIn("no instructions", str(error.exception))
+
+
 class PerformanceTests(unittest.TestCase):
     def test_large_function_renders_quickly(self) -> None:
         """vsprintf scale: alignment plus rendering must stay interactive."""
 
-        def stream(swap_at: int) -> list[Instruction]:
-            items = []
-            for index in range(1500):
-                register = "t6" if index != swap_at else "t7"
-                items.append(
-                    Instruction(
-                        address=index * 4,
-                        word=f"{index:08x}",
-                        assembly=f"lw ${register},{index % 64 * 4}($s0)",
-                    )
-                )
-            return items
-
+        target = long_function(1500)
+        candidate = long_function(1500, swap_at=700)
+        target_text = assemble(target, symbol="big")
+        candidate_text = assemble(candidate, symbol="big")
         start = time.perf_counter()
         view = build_view(
-            stream(-1),
-            stream(700),
+            parse_disassembly(target_text, symbol="big"),
+            parse_disassembly(candidate_text, symbol="big"),
             target_name="t",
             candidate_name="c",
             symbol="big",
@@ -537,8 +820,24 @@ class PerformanceTests(unittest.TestCase):
         lines = render_view(view)
         elapsed = time.perf_counter() - start
         self.assertEqual(view.counts["register"], 1)
+        self.assertEqual(view.counts["structural"], 0)
         self.assertTrue(lines)
         self.assertLess(elapsed, 1.0, f"view took {elapsed:.3f}s")
+
+    def test_repeating_text_does_not_derail_the_alignment(self) -> None:
+        """A greedy longest-block anchor can throw away half a function.
+
+        The text anchoring alone reported 61 matches and 2079 structural rows
+        on this input, because one common run past the change was longer than
+        everything before it.  Scoring both anchorings fixes it.
+        """
+
+        target = long_function(400)
+        candidate = long_function(400, swap_at=100)
+        view = view_of(target, candidate, symbol="big")
+        self.assertEqual(view.counts["register"], 1)
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["match"], len(target) - 1)
 
 
 FIXTURES = Path(__file__).resolve().parents[1] / "examples" / "fixtures"
@@ -576,7 +875,7 @@ class ViewCommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("verdict: phase-shift", stdout)
         self.assertIn("signature: prefix-exact@12", stdout)
-        self.assertIn("upstream-byte-invisible", stdout)
+        self.assertIn("register-first-divergence", stdout)
         self.assertIn("REGISTER LANES", stdout)
         self.assertIn("rotation=+1", stdout)
         self.assertIn("HUNK 1", stdout)
@@ -638,7 +937,7 @@ class ViewCommandTests(unittest.TestCase):
         self.assertEqual(payload["register"], 6)
         self.assertEqual(payload["structural"], 0)
         self.assertEqual(len(payload["register_report"]), payload["aligned_rows"])
-        self.assertIn("upstream-byte-invisible", payload["signature"])
+        self.assertIn("register-first-divergence", payload["signature"])
         temp = next(lane for lane in payload["lanes"] if lane["class"] == "temp")
         self.assertEqual(temp["rotation"], 1)
         self.assertEqual(temp["divergence"], 5)
