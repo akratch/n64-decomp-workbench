@@ -1,6 +1,6 @@
 ---
 name: n64-decomp-campaign
-description: Diagnose and finish late-stage N64 MIPS decompilation mismatches with reproducible evidence, object comparison, IDO allocator traces, and source-variant campaigns. Use for near-matching functions, decomp.me score plateaus, cross-ROM comparisons, register-allocation residuals, or planning a decompilation campaign.
+description: Diagnose and finish late-stage N64 MIPS decompilation mismatches with reproducible evidence, object comparison, guided field-guide levers, IDO allocator traces, frontend-lineage checks, and source-variant campaigns. Use for near-matching functions, decomp.me score plateaus, cross-ROM comparisons, register-allocation residuals, dispatch shapes the project compiler cannot emit, or planning a decompilation campaign.
 ---
 
 # N64 Decomp Campaign
@@ -19,6 +19,13 @@ Before editing source, identify and preserve:
 - current comparison report, candidate hash, and project build result;
 - relevant trace/log only when the residual is allocation- or schedule-related.
 
+Then prove the harness before trusting it: compare a known-matching sibling
+function (or a shipped fixture) through the same compiler wrapper, flags, and
+comparator invocation, and require `instruction-words-identical` before
+touching the real target. Every recorded campaign that skipped this step
+either chased a stale context file or credited the wrong compiler; every one
+that ran it caught the problem in minutes.
+
 Run `decomp-workbench diagnose` or `diagnose-dumps` before choosing an
 experiment. It loads each input once and returns both exact comparison truth
 and the decisive aligned mechanism view. Use `compare` for a compact gate and
@@ -29,6 +36,17 @@ When the input is a downloaded decomp.me ZIP, start with
 target/current objects, keeps the display score separate from object truth,
 and can reproduce `ctx.c` + `#line 1 "src.c"` + candidate composition with
 `--compile-command`. It never logs in or uploads.
+
+The `next:` footer under every verdict names the matching field-guide
+levers and the exact `decomp-workbench guide <playbook|lever|verdict>` command
+that prints them; heed it before inventing an experiment, and consult the
+field guide's dead-families table before re-testing a family it already
+buried. Heed input warnings the same way: a cross-function warning means the
+comparison itself is invalid, not that the source is far. In batch loops,
+`--terse` drops only the orientation lines. When `compare` reports a coarse
+allocation verdict it deliberately names three candidate families without
+choosing; run `view` or `diagnose` to get the committed family before
+spending a variant.
 
 Rank candidates by `aligned_total`, never by `words`. Positional word counts
 shift on every inserted or deleted instruction, so the variant one edit away
@@ -45,6 +63,7 @@ differences. `words=0` with `exact=true` is still the only matching claim.
 | Same instruction multiset, different order | Expression/statement topology, line tags, then as1 scheduling | Calling `-g0` collapse source proof |
 | Cross-ROM structure matches | Shared lineage as a structural witness | Calling it target-object exact |
 | A local forced/unrolled loop looks good but the function does not | Whole-function roles and liveness | More local fakes or manual unrolling |
+| A dispatch shape the project frontend provably cannot emit, clustering by translation unit | Frontend lineage: alternate authentic frontends, dispatch-construct discrimination | More source spellings against the impossible shape |
 
 Read [references/evidence-ladder.md](references/evidence-ladder.md) when
 interpreting comparison evidence or external scores. Read
@@ -92,6 +111,11 @@ capturing the smallest possible as1 ready-set trace.
 
 Read [references/campaign-hygiene.md](references/campaign-hygiene.md) when
 creating candidates, scratch artifacts, commits, or a public progress repo.
+Read [references/frontend-lineage.md](references/frontend-lineage.md) when a
+residual survives every source family and the shape looks impossible for the
+project compiler — the frontend is a variable, not a constant, and hundreds of
+variants against an unreachable shape are the most expensive way to learn
+that.
 
 ## Validate in the right order
 
@@ -110,5 +134,8 @@ cross-ROM structural evidence, a forced compiler result, or a decomp.me score.
 
 Report: final oracle and result; comparator verdict; the hypothesis confirmed
 or rejected; the smallest source-level explanation; exact commands or manifest
-location; and any tool gap discovered. Keep ROMs, proprietary compiler
+location; and any tool gap discovered. A clean negative on a callee-saved
+tie-break (field-guide lever 19) is a legitimate terminal result: record it,
+bundle the scratch, and take the next function rather than grinding variants
+past the point the evidence supports. Keep ROMs, proprietary compiler
 binaries, and non-redistributable target objects out of public artifacts.

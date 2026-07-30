@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.1 - 2026-07-30
+
+- The bundled `n64-decomp-campaign` Agent Skill caught up with the tool it
+  ships in: it now routes agents through the guided next-steps footer and the
+  `guide` command instead of past them, mandates a known-match harness proof
+  before any target comparison, adds the frontend-lineage escape hatch (a new
+  `references/frontend-lineage.md`: impossibility-first discipline, the
+  fingerprint-atlas method, dispatch-construct discrimination, and what
+  alternate-frontend evidence does and does not establish), counterweights the
+  spelling experiments with the field guide's dead-families table and the
+  line-placement lever, extends the evidence ladder with the two
+  frontend-provenance rungs, and names the lever-19 clean negative as a
+  legitimate terminal result.
+
+- The README shows the product: an ANSI-faithful SVG of a real fixture
+  diagnosis under the tagline and a screenshot of the self-contained HTML
+  report at the `--html` mention, both generated from shipped fixtures.
+
 ## 0.3.0 — 2026-07-30
 
 Every verdict now ends in an address: the matching field-guide levers, the

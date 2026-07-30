@@ -43,6 +43,7 @@ class AgentSkillTests(unittest.TestCase):
                 "evidence-ladder.md",
                 "ido-late-stage-patterns.md",
                 "campaign-hygiene.md",
+                "frontend-lineage.md",
             ],
         )
         for reference in references:

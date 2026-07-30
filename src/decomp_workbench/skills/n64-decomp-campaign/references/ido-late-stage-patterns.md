@@ -15,7 +15,22 @@ For a close function, preserve and test:
 - call-site prototypes and translation-unit visibility.
 
 Semantically equivalent source can change expression tables, web construction,
-spill homes, and later allocation decisions.
+spill homes, and later allocation decisions. Each classic "fake match" idiom
+pokes exactly one allocator input — a dead web (`if (g) {}`) takes the next
+free pool slot, a K&R implicit-int return changes coalescing, a named
+intermediate changes CSE ownership, statement line-grouping moves the
+schedule — so pick the idiom whose input the verdict names, one variant each.
+
+Check the field guide's dead-families table first
+(`decomp-workbench guide` prints the index): declaration-order permutation,
+commutative operand swaps, and bare discarded expressions were each searched
+exhaustively across multiple campaigns and are inert. Testing a buried family
+once is cheap; re-searching it is how a day disappears.
+
+Under line-sensitive frontends the placement of newlines is itself compiler
+input: two token-identical bodies grouped differently across source lines can
+schedule differently. When token-level spellings are exhausted, bisect
+whitespace before concluding the schedule is unreachable.
 
 ## Diagnose allocation rather than decorating it
 

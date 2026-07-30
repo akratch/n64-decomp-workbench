@@ -3,4 +3,4 @@
 from .compare import compare_objects
 
 __all__ = ["compare_objects"]
-__version__ = "0.3.0"
+__version__ = "0.3.1"
