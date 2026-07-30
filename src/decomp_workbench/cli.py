@@ -68,6 +68,7 @@ from .globalcolor import (
     parse_globalcolor_trace,
     register_for_color,
 )
+from .guide_cli import register_guide_command
 from .instrument import instrument_ugen
 from .instrument_alias import instrument_uopt_alias
 from .instrument_profiles import (
@@ -1510,6 +1511,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_view_commands(commands)
     register_diagnose_commands(commands)
     register_rank_command(commands, handler=rank_command)
+    register_guide_command(commands)
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
     register_allocator_commands(commands)

@@ -43,6 +43,7 @@ from .compare import (
     register_operands,
     relocation_field_mask,
 )
+from .field_guide import next_steps
 from .model import Instruction
 from .schema import VIEW_METRICS_BY_KEY
 
@@ -975,6 +976,12 @@ def _guidance(
 
     Every line here is a field-note finding, not general advice: the point of
     the footer is to stop the next round from being spent on a dead family.
+
+    These lines name the mechanism; they do not give the reader an address.
+    `build_view` appends `field_guide.next_steps` for the playbook, which turns
+    each named concept into a lever number, a one-line action, and a command to
+    paste. The two are kept apart because this half is evidence-shaped -- it
+    quotes counts and lanes from the run -- and that half is a fixed table.
     """
 
     lines: list[str] = []
@@ -1456,7 +1463,7 @@ def build_view(
         hunks=hunks,
         lanes=lanes,
         webs=webs,
-        guidance=_guidance(verdict, counts, lanes, webs, hunks),
+        guidance=_guidance(verdict, counts, lanes, webs, hunks) + next_steps(playbook),
     )
 
 

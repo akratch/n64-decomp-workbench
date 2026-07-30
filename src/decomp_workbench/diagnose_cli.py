@@ -95,12 +95,13 @@ def _emit(
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         lines = ["COMPARISON", comparison_line(comparison)]
-        for line in comparison_explanation_lines(
-            comparison,
-            cross_rom=args.cross_rom,
-        ):
-            if not line.startswith("next: "):
-                lines.append(line)
+        lines.extend(
+            comparison_explanation_lines(
+                comparison,
+                cross_rom=args.cross_rom,
+                guidance=False,
+            )
+        )
         if args.show_diff or args.show_all:
             lines.extend(diff_site_lines(comparison))
         lines.extend(("", "MECHANISM"))

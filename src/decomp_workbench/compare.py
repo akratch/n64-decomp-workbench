@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .field_guide import VERDICT_PLAYBOOKS, next_steps
 from .model import Comparison, Instruction, display_path
 from .objdump import dump_object
 
@@ -516,6 +517,48 @@ def mixed_site_callouts(site_classes: dict[str, int]) -> list[str]:
 
 
 def comparison_guidance(
+    *,
+    exact: bool,
+    structural_exact: bool,
+    raw_difference_breakdown: dict[str, int],
+    relocation_mismatches: int,
+    unknown_relocations: list[str],
+    opcode_mismatches: int,
+    instruction_delta: int,
+    register_mismatches: int,
+    site_classes: dict[str, int],
+    instruction_multiset_equal: bool,
+    aligned_counts: dict[str, int],
+) -> tuple[str, list[str]]:
+    """Return a concise verdict, the next action, and the field-guide on-ramp.
+
+    `_comparison_guidance` decides what is true about these two objects. This
+    wrapper adds the part that is true about the *verdict* regardless of the
+    inputs: which numbered levers move it, and the command that prints them.
+    Appending here rather than in each branch is what keeps `compare` and
+    `view` saying the same thing about the same mechanism.
+    """
+
+    verdict, guidance = _comparison_guidance(
+        exact=exact,
+        structural_exact=structural_exact,
+        raw_difference_breakdown=raw_difference_breakdown,
+        relocation_mismatches=relocation_mismatches,
+        unknown_relocations=unknown_relocations,
+        opcode_mismatches=opcode_mismatches,
+        instruction_delta=instruction_delta,
+        register_mismatches=register_mismatches,
+        site_classes=site_classes,
+        instruction_multiset_equal=instruction_multiset_equal,
+        aligned_counts=aligned_counts,
+    )
+    playbook = VERDICT_PLAYBOOKS.get(verdict)
+    if playbook is not None:
+        guidance.extend(next_steps(playbook))
+    return verdict, guidance
+
+
+def _comparison_guidance(
     *,
     exact: bool,
     structural_exact: bool,

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Gave every verdict an on-ramp. The `next:` footer of `compare`, `view`, and
+  `diagnose` now keeps its expert content and adds the matching field-guide
+  lever numbers with a one-line action each, the literal
+  `decomp-workbench guide <playbook>` that prints them, and — for every
+  playbook whose advice names a trace, a probe, or an oracle — both answers to
+  "do you have an instrumented toolchain?", so the reader without one is told
+  which source levers to spend instead. The new `guide` command accepts a
+  playbook, either verdict vocabulary, or a lever number, and prints the field
+  guide from inside the installed package with no checkout. A lever whose
+  section is not in the shipped revision degrades to its one-line action rather
+  than failing, and a missing document still answers with the one-liners and
+  names where the full text lives.
+
 - Main now identifies itself as `0.3.0.dev0` instead of reusing the published
   `0.2.0` identity for a substantially different development build.
 

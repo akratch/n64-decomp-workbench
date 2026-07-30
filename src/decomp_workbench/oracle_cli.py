@@ -299,10 +299,17 @@ def _render_sweep(report: dict[str, Any], *, limit: int) -> None:
     for warning in report.get("warnings", []):
         print(f"warning: {warning}")
     print(f"proof: {report['proof']}")
+    # A winning force is evidence about the allocator, not a patch. The
+    # translation back into C is exactly what the coloring-pool levers are,
+    # so name the command that prints them rather than leaving "source-level
+    # lifetime hypothesis" as an exercise.
     print(
         "next: translate the winning force into a source-level lifetime or "
         "priority hypothesis; never ship the forced compiler"
     )
+    print("      the source forms that move a coloring decision, in order:")
+    print("      decomp-workbench guide pool-position")
+    print("      decomp-workbench guide forced-color-oracle")
 
 
 def oracle_sweep_command(args: argparse.Namespace) -> int:

@@ -176,6 +176,7 @@ def render_command_map(*, group: str | None = None) -> list[str]:
             "",
             "Start here: decomp-workbench doctor",
             "Common diagnosis: decomp-workbench object diagnose TARGET CANDIDATE",
+            "Next lever: decomp-workbench guide <playbook|verdict|lever>",
         )
     )
     return lines

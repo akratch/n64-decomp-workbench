@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import pydoc
 import re
 import shutil
@@ -9,6 +10,48 @@ import sys
 from collections.abc import Sequence
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def terminal_width(value: str) -> int:
+    """Parse a ``--width`` argument into the sentinel `emit_lines` expects.
+
+    ``auto`` is ``-1`` and ``unlimited`` is ``0`` so that the default of ``0``
+    means "do not truncate" without a separate flag. Kept here beside
+    `emit_lines`, which is the only reader of those sentinels, so every command
+    that bounds its output spells the option the same way.
+    """
+
+    if value == "auto":
+        return -1
+    if value in {"unlimited", "none"}:
+        return 0
+    try:
+        width = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "width must be auto, unlimited, or a positive integer"
+        ) from None
+    if width < 20:
+        raise argparse.ArgumentTypeError("width must be at least 20 columns")
+    return width
+
+
+def add_terminal_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--width``/``--pager`` controls to one command."""
+
+    parser.add_argument(
+        "--width",
+        type=terminal_width,
+        default=0,
+        metavar="COLUMNS",
+        help="bound terminal lines; use auto or unlimited (default: unlimited)",
+    )
+    parser.add_argument(
+        "--pager",
+        choices=("auto", "always", "never"),
+        default="auto",
+        help="page long human output (default: auto on a TTY)",
+    )
 
 
 def fit_line(line: str, width: int) -> str:

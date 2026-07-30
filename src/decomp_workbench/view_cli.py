@@ -35,7 +35,7 @@ from .html_report import render_diagnosis_html
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
 from .schema import VIEW_CENSUS_KEYS
-from .terminal import emit_lines
+from .terminal import add_terminal_arguments, emit_lines
 from .view import (
     DEFAULT_REGISTER_PROFILE,
     MATCH,
@@ -615,38 +615,10 @@ def add_view_render_arguments(
     )
 
 
-def _terminal_width(value: str) -> int:
-    if value == "auto":
-        return -1
-    if value in {"unlimited", "none"}:
-        return 0
-    try:
-        width = int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            "width must be auto, unlimited, or a positive integer"
-        ) from None
-    if width < 20:
-        raise argparse.ArgumentTypeError("width must be at least 20 columns")
-    return width
-
-
 def add_view_output_arguments(parser: argparse.ArgumentParser) -> None:
     """Add terminal and share/export controls for a complete view command."""
 
-    parser.add_argument(
-        "--width",
-        type=_terminal_width,
-        default=0,
-        metavar="COLUMNS",
-        help="bound terminal lines; use auto or unlimited (default: unlimited)",
-    )
-    parser.add_argument(
-        "--pager",
-        choices=("auto", "always", "never"),
-        default="auto",
-        help="page long human output (default: auto on a TTY)",
-    )
+    add_terminal_arguments(parser)
     parser.add_argument(
         "--html",
         metavar="PATH",

@@ -49,8 +49,14 @@ def comparison_explanation_lines(
     item: Comparison,
     *,
     cross_rom: bool,
+    guidance: bool = True,
 ) -> list[str]:
-    """Return compact, action-oriented explanation lines."""
+    """Return compact, action-oriented explanation lines.
+
+    `guidance=False` returns the evidence without the `next:` footer, for
+    `diagnose`, which renders the aligned view's richer footer instead and
+    would otherwise print two lever blocks for one residual.
+    """
 
     lines: list[str] = []
     aligned = ", ".join(
@@ -70,7 +76,14 @@ def comparison_explanation_lines(
             f"{name}={count}" for name, count in item.diff_site_classes.items()
         )
         lines.append(f"diff_sites={len(item.diff_sites)} ({classes})")
-    lines.extend(f"next: {entry}" for entry in item.guidance)
+    # One footer, indented like `view`'s: the guidance is now several lines
+    # long (levers, then the command, then the instrumentation branch), and
+    # repeating `next:` on each of them read as several unrelated instructions.
+    if guidance:
+        lines.extend(
+            ("next: " if position == 0 else "      ") + entry
+            for position, entry in enumerate(item.guidance)
+        )
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
     if basis == "cross-rom-structural":
         lines.append(

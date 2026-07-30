@@ -66,9 +66,21 @@ def toolchain_init_command(args: argparse.Namespace) -> int:
         for name, passed in report["gates"].items():
             print(f"  {name}: {'PASS' if passed else 'NOT RUN'}")
         if report["claim"] != "ready":
+            # "finish every fidelity gate" named a state, not a command. The
+            # reader who lands here is usually the reader a register verdict
+            # sent looking for instrumentation, so give both the gate command
+            # and the source-only route that needs no toolchain at all.
             print(
                 "next: finish every fidelity gate before treating traces as "
                 "supported evidence"
+            )
+            print(
+                "      run the gates: decomp-workbench toolchain calibrate "
+                f"{report['directory']} (see docs/toolchain-calibration.md)"
+            )
+            print(
+                "      no instrumented toolchain yet? the source-only levers "
+                "still apply: decomp-workbench guide pool-position"
             )
     return 0
 
