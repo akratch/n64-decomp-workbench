@@ -494,6 +494,52 @@ on any logging run. See
 
 ---
 
+## When the compiler itself is the variable
+
+**Diff looks like:** a dispatch or convention the project compiler provably
+cannot emit (wrong jump-table arity, wrong chain order, wrong compare
+operand order), clustering by translation unit while neighbors match
+byte-for-byte; or a residual that hundreds of spellings never move while
+the surrounding schedule is exact.
+
+### 20. Frontend lineage check
+
+Before concluding "hand-patched object" or shipping a modified compiler,
+test the *other authentic frontends* that feed the same backend: `accom` /
+`ccom` (IDO ≤4.x, jump-table threshold **4** where cfe's is 5), `upas`
+(Pascal, tables dense `case`s from N=2). Cross-generation ucode handoff
+works — a 4.1 frontend's `.B`+symtab feed a 7.1 `uopt/ugen/as1` directly —
+so the deviant TU can share the byte-exact backend with the rest of the
+ROM. Run the fingerprint atlas first (thresholds, chain order and layout,
+const-first compares, the s16 strength-reduction signature); porting whole
+functions comes after a fingerprint matches. See
+[Alternate authentic frontends](alternate-frontends.md). On SSB64 ovl8
+this turned a proven-impossible `sltiu at,a0,4` into words=0 through
+unmodified, community-archived binaries.
+
+### 21. accom line placement
+
+Under `accom`, source **line numbers are semantic**: two token-identical
+bodies that differ only in newline placement compile to different
+schedules. When a residual under an accom-lineage frontend survives every
+expression respelling, bisect *whitespace* — join the statement cluster
+around the mis-scheduled instruction onto one line and re-split until the
+schedule flips. One campaign's terminal two-word residual (a copy/load
+order in a branch delay slot) was exactly this, isolated by bisecting a
+minimal probe against the generated body until only a newline differed.
+
+### 22. Dispatch construct discrimination
+
+Sorted test order with dispatch-first layout is a cfe `switch`; sorted
+with bodies-first is accom's; a value-split tree is `upas`; **source
+order is not a switch at all** — no frontend in the accom→cfe family
+preserves case order — it is an `if / else if` (or goto) chain. In-loop
+if-chains with hoisted constants compare **const-first under accom**;
+under cfe, const-first is only reachable when the compared expression is
+a global on the left. Classify the dispatch before spending variants on
+the wrong construct: two prior campaigns fought a "switch" for weeks that
+was never a switch.
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -508,6 +554,8 @@ valuable as any lever above.
 | Loop splitting to force a memory re-read | Defeats IDO's own loop-invariant motion; +147 words measured (lever 5). |
 | The permuter on varargs functions | IDO's `va_arg` is unparsable by pycparser either expanded or preserved. Plan `printf`-family campaigns without it. |
 | The permuter as a solver | Roughly 140,000 iterations across four campaigns solved zero residuals. It is a hypothesis generator; it earned its keep once, by exposing lever 17 through a red herring. |
+| Reassociation-defeat casts under accom | cfe's tree-height reduction needs `(s32)` cast barriers to hold an address sum together; accom never reassociates those sums — all spellings are byte-identical, and the casts are pure cfe artifacts. Do not port them across frontends. |
+| Duplicate-value case labels | cfe converts every case constant to the switch's promoted type *before* its duplicate check; nine spellings of an equal value (suffixes, wide constants, float casts, wraparound arithmetic) all error. A table arity below the frontend threshold cannot be forced this way — that is lever 20 territory. |
 
 ---
 
@@ -522,6 +570,8 @@ valuable as any lever above.
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
+| TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
+| token-identical variants stall (accom lineage) | 21 |
 
 ## See also
 

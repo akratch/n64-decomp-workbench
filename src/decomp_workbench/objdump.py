@@ -78,15 +78,29 @@ def parse_relocations(text: str) -> dict[int, tuple[Relocation, ...]]:
 
 
 def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instruction]:
-    """Parse GNU objdump instruction lines, optionally for one symbol."""
+    """Parse GNU objdump instruction lines, optionally for one symbol.
 
+    When ``symbol`` has no exact match, a unique case-insensitive match is
+    accepted: Pascal-era frontends (``upas``) fold identifiers to lower
+    case, so a function authored as ``Foo`` disassembles as ``foo``.
+    """
+
+    match_symbol = symbol
+    if symbol is not None:
+        names = [m.group("name") for m in map(SYMBOL_RE.match, text.splitlines()) if m]
+        if symbol not in names:
+            folded = [name for name in names if name.casefold() == symbol.casefold()]
+            if len(folded) == 1:
+                match_symbol = folded[0]
     relocations = parse_relocations(text)
     instructions: list[Instruction] = []
-    selected = symbol is None
+    selected = match_symbol is None
     for line in text.splitlines():
         symbol_match = SYMBOL_RE.match(line)
         if symbol_match:
-            selected = symbol is None or symbol_match.group("name") == symbol
+            selected = (
+                match_symbol is None or symbol_match.group("name") == match_symbol
+            )
             continue
         if not selected:
             continue
@@ -152,6 +166,23 @@ def dump_object(
         message = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"objdump failed for {path}: {message}")
     instructions = parse_disassembly(result.stdout, symbol=symbol)
+    if not instructions and symbol:
+        # ``--disassemble=SYMBOL`` filters case-sensitively inside objdump,
+        # so a case-folded symbol (Pascal-built objects) yields no output.
+        # Re-dump the whole section and let the parser's unique
+        # case-insensitive fallback select the function.
+        retry = subprocess.run(
+            [executable, "-d", "-r", "-z", "-j", section, str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if not retry.returncode:
+            retried = parse_disassembly(retry.stdout, symbol=symbol)
+            if retried:
+                return retry.stdout, retried
     if not instructions:
         suffix = f" for symbol {symbol}" if symbol else ""
         raise RuntimeError(f"objdump produced no instructions{suffix}: {path}")

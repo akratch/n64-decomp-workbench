@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Symbol selection now falls back to a unique case-insensitive match, at the
+  parser and in `dump_object`'s objdump retry: Pascal-era frontends (`upas`)
+  fold identifiers to lower case, and comparing those objects previously
+  required an `objcopy --redefine-sym` round-trip.
+
+- New documentation from the SSB64 frontend-lineage campaign: alternate
+  authentic frontends (`docs/alternate-frontends.md` — accom/ccom/upas
+  inventory, invocation recipes, cross-generation ucode handoff, and the
+  fingerprint-atlas method), field-guide levers 20-22 with two new dead
+  families, and field notes (`docs/field-notes-2026-07-30-ssb64.md`)
+  including an open comparator report: exact matches occasionally render a
+  vestigial `aligned_schedule` residual.
+
 - Main now identifies itself as `0.3.0.dev0` instead of reusing the published
   `0.2.0` identity for a substantially different development build.
 

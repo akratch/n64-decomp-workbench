@@ -119,6 +119,29 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0].address, 4)
 
+    def test_symbol_falls_back_to_unique_casefold_match(self) -> None:
+        text = (
+            "00000000 <func_ovl8_803781a4>:\n"
+            "   0: 03e00008  jr $ra\n"
+            "00000004 <other>:\n"
+            "   4: 00000000  nop\n"
+        )
+        selected = parse_disassembly(text, symbol="func_ovl8_803781A4")
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].address, 0)
+
+    def test_symbol_casefold_fallback_requires_uniqueness(self) -> None:
+        text = (
+            "00000000 <demo>:\n"
+            "   0: 03e00008  jr $ra\n"
+            "00000004 <DEMO>:\n"
+            "   4: 00000000  nop\n"
+        )
+        self.assertEqual(parse_disassembly(text, symbol="Demo"), [])
+        exact = parse_disassembly(text, symbol="DEMO")
+        self.assertEqual(len(exact), 1)
+        self.assertEqual(exact[0].address, 4)
+
     def test_selected_symbol_owns_frame_metric(self) -> None:
         text = (
             "00000000 <first>:\n"
