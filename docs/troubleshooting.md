@@ -34,11 +34,18 @@ silently falling back to a different executable on `PATH`.
 
 ## Objdump produced no instructions
 
+The error lists every symbol each input actually defines, so compare your
+`--function` spelling against that list first. **Names are case-sensitive**:
+`DrawObject` and `drawObject` are different symbols, and a case slip and a
+typo produce the same "no instructions" result.
+
 Check all three inputs:
 
 1. The requested section exists; `.text` is only the default.
-2. `--symbol` exactly matches an objdump label.
-3. The selected objdump understands the object format.
+2. `--symbol` exactly matches an objdump label, including its case.
+3. The selected objdump understands the object format. `file format not
+   recognized` means the path is not a compiled MIPS ELF object at all -
+   usually because the build did not produce one.
 
 Run the equivalent objdump command directly and inspect its stderr:
 
@@ -46,6 +53,21 @@ Run the equivalent objdump command directly and inspect its stderr:
 mips64-elf-objdump -d -r -z -j .text \
   --disassemble=function_name candidate.o
 ```
+
+## The verdict looks confident but the objects hold different functions
+
+Without `--function` the comparison is positional over the whole section. That
+is correct when both objects hold the same single function, and meaningless
+when they do not. When each side defines exactly one *differently named*
+function, every command prints this ahead of the verdict:
+
+```text
+warning: target defines 'drawObject' but candidate defines 'drawShadow' - comparing the whole .text section positionally, not one function. Pass --function to select a single symbol explicitly.
+```
+
+Pass `--function` (or `--symbol`; they are one option) and run it again. The
+warning cannot fire when either side defines several symbols, because a
+whole-section comparison is then the documented and intended mode.
 
 ## Raw words differ but relocation-aware words match
 

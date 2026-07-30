@@ -12,7 +12,9 @@ ROM, no compiler, no toolchain, no AI.
 
 It answers the three questions people actually arrive with:
 
-- *Do I need to isolate the function so asm-processor stays out of it?* **No.**
+- *Do I need to isolate the function so asm-processor (the community
+  preprocessor that lets hand-written MIPS assembly live inside C) stays
+  out of it?* **No.**
   Compare your normal full-TU build against the expected object; `--function`
   scopes it. Isolation changes codegen, so a harness is the wrong ground truth.
 - *Do I need a permuter or an agent to use this?* **No.** The verdict names the
@@ -87,7 +89,8 @@ Use it when:
 - your candidate is close, but the remaining mismatch is hard to classify;
 - you are compiling many source variants and need caching plus a durable ledger;
 - the instruction shape matches but register allocation does not;
-- you need to test whether uopt, ugen, or as1 owns a difference.
+- you need to test whether uopt, ugen, or as1 (IDO's optimizer, code
+  generator, and final assembler pass) owns a difference.
 
 You do not need a ROM or compiler to try the included fixtures. Real object
 comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
@@ -150,7 +153,8 @@ External generators can attach a validated family/parameter sidecar with
 whole-function residual. See [candidate campaigns][campaigns].
 
 Package a single-function target, full context, and current source for manual
-decomp.me creation without uploading anything:
+decomp.me (the community's browser scratch and match-scoring service)
+creation without uploading anything:
 
 ```sh
 decomp-workbench bundle-scratch scratch/demo \
@@ -214,6 +218,7 @@ rows into the C that moves it.
 | Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
 | Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
 | Does this downloaded scratch really match? | `check-scratch` | Browser score context, aligned object truth, optional site-faithful recompile |
+| The footer named a playbook — what is it? | `guide` | The field-guide levers for a playbook, verdict, or lever number |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
 | How do I run and reopen hundreds of variants safely? | `campaign`, `campaign status/resume/export` | Parallel builds, cache, durable state, trajectory and HTML |
 | How do I describe a generated family? | `experiment validate` | Parameter/path/grid validation and selected-region contract |
@@ -249,6 +254,7 @@ The three narrative pages first, then the focused guides:
 
 - [Start here][start-here] — an almost-matched function, end to end
 - [Field guide][field-guide] — the IDO codegen levers, with the C
+- [The `guide` command][guide-command] — those levers, in the terminal
 - [Backlog walkthrough][walkthrough] — thirty near matches, in triage order
 - [Workflow selection][workflows]
 - [Object comparison][object-comparison]
@@ -310,6 +316,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 
 [start-here]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/START_HERE.md
 [field-guide]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/field-guide.md
+[guide-command]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/guide-command.md
 [walkthrough]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/walkthrough-30-near-matches.md
 [view]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/view.md
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md

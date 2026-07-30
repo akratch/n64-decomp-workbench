@@ -48,8 +48,10 @@ Day-to-day, start with `diagnose`; use `compare` for a compact gate and `view
 ## Minute 1 — "Do I need to isolate the function first?"
 
 **No. Do not isolate.** Build your translation unit exactly the way your
-project normally builds it, with asm-processor and everything else in the
-chain, and point the workbench at the resulting `.o`:
+project normally builds it, with asm-processor (the community preprocessor
+that keeps hand-written MIPS assembly inside C while a function is still being
+matched) and everything else in the chain, and point the workbench at the
+resulting `.o`:
 
 ```sh
 decomp-workbench compare expected/code/foo.o build/src/code/foo.o \
@@ -104,6 +106,8 @@ raw difference classes: relocation_controlled=2
 next: Instruction-exact: raw differences are linker-controlled relocation fields
 ```
 
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
+
 `compare-dumps` is `compare` reading saved GNU objdump text instead of object
 files. Identical analysis, no objdump and no `.o` needed — which is why this
 page is runnable and why you can hand a mismatch to someone else without
@@ -114,7 +118,7 @@ Read the line left to right:
 | Field | Meaning |
 |---|---|
 | `verdict` | the mechanism, not the volume — this is the field that decides your next move |
-| `aligned_total` | LCS-aligned differences: **the number to rank candidates by** |
+| `aligned_total` | LCS-aligned differences: **the number to rank candidates by**. (LCS = longest common subsequence — the same alignment idea behind `diff`, which is why an inserted instruction doesn't cascade into unrelated positional noise) |
 | `words` | relocation-aware positional differences: the matching oracle at zero, a tiebreaker above it |
 | `raw` | literal word differences, including linker-controlled fields |
 | `regs`, `fp` | how many differences are register-only |
@@ -141,6 +145,8 @@ aligned residual classes: aligned_register=1
 diff_sites=3 (register=1, relocation-controlled=2)
 next: Opcode shape matches but register allocation differs.
 ```
+
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
 
 `--show-diff` prints every differing site with both words and both
 disassemblies. **No verdict ever suppresses evidence** — if a site differs, it
@@ -202,6 +208,7 @@ sections. Read the mechanism in this order.
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
+webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
 ```
 
@@ -227,7 +234,7 @@ REGISTER LANES (per-class assignment sequences, matching instructions included)
                    identical 3/3
   temp  target     t6 t7 t8 t9 t6 t7 t8 t9 t6   slots=0..8/9
         candidate  t6 t7 t8 t9 t6 t8 t9 t6 t7
-                   ---------------^ divergence=5 index=12 rotation=+1
+                   ---------------^ slot=5 aligned_row=12 rotation=+1
 ```
 
 A lane is the ordered sequence of registers a class gets assigned, in emission
@@ -235,7 +242,8 @@ order, **including the instructions that match**. That inclusion is the whole
 point: the signal here lives in the temps that matched. Diff only the
 mismatched instructions and the queue is invisible.
 
-IDO 5.3 has two register populations, and they behave differently:
+IDO (SGI's optimizing MIPS C compiler, the usual N64 decomp target) 5.3
+has two register populations, and they behave differently:
 
 - **pool** (`v0 v1 a0-a3 t0-t5`) — uopt's colored variable webs. Lowest free
   index wins.
@@ -263,6 +271,11 @@ Hunks are LCS-aligned, never positional — see the aside below for why that is
 not a detail. Every non-matching row is printed inside its hunk, with both
 disassemblies and the register substitution named.
 
+A web, in compiler terms, is one live range of a variable — every place it's
+defined and used until it dies — and the allocator gives one web exactly one
+register for its whole life; that's the unit these substitutions are grouped
+by.
+
 The **WEBS** section groups those substitutions: if one swap explains six
 sites, it prints as one web, not six problems. Four webs here, all of them
 consequences of the same rotation.
@@ -275,6 +288,8 @@ next: one upstream event, not 6 sites (temp lane, slot 5, aligned row 12, rotati
       or materialize a phantom pool get with `(x == C) != 0` inside a real `if`; a bare discarded expression is dropped with no codegen effect.
       do not fix the divergent sites individually; declaration-order permutation is a dead family here.
 ```
+
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
 
 Four lines: what happened, two levers to try, and one family explicitly ruled
 out. It also tells you what *not* to do — the dead families are as valuable as
@@ -341,7 +356,7 @@ The mapping is direct:
 | `ast-shape` | [Commutative operand order](field-guide.md#2-commutative-operand-order) |
 | `g0-schedule-probe` | [The `-g0` diagnostic](field-guide.md#3-the--g0-diagnostic) |
 | `temp-fifo-phase` | [Temp-FIFO phase](field-guide.md#the-temp-fifo-lane-ugen) |
-| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) |
+| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) — one of three unresolved allocation families; read `view`'s footer for which |
 | `forced-color-oracle` | [Callee-saved tie-breaks](field-guide.md#19-callee-saved-tie-breaks-and-the-forced-color-oracle) |
 | `structure-buckets` | [Structure first](field-guide.md#working-a-structure-mismatch) |
 

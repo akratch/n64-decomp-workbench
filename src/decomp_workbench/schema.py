@@ -252,6 +252,11 @@ METRICS: tuple[Metric, ...] = (
         "histogram of candidate N(sp) operands; spill and local-home evidence",
     ),
     Metric("guidance", "guidance", "the next useful action for this verdict"),
+    Metric(
+        "warnings",
+        "warnings",
+        "conditions that make this verdict answer a different question",
+    ),
     Metric("symbol", "symbol", "selected function, or null for a whole section"),
     Metric("target", "target", "reference object or dump"),
     Metric("candidate", "candidate", "candidate object, dump, or source path"),
@@ -384,6 +389,11 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("webs", "webs", "consistent register substitutions, grouped"),
     Metric("next", "next", "lever guidance for the dominant class"),
     Metric(
+        "warnings",
+        "warnings",
+        "conditions that make this verdict answer a different question",
+    ),
+    Metric(
         "register_report",
         "register_report",
         "per aligned row register operands, matches included",
@@ -395,7 +405,16 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("target_bytes", "target_bytes", "target section offsets covered"),
     Metric("candidate_bytes", "candidate_bytes", "candidate section offsets covered"),
     Metric("index", "index", "aligned row index"),
-    Metric("divergence", "divergence", "first lane slot where the two sides differ"),
+    Metric(
+        "slot",
+        "slot",
+        "first lane position where the two sides differ",
+    ),
+    Metric(
+        "aligned_row",
+        "aligned_row",
+        "aligned row holding a lane divergence; the same unit as aligned_rows",
+    ),
     Metric(
         "rotation",
         "rotation",

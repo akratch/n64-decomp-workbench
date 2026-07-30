@@ -28,10 +28,16 @@ from .comparison_render import (
     comparison_line,
     comparison_payload,
     diff_site_lines,
+    warning_lines,
 )
 from .model import Comparison, display_path
-from .objdump import parse_disassembly
+from .objdump import (
+    cross_function_warning,
+    parse_disassembly,
+    symbol_selection_error,
+)
 from .schema import COMPARISON_CENSUS_KEYS
+from .terminal import Painter, add_color_argument, resolve_color
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -39,6 +45,7 @@ Handler = Callable[[argparse.Namespace], int]
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
     add_symbol_argument(parser)
     add_explain_keys_argument(parser)
+    add_color_argument(parser)
     parser.add_argument(
         "--section",
         default=".text",
@@ -100,7 +107,10 @@ def _emit_comparison(
             )
         )
     else:
-        print(comparison_line(comparison))
+        painter = Painter(resolve_color(getattr(args, "color", "never")))
+        for line in warning_lines(comparison.warnings):
+            print(line)
+        print(comparison_line(comparison, painter))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         if show_ranges:
             print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
@@ -153,16 +163,25 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         target = parse_disassembly(target_text, symbol=args.symbol)
         candidate = parse_disassembly(candidate_text, symbol=args.symbol)
         if not target or not candidate:
-            detail = f" for symbol {args.symbol!r}" if args.symbol else ""
             raise ValueError(
-                f"both files must contain GNU-style objdump instruction lines{detail}"
+                symbol_selection_error(
+                    args.symbol,
+                    inputs=(
+                        (display_path(args.target), target_text),
+                        (display_path(args.candidate), candidate_text),
+                    ),
+                )
             )
+        warning = cross_function_warning(
+            target_text, candidate_text, symbol=args.symbol
+        )
         comparison = compare_instructions(
             target,
             candidate,
             target_name=display_path(args.target),
             candidate_name=display_path(args.candidate),
             symbol=args.symbol,
+            warnings=(warning,) if warning else (),
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -205,8 +224,11 @@ def rank_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        painter = Painter(resolve_color(getattr(args, "color", "never")))
         for rank, item in enumerate(limited, 1):
-            print(f"{rank:3d} {comparison_line(item)}")
+            for line in warning_lines(item.warnings):
+                print(line)
+            print(f"{rank:3d} {comparison_line(item, painter)}")
         for failure in errors:
             print(
                 f"ERROR {failure['candidate']}: {failure['error']}",
@@ -252,6 +274,7 @@ def register_object_commands(
     dumps.add_argument("candidate", help="candidate objdump text")
     add_symbol_argument(dumps)
     add_explain_keys_argument(dumps)
+    add_color_argument(dumps)
     dumps.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps)
     dumps.add_argument(

@@ -43,6 +43,7 @@ from .compare import (
     register_operands,
     relocation_field_mask,
 )
+from .field_guide import next_steps
 from .model import Instruction
 from .schema import VIEW_METRICS_BY_KEY
 
@@ -313,8 +314,12 @@ class Lane:
             "target": list(self.target),
             "candidate": list(self.candidate),
             "rows": list(self.target_rows),
-            "divergence": self.divergence,
-            "index": self.divergence_row,
+            # `slot` and `aligned_row` are two different units, and spelling
+            # them `divergence` and `index` made them read as one coordinate
+            # pair. The screen and the payload rename together: one vocabulary
+            # is the whole point of the metric registry.
+            "slot": self.divergence,
+            "aligned_row": self.divergence_row,
             "rotation": self.rotation,
         }
 
@@ -361,6 +366,10 @@ class MechanismView:
     lanes: tuple[Lane, ...]
     webs: tuple[Web, ...]
     guidance: tuple[str, ...]
+    #: Reasons not to trust the verdict, as opposed to findings about the
+    #: code. Rendered ahead of everything else by the commands that own the
+    #: screen; carried here so `--json` consumers see them too.
+    warnings: tuple[str, ...] = ()
 
     @property
     def aligned_rows(self) -> int:
@@ -418,6 +427,7 @@ class MechanismView:
             "lanes": [item.as_dict() for item in self.lanes],
             "webs": [item.as_dict() for item in self.webs],
             "next": list(self.guidance),
+            "warnings": list(self.warnings),
         }
         for name in CLASS_ORDER:
             payload[name] = self.counts.get(name, 0)
@@ -975,6 +985,12 @@ def _guidance(
 
     Every line here is a field-note finding, not general advice: the point of
     the footer is to stop the next round from being spent on a dead family.
+
+    These lines name the mechanism; they do not give the reader an address.
+    `build_view` appends `field_guide.next_steps` for the playbook, which turns
+    each named concept into a lever number, a one-line action, and a command to
+    paste. The two are kept apart because this half is evidence-shaped -- it
+    quotes counts and lanes from the run -- and that half is a fixed table.
     """
 
     lines: list[str] = []
@@ -1312,6 +1328,7 @@ def build_view(
     candidate_name: str,
     symbol: str | None = None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
+    warnings: Sequence[str] = (),
 ) -> MechanismView:
     """Align two instruction streams and classify the residual by mechanism."""
 
@@ -1456,7 +1473,8 @@ def build_view(
         hunks=hunks,
         lanes=lanes,
         webs=webs,
-        guidance=_guidance(verdict, counts, lanes, webs, hunks),
+        guidance=_guidance(verdict, counts, lanes, webs, hunks) + next_steps(playbook),
+        warnings=tuple(warnings),
     )
 
 

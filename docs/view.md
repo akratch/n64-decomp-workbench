@@ -35,6 +35,7 @@ decomp-workbench view-dumps \
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32 register_profile=ido53
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
+webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
 
 REGISTER LANES (per-class assignment sequences, matching instructions included)
@@ -43,7 +44,7 @@ REGISTER LANES (per-class assignment sequences, matching instructions included)
                    identical 3/3
   temp  target     t6 t7 t8 t9 t6 t7 t8 t9 t6   slots=0..8/9
         candidate  t6 t7 t8 t9 t6 t8 t9 t6 t7
-                   ---------------^ divergence=5 index=12 rotation=+1
+                   ---------------^ slot=5 aligned_row=12 rotation=+1
 
 HUNK 1  class=register rows=12..17 target=12..17 candidate=12..17 target_bytes=0x30..0x44 candidate_bytes=0x30..0x44
      10   sll $t6,$t9,2     | sll $t6,$t9,2
@@ -71,6 +72,11 @@ next: one upstream event, not 6 sites (temp lane, slot 5, aligned row 12, rotati
 
 Four register substitutions, four webs, one mechanism: the temp lane runs one
 slot ahead from slot 5. The fix is upstream of every printed site.
+
+The `webs:` header line is that conclusion in one line, printed before the
+hunks rather than after them, because a reader who stops at the first
+divergence would otherwise never reach the table that explains it. The full
+`WEBS` table below still carries the per-web row lists.
 
 ## Alignment is LCS, never positional
 
@@ -222,13 +228,41 @@ candidate tail equals the target tail rotated by `N` positions through the
 registers that function actually uses — one upstream phase event, not N
 decisions.
 
+The caret line carries two different units, and they are named separately:
+`slot=` is a position in *this lane*, and `aligned_row=` is a row of the
+alignment — the same unit as the header's `aligned_rows` and every hunk range,
+so it is the number to look up in the hunk listing. Both spellings are also the
+JSON keys.
+
 ## Webs and coloring
 
 Register substitutions are grouped into webs so one swap reads as one web
 instead of many problems. Every site carries its web annotation (`t8->t6 [w1]`)
 in monochrome; with a terminal that supports it, `--color auto` gives each web a
-stable color across the whole screen. `--color never` and `NO_COLOR` disable it.
-Glyphs are ASCII everywhere.
+stable color across the whole screen — on the `webs:` header line, on the
+substituted register token inside the disassembly, on the trailing annotation,
+and in the `WEBS` table. `--color never` and `NO_COLOR` disable it. Glyphs are
+ASCII everywhere, and the verdict itself is bolded and colored by family so a
+scrolled batch is separable before it is read.
+
+Every non-matching row is annotated, whether or not it falls inside the hunk
+being printed. The `>` marker is what distinguishes this hunk's rows from the
+evidence around them; a context row whose swap belongs to a known web says so.
+
+`--width` never costs an annotation, and never costs a `next:` line. When a row
+or a guidance sentence will not fit, it wraps to a continuation line rather than
+being cut — the assembly columns are what the requested width truncates. The
+footer carries the dead-family warnings, and a truncated warning is worse than
+no warning.
+
+## Orientation notes and `--terse`
+
+Three one-line notes are printed by default: what the signature's parts mean in
+order, what the `pool` and `temp` lane classes are, and where the label registry
+lives (`decomp-workbench --explain-keys`). They are true of every run and useful
+on the first few, so the reader who needs them does not have to know to ask.
+`--terse` removes exactly those three lines and nothing else — every label,
+count, lane, hunk, web, and footer line is unchanged.
 
 ## `--report-regs`
 
@@ -249,7 +283,7 @@ agent dialect and no human dialect.
 | `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation` | aligned row counts |
 | `verdict`, `playbook`, `signature`, `prefix_exact` | diagnosis |
 | `hunks` | `hunk`, `class`, `rows`, `target`, `candidate`, `target_bytes`, `candidate_bytes`, `classes` |
-| `lanes` | `class`, `target`, `candidate`, `rows`, `divergence`, `index`, `rotation` |
+| `lanes` | `class`, `target`, `candidate`, `rows`, `slot`, `aligned_row`, `rotation` |
 | `webs` | `web`, `target`, `candidate`, `count`, `rows` |
 | `next` | lever guidance lines |
 | `register_profile` | lane class table in use |
@@ -281,7 +315,10 @@ vocabularies are listed separately.
 | `--lane-window N` | lane slots rendered around a divergence (default 32) |
 | `--register-profile` | lane class table (default `ido53`) |
 | `--report-regs` | per-row register operands |
-| `--color auto\|always\|never` | ANSI web coloring |
+| `--terse` | drop the one-line orientation notes; every label and count stays |
+| `--color auto\|always\|never` | ANSI web and verdict coloring |
+| `--width`, `--pager` | bound and page terminal output; annotations wrap rather than truncate |
+| `--html PATH` | self-contained report: lanes, per-hunk sections, webs, and the JSON payload |
 | `--json` | machine-readable output |
 | `--fail-on-mismatch` | exit 1 unless the verdict is `exact` or `words-identical` |
 | `--census KEY=VALUE[,...]` | assert reported values; exit 3 if any predicate fails, 2 for an unknown key |
@@ -324,7 +361,22 @@ registry's spelling.
 * An empty selection is refused rather than reported as `exact`.
 * Lane classes describe IDO 5.3 behavior. On another toolchain, add a profile
   rather than reading the `ido53` lanes as universal.
-* Pool-trace and HTML renderings are not part of this command yet.
+* Pool-trace rendering is not part of this command yet.
+
+## The HTML report
+
+`--html PATH` writes one self-contained file — inline CSS, no script, no
+network — carrying the same evidence as the screen from the same view model:
+a sticky verdict bar, the register lanes with the divergent slot outlined, one
+linkable `<section id="hunk-N">` per hunk with context and divergence row
+classes, a per-row substitution cell whose swatch links to its web, and a
+`Webs` table that links each bijection back to every hunk it explains. The
+machine-readable payload stays in the collapsed `<details>` block at the end.
+
+The identity chip reports the share of aligned rows that are byte-identical.
+That is deliberately *not* labelled a decomp.me score: that number comes from
+the site's own scratch model, and two tools printing different numbers under
+one name is how they come to disagree about whether a function is close.
 
 ## See also
 

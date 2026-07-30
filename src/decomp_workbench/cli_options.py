@@ -24,6 +24,17 @@ SYMBOL_OPTION_DEST = "symbol_option"
 
 SYMBOL_HELP = "compare only this exact symbol; --function is the same option"
 
+#: Appended to every spelling of the selector's help.
+#:
+#: Omitting the selector is a legitimate mode, not a mistake, but it silently
+#: changes the question from "does this function match" to "does this section
+#: match position for position". Readers were choosing it by default without
+#: knowing they had chosen anything; the loud case now also warns at run time.
+SYMBOL_OMISSION_HELP = (
+    "Omitting it compares the whole section positionally - only safe when "
+    "both objects hold the same single function."
+)
+
 
 class SymbolAction(argparse.Action):
     """Accept both vocabularies for one selector.
@@ -63,7 +74,7 @@ def add_symbol_argument(
         action=SymbolAction,
         default=None,
         metavar="NAME",
-        help=help_text,
+        help=f"{help_text.rstrip('. ')}. {SYMBOL_OMISSION_HELP}",
     )
 
 

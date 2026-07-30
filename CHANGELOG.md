@@ -14,6 +14,104 @@
   families, and field notes (`docs/field-notes-2026-07-30-ssb64.md`)
   including an open comparator report: exact matches occasionally render a
   vestigial `aligned_schedule` residual.
+- Fixed a missing-symbol error that blamed the build instead of the typo.
+  `objdump --disassemble=NAME` that matches nothing succeeds and prints an
+  empty stream, so the "defines:" list built from it announced `no symbols`
+  about an object that plainly defines the function the reader misspelled — on
+  real `.o` files, the primary path. A single unfiltered second pass now
+  supplies that list.
+
+- Stopped a coarse verdict from guessing a lever family. `allocation-mismatch`
+  dumped `pool-position`'s seven levers even though the same two streams make
+  `view` say `phase-shift` or `register-permutation`, whose levers are 14-16
+  and 17-19 — a guess that contradicted the sentence above it telling the
+  reader to run `view` because *it* names the family, and that leaked into
+  `--json` and the HTML payload beside a `view.next` that disagreed. The
+  verdict now names all three families with the `guide` command for each and
+  picks none, led by the sentence saying why it cannot.
+
+- `--width` no longer truncates the `next:` footer. Guidance wraps on word
+  boundaries with an indented continuation, so a bounded terminal keeps the
+  dead-family warnings instead of the setup sentence that preceded them.
+
+- Added four one-line explanations where the vocabulary is first used: what a
+  web is, what LCS buys, what the `pool` and `temp` lane classes are, and how
+  to read the signature in causal order — plus a pointer to
+  `--explain-keys`. The three in-tool notes are removable with `--terse`.
+  `--html` now renders each lever as its own runnable
+  `decomp-workbench guide N` snippet.
+
+- Made the HTML report carry the evidence it claimed to. It is rebuilt from
+  the same view model the terminal renderer consumes: a sticky verdict bar,
+  register lanes with the divergent slot outlined, one linkable
+  `<section id="hunk-N">` per hunk with context and divergence row classes, a
+  per-row substitution cell whose colour swatch links to its web, and a `Webs`
+  table linking each bijection to every hunk it explains. Lanes, hunk grouping,
+  webs, and the `t7->t8 [w1]` annotations previously existed only inside the
+  collapsed JSON blob, which is still there. Still one self-contained file with
+  no script and no network.
+
+- Fixed four comprehension defects in the terminal rendering. The verdict is
+  bolded and coloured by family (green for exact, one hue per mismatch family)
+  instead of being the only plain token beside a bold-red explanatory sentence,
+  and `compare`/`compare-dumps`/`rank` gained the `--color` they never had, so
+  batch triage can be colourized. `--width` now wraps a row's annotation to a
+  continuation line instead of silently cutting a second web tag. Every
+  non-matching row is annotated, in or out of the hunk being printed, so a
+  context row in a known web no longer reads as an unexplained `register` site.
+  The lane caret names its two units: `slot=5 aligned_row=12`, replacing
+  `divergence=5 index=12` on screen **and in `--json`**, because one vocabulary
+  across both audiences is the point of the metric registry.
+
+- Added the highest-leverage fact to the header. A compact
+  `webs: w1 t7->t8 x2, ...` line prints above the hunks, and the substituted
+  register token inside the disassembly now takes its web's colour, so the
+  annotation says *which* registers moved and the text says where.
+
+- An unknown command now names itself and points at `decomp-workbench
+  commands` instead of printing argparse's forty-odd-name `(choose from ...)`
+  catalogue.
+
+- Refused to report a confident verdict about two unrelated functions.
+  With no `--function` and exactly one differently-named symbol on each side,
+  `compare`, `view`, `diagnose`, and `rank` now print a warning ahead of the
+  verdict, carry it in `--json`, and say which option fixes it. A multi-symbol
+  input is still the documented whole-section mode and stays quiet.
+
+- Made the novice path legible. The bare program name welcomes and exits `0`
+  instead of printing a 44-command choice wall and exiting `2`; the usage line
+  is one word plus a pointer to `commands`; the `commands` footer teaches the
+  same flat spelling as README and START_HERE; `--symbol`/`--function` says
+  what omitting it means; `docs/README.md` defines IDO, asm-processor,
+  ugen/uopt, and decomp.me, which are also glossed at first use.
+
+- Sharpened two error messages to the standard the census-key error sets.
+  A missing symbol lists what each input actually defines, states that names
+  are case-sensitive, and links the troubleshooting section; an objdump
+  `file format not recognized` failure names the likely cause before quoting
+  objdump's own words underneath.
+
+- Put the trace back where the documentation always had it.
+  `allocation-mismatch` now sends the reader to `view`/`diagnose` and the
+  field-guide levers first, and gates the globalcolor/UGEN trace on those
+  levers being exhausted *and* an instrumented toolchain already existing. The
+  `pool-position` and `temp-fifo-phase` footers lead with their source-only
+  branch for the same reason, and `pool-position` now says up front that it is
+  one of three unresolved allocation families rather than implying a decision
+  the verdict did not make.
+
+- Gave every verdict an on-ramp. The `next:` footer of `compare`, `view`, and
+  `diagnose` now keeps its expert content and adds the matching field-guide
+  lever numbers with a one-line action each, the literal
+  `decomp-workbench guide <playbook>` that prints them, and — for every
+  playbook whose advice names a trace, a probe, or an oracle — both answers to
+  "do you have an instrumented toolchain?", so the reader without one is told
+  which source levers to spend instead. The new `guide` command accepts a
+  playbook, either verdict vocabulary, or a lever number, and prints the field
+  guide from inside the installed package with no checkout. A lever whose
+  section is not in the shipped revision degrades to its one-line action rather
+  than failing, and a missing document still answers with the one-liners and
+  names where the full text lives.
 
 - Main now identifies itself as `0.3.0.dev0` instead of reusing the published
   `0.2.0` identity for a substantially different development build.

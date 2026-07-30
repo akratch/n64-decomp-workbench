@@ -8,6 +8,14 @@ from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
+
+#: Markdown that ships as package *data* rather than as a page a reader
+#: browses. `src/decomp_workbench/docs/field-guide.md` is a byte-identical
+#: mirror of `docs/field-guide.md` so an installed wheel can print it without a
+#: checkout; its links are relative to the canonical copy, which this test
+#: still checks, and `test_field_guide` proves the two never drift.
+PACKAGED_DATA = ROOT / "src" / "decomp_workbench" / "docs"
+
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 REFERENCE_RE = re.compile(r"^\[([^\]]+)\]:\s+\S+", re.MULTILINE)
 REFERENCE_USE_RE = re.compile(r"\[[^\]]+\]\[([^\]]+)\]")
@@ -31,6 +39,8 @@ class DocumentationTests(unittest.TestCase):
     def test_local_markdown_links_exist(self) -> None:
         failures: list[str] = []
         for document in sorted(ROOT.rglob("*.md")):
+            if document.is_relative_to(PACKAGED_DATA):
+                continue
             for target in LINK_RE.findall(document.read_text(encoding="utf-8")):
                 target = target.strip()
                 if not target or target.startswith(("http://", "https://", "mailto:")):

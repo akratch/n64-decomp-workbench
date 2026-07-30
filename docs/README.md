@@ -3,6 +3,18 @@
 Read in this order. The first three pages are the whole workflow; everything
 below them is reference you consult when you need it.
 
+## Terms, if you are new to N64 decomp
+
+- **IDO** — SGI's optimizing MIPS C compiler for IRIX, and the usual N64
+  decompilation target. Its passes are what every verdict here is about.
+- **asm-processor** — the community preprocessor that lets hand-written MIPS
+  assembly live inside C while a function is still being matched.
+- **ugen / uopt** — IDO's code generator and optimizer passes. `uopt` colors
+  variable webs into the register pool; `ugen` rotates block-local expression
+  temps. The trace commands read their internal state.
+- **decomp.me** — the community's browser service for sharing a scratch and
+  scoring how close a candidate is.
+
 ## Start
 
 | Read this if... | Document |
@@ -21,6 +33,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 |---|---|---|
 | You want the exact verdict rules and every `compare` option | [Object comparison](object-comparison.md) | MIPS objects or GNU objdump text |
 | You want every `view` option, the alignment rules, and the JSON schema | [Aligned mechanism view](view.md) | Two objects or two reduced dumps |
+| A `next:` footer named a playbook and you want its levers now | [The `guide` command](guide-command.md) | Nothing; the guide ships with the package |
 | You are sweeping a variant family and want durable state | [Candidate campaigns](campaigns.md) | A compile-one wrapper |
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
 | You are wiring an external compiler tree safely | [Toolchain calibration](toolchain-calibration.md) | User-supplied toolchain and fidelity cells |

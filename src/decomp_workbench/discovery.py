@@ -4,9 +4,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NoReturn
+
+#: One readable word in place of argparse's generated choice list.
+COMMAND_METAVAR = "COMMAND"
+
+#: Matches argparse's own invalid-choice sentence, whichever metavar it used.
+INVALID_CHOICE_RE = re.compile(
+    r"argument (?P<argument>\S+): invalid choice: (?P<value>'[^']*')"
+)
+
+
+class CommandParser(argparse.ArgumentParser):
+    """An `ArgumentParser` that will not answer a typo with a catalogue.
+
+    argparse generates its own ``(choose from a, b, c, ...)`` list, which for
+    this program is a forty-odd name paragraph attached to a one-word mistake.
+    Suppressing the metavar fixes the usage line but not this sentence, and
+    there is no public hook for it, so the message is rewritten on the way out.
+    Everything else about `error` is left exactly as argparse defines it,
+    including the exit status.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        match = INVALID_CHOICE_RE.match(message)
+        if match is not None:
+            self.print_usage(sys.stderr)
+            self.exit(
+                2,
+                f"{self.prog}: error: {match.group('value')} is not a "
+                f"{self.prog} command.\n"
+                f"Run `{self.prog} commands` for the compact journey map, or "
+                f"`{self.prog} --help` for every command.\n",
+            )
+        super().error(message)
+
 
 COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "object": (
@@ -175,7 +210,12 @@ def render_command_map(*, group: str | None = None) -> list[str]:
         (
             "",
             "Start here: decomp-workbench doctor",
-            "Common diagnosis: decomp-workbench object diagnose TARGET CANDIDATE",
+            # The flat spelling, because it is the only one README and
+            # START_HERE teach. Grouped spellings are explained in
+            # docs/workflows.md; a first command should match the page the
+            # reader just came from.
+            "Common diagnosis: decomp-workbench diagnose target.o candidate.o",
+            "Next lever: decomp-workbench guide <playbook|verdict|lever>",
         )
     )
     return lines
@@ -212,6 +252,10 @@ def finalize_command_help(
     subparsers and still includes those choices in its generated metavar. It
     exposes no public hook for hiding a parseable subcommand, so keep the
     choices intact and adjust only the two presentation attributes.
+
+    The metavar is a single word rather than the visible-command list. Forty-odd
+    names inline made the usage line — the first thing every argument error
+    prints — unreadable, and the list they replaced is one command away.
     """
 
     commands._choices_actions[:] = [
@@ -219,8 +263,7 @@ def finalize_command_help(
         for choice in commands._choices_actions
         if choice.dest not in HIDDEN_FLAT_COMMANDS
     ]
-    visible = [name for name in commands.choices if name not in HIDDEN_FLAT_COMMANDS]
-    commands.metavar = "{" + ",".join(visible) + "}"
+    commands.metavar = COMMAND_METAVAR
 
 
 def _command_options(parser: argparse.ArgumentParser) -> dict[str, list[str]]:

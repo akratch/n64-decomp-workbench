@@ -25,18 +25,17 @@ from .comparison_render import (
     comparison_explanation_lines,
     comparison_line,
     diff_site_lines,
+    warning_lines,
 )
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
 from .force_spec import write_force_specification
 from .html_report import render_diagnosis_html
 from .schema import COMPARISON_CENSUS_KEYS
-from .terminal import emit_lines
+from .terminal import Painter, emit_lines, resolve_color
 from .view_cli import (
-    Painter,
     add_view_output_arguments,
     add_view_render_arguments,
     render_view,
-    resolve_color,
 )
 
 
@@ -94,17 +93,22 @@ def _emit(
                 nested["census"] = [item.as_dict() for item in census]
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        lines = ["COMPARISON", comparison_line(comparison)]
-        for line in comparison_explanation_lines(
-            comparison,
-            cross_rom=args.cross_rom,
-        ):
-            if not line.startswith("next: "):
-                lines.append(line)
+        painter = Painter(resolve_color(args.color))
+        lines = [
+            *warning_lines(comparison.warnings),
+            painter.bold("COMPARISON"),
+            comparison_line(comparison, painter),
+        ]
+        lines.extend(
+            comparison_explanation_lines(
+                comparison,
+                cross_rom=args.cross_rom,
+                guidance=False,
+            )
+        )
         if args.show_diff or args.show_all:
             lines.extend(diff_site_lines(comparison))
-        lines.extend(("", "MECHANISM"))
-        painter = Painter(resolve_color(args.color))
+        lines.extend(("", painter.bold("MECHANISM")))
         lines.extend(
             render_view(
                 diagnosis.view,
@@ -120,6 +124,9 @@ def _emit(
                 ),
                 report_regs=args.report_regs,
                 painter=painter,
+                show_warnings=False,
+                width=args.width,
+                terse=args.terse,
             )
         )
         lines.extend(item.line for item in census)

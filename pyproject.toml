@@ -51,6 +51,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 decomp_workbench = [
+    "docs/field-guide.md",
     "fingerprints/*.c",
     "py.typed",
     "skills/n64-decomp-campaign/SKILL.md",

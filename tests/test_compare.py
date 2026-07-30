@@ -557,6 +557,33 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.verdict, "allocation-mismatch")
         self.assertTrue(result.guidance[0].startswith("Opcode shape matches"))
 
+    def test_allocation_guidance_sends_the_reader_to_view_before_a_trace(self) -> None:
+        """Trace last is the doctrine everywhere else; this verdict said first.
+
+        `compare` cannot tell a temp-FIFO phase from a pool position, and it is
+        the command the README puts in front of every new reader. Naming a
+        globalcolor trace as the next step taught the opposite of `START_HERE`
+        on the busiest path in the tool.
+        """
+
+        result = self.compare_text(
+            "   0: 012a4021  addu $t0,$t1,$t2\n",
+            "   0: 012a5821  addu $t3,$t1,$t2\n",
+        )
+        guidance = result.guidance
+        view_step = next(
+            index
+            for index, line in enumerate(guidance)
+            if "`view` or `diagnose`" in line
+        )
+        trace_step = next(
+            index for index, line in enumerate(guidance) if "globalcolor/UGEN" in line
+        )
+        self.assertLess(view_step, trace_step)
+        self.assertIn("no instrumented toolchain", guidance[view_step])
+        self.assertIn("field-guide levers are exhausted", guidance[trace_step])
+        self.assertIn("last step, not the first", guidance[trace_step])
+
     def test_literal_only_difference_is_a_constant_verdict(self) -> None:
         result = self.compare_text(
             "   0: 24020021  li $v0,33\n",

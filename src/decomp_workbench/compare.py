@@ -10,8 +10,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .field_guide import (
+    AMBIGUOUS_PLAYBOOK_FAMILIES,
+    COARSE_ALLOCATION_LEAD_IN,
+    VERDICT_PLAYBOOKS,
+    next_steps,
+)
 from .model import Comparison, Instruction, display_path
-from .objdump import dump_object
+from .objdump import cross_function_warning, dump_object, symbol_labels
 
 REGISTER_RE = re.compile(
     r"(?<![A-Za-z0-9_$])\$?(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b"
@@ -529,6 +535,53 @@ def comparison_guidance(
     instruction_multiset_equal: bool,
     aligned_counts: dict[str, int],
 ) -> tuple[str, list[str]]:
+    """Return a concise verdict, the next action, and the field-guide on-ramp.
+
+    `_comparison_guidance` decides what is true about these two objects. This
+    wrapper adds the part that is true about the *verdict* regardless of the
+    inputs: which numbered levers move it, and the command that prints them.
+    Appending here rather than in each branch is what keeps `compare` and
+    `view` saying the same thing about the same mechanism.
+    """
+
+    verdict, guidance = _comparison_guidance(
+        exact=exact,
+        structural_exact=structural_exact,
+        raw_difference_breakdown=raw_difference_breakdown,
+        relocation_mismatches=relocation_mismatches,
+        unknown_relocations=unknown_relocations,
+        opcode_mismatches=opcode_mismatches,
+        instruction_delta=instruction_delta,
+        register_mismatches=register_mismatches,
+        site_classes=site_classes,
+        instruction_multiset_equal=instruction_multiset_equal,
+        aligned_counts=aligned_counts,
+    )
+    playbook = VERDICT_PLAYBOOKS.get(verdict)
+    if playbook is not None:
+        lead_in = (
+            (COARSE_ALLOCATION_LEAD_IN,)
+            if playbook in AMBIGUOUS_PLAYBOOK_FAMILIES
+            else ()
+        )
+        guidance.extend(next_steps(playbook, lead_in=lead_in))
+    return verdict, guidance
+
+
+def _comparison_guidance(
+    *,
+    exact: bool,
+    structural_exact: bool,
+    raw_difference_breakdown: dict[str, int],
+    relocation_mismatches: int,
+    unknown_relocations: list[str],
+    opcode_mismatches: int,
+    instruction_delta: int,
+    register_mismatches: int,
+    site_classes: dict[str, int],
+    instruction_multiset_equal: bool,
+    aligned_counts: dict[str, int],
+) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
     controlled = raw_difference_breakdown.get("relocation_controlled", 0)
@@ -661,8 +714,19 @@ def comparison_guidance(
             [
                 *mixed_site_callouts(site_classes),
                 "Opcode shape matches but register allocation differs.",
-                "Capture a narrow globalcolor/UGEN trace and inspect live "
-                "ranges before adding local fakes.",
+                # `compare` reports exactness; it cannot tell a temp-FIFO
+                # phase from a pool position, and sending the reader to a
+                # trace first inverted the documented order of work on the
+                # command the README puts in front of every new user. `view`
+                # answers the question this verdict raises, with no
+                # instrumented toolchain, from the same two inputs.
+                "Run `view` or `diagnose` on this pair next: it names the "
+                "family - temp-FIFO phase, pool position, or coalescing - and "
+                "the field-guide lever for it, with no instrumented toolchain "
+                "required.",
+                "Capture a globalcolor/UGEN trace only once the field-guide "
+                "levers are exhausted AND an instrumented toolchain is already "
+                "configured; it is the last step, not the first.",
             ],
         )
     if structural_exact:
@@ -691,8 +755,15 @@ def compare_instructions(
     target_name: str,
     candidate_name: str,
     symbol: str | None,
+    warnings: Sequence[str] = (),
 ) -> Comparison:
-    """Compare parsed instruction streams."""
+    """Compare parsed instruction streams.
+
+    `warnings` carries conditions the caller detected about the *inputs* --
+    the loader knows which symbols each dump defines, and this function only
+    ever sees two instruction lists -- so that one report object holds both the
+    verdict and the reasons not to trust it.
+    """
 
     raw_target_words = [item.word for item in target]
     raw_candidate_words = [item.word for item in candidate]
@@ -810,6 +881,7 @@ def compare_instructions(
         diff_sites=sites,
         diff_site_classes=site_classes,
         aligned_diff_sites=aligned_sites,
+        warnings=list(warnings),
     )
 
 
@@ -824,6 +896,10 @@ class TargetObject:
     name: str
     symbol: str | None
     instructions: list[Instruction]
+    #: Every symbol the target dump defines, so a candidate can be checked
+    #: against it without disassembling the target a second time.
+    labels: tuple[str, ...] = ()
+    text: str = ""
 
 
 def load_target(
@@ -835,11 +911,15 @@ def load_target(
 ) -> TargetObject:
     """Disassemble the reference object once."""
 
-    _, instructions = dump_object(
+    text, instructions = dump_object(
         target, objdump=objdump, symbol=symbol, section=section
     )
     return TargetObject(
-        name=display_path(target), symbol=symbol, instructions=instructions
+        name=display_path(target),
+        symbol=symbol,
+        instructions=instructions,
+        labels=symbol_labels(text),
+        text=text,
     )
 
 
@@ -852,8 +932,14 @@ def compare_candidate(
 ) -> Comparison:
     """Compare one candidate object against an already-parsed target."""
 
-    _, candidate_instructions = dump_object(
+    candidate_text, candidate_instructions = dump_object(
         candidate, objdump=objdump, symbol=target.symbol, section=section
+    )
+    warning = cross_function_warning(
+        target.text,
+        candidate_text,
+        symbol=target.symbol,
+        section=section,
     )
     return compare_instructions(
         target.instructions,
@@ -861,6 +947,7 @@ def compare_candidate(
         target_name=target.name,
         candidate_name=display_path(candidate),
         symbol=target.symbol,
+        warnings=(warning,) if warning else (),
     )
 
 

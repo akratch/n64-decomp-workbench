@@ -1,0 +1,88 @@
+# The `guide` command
+
+`diagnose` and `view` end with a `next:` footer that names a mechanism and a
+`playbook`. `guide` is the other half of that sentence: it prints the
+[field guide](field-guide.md) levers behind the name, so the concept the
+verdict used is one paste away instead of one search away.
+
+```sh
+decomp-workbench guide                       # the topic index
+decomp-workbench guide forced-color-oracle   # a playbook
+decomp-workbench guide register-permutation  # a verdict
+decomp-workbench guide 19                    # a lever number
+```
+
+## What a footer looks like now
+
+Every verdict's footer keeps its expert content and gains three things: the
+matching lever numbers with a one-line action each, the literal `guide` command
+for that playbook, and — where the expert line names a trace, a probe, or an
+oracle — both answers to "do you have an instrumented toolchain?".
+
+```sh
+decomp-workbench diagnose-dumps \
+  examples/fixtures/target.objdump \
+  examples/fixtures/register-mismatch.objdump
+```
+
+```text
+next: all register differences form one bijection (f0->f1): report it as a single decision, not N sites.
+      callee-saved tie-breaks resist source search; prefer a forced color probe on an instrumented toolchain over more variants.
+      field guide levers for playbook=forced-color-oracle:
+        lever 17: drop `void` for a K&R implicit-int return type on the declaration AND the definition; one variant, one coalescing copy
+        lever 18: give a twice-referenced expression a named intermediate so the coalesced copy lands on the other value
+        lever 19: the callee-saved tie-break is a uopt priority decision: force only the high-priority web and let the swap cascade
+      read them: decomp-workbench guide forced-color-oracle
+      have an instrumented toolchain? docs/compiler-instrumentation.md, then decomp-workbench diagnose ... --emit-force-spec force.json and decomp-workbench oracle plan TRACE.log to build the two-phase grid.
+      don't have one? try levers 17 and 18 first (one variant each): they resolve a large share of single-bijection register residues cheaply, and lever 19 says a clean negative here is a legitimate stopping point - record it, bundle the scratch, take the next function.
+```
+
+The two-branch line matters more than it looks. "Prefer a forced color probe on
+an instrumented toolchain" was true and unusable for the many readers who do not
+have one, and it never said what they should do instead.
+
+## Topics
+
+| Topic | Example | Resolves to |
+|---|---|---|
+| playbook | `forced-color-oracle` | that playbook's levers, in priority order |
+| playbook | `frontend-lineage` | levers 20-22, reached by evidence rather than by a verdict |
+| verdict | `register-permutation`, `allocation-mismatch` | the playbook for that verdict, then its levers |
+| lever number | `19` | one section, plus the playbooks that reach it |
+
+Both verdict vocabularies work: the aligned mechanism names printed by `view`
+and `diagnose` (`register-permutation`, `phase-shift`, `structure`) and the
+exactness names printed by `compare` (`allocation-mismatch`,
+`schedule-mismatch`). Whatever the terminal printed is a valid topic.
+
+`--width` and `--pager` behave exactly as they do on `view` and `diagnose`.
+
+## Where the text comes from
+
+The guide travels inside the installed package, so `guide` works with no
+checkout and no network. The lever *numbering* is the stable address: the
+mapping in the code cites numbers and carries its own one-line action for each,
+so a lever whose section is not in the installed revision still prints
+something a reader can act on rather than failing. That is not hypothetical —
+levers 20-22 were numbered and actionable here for a release cycle while their
+prose was still being written — and it means an installation whose packaged
+guide is older than its code degrades to:
+
+```markdown
+### 20. (not in the shipped field guide)
+
+before concluding 'hand-patched object', fingerprint the other authentic
+frontends (accom/ccom, upas) feeding the same backend
+```
+
+If the packaged document is missing entirely — a stripped install — `guide`
+prints the same one-line actions, names the two places the full text lives, and
+exits non-zero.
+
+## See also
+
+- [Field guide](field-guide.md) — the 22 levers themselves.
+- [Start here](START_HERE.md) — the loop the footer sits inside.
+- [Compiler instrumentation](compiler-instrumentation.md) — the "have an
+  instrumented toolchain?" branch.
+- [Aligned mechanism view](view.md) — the command that names the mechanism.

@@ -8,12 +8,36 @@ from .census import CensusResult
 from .compare import ALIGNED_CLASS_KEYS
 from .model import Comparison
 from .schema import summary_line
+from .terminal import Painter
 
 
-def comparison_line(item: Comparison) -> str:
-    """Render the summary line from the shared metric registry."""
+def comparison_line(item: Comparison, painter: Painter | None = None) -> str:
+    """Render the summary line from the shared metric registry.
 
-    return summary_line(item)
+    The verdict is the reason the line exists, and it was the only plain token
+    on a screen where a downstream explanatory sentence rendered bold red. The
+    key is bolded and the value takes its family's colour, so a scrolled batch
+    of reports is separable by hue before any of it is read.
+    """
+
+    line = summary_line(item)
+    if painter is None or not painter.enabled:
+        return line
+    token = f"verdict={item.verdict}"
+    if not line.startswith(token):
+        return line
+    return painter.bold("verdict=") + painter.verdict(item.verdict) + line[len(token) :]
+
+
+def warning_lines(warnings: Sequence[str]) -> list[str]:
+    """Render input warnings as the first thing a reader sees.
+
+    Ahead of the verdict, not beside the evidence: these say the comparison
+    answered a different question than the one that was asked, and a reader who
+    meets one after the numbers has already believed the numbers.
+    """
+
+    return [f"warning: {warning}" for warning in warnings]
 
 
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
@@ -49,8 +73,14 @@ def comparison_explanation_lines(
     item: Comparison,
     *,
     cross_rom: bool,
+    guidance: bool = True,
 ) -> list[str]:
-    """Return compact, action-oriented explanation lines."""
+    """Return compact, action-oriented explanation lines.
+
+    `guidance=False` returns the evidence without the `next:` footer, for
+    `diagnose`, which renders the aligned view's richer footer instead and
+    would otherwise print two lever blocks for one residual.
+    """
 
     lines: list[str] = []
     aligned = ", ".join(
@@ -70,7 +100,14 @@ def comparison_explanation_lines(
             f"{name}={count}" for name, count in item.diff_site_classes.items()
         )
         lines.append(f"diff_sites={len(item.diff_sites)} ({classes})")
-    lines.extend(f"next: {entry}" for entry in item.guidance)
+    # One footer, indented like `view`'s: the guidance is now several lines
+    # long (levers, then the command, then the instrumentation branch), and
+    # repeating `next:` on each of them read as several unrelated instructions.
+    if guidance:
+        lines.extend(
+            ("next: " if position == 0 else "      ") + entry
+            for position, entry in enumerate(item.guidance)
+        )
     accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
     if basis == "cross-rom-structural":
         lines.append(
