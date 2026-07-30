@@ -21,6 +21,8 @@ from decomp_workbench.cli import build_parser, main
 SYMBOL_COMMANDS = (
     "compare",
     "compare-dumps",
+    "diagnose",
+    "diagnose-dumps",
     "view",
     "view-dumps",
     "check-scratch",
@@ -30,7 +32,14 @@ SYMBOL_COMMANDS = (
 )
 
 #: Every command that produces one report a predicate can be asked about.
-CENSUS_COMMANDS = ("compare", "compare-dumps", "view", "view-dumps")
+CENSUS_COMMANDS = (
+    "compare",
+    "compare-dumps",
+    "diagnose",
+    "diagnose-dumps",
+    "view",
+    "view-dumps",
+)
 
 
 class CliUxTests(unittest.TestCase):
@@ -231,7 +240,17 @@ class CliUxTests(unittest.TestCase):
         listing = re.search(r"\{([^}]+)\}", build_parser().format_help())
         assert listing is not None
         order = re.sub(r"\s+", "", listing.group(1)).split(",")
-        self.assertEqual(order[:4], ["compare", "compare-dumps", "view", "view-dumps"])
+        self.assertEqual(
+            order[:6],
+            [
+                "compare",
+                "compare-dumps",
+                "view",
+                "view-dumps",
+                "diagnose",
+                "diagnose-dumps",
+            ],
+        )
 
     def test_every_compiler_command_has_the_same_runtime_controls(self) -> None:
         parser = build_parser()
@@ -411,6 +430,8 @@ class CliUxTests(unittest.TestCase):
                 f"{sys.executable} {compiler} {{source}} {{output}}",
                 "--cache-dir",
                 str(root / "cache"),
+                "--state-dir",
+                str(root / "state"),
                 "--jobs",
                 "1",
             ]

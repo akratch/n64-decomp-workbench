@@ -1,5 +1,16 @@
 # Elite product review — user stories and scoped backlog
 
+> **Historical audit (2026-07-29).** This document preserves the gaps and
+> acceptance criteria that drove the 0.3 development cycle. P0–P3 items below
+> are now implemented: combined diagnosis, scratch view, default campaign
+> state/cockpit, recoverable cache lifecycle, compile preflight, versioned JSON
+> success/errors, bounded artifacts, experiment manifests/regions, register
+> permutations, HTML, width/pager controls, command groups/completions,
+> portability CI, modular journey registration, scheduler schema/profile
+> adapter, semantic webs, stack homes, pass differential, fingerprints, and
+> listing portability. See [Product status](product-status.md) for current
+> syntax and the deliberately open research frontier.
+
 This review treats the workbench as a product, not a collection of commands.
 The standard is simple: a new contributor should reach a trustworthy next
 action quickly, an expert should not need to rebuild missing analysis in a

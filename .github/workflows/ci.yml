@@ -52,13 +52,47 @@ jobs:
       - name: Install package and development tools
         run: python -m pip install --upgrade --editable ".[dev]"
 
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
       - name: Run static analysis
         run: |
+          "$(go env GOPATH)/bin/actionlint"
           bandit -r src -ll
           codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
           ruff check src tests
           ruff format --check src tests
           mypy src tests
+
+  portability:
+    name: ${{ matrix.os }} portability
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: python -m pip install --upgrade --editable .
+
+      - name: Run the full suite on macOS
+        if: runner.os == 'macOS'
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate Windows process and filesystem contracts
+        if: runner.os == 'Windows'
+        run: python -m unittest discover -s tests -p "test_windows_compat.py" -v
 
   package:
     name: Build distributions
@@ -92,9 +126,22 @@ jobs:
             examples/fixtures/target.objdump \
             examples/fixtures/relocated-match.objdump \
             --fail-on-mismatch
+          decomp-workbench diagnose-dumps \
+            examples/fixtures/phase-shift-target.objdump \
+            examples/fixtures/phase-shift-candidate.objdump \
+            --function animStep --json
           decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
             --registers t6,t7,t8 \
             --fail-on-violation
+          decomp-workbench trace-source \
+            examples/traces/oracle.log \
+            examples/traces/oracle-source.i \
+            --listing examples/traces/oracle-listing.s \
+            --source-file candidate.c --json
+          decomp-workbench oracle plan examples/traces/oracle.log --json
+          decomp-workbench experiment validate \
+            examples/experiments/statement-grouping/experiment.json --json
+          decomp-workbench commands --json
           decomp-workbench doctor examples/fixtures/decompme-export --json
           decomp-workbench check-scratch \
             examples/fixtures/decompme-export --json
@@ -110,10 +157,24 @@ jobs:
             examples/fixtures/target.objdump \
             examples/fixtures/relocated-match.objdump \
             --fail-on-mismatch
+          /tmp/dkwb-sdist-env/bin/decomp-workbench diagnose-dumps \
+            examples/fixtures/phase-shift-target.objdump \
+            examples/fixtures/phase-shift-candidate.objdump \
+            --function animStep --json
           /tmp/dkwb-sdist-env/bin/decomp-workbench trace-fifo \
             examples/traces/ugen-fifo.log \
             --registers t6,t7,t8 \
             --fail-on-violation
+          /tmp/dkwb-sdist-env/bin/decomp-workbench trace-source \
+            examples/traces/oracle.log \
+            examples/traces/oracle-source.i \
+            --listing examples/traces/oracle-listing.s \
+            --source-file candidate.c --json
+          /tmp/dkwb-sdist-env/bin/decomp-workbench oracle plan \
+            examples/traces/oracle.log --json
+          /tmp/dkwb-sdist-env/bin/decomp-workbench experiment validate \
+            examples/experiments/statement-grouping/experiment.json --json
+          /tmp/dkwb-sdist-env/bin/decomp-workbench commands --json
           /tmp/dkwb-sdist-env/bin/decomp-workbench doctor \
             examples/fixtures/decompme-export --json
           /tmp/dkwb-sdist-env/bin/decomp-workbench check-scratch \

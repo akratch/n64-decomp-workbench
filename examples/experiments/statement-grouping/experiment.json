@@ -1,0 +1,52 @@
+{
+  "schema": "decomp-workbench-experiment-v1",
+  "family": "statement-grouping",
+  "baseline": "baseline.c",
+  "parameters": {
+    "shape": [
+      "split",
+      "compound"
+    ],
+    "declaration": [
+      "before",
+      "after"
+    ]
+  },
+  "candidates": [
+    {
+      "source": "split-before.c",
+      "parameters": {
+        "shape": "split",
+        "declaration": "before"
+      }
+    },
+    {
+      "source": "split-after.c",
+      "parameters": {
+        "shape": "split",
+        "declaration": "after"
+      }
+    },
+    {
+      "source": "compound-before.c",
+      "parameters": {
+        "shape": "compound",
+        "declaration": "before"
+      }
+    },
+    {
+      "source": "compound-after.c",
+      "parameters": {
+        "shape": "compound",
+        "declaration": "after"
+      }
+    }
+  ],
+  "invariants": {
+    "selected_region": {
+      "name": "return-block",
+      "start": 2,
+      "end": 4
+    }
+  }
+}

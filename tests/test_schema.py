@@ -214,6 +214,7 @@ class SchemaTests(unittest.TestCase):
                         f"{sys.executable} {compiler} {{source}} {{output}}",
                         "--cache-dir",
                         str(root / "cache"),
+                        "--no-ledger",
                         "--json-summary",
                     ]
                 )

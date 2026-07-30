@@ -1,4 +1,16 @@
-# Tooling roadmap from live campaigns
+# Historical tooling roadmap from live campaigns
+
+> **Status (2026-07-30).** Every adapter-level item originally listed as
+> “Next” below has landed: original/static pass differential, behavioral
+> fingerprints and cross-ROM lineage, semantic web/interference joins,
+> stack-home reports, marker-aware source/listing correlation, portable pass
+> work roots and calibration, experiment manifests/regions, register
+> permutations, relocation aliases, and stable scheduler records with
+> hash-pinned external profiles. The mutation-recipe library and richer
+> emitted-instruction joins remain research because safe equivalence and
+> validated producer fields need project evidence. See
+> [Product status](product-status.md). The original proposals remain below so
+> their acceptance reasoning is not rewritten after the fact.
 
 This backlog records gaps observed while applying the workbench to late-stage
 N64 decompilation functions. It is intentionally project-neutral and excludes
@@ -35,7 +47,7 @@ ROMs, target objects, and proprietary compiler files.
 - The portable Agent Skill ships in package artifacts and has a safe,
   idempotent installer for Codex and Claude Code.
 
-## Next
+## Original proposals (now implemented unless noted)
 
 ### Original-pass differential adapter
 

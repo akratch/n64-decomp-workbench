@@ -247,7 +247,7 @@ static int dkwb_cdx_reg_taken(uint8_t *mem, int color) {
     return (int)MEM_U8(table + color - 1);
 }
 static void dkwb_cdx_log_ichain(
-        uint8_t *mem, int ordinal, const char *role, int web,
+        uint8_t *mem, int ordinal, const char *phase, const char *role, int web,
         uint32_t liverange) {
     uint32_t ichain;
     uint32_t expr;
@@ -260,10 +260,11 @@ static void dkwb_cdx_log_ichain(
     graphnode = expr ? MEM_U32(expr + 16) : 0;
     if (!dkwb_cdx_emulated_pointer(graphnode)) graphnode = 0;
     fprintf(dkwb_cdx_output,
-        "[CDX] webdetail proc=%d role=%s web=%d sym=%d type=%d dtype=%d "
+        "[CDX] webdetail phase=%s proc=%d role=%s web=%d "
+        "sym=%d type=%d dtype=%d "
         "table=%d chain=%d exprtable=%d exprchain=%d bb=%d line=%d "
         "raw10=0x%08x raw14=0x%08x raw18=0x%08x raw20=0x%08x\n",
-        ordinal, role, web, (int)MEM_U16(ichain + 2),
+        phase, ordinal, role, web, (int)MEM_U16(ichain + 2),
         (int)MEM_U8(ichain + 0), (int)MEM_U8(ichain + 1),
         (int)MEM_U16(ichain + 4), (int)MEM_U16(ichain + 6),
         expr ? (int)MEM_U16(expr + 8) : -1,
@@ -345,11 +346,12 @@ static int dkwb_cdx_force_color(
             (double)(cost), (double)(best)); \
 } while (0)
 static void dkwb_cdx_log_interference(
-        uint8_t *mem, int ordinal, int web, uint32_t liverange) {
+        uint8_t *mem, int ordinal, const char *phase, int web,
+        uint32_t liverange) {
     uint32_t item;
     if (!dkwb_cdx_log || !dkwb_cdx_active(ordinal) ||
             (web != dkwb_cdx_detail_web && dkwb_cdx_detail_web != -2)) return;
-    dkwb_cdx_log_ichain(mem, ordinal, "target", web, liverange);
+    dkwb_cdx_log_ichain(mem, ordinal, phase, "target", web, liverange);
     if (dkwb_cdx_detail_web == -2) return;
     item = MEM_U32(liverange + 56);
     while (item != 0) {
@@ -358,13 +360,14 @@ static void dkwb_cdx_log_interference(
             uint32_t ichain = MEM_U32(neighbor + 0);
             int assigned = (int)(int8_t)MEM_U8(neighbor + 32);
             fprintf(dkwb_cdx_output,
-                "[CDX] intf proc=%d web=%d other=%d sym=%d "
+                "[CDX] intf phase=%s proc=%d web=%d other=%d sym=%d "
                 "assigned=%d shared=%d marked=%d\n",
-                ordinal, web, (int)MEM_U32(neighbor + 4),
+                phase, ordinal, web, (int)MEM_U32(neighbor + 4),
                 ichain ? (int)MEM_U16(ichain + 2) : -1, assigned,
                 (int)MEM_U8(item + 8), (int)MEM_U8(item + 9));
             dkwb_cdx_log_ichain(
-                mem, ordinal, "neighbor", (int)MEM_U32(neighbor + 4),
+                mem, ordinal, phase, "neighbor",
+                (int)MEM_U32(neighbor + 4),
                 neighbor);
         }
         item = MEM_U32(item + 4);
@@ -495,7 +498,7 @@ def instrument_uopt_globalcolor(
         "(int)MEM_U8(0x1001eb70), "
         "dkwb_cdx_reg_taken(mem, 1), dkwb_cdx_reg_taken(mem, 2), "
         'cf ? "split" : "color", dkwb_cdx_decision);\n'
-        "    dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "
+        '    dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "p1", '
         "dkwb_web, s5);\n"
         "    if (dkwb_cdx_decision == -1) cf = 1;\n"
         "    else if (dkwb_cdx_decision >= 0) cf = 0;\n"
@@ -576,7 +579,7 @@ def instrument_uopt_globalcolor(
         "(int)MEM_U8(0x1001eb70), "
         "dkwb_cdx_reg_taken(mem, 1), dkwb_cdx_reg_taken(mem, 2), "
         'cf ? "color" : "no-color", dkwb_cdx_decision);\n'
-        "    dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "
+        '    dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "p2", '
         "dkwb_web, s5);\n"
         "    if (dkwb_cdx_decision == -1) cf = 0;\n"
         "    else if (dkwb_cdx_decision >= 0) cf = 1;\n"

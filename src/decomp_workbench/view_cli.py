@@ -24,16 +24,18 @@ from .census import (
     census_status,
     evaluate_census,
     parse_census,
-    print_census,
 )
 from .cli_options import (
     add_census_argument,
     add_explain_keys_argument,
     add_symbol_argument,
 )
+from .force_spec import write_force_specification
+from .html_report import render_diagnosis_html
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
 from .schema import VIEW_CENSUS_KEYS
+from .terminal import emit_lines
 from .view import (
     DEFAULT_REGISTER_PROFILE,
     MATCH,
@@ -391,6 +393,9 @@ def _emit(
     args: argparse.Namespace,
     predicates: Sequence[Predicate] = (),
 ) -> int:
+    if args.json and args.html:
+        print("error: --json and --html are mutually exclusive", file=sys.stderr)
+        return 2
     # The payload is only built when something reads it: the human rendering
     # walks the view itself, and `--report-regs` makes this a per-row list.
     payload = (
@@ -401,22 +406,51 @@ def _emit(
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    try:
+        force_output = (
+            Path(args.emit_force_spec).expanduser().resolve()
+            if args.emit_force_spec
+            else None
+        )
+        html_output = Path(args.html).expanduser().resolve() if args.html else None
+        for output, label in (
+            (force_output, "force specification"),
+            (html_output, "HTML report"),
+        ):
+            if output is not None and output.exists():
+                raise FileExistsError(f"refusing to overwrite {label}: {output}")
+        if force_output is not None:
+            write_force_specification(view, force_output)
+        if html_output is not None:
+            html_output.parent.mkdir(parents=True, exist_ok=True)
+            with html_output.open("x", encoding="utf-8") as destination:
+                destination.write(render_diagnosis_html(view))
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     if args.json:
         if census:
             payload["census"] = [item.as_dict() for item in census]
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(args.color))
-        for line in render_view(
+        lines = render_view(
             view,
             context=args.context,
             max_hunks=args.max_hunks,
             lane_window=args.lane_window,
             report_regs=args.report_regs,
             painter=painter,
-        ):
-            print(line)
-        print_census(census)
+        )
+        lines.extend(item.line for item in census)
+        if args.html:
+            lines.append(f"HTML report: {Path(args.html).expanduser().resolve()}")
+        if args.emit_force_spec:
+            lines.append(
+                "diagnostic force specification: "
+                f"{Path(args.emit_force_spec).expanduser().resolve()}"
+            )
+        emit_lines(lines, width=args.width, pager=args.pager)
     mismatched = args.fail_on_mismatch and view.verdict not in {
         "exact",
         "words-identical",
@@ -525,6 +559,23 @@ def _add_shared_arguments(
             help="GNU-compatible MIPS objdump; auto-detected when omitted",
         )
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    add_view_render_arguments(parser)
+    add_view_output_arguments(parser)
+    parser.add_argument(
+        "--fail-on-mismatch",
+        action="store_true",
+        help="return exit 1 unless the verdict is exact or words-identical",
+    )
+    add_census_argument(parser)
+
+
+def add_view_render_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    default_max_hunks: int = 20,
+) -> None:
+    """Add the aligned-view presentation controls to another command."""
+
     parser.add_argument(
         "--report-regs",
         action="store_true",
@@ -539,8 +590,8 @@ def _add_shared_arguments(
     parser.add_argument(
         "--max-hunks",
         type=int,
-        default=20,
-        help="maximum hunks to render; 0 renders all (default: 20)",
+        default=default_max_hunks,
+        help=(f"maximum hunks to render; 0 renders all (default: {default_max_hunks})"),
     )
     parser.add_argument(
         "--lane-window",
@@ -562,12 +613,50 @@ def _add_shared_arguments(
         default="auto",
         help="ANSI web coloring; monochrome annotations are always present",
     )
+
+
+def _terminal_width(value: str) -> int:
+    if value == "auto":
+        return -1
+    if value in {"unlimited", "none"}:
+        return 0
+    try:
+        width = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "width must be auto, unlimited, or a positive integer"
+        ) from None
+    if width < 20:
+        raise argparse.ArgumentTypeError("width must be at least 20 columns")
+    return width
+
+
+def add_view_output_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add terminal and share/export controls for a complete view command."""
+
     parser.add_argument(
-        "--fail-on-mismatch",
-        action="store_true",
-        help="return exit 1 unless the verdict is exact or words-identical",
+        "--width",
+        type=_terminal_width,
+        default=0,
+        metavar="COLUMNS",
+        help="bound terminal lines; use auto or unlimited (default: unlimited)",
     )
-    add_census_argument(parser)
+    parser.add_argument(
+        "--pager",
+        choices=("auto", "always", "never"),
+        default="auto",
+        help="page long human output (default: auto on a TTY)",
+    )
+    parser.add_argument(
+        "--html",
+        metavar="PATH",
+        help="write a self-contained aligned evidence report",
+    )
+    parser.add_argument(
+        "--emit-force-spec",
+        metavar="PATH",
+        help="write an honest register-permutation oracle handoff",
+    )
 
 
 def register_view_commands(commands: argparse._SubParsersAction[Any]) -> None:

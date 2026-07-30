@@ -1,0 +1,2 @@
+[DKWB-SCHED-V1] proc=7 block=3 cycle=4 word=0x2402002d opcode=addiu line=0x30f ready=2 chosen=n18 tie=source-line
+[DKWB-SCHED-V1] proc=7 block=3 cycle=5 word=0x2403000a opcode=addiu line=0x311 ready=1 chosen=n19 tie=only-ready

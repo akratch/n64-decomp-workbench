@@ -5,6 +5,59 @@
 - Main now identifies itself as `0.3.0.dev0` instead of reusing the published
   `0.2.0` identity for a substantially different development build.
 
+- Completed the common diagnosis journey. `diagnose`/`diagnose-dumps` render
+  exact comparison truth plus the decisive aligned mechanism evidence after
+  loading each input once; `check-scratch --view` reuses the imported
+  comparison. Terminal width/pager controls and self-contained accessible HTML
+  reports preserve the same evidence, and every explicit output refuses to
+  overwrite.
+
+- Added a durable campaign cockpit. Runs create an identity-checked manifest
+  and append-only ledger under `.decomp-workbench/` by default; `campaign
+  status/note/resume/export` preserve the best trajectory, failures, active
+  hypothesis, object basins, family collapse, and exact-stop state.
+  `decomp-workbench-experiment-v1` sidecars validate deterministic parameter
+  assignments and selected instruction regions. Cache status, dry-run prune,
+  recoverable cross-filesystem trash, and collision-safe restore complete the
+  state lifecycle.
+
+- Added calibrated compiler-research adapters without redistributing compiler
+  inputs: real-copy `toolchain init/calibrate/status`, section/relocation/symbol
+  fidelity, scheduler `DKWB-SCHED-V1` records and hash-pinned external
+  profiles, original/static pass differential, behavioral fingerprint
+  microcases, cross-revision lineage, relocation-alias evidence, mandatory
+  unedited replay calibration, project-visible work roots, and bounded process
+  artifacts.
+
+- Productized the allocator oracle. `oracle plan` always reports both p1/p2
+  namespaces and plans only measured or explicit non-forbidden colors;
+  `diff` aligns semantic web provenance rather than numeric IDs; `force/sweep`
+  use the campaign engine and require an intact ready toolchain; `status/export`
+  reopen persistent, ledger-idempotent evidence. Forced exactness remains
+  explicitly causal evidence, never a source match.
+
+- Added semantic allocator and source provenance views: stable web
+  fingerprints, forbidden-color neighbor attribution, virtual/final stack-home
+  ownership, and `trace-source` joins through retained preprocessor markers and
+  `.file/.loc` directives while preserving ambiguous line matches. Runnable
+  synthetic oracle, source/listing, scheduler, and complete experiment-grid
+  examples are executed by documentation tests.
+
+- Hardened the evidence boundary found during final review: selected-region
+  scores now use LCS-aligned residual sites; allocator details and interference
+  edges are phase-qualified; an exact forced build is causal only after a
+  successful non-exact control; relocation aliases preserve kind and
+  cardinality differences; short section tails and undecodable compiler bytes
+  remain observable; and toolchain/cache operations preflight collisions
+  without deleting or partially restoring another process's files.
+
+- Standardized automation on one versioned JSON document for success and
+  failure, including argparse errors; added a compact journey command map,
+  non-breaking task-group aliases, and generated Bash/Zsh/Fish/PowerShell
+  completions. CI now runs actionlint, the full suite on macOS, targeted
+  Windows process/filesystem contracts, and wheel/sdist installation smoke
+  tests in addition to Python 3.10–3.14 and strict static analysis.
+
 - Compiler execution now has one lifecycle contract across `check-scratch`,
   `compile-rank`, and `campaign`: a 120-second per-candidate timeout by
   default, explicit environment and working-directory controls, and

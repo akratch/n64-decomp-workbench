@@ -1,0 +1,8 @@
+[CDX] webdetail phase=p1 proc=7 role=target web=9 sym=12 type=3 dtype=13 table=4 chain=7 exprtable=2 exprchain=1 bb=3 line=4 raw10=0xffffffc0 raw14=0x04ae0102 raw18=0x00000000 raw20=0x00000000
+[CDX] p1cost phase=p1 proc=7 web=9 color=14 reg=s0 kind=callee cost=3 best_before=4
+[CDX] p1cost phase=p1 proc=7 web=9 color=15 reg=s1 kind=callee cost=4 best_before=3
+[CDX] p1dec phase=p1 proc=7 web=9 bestcolor=14 bestreg=s0 forbidden0=0x00000000 forbidden1=0x00000000 decision=color
+[CDX] webdetail phase=p2 proc=7 role=target web=55 sym=0 type=3 dtype=13 table=5 chain=8 exprtable=2 exprchain=2 bb=6 line=7 raw10=0xffffffb8 raw14=0x04ae0102 raw18=0x00000000 raw20=0x00000000
+[CDX] p2cost phase=p2 proc=7 web=55 color=1 reg=v0 kind=caller cost=2 best_before=4
+[CDX] p2cost phase=p2 proc=7 web=55 color=2 reg=v1 kind=caller cost=1 best_before=2
+[CDX] p2dec phase=p2 proc=7 web=55 bestcolor=2 bestreg=v1 forbidden0=0x00000000 forbidden1=0x00000000 decision=color

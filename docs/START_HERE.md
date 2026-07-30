@@ -30,14 +30,18 @@ commutative operand order, a scheduling barrier, a temp-register phase, a
 coloring-pool position. Different mechanisms have different levers, and the
 lever for one is a waste of a day on another.
 
-Two commands do the classifying:
+Three views share one analysis:
 
 - **`compare`** — how different are these two objects, and is the difference
   real or linker noise?
 - **`view`** — where does the divergence begin, which mechanism owns it, and
   which lever family moves it?
+- **`diagnose`** — the common one-command journey: comparison plus the decisive
+  mechanism view, with each input loaded once.
 
-`compare` is the gate. `view` is the one you will live in.
+This tutorial teaches the two primitives so their evidence is legible.
+Day-to-day, start with `diagnose`; use `compare` for a compact gate and `view
+--show-all` when you need every hunk.
 
 ---
 
@@ -180,16 +184,17 @@ This is the command that answers "what do I do next", and it is the reason to
 be on the current version rather than 0.2.0.
 
 ```sh
-decomp-workbench view-dumps \
+decomp-workbench diagnose-dumps \
   examples/fixtures/phase-shift-target.objdump \
   examples/fixtures/phase-shift-candidate.objdump \
   --function animStep
 ```
 
-(Against real object files it is `view target.o candidate.o --function name
+(Against real object files it is `diagnose target.o candidate.o --function name
 --objdump /path/to/mips64-elf-objdump`. Same screen.)
 
-You get one screen with four sections. Read them in this order.
+You first get the compact comparison truth, then the mechanism screen with four
+sections. Read the mechanism in this order.
 
 ### 1. The verdict header and signature
 
@@ -373,8 +378,6 @@ decomp-workbench campaign expected/code/foo.o variants/*.c \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
   --compile-cwd /path/to/project \
-  --cache-dir .decomp-workbench/cache \
-  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 
@@ -387,9 +390,25 @@ Two things to be clear about, because they are the ones people get wrong:
   flight finish and are recorded; nothing you paid for is thrown away. Pass
   `--no-stop-on-exact` when you want the whole grid for a basin census.
 
-The ledger is JSONL, one record per candidate, with the source, the rendered
-command, the compiler identity, the timing, and the comparison metrics. It is
-what you will grep next week when you have forgotten what you tried.
+The workbench creates a manifest and JSONL ledger by default under
+`.decomp-workbench/campaigns/`. Reopen it instead of reconstructing the run:
+
+```sh
+decomp-workbench campaign status
+decomp-workbench campaign note "temp lane still diverges after the call"
+decomp-workbench campaign resume
+```
+
+Status names the best trajectory, failures, object-basin collapse, experiment
+families, and the active hypothesis. Resume verifies target, source, wrapper,
+objdump, environment, and optional toolchain identities before running work
+absent from the ledger. An exact campaign stays stopped unless
+`--continue-after-exact` explicitly asks for the skipped grid.
+
+For a generated family, validate and attach an
+[`experiment` manifest](../examples/experiments/README.md); parameters then
+survive filenames, and a protected instruction region can rank before the
+whole-function residual.
 
 To filter a pile of objects on one property, do not grep the report or parse
 its JSON — ask, and read the exit code:
@@ -455,8 +474,11 @@ for a trace when, and only when:
 When you do get there, `trace-summary` tells you what is in the file, then
 `trace-globalcolor` (live-range costs and color decisions), `trace-fifo` (temp
 reuse as a validated queue), or `trace-alias` (what the optimizer believed
-about pointers). Start at [Trace analysis](trace-analysis.md); building the
-producer is [Compiler instrumentation](compiler-instrumentation.md).
+about pointers). `trace-webs` aligns decisions by semantic provenance,
+`trace-source` maps logical lines through retained markers without guessing,
+and a calibrated [`oracle`](oracle.md) can test one bounded allocator cause.
+Start at [Trace analysis](trace-analysis.md); building the producer is
+[Compiler instrumentation](compiler-instrumentation.md).
 
 A trace tells you *what the compiler decided*. It does not tell you what C to
 write. The field guide does that.
@@ -501,6 +523,8 @@ rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 | you want every `view` option and the JSON schema | [Aligned mechanism view](view.md) |
 | you want every `compare` option and verdict rule | [Object comparison](object-comparison.md) |
 | you are running variant sweeps in bulk | [Candidate campaigns](campaigns.md) |
+| ordinary source levers are exhausted and you have a calibrated trace | [Allocator oracle](oracle.md) |
+| you consume reports from automation | [JSON contracts](json-contracts.md) |
 | a command failed or printed nothing usable | [Troubleshooting](troubleshooting.md) |
 | you want the reasoning behind the levers | [Final-function campaign lessons](final-function-campaigns.md) |
 

@@ -97,6 +97,14 @@ Use a new cache directory after changing transitive toolchain inputs or
 undeclared environment state. Record those identities in the wrapper output or
 your experiment manifest.
 
+If the campaign has a manifest, prefer `campaign resume` over manually
+re-running its source glob. Resume verifies target/source hashes, wrapper,
+objdump, cwd, explicit environment, and toolchain-manifest identity before it
+uses the existing ledger. A mismatch is a refused resume, not a cache hit.
+
+Inspect cache state with `cache status`. `cache prune` is a dry run by default;
+`--apply` moves entries to recoverable trash and prints the restore command.
+
 ## A campaign wrapper works manually but fails in the workbench
 
 Check whether the wrapper assumes it starts in the project root. Candidate
@@ -125,6 +133,29 @@ microcase, the target function, collateral functions, and the project’s
 complete output. A trace from an instrument that fails its disabled control is
 not evidence.
 
+## A toolchain is intact but still uncalibrated
+
+That is expected after a successful partial `toolchain init/calibrate`. Run
+`toolchain status DIRECTORY --json` and read `next_missing_gates`.
+“Uncalibrated” is a claim state, while failed `integrity` means a copied file
+changed or disappeared. Oracle execution requires both intact hashes and
+`claim=ready`.
+
+Do not edit a calibrated directory or rewrite its manifest. Materialize a new
+real-copy directory when a pass binary changes, then rerun the evidence cells.
+
+## Oracle planning returns no forces
+
+Check that the trace contains p1/p2 decision records for the selected
+procedure. A phase with zero webs is printed explicitly. Colors are taken only
+from measured cost records unless `--colors-p1/--colors-p2` supplies a reviewed
+set; the planner will not guess a register universe.
+
+A force absent from the plan may be forbidden by the web mask. Use
+`trace-globalcolor --proc N --web W` to inspect `forbidden_colors`.
+`trace-source` can then map the web's logical line through a retained
+preprocessor input without guessing between includes.
+
 ## An unedited pass replay does not reproduce the object
 
 Do not interpret an edited replay. Compare the original and replay commands,
@@ -147,8 +178,9 @@ the census is looking for and still not be a match. A malformed or unknown
 census key is a usage error and returns two like every other one, before the
 inputs are read.
 
-Use `--json` for machine-readable details, but retain stderr as well: setup and
-external-tool failures are written there.
+With `--json`, success and failure both produce exactly one schema-named JSON
+document on stdout and leave stderr empty. Without JSON, user-facing failures
+remain on stderr. See [JSON contracts](json-contracts.md).
 
 ## Reporting a reproducible issue
 

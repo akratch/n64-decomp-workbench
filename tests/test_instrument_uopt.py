@@ -75,7 +75,7 @@ int main(void) {
     (void)dkwb_cdx_lookup(0, "p2", 9);
     (void)dkwb_cdx_force_color(0, "p1", "dec", 9, 0, 0);
     (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
-    dkwb_cdx_log_interference(dkwb_test_memory, 0, 9, 0);
+    dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
     return 0;
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     (void)dkwb_cdx_active(0);
     (void)dkwb_cdx_lookup(0, "p2", 9);
     (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
-    dkwb_cdx_log_interference(dkwb_test_memory, 0, 9, 0);
+    dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
     dkwb_cdx_procindex();
@@ -215,6 +215,16 @@ class UoptInstrumentationTests(unittest.TestCase):
         for record in ("p2dec", "p2color"):
             self.assertIn(f"[CDX] {record} phase=p2", source)
         self.assertIn('"[CDX] %scost phase=%s', source)
+        self.assertIn('"[CDX] webdetail phase=%s', source)
+        self.assertIn('"[CDX] intf phase=%s', source)
+        self.assertIn(
+            'dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "p1"',
+            source,
+        )
+        self.assertIn(
+            'dkwb_cdx_log_interference(mem, dkwb_cdx_ordinal, "p2"',
+            source,
+        )
 
     def test_force_keys_are_phase_qualified(self) -> None:
         source = instrument_uopt_globalcolor(

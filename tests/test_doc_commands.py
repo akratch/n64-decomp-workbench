@@ -48,7 +48,11 @@ DOCUMENTS = (
 PROGRAM = "decomp-workbench"
 
 #: Markers that make a command line runnable without a ROM or compiler.
-RUNNABLE_MARKERS = ("examples/fixtures/", "examples/traces/")
+RUNNABLE_MARKERS = (
+    "examples/experiments/",
+    "examples/fixtures/",
+    "examples/traces/",
+)
 
 SHELL_LANGUAGES = frozenset({"sh", "shell", "bash", "console"})
 FENCE_RE = re.compile(r"^\s*```(\S*)\s*$")

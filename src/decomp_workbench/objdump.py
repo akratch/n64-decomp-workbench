@@ -145,6 +145,8 @@ def dump_object(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode:
         message = result.stderr.strip() or result.stdout.strip()

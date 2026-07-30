@@ -1,0 +1,483 @@
+"""Compact journey map, non-breaking command groups, and shell completions."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections.abc import Mapping
+from typing import Any
+
+COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
+    "object": (
+        ("diagnose", "one-screen exactness, mechanism, and next lever"),
+        ("compare", "exact object truth and ranked metrics"),
+        ("view", "full aligned mechanism evidence"),
+        ("rank", "triage prebuilt candidate objects"),
+        ("relocation-aliases", "prove linked-address-equivalent spellings"),
+    ),
+    "scratch": (
+        ("check", "validate or site-faithfully compile a decomp.me export"),
+        ("bundle", "build a deterministic manual-upload handoff"),
+        ("doctor", "verify retained-dump, object, and compiler readiness"),
+    ),
+    "campaign": (
+        ("run", "compile, cache, rank, and record source candidates"),
+        ("status", "show trajectory, failures, families, and basins"),
+        ("resume", "run only manifest work absent from the ledger"),
+        ("note", "persist the active hypothesis for status and handoff"),
+        ("export", "write bounded shareable JSON or HTML evidence"),
+    ),
+    "experiment": (
+        ("validate", "check paths, parameter assignments, and region bounds"),
+    ),
+    "cache": (
+        ("status", "inspect cache size and age"),
+        ("prune", "dry-run or recoverably move old entries to trash"),
+        ("restore", "restore a prune without overwriting entries"),
+    ),
+    "trace": (
+        ("summary", "summarize function and allocator trace events"),
+        ("fifo", "replay ugen pool get/put state"),
+        ("globalcolor", "inspect a focused allocator decision"),
+        ("alias", "inspect base-provenance and alias-query traces"),
+        ("scheduler", "inspect named ready-set decisions and tie-breaks"),
+        ("webs", "align allocator webs by semantic provenance"),
+        ("source", "join web lines to preprocessor and listing evidence"),
+        ("stack-homes", "query virtual and final stack-home ownership"),
+    ),
+    "instrument": (
+        ("ugen", "add opt-in ugen function/free-list traces"),
+        ("uopt", "apply pinned, fidelity-gated uopt profiles"),
+        ("globalcolor", "add focused allocator color probes"),
+        ("alias", "add base-provenance alias probes"),
+        ("scheduler", "apply a hash-pinned external scheduler profile"),
+        ("fidelity", "gate meaningful sections, relocations, and symbols"),
+    ),
+    "pass": (
+        ("replay-as1", "calibrate and probe late assembler scheduling"),
+        ("diff", "compare user-supplied original and static pass boundaries"),
+    ),
+    "toolchain": (
+        ("init", "materialize a real-copy toolchain with calibration gates"),
+        ("calibrate", "run replay, collateral, and project-output gates"),
+        ("status", "verify hashes and show the strongest supported claim"),
+        ("fingerprint", "compile redistributable behavioral microcases"),
+        ("lineage", "compare symbol lineage across object revisions"),
+    ),
+    "oracle": (
+        ("plan", "build an honest two-phase allocator force grid"),
+        ("diff", "compare compiler decisions by semantic web provenance"),
+        ("force", "run one calibrated causal force plus its baseline"),
+        ("sweep", "run the full measured force grid as a cached campaign"),
+        ("status", "render the latest durable sweep without recompiling"),
+        ("export", "write self-contained JSON or HTML oracle evidence"),
+    ),
+}
+
+GROUP_ALIASES: dict[tuple[str, str], str] = {
+    ("object", "compare"): "compare",
+    ("object", "compare-dumps"): "compare-dumps",
+    ("object", "diagnose"): "diagnose",
+    ("object", "diagnose-dumps"): "diagnose-dumps",
+    ("object", "view"): "view",
+    ("object", "view-dumps"): "view-dumps",
+    ("object", "rank"): "rank",
+    ("object", "relocation-aliases"): "relocation-aliases",
+    ("scratch", "check"): "check-scratch",
+    ("scratch", "bundle"): "bundle-scratch",
+    ("scratch", "doctor"): "doctor",
+    ("campaign", "run"): "campaign",
+    ("campaign", "status"): "campaign-status",
+    ("campaign", "resume"): "campaign-resume",
+    ("campaign", "note"): "campaign-note",
+    ("campaign", "export"): "campaign-export",
+    ("trace", "summary"): "trace-summary",
+    ("trace", "fifo"): "trace-fifo",
+    ("trace", "globalcolor"): "trace-globalcolor",
+    ("trace", "alias"): "trace-alias",
+    ("trace", "scheduler"): "trace-scheduler",
+    ("trace", "webs"): "trace-webs",
+    ("trace", "source"): "trace-source",
+    ("trace", "stack-homes"): "trace-stack-homes",
+    ("instrument", "ugen"): "instrument-ugen",
+    ("instrument", "uopt"): "instrument-uopt",
+    ("instrument", "globalcolor"): "instrument-uopt-globalcolor",
+    ("instrument", "alias"): "instrument-uopt-alias",
+    ("instrument", "scheduler"): "instrument-scheduler",
+    ("instrument", "fidelity"): "fidelity",
+    ("pass", "replay-as1"): "replay-as1",
+    ("pass", "diff"): "pass-diff",
+    ("toolchain", "fingerprint"): "fingerprint-toolchain",
+    ("toolchain", "lineage"): "lineage",
+    ("toolchain", "init"): "toolchain-init",
+    ("toolchain", "calibrate"): "toolchain-calibrate",
+    ("toolchain", "status"): "toolchain-status",
+}
+
+HIDDEN_FLAT_COMMANDS = frozenset(
+    {
+        "campaign-export",
+        "campaign-note",
+        "campaign-resume",
+        "campaign-status",
+        "toolchain-calibrate",
+        "toolchain-init",
+        "toolchain-status",
+    }
+)
+
+
+def rewrite_group_alias(arguments: list[str]) -> list[str]:
+    """Translate a journey spelling to its stable flat implementation."""
+
+    if len(arguments) < 2:
+        return arguments
+    command = GROUP_ALIASES.get((arguments[0], arguments[1]))
+    return [command, *arguments[2:]] if command else arguments
+
+
+def command_map_payload() -> dict[str, Any]:
+    return {
+        "schema": "decomp-workbench-command-map-v1",
+        "groups": {
+            group: [
+                {"command": command, "description": description}
+                for command, description in entries
+            ]
+            for group, entries in COMMAND_MAP.items()
+        },
+        "compatibility": (
+            "Existing flat command names remain supported; grouped spellings "
+            "are aliases."
+        ),
+    }
+
+
+def render_command_map(*, group: str | None = None) -> list[str]:
+    groups: Mapping[str, tuple[tuple[str, str], ...]] = COMMAND_MAP
+    if group:
+        if group not in groups:
+            raise ValueError(f"unknown command group: {group}")
+        groups = {group: groups[group]}
+    lines = [
+        "Journey command map",
+        "Grouped spellings and existing flat commands are both supported.",
+    ]
+    for name, entries in groups.items():
+        lines.extend(("", name))
+        width = max(len(command) for command, _ in entries)
+        lines.extend(
+            f"  {name} {command.ljust(width)}  {description}"
+            for command, description in entries
+        )
+    lines.extend(
+        (
+            "",
+            "Start here: decomp-workbench doctor",
+            "Common diagnosis: decomp-workbench object diagnose TARGET CANDIDATE",
+        )
+    )
+    return lines
+
+
+def commands_command(args: argparse.Namespace) -> int:
+    if args.json:
+        print(json.dumps(command_map_payload(), indent=2, sort_keys=True))
+    else:
+        print("\n".join(render_command_map(group=args.group)))
+    return 0
+
+
+def group_help_command(args: argparse.Namespace) -> int:
+    print("\n".join(render_command_map(group=args.command)))
+    return 0
+
+
+def _top_level_words(parser: argparse.ArgumentParser) -> list[str]:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return sorted(
+                name for name in action.choices if name not in HIDDEN_FLAT_COMMANDS
+            )
+    return []
+
+
+def finalize_command_help(
+    commands: argparse._SubParsersAction[Any],
+) -> None:
+    """Keep compatible flat aliases parseable without leaking them into help.
+
+    ``argparse`` renders ``help=SUPPRESS`` as the literal ``==SUPPRESS==`` for
+    subparsers and still includes those choices in its generated metavar. It
+    exposes no public hook for hiding a parseable subcommand, so keep the
+    choices intact and adjust only the two presentation attributes.
+    """
+
+    commands._choices_actions[:] = [
+        choice
+        for choice in commands._choices_actions
+        if choice.dest not in HIDDEN_FLAT_COMMANDS
+    ]
+    visible = [name for name in commands.choices if name not in HIDDEN_FLAT_COMMANDS]
+    commands.metavar = "{" + ",".join(visible) + "}"
+
+
+def _command_options(parser: argparse.ArgumentParser) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for name, child in action.choices.items():
+            result[name] = sorted(
+                option
+                for child_action in child._actions
+                for option in child_action.option_strings
+            )
+    return result
+
+
+def _operation_options(
+    parser: argparse.ArgumentParser,
+) -> dict[tuple[str, str], list[str]]:
+    """Return live options for grouped aliases and real nested commands."""
+
+    top_options = _command_options(parser)
+    top_children: dict[str, argparse.ArgumentParser] = {}
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            top_children.update(action.choices)
+    result: dict[tuple[str, str], list[str]] = {}
+    for group, operations in COMMAND_MAP.items():
+        nested = top_children.get(group)
+        nested_children: dict[str, argparse.ArgumentParser] = {}
+        if nested is not None:
+            for action in nested._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    nested_children.update(action.choices)
+        for operation, _description in operations:
+            alias = GROUP_ALIASES.get((group, operation))
+            if alias is not None:
+                result[(group, operation)] = top_options.get(alias, [])
+                continue
+            child = nested_children.get(operation)
+            result[(group, operation)] = (
+                sorted(
+                    option
+                    for action in child._actions
+                    for option in action.option_strings
+                )
+                if child is not None
+                else []
+            )
+    return result
+
+
+def render_completion(parser: argparse.ArgumentParser, shell: str) -> str:
+    """Generate a dependency-free completion script from the live parser."""
+
+    commands = _top_level_words(parser)
+    options = _command_options(parser)
+    operation_options = _operation_options(parser)
+    words = " ".join(commands)
+    operations = {
+        group: " ".join(command for command, _description in entries)
+        for group, entries in COMMAND_MAP.items()
+    }
+    if shell == "bash":
+        option_cases = "\n".join(
+            f"    {name}) opts={json.dumps(' '.join(values))} ;;"
+            for name, values in options.items()
+        )
+        operation_cases = "\n".join(
+            f"    {group}) ops={json.dumps(values)} ;;"
+            for group, values in operations.items()
+        )
+        nested_option_cases = "\n".join(
+            f"    {group}:{operation}) opts={json.dumps(' '.join(values))} ;;"
+            for (group, operation), values in operation_options.items()
+        )
+        return f"""_decomp_workbench() {{
+  local cur cmd op ops opts
+  cur="${{COMP_WORDS[COMP_CWORD]}}"
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W {json.dumps(words)} -- "$cur") )
+    return
+  fi
+  cmd="${{COMP_WORDS[1]}}"
+  case "$cmd" in
+{operation_cases}
+  esac
+  if [[ -n $ops ]]; then
+    if [[ $COMP_CWORD -eq 2 ]]; then
+      COMPREPLY=( $(compgen -W "$ops" -- "$cur") )
+      return
+    fi
+    op="${{COMP_WORDS[2]}}"
+    case "$cmd:$op" in
+{nested_option_cases}
+    esac
+  else
+  case "$cmd" in
+{option_cases}
+  esac
+  fi
+  COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+}}
+complete -F _decomp_workbench decomp-workbench
+"""
+    if shell == "zsh":
+        operation_cases = "\n".join(
+            f"    {group}) ops=("
+            + " ".join(json.dumps(item) for item in values.split())
+            + ") ;;"
+            for group, values in operations.items()
+        )
+        option_cases = "\n".join(
+            f"    {name}) opts=({' '.join(json.dumps(item) for item in values)}) ;;"
+            for name, values in options.items()
+        )
+        nested_option_cases = "\n".join(
+            f"    {group}:{operation}) opts=("
+            + " ".join(json.dumps(item) for item in values)
+            + ") ;;"
+            for (group, operation), values in operation_options.items()
+        )
+        return f"""#compdef decomp-workbench
+_decomp_workbench() {{
+  local -a commands ops opts
+  local cmd op
+  commands=({" ".join(json.dumps(item) for item in commands)})
+  if (( CURRENT == 2 )); then
+    compadd -- $commands
+    return
+  fi
+  cmd=$words[2]
+  case "$cmd" in
+{operation_cases}
+  esac
+  if (( ${{#ops}} )); then
+    if (( CURRENT == 3 )); then
+      compadd -- $ops
+      return
+    fi
+    op=$words[3]
+    case "$cmd:$op" in
+{nested_option_cases}
+    esac
+  else
+    case "$cmd" in
+{option_cases}
+    esac
+  fi
+  compadd -- $opts
+}}
+compdef _decomp_workbench decomp-workbench
+"""
+    if shell == "fish":
+        lines = [
+            "complete -c decomp-workbench -f",
+            *(
+                f"complete -c decomp-workbench -n '__fish_use_subcommand' "
+                f"-a {json.dumps(command)}"
+                for command in commands
+            ),
+        ]
+        for group, group_operations in operations.items():
+            condition = (
+                f"__fish_seen_subcommand_from {group}; and not "
+                f"__fish_seen_subcommand_from {group_operations}"
+            )
+            lines.append(
+                f"complete -c decomp-workbench -n {json.dumps(condition)} "
+                f"-a {json.dumps(group_operations)}"
+            )
+        for (group, operation), values in operation_options.items():
+            if not values:
+                continue
+            condition = (
+                f"__fish_seen_subcommand_from {group}; and "
+                f"__fish_seen_subcommand_from {operation}"
+            )
+            lines.append(
+                f"complete -c decomp-workbench -n {json.dumps(condition)} "
+                f"-a {json.dumps(' '.join(values))}"
+            )
+        return "\n".join(lines) + "\n"
+    if shell == "powershell":
+        choices = ", ".join(f"'{item}'" for item in commands)
+        group_cases = "\n".join(
+            f"    '{group}' {{ $choices = @("
+            + ", ".join(f"'{item}'" for item in values.split())
+            + ") }"
+            for group, values in operations.items()
+        )
+        nested_cases = "\n".join(
+            f"    '{group}:{operation}' {{ $choices = @("
+            + ", ".join(f"'{item}'" for item in values)
+            + ") }"
+            for (group, operation), values in operation_options.items()
+            if values
+        )
+        return f"""Register-ArgumentCompleter -Native `
+  -CommandName decomp-workbench -ScriptBlock {{
+  param($wordToComplete, $commandAst, $cursorPosition)
+  $tokens = @($commandAst.CommandElements | ForEach-Object {{ $_.Extent.Text }})
+  $choices = @({choices})
+  if ($tokens.Count -ge 2) {{
+    switch ($tokens[1]) {{
+{group_cases}
+    }}
+  }}
+  if ($tokens.Count -ge 3) {{
+    $operation = "$($tokens[1]):$($tokens[2])"
+    switch ($operation) {{
+{nested_cases}
+    }}
+  }}
+  $choices | Where-Object {{ $_ -like "$wordToComplete*" }} |
+    ForEach-Object {{ [System.Management.Automation.CompletionResult]::new($_) }}
+}}
+"""
+    raise ValueError(f"unsupported shell: {shell}")
+
+
+def completion_command(args: argparse.Namespace) -> int:
+    from .cli import build_parser
+
+    try:
+        script = render_completion(build_parser(), args.shell)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(script, end="")
+    return 0
+
+
+def register_discovery_commands(
+    commands: argparse._SubParsersAction[Any],
+) -> None:
+    command_map = commands.add_parser(
+        "commands",
+        help="show the compact journey-oriented command map",
+    )
+    command_map.add_argument("--group", choices=sorted(COMMAND_MAP))
+    command_map.add_argument("--json", action="store_true", help="emit JSON")
+    command_map.set_defaults(handler=commands_command)
+
+    completion = commands.add_parser(
+        "completion",
+        help="generate shell completion from the live command parser",
+    )
+    completion.add_argument(
+        "shell",
+        choices=("bash", "zsh", "fish", "powershell"),
+    )
+    completion.set_defaults(handler=completion_command)
+
+    for group in ("object", "scratch", "trace", "instrument", "pass", "toolchain"):
+        parser = commands.add_parser(
+            group,
+            help=f"{group} journey commands; run without arguments for a map",
+        )
+        parser.set_defaults(handler=group_help_command)

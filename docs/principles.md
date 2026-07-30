@@ -27,3 +27,17 @@
     the directory the page names, synthetic fixtures must state what is and is
     not causally related, and development builds must not reuse a release
     version.
+12. **Preserve ambiguity rather than guessing.** A trace-local web number,
+    source line shared by two includes, unknown relocation, or duplicate
+    semantic fingerprint is evidence to expose, not a prompt to choose the
+    first plausible row.
+13. **State is part of the product.** The best candidate, failed attempts,
+    family parameter space, active hypothesis, exact-stop point, and
+    calibration cells must survive interruption and be reopenable without
+    recompilation.
+14. **Make cleanup recoverable and output exclusive.** A command must not
+    overwrite an explicit report or silently delete cached evidence. Derived
+    state updates atomically; pruning moves to restorable trash.
+15. **Give humans and automation one truth.** Terminal labels, JSON keys,
+    census predicates, ledger fields, and docs share vocabulary. `--json`
+    errors are documents, not mixed streams.

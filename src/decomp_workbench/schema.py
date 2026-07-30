@@ -216,6 +216,11 @@ METRICS: tuple[Metric, ...] = (
         "count of differing sites per class",
     ),
     Metric(
+        "aligned_diff_sites",
+        "aligned_diff_sites",
+        "LCS-aligned residual sites anchored to target instruction indices",
+    ),
+    Metric(
         "raw_difference_breakdown",
         "raw_difference_breakdown",
         "why literal words differ: instruction bits, relocation layout, or "
@@ -288,6 +293,21 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
         "object_basins",
         "object_basins",
         "distinct compared-function bytes, with the variants that reached each",
+    ),
+    Metric(
+        "manifest",
+        "manifest",
+        "durable campaign identity and resume state, or null with --no-ledger",
+    ),
+    Metric(
+        "ledger",
+        "ledger",
+        "append-only per-candidate evidence, or null with --no-ledger",
+    ),
+    Metric(
+        "experiment",
+        "experiment",
+        "transformation family, parameter space, and selected-region invariant",
     ),
     Metric("results", "results", "per-candidate records, best rank first"),
 )

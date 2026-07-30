@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import tempfile
 import time
 import unittest
 import unittest.mock
@@ -1022,7 +1023,8 @@ class ViewCommandTests(unittest.TestCase):
         )
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
-        self.assertLessEqual(set(payload), schema_keys())
+        self.assertEqual(payload["schema"], "decomp-workbench-view-v1")
+        self.assertLessEqual(set(payload) - {"schema"}, schema_keys())
         self.assertEqual(payload["verdict"], "phase-shift")
         self.assertEqual(payload["playbook"], "temp-fifo-phase")
         self.assertEqual(payload["prefix_exact"], 12)
@@ -1057,6 +1059,92 @@ class ViewCommandTests(unittest.TestCase):
             "never",
         ]
         self.assertEqual(self.run_cli(identical)[0], 0)
+
+    def test_width_control_bounds_human_lines(self) -> None:
+        status, stdout, _ = self.run_cli(
+            [
+                "view-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--symbol",
+                "animStep",
+                "--color",
+                "never",
+                "--pager",
+                "never",
+                "--width",
+                "40",
+            ]
+        )
+        self.assertEqual(status, 0)
+        self.assertTrue(stdout)
+        self.assertTrue(all(len(line) <= 40 for line in stdout.splitlines()))
+
+    def test_html_report_is_self_contained_and_refuses_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "view.html"
+            arguments = [
+                "view-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--symbol",
+                "animStep",
+                "--color",
+                "never",
+                "--pager",
+                "never",
+                "--html",
+                str(output),
+            ]
+            status, _, _ = self.run_cli(arguments)
+            document = output.read_text(encoding="utf-8")
+            second_status, _, second_stderr = self.run_cli(arguments)
+        self.assertEqual(status, 0)
+        self.assertIn("<!doctype html>", document)
+        self.assertIn("Machine-readable evidence", document)
+        self.assertNotIn("https://", document)
+        self.assertEqual(second_status, 2)
+        self.assertIn("refusing to overwrite", second_stderr)
+
+    def test_register_permutation_can_emit_an_honest_force_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.objdump"
+            candidate = root / "candidate.objdump"
+            output = root / "force.json"
+            target.write_text(
+                "00000000 <demo>:\n"
+                "   0: 8e0e0000  lw $t6,0($s0)\n"
+                "   4: ae0e0004  sw $t6,4($s0)\n",
+                encoding="utf-8",
+            )
+            candidate.write_text(
+                "00000000 <demo>:\n"
+                "   0: 8e0f0000  lw $t7,0($s0)\n"
+                "   4: ae0f0004  sw $t7,4($s0)\n",
+                encoding="utf-8",
+            )
+            status, _, _ = self.run_cli(
+                [
+                    "view-dumps",
+                    str(target),
+                    str(candidate),
+                    "--symbol",
+                    "demo",
+                    "--color",
+                    "never",
+                    "--emit-force-spec",
+                    str(output),
+                ]
+            )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            payload["schema"],
+            "decomp-workbench-diagnostic-force-v1",
+        )
+        self.assertIsNone(payload["permutation"][0]["allocator_web"])
+        self.assertIn("not compiler allocator web IDs", payload["proof"])
 
     def test_missing_symbol_reports_the_symbol(self) -> None:
         status, _, stderr = self.run_cli(

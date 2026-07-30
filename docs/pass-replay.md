@@ -23,12 +23,24 @@ symbol-table, and object outputs.
 decomp-workbench replay-as1 unit.s candidate.o \
   --as0-command '/ido/as0 -G 0 -EB -g0 -O2 {listing} -o {binasm} -t {symtab}' \
   --as1-command '/ido/as1 -elf -G 0 -p0 -EB -g0 -O2 {binasm} -o {object} -t {symtab}' \
+  --calibration-object normal.o \
+  --objdump /path/to/mips64-elf-objdump \
+  --work-root .decomp-workbench/pass-replay \
   --keep-work replay-output
 ```
 
 Commands are tokenized and invoked without a shell. `as0` must contain
 `{listing}` and `{binasm}`; `as1` must contain `{binasm}` and `{object}`.
 `{symtab}` is available to both.
+
+Use `--compile-cwd` for wrappers with relative paths and repeat
+`--env NAME=VALUE` for pass inputs that must be explicit. The 120-second
+default timeout applies to each external stage. Report streams are bounded by
+`--stream-limit`; `--artifact-dir` retains collision-safe complete streams.
+
+`--work-root` is for QEMU, Docker, or another wrapper that cannot see the host
+temporary directory (notably per-user macOS `/var/folders` paths). Each replay
+gets a unique directory under the supplied project-visible root.
 
 ## Make one targeted insertion
 
@@ -63,6 +75,28 @@ Run at least three cells:
 
 Cell 1 must reproduce the normal downstream object. Otherwise the replay
 pipeline itself differs and the causal result is ambiguous.
+
+The CLI enforces that control. Any `--insert-before` or `--insert-after`
+requires `--calibration-object`; it automatically runs the unedited listing
+first and compares meaningful sections, relocations, and symbols through the
+selected objdump. An edited replay is refused if calibration fails.
+
+For an earlier boundary, use the generic original/static adapter:
+
+```sh
+decomp-workbench pass diff retained.input \
+  --boundary uopt-to-ugen \
+  --original-command '/qemu-irix original-pass {input} {output}' \
+  --static-command '/host/static-pass {input} {output}' \
+  --work-dir .decomp-workbench/pass-diff \
+  --require-identical
+```
+
+The adapter accepts only user-supplied executables, records executable and
+input/output hashes, runs in a project-visible directory, and can send both
+results through one `--downstream-command`. Byte identity and host-normalized
+identity are separate, so path or C-library formatting noise is not mistaken
+for pass behavior.
 
 ## What replay establishes
 

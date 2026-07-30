@@ -27,7 +27,7 @@ Three pages are the entire workflow:
 
 | Page | What it is for |
 |---|---|
-| [Start here](docs/START_HERE.md) | One function, ten minutes: compare → verdict → view → lever → repeat |
+| [Start here](docs/START_HERE.md) | One function, ten minutes: diagnose → lever → repeat |
 | [Field guide](docs/field-guide.md) | "The diff looks like X" → the C that moves it, with the measured effect |
 | [Backlog walkthrough](docs/walkthrough-30-near-matches.md) | Thirty near matches: batch triage, and which classes to knock out first |
 
@@ -61,10 +61,11 @@ next: Instruction-exact: raw differences are linker-controlled relocation fields
 `words=0` is the relocation-aware result. `raw=2` shows why a literal word
 comparison would have rejected the candidate.
 
-Now diagnose a real residual — one screen, four sections, ending in a lever:
+Now diagnose a real residual—exactness and mechanism in one load, ending in a
+lever:
 
 ```sh
-decomp-workbench view-dumps \
+decomp-workbench diagnose-dumps \
   examples/fixtures/phase-shift-target.objdump \
   examples/fixtures/phase-shift-candidate.objdump \
   --function animStep
@@ -103,13 +104,17 @@ decomp-workbench compare target.o candidate.o \
   --show-diff
 ```
 
-Diagnose the mechanism behind the residual:
+Diagnose exactness and the mechanism behind the residual in one invocation:
 
 ```sh
-decomp-workbench view target.o candidate.o \
+decomp-workbench diagnose target.o candidate.o \
   --function function_name \
   --objdump /path/to/mips64-elf-objdump
 ```
+
+`compare` and `view` remain composable primitives; `diagnose` loads each input
+once and renders both truths together. Add `--show-all` for every hunk or
+`--html report.html` for a self-contained handoff.
 
 Run generated source variants through your existing compile wrapper. Each
 `{source}` is a full translation unit, compiled the way your project compiles
@@ -120,8 +125,6 @@ decomp-workbench campaign target.o candidates/*.c \
   --function function_name \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
-  --cache-dir .decomp-workbench/cache \
-  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 
@@ -131,6 +134,20 @@ and comparison identity. The campaign stops at the first exact match unless
 `--no-stop-on-exact` asks for the whole grid, compares in process, and
 terminates the compilers it started (and their children) if it is interrupted
 or one exceeds the 120-second default `--timeout`.
+
+The manifest and append-only ledger are created by default under
+`.decomp-workbench/campaigns/`. Reopen the cockpit without rebuilding:
+
+```sh
+decomp-workbench campaign status
+decomp-workbench campaign note "the padding macro's line layout is the active hypothesis"
+decomp-workbench campaign resume
+decomp-workbench campaign export --output campaign-report.html
+```
+
+External generators can attach a validated family/parameter sidecar with
+`--experiment-manifest`; selected instruction regions are ranked before the
+whole-function residual. See [candidate campaigns][campaigns].
 
 Package a single-function target, full context, and current source for manual
 decomp.me creation without uploading anything:
@@ -193,14 +210,19 @@ rows into the C that moves it.
 |---|---|---|
 | Are these objects instruction-exact? | `compare` | Relocation-aware verdict, mismatch counts, register ranges, JSON |
 | Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
+| Can one command tell me exactness, mechanism, and the next lever? | `diagnose`, `diagnose-dumps` | Comparison plus decisive aligned evidence, one input load |
 | Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
 | Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
 | Does this downloaded scratch really match? | `check-scratch` | Browser score context, aligned object truth, optional site-faithful recompile |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
-| How do I run hundreds of variants safely? | `campaign` | Parallel builds, content cache, JSONL provenance ledger |
+| How do I run and reopen hundreds of variants safely? | `campaign`, `campaign status/resume/export` | Parallel builds, cache, durable state, trajectory and HTML |
+| How do I describe a generated family? | `experiment validate` | Parameter/path/grid validation and selected-region contract |
+| How do I manage the object cache? | `cache status/prune/restore` | Dry-run cleanup and recoverable trash |
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
 | Is temp-register reuse following a FIFO? | `trace-fifo` | Validated queue and physical-to-logical value schedule |
 | Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions, filterable by procedure |
+| Which source/listing line owns a traced web? | `trace-source` | Marker-aware correlation with ambiguity preserved |
+| Can a measured allocator choice close the residual? | `oracle plan/force/sweep` | Calibrated causal evidence, persistent status and export |
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
@@ -208,12 +230,18 @@ rows into the C that moves it.
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
 On every command that selects one function — `compare`, `compare-dumps`,
-`view`, `view-dumps`, `check-scratch`, `rank`, `compile-rank`, `campaign` —
+`diagnose`, `diagnose-dumps`, `view`, `view-dumps`, `check-scratch`, `rank`,
+`compile-rank`, `campaign` —
 `--symbol` and `--function` are the same option, so either vocabulary works,
 and passing both with different values is refused rather than silently
 resolved. Every printed label is also the JSON key for that value;
 `decomp-workbench --explain-keys` prints the one registry of comparison,
 campaign, and aligned-view keys.
+
+Run `decomp-workbench commands` for the compact journey map or
+`decomp-workbench completion bash|zsh|fish|powershell` for a generated
+completion script. Grouped spellings such as `object diagnose`,
+`campaign status`, and `trace source` coexist with established flat commands.
 
 ## All documentation
 
@@ -226,6 +254,10 @@ The three narrative pages first, then the focused guides:
 - [Object comparison][object-comparison]
 - [Aligned mechanism view][view]
 - [Candidate campaigns][campaigns]
+- [Calibrated allocator oracle][oracle]
+- [External toolchains and calibration][toolchain-calibration]
+- [JSON and automation contracts][json-contracts]
+- [Current product status and intentional boundaries][product-status]
 - [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
 - [Lessons from final-function campaigns][final-function-campaigns]
@@ -298,3 +330,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
 [troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/troubleshooting.md
 [workflows]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/workflows.md
+[oracle]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/oracle.md
+[toolchain-calibration]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/toolchain-calibration.md
+[json-contracts]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/json-contracts.md
+[product-status]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/product-status.md

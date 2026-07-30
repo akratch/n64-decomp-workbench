@@ -12,14 +12,98 @@ decomp-workbench campaign target.o candidates/*.c \
   --compile-cwd /path/to/project \
   --objdump /path/to/mips64-elf-objdump \
   --jobs 8 \
-  --cache-dir .decomp-workbench/cache \
-  --ledger .decomp-workbench/campaign.jsonl \
   --keep-objects .decomp-workbench/top-objects
 ```
 
 `{source}` and `{output}` are required. The template is split with `shlex` and
 executed directly; shell expansion, pipes, redirection, and command
 substitution are not evaluated.
+
+The normal path creates durable state automatically:
+
+```text
+.decomp-workbench/
+├── cache/
+└── campaigns/
+    └── function_name-<identity>/
+        ├── manifest.json
+        └── ledger.jsonl
+```
+
+`--ledger PATH` remains available for an established external layout.
+`--no-ledger` is the explicit stateless escape hatch.
+
+## Reopen the campaign cockpit
+
+```sh
+decomp-workbench campaign status
+decomp-workbench campaign note "padding macro line markers are the active hypothesis"
+decomp-workbench campaign resume
+decomp-workbench campaign export --output campaign-report.html
+```
+
+With no selector, cockpit commands choose the most recently updated manifest.
+They also accept a manifest path, campaign directory, unique directory prefix,
+or identity prefix.
+
+`status` reports:
+
+- best candidate and an ASCII best-aligned trajectory;
+- successful, failed, and remaining candidates;
+- how many source variants collapsed into each function-byte basin;
+- basin transitions rather than only the final rank;
+- experiment-family tested assignments, declared parameter space, and whether
+  a family is still moving or has collapsed;
+- the active `note`/hypothesis and interrupted-ledger warnings.
+
+`resume` re-hashes the target and every remaining source, resolves the current
+wrapper and objdump, checks cwd/environment/toolchain identity, and refuses a
+changed envelope. It runs only cache keys absent from the ledger. A campaign
+that stopped on exact remains stopped; pass `--continue-after-exact` when the
+unrun grid is itself the experiment.
+
+Exports are bounded, self-contained JSON or HTML. They contain reduced
+comparison/campaign evidence rather than object or compiler contents and
+refuse to overwrite an existing file.
+
+## Describe a transformation family
+
+Keep source generation external, but make its hypothesis machine-readable:
+
+```sh
+decomp-workbench experiment validate \
+  examples/experiments/statement-grouping/experiment.json
+```
+
+The `decomp-workbench-experiment-v1` manifest records:
+
+- one family name and baseline source;
+- each parameter and its declared choice list;
+- every candidate path and unique parameter assignment;
+- an optional half-open `selected_region` instruction range.
+
+Validation checks paths, assignment membership, duplicate sources/assignments,
+grid size, and region bounds without compiling. Attach it to the run:
+
+```sh
+decomp-workbench campaign target.o variants/*.c \
+  --compile-command './compile.sh {source} -o {output}' \
+  --experiment-manifest experiment.json \
+  --symbol function_name
+```
+
+The baseline must be included in `variants/*.c` if it should be compiled and
+ranked; naming it in the manifest alone does not add work. Selected-region
+preservation uses LCS-aligned target instruction indices, so an insertion
+before the range does not create positional phantom failures. It ranks first,
+then the ordinary whole-function aligned key. Outside-region residual sites
+are bounded in the ledger.
+
+The workbench does not rewrite C. That boundary avoids pretending that a
+“neutral” mutation is source-equivalent under every C dialect and project
+context. A generator should emit deterministic new files, never edit the
+active translation unit, then use the manifest to make its tested space
+auditable.
 
 ## Throughput
 
@@ -211,7 +295,20 @@ function-specific.
 
 ## Cache hygiene
 
-Objects are content-addressed under `--cache-dir`. Removing the cache is safe
-but forces recompilation. The ledger is append-only so interrupted runs retain
-completed records. Use a new ledger for a materially different experimental
-question, even when the cache can be reused.
+Objects are content-addressed under `--cache-dir`. Inspect before cleaning:
+
+```sh
+decomp-workbench cache status
+decomp-workbench cache prune --older-than 30d
+decomp-workbench cache prune --older-than 30d --apply
+```
+
+Prune is a dry run unless `--apply` is present. Apply moves selected entries
+into a timestamped recoverable trash directory, including across filesystems;
+it does not unlink them. The output prints the exact `cache restore` command.
+Restore refuses to overwrite an entry that already exists.
+
+The ledger is append-only so interrupted runs retain completed records. Use a
+new campaign identity for a materially different experimental question, even
+when the cache can be reused. Cache hits reproduce execution efficiently;
+manifest identity and ledger evidence remain the audit trail.

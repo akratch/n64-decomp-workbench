@@ -5,10 +5,14 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
+from .campaign import CompilerTimeoutError, run_compiler
+from .fidelity import compare_object_fidelity
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,8 @@ class ReplayResult:
     as1_stderr: str
     output: str
     retained_directory: str | None
+    calibration: dict[str, Any] | None = None
+    streams: dict[str, Any] | None = None
 
 
 def apply_listing_edits(
@@ -116,6 +122,14 @@ def replay_as1(
     edits: list[ListingEdit] | None = None,
     allow_multiple: bool = False,
     keep_work: str | Path | None = None,
+    calibration_object: str | Path | None = None,
+    objdump: str | None = None,
+    work_root: str | Path | None = None,
+    compile_cwd: str | Path | None = None,
+    environment: dict[str, str] | None = None,
+    timeout: float = 120.0,
+    stream_limit: int = DEFAULT_STREAM_LIMIT,
+    artifact_dir: str | Path | None = None,
 ) -> ReplayResult:
     """Edit a retained ugen listing and rerun as0 followed by as1."""
 
@@ -123,6 +137,13 @@ def replay_as1(
     output_path = Path(output).expanduser().resolve()
     if output_path == listing_path:
         raise ValueError("listing and object output must be different paths")
+    if timeout <= 0:
+        raise ValueError("--timeout must be positive")
+    if edits and calibration_object is None:
+        raise ValueError(
+            "edited replay requires --calibration-object from the normal "
+            "unedited pipeline"
+        )
     source = listing_path.read_text(encoding="utf-8")
     edited = apply_listing_edits(source, edits or [], allow_multiple=allow_multiple)
     retained_path = Path(keep_work).expanduser().resolve() if keep_work else None
@@ -135,8 +156,48 @@ def replay_as1(
                 "choose another directory"
             )
 
+    cwd = (
+        Path(compile_cwd).expanduser().resolve()
+        if compile_cwd
+        else Path.cwd().resolve()
+    )
+    if not cwd.is_dir():
+        raise NotADirectoryError(f"pass working directory does not exist: {cwd}")
+    work_parent = Path(work_root).expanduser().resolve() if work_root else None
+    if work_parent:
+        work_parent.mkdir(parents=True, exist_ok=True)
+    calibration: dict[str, Any] | None = None
+    if calibration_object is not None and edits:
+        with tempfile.TemporaryDirectory(
+            prefix="decomp-workbench-pass-control-",
+            dir=work_parent,
+        ) as control_temporary:
+            control_output = Path(control_temporary) / "control.o"
+            replay_as1(
+                listing_path,
+                control_output,
+                as0_template=as0_template,
+                as1_template=as1_template,
+                work_root=work_parent,
+                compile_cwd=cwd,
+                environment=environment,
+                timeout=timeout,
+                stream_limit=stream_limit,
+            )
+            calibration = compare_object_fidelity(
+                calibration_object,
+                control_output,
+                objdump=objdump,
+            )
+            if not calibration["pass"]:
+                raise ValueError(
+                    "unedited replay failed section-scoped calibration; "
+                    "edited evidence would be ambiguous"
+                )
+
     with tempfile.TemporaryDirectory(
-        prefix="decomp-workbench-pass-replay-"
+        prefix="decomp-workbench-pass-replay-",
+        dir=work_parent,
     ) as temporary:
         work = Path(temporary)
         replay_listing = work / "replay.s"
@@ -152,12 +213,20 @@ def replay_as1(
             output=temporary_object,
             stage="as0",
         )
-        as0 = subprocess.run(as0_command, check=False, capture_output=True, text=True)
+        try:
+            as0 = run_compiler(
+                as0_command,
+                environment=environment or {},
+                compile_cwd=cwd,
+                timeout=timeout,
+            )
+        except CompilerTimeoutError as error:
+            raise RuntimeError(f"as0 {error}") from error
         if as0.returncode:
             detail = as0.stderr.strip() or as0.stdout.strip()
             raise RuntimeError(f"as0 failed ({as0.returncode}): {detail}")
         if not binasm.is_file():
-            raise RuntimeError("as0 succeeded but did not create the {binasm} output")
+            raise RuntimeError(f"as0 succeeded but did not create {binasm}")
         as1_command = render_stage_command(
             as1_template,
             listing=replay_listing,
@@ -166,12 +235,20 @@ def replay_as1(
             output=temporary_object,
             stage="as1",
         )
-        as1 = subprocess.run(as1_command, check=False, capture_output=True, text=True)
+        try:
+            as1 = run_compiler(
+                as1_command,
+                environment=environment or {},
+                compile_cwd=cwd,
+                timeout=timeout,
+            )
+        except CompilerTimeoutError as error:
+            raise RuntimeError(f"as1 {error}") from error
         if as1.returncode:
             detail = as1.stderr.strip() or as1.stdout.strip()
             raise RuntimeError(f"as1 failed ({as1.returncode}): {detail}")
         if not temporary_object.is_file():
-            raise RuntimeError("as1 succeeded but did not create the {object} output")
+            raise RuntimeError(f"as1 succeeded but did not create {temporary_object}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(temporary_object, output_path)
         if retained_path:
@@ -179,13 +256,44 @@ def replay_as1(
                 if path.exists():
                     shutil.copy2(path, retained_path / path.name)
 
+    as0_streams = capture_streams(
+        as0.stdout,
+        as0.stderr,
+        limit=stream_limit,
+        artifact_dir=artifact_dir,
+        stem="replay-as0",
+    )
+    as1_streams = capture_streams(
+        as1.stdout,
+        as1.stderr,
+        limit=stream_limit,
+        artifact_dir=artifact_dir,
+        stem="replay-as1",
+    )
     return ReplayResult(
         as0_command=as0_command,
         as1_command=as1_command,
-        as0_stdout=as0.stdout,
-        as0_stderr=as0.stderr,
-        as1_stdout=as1.stdout,
-        as1_stderr=as1.stderr,
+        as0_stdout=as0_streams.stdout,
+        as0_stderr=as0_streams.stderr,
+        as1_stdout=as1_streams.stdout,
+        as1_stderr=as1_streams.stderr,
         output=str(output_path),
         retained_directory=str(retained_path) if retained_path else None,
+        calibration=calibration,
+        streams={
+            "as0": {
+                "stdout_bytes": as0_streams.stdout_bytes,
+                "stderr_bytes": as0_streams.stderr_bytes,
+                "stdout_truncated": as0_streams.stdout_truncated,
+                "stderr_truncated": as0_streams.stderr_truncated,
+                "artifacts": as0_streams.artifacts,
+            },
+            "as1": {
+                "stdout_bytes": as1_streams.stdout_bytes,
+                "stderr_bytes": as1_streams.stderr_bytes,
+                "stdout_truncated": as1_streams.stdout_truncated,
+                "stderr_truncated": as1_streams.stderr_truncated,
+                "artifacts": as1_streams.artifacts,
+            },
+        },
     )

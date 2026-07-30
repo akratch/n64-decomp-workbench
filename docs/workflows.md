@@ -18,10 +18,9 @@ test a local candidate with the site's context and source-line reset. See
 ## Object mismatch
 
 ```sh
-decomp-workbench compare target.o candidate.o \
+decomp-workbench diagnose target.o candidate.o \
   --symbol function_name \
-  --objdump /path/to/mips64-elf-objdump \
-  --show-diff
+  --objdump /path/to/mips64-elf-objdump
 ```
 
 | Result | Interpretation |
@@ -31,8 +30,10 @@ decomp-workbench compare target.o candidate.o \
 | Only raw words differ | Likely relocation-controlled fields |
 | `exact=true` | Function-level comparison passed |
 
-Use `--json` to save the report and `--fail-on-mismatch` in automation. See
-[Object comparison](object-comparison.md).
+`diagnose` disassembles each input once and renders the comparison plus
+decisive aligned hunk. Use `compare` alone for a compact gate,
+`--fail-on-mismatch` in automation, and `view --show-all` for full evidence.
+See [Object comparison](object-comparison.md).
 
 ## Mechanism diagnosis
 
@@ -58,14 +59,17 @@ decomp-workbench campaign target.o candidates/*.c \
   --symbol function_name \
   --objdump /path/to/mips64-elf-objdump \
   --compile-command './compile-one.sh {source} -o {output}' \
-  --cache-dir .decomp-workbench/cache \
-  --ledger .decomp-workbench/campaign.jsonl \
   --jobs 8
 ```
 
 Change one source dimension per campaign. Declare behavior-changing compiler
 variables with `--env` so they enter the cache key. See
 [Candidate campaigns](campaigns.md).
+
+The manifest and ledger are default state. Use `campaign status`, `note`,
+`resume`, and `export` to continue the same experimental question. Validate an
+external generator's parameter sidecar with `experiment validate` before
+attaching it through `--experiment-manifest`.
 
 ## Register-allocation mismatch
 
@@ -80,6 +84,9 @@ Then choose the specific parser:
 - `trace-globalcolor` for live-range costs and color/split decisions;
 - `trace-alias` for base provenance and alias queries;
 - `trace-fifo` for temp-register allocation and reuse.
+- `trace-webs` for semantic alignment across source variants;
+- `trace-source` for marker-aware source/listing correlation;
+- `trace-stack-homes` for virtual-home ownership.
 
 Use a tracing-off object comparison and a trace-on positive control before
 interpreting the result. See [Trace analysis](trace-analysis.md).
@@ -108,6 +115,26 @@ profiles.
 Do not bypass a hash rejection for routine use. A different generated source
 needs reviewed anchors and the full fidelity checks in
 [Compiler instrumentation](compiler-instrumentation.md).
+
+## Calibrated allocator cause
+
+Only after ordinary source families and pass ownership are exhausted:
+
+```sh
+decomp-workbench oracle plan focused.cdx
+decomp-workbench oracle force candidate.c \
+  --trace focused.cdx \
+  --target target.o \
+  --toolchain .decomp-workbench/toolchains/ido53-cdx \
+  --compile-command './compile-one.sh {source} -o {output}' \
+  --symbol function_name \
+  --force p2:w55=c2
+```
+
+Planning reports both allocator phases and measured endpoints. Force/sweep
+requires a ready, intact real-copy toolchain and persists its evidence for
+`oracle status/export`. An exact forced build is a source-level hypothesis,
+never a final match. See [Allocator oracle](oracle.md).
 
 ## Stop conditions
 

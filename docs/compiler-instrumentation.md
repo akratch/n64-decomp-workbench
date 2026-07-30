@@ -162,6 +162,10 @@ controls stay disabled until one is selected.
 `webdetail` records and reports them as allocator webs. `--proc` and `--dtype`
 filter this joined view, so CDX-only traces remain useful even when they do not
 contain the older `CSAVE`/`CUP` live-range format.
+Current `webdetail` and interference records carry the same explicit `p1`/`p2`
+namespace as decisions. Older phase-less detail is joined only when that
+procedure/web number has a single recorded phase; an ambiguous number is
+withheld rather than cross-contaminating the two allocator passes.
 
 The joined record also contains `color_costs`. Each entry identifies the
 caller- or callee-saved color, its final cost (including any first-use
@@ -256,35 +260,46 @@ different file by default. `--allow-unverified-source` exists for profile
 development, not routine use; review the resulting diff and run all fidelity
 gates.
 
-### Scheduler-selection traces: evidence and product bar
+### Scheduler-selection traces
 
-The `vsprintf` endgame used a temporary as1 selection trace to reduce the last
-two-word residual to one ready-set tie. The wrong build selected encoded
-`li 45` at cycle 4 with source line `0x30f`, then `li 10` at cycle 5 with line
-`0x311`. Combined with controlled line-identity variants, that established the
-line-number tie-break and justified a source-line experiment.
+The `vsprintf` endgame used an early private pointer dump to reduce the last
+two-word residual to one ready-set tie. That unlabeled format remains
+unsupported. The workbench now supports the replacement interface:
 
-That temporary producer is deliberately **not** a workbench profile. It dumped
-20 unlabeled words from a generated node and depended on emulated addresses in
-one private build. Shipping a parser for that output would turn reverse
-engineering the trace into a recurring user task.
+```text
+[DKWB-SCHED-V1] proc=1 block=2 cycle=3 word=0x8c220000 \
+opcode=lw line=9 ready=2 chosen=n4 tie=source-order
+```
 
-A product-quality as1 scheduler profile must instead:
+Read and compare stable records:
 
-1. pin the static-recompiler revision, generated-source hash, and exact source
-   anchors;
-2. emit named fields—procedure, block, cycle, encoded instruction, decoded
-   source line, ready-set size, and winning tie-break;
-3. be entirely opt-in and section-identical to stock with tracing disabled;
-4. pass an unedited as0/as1 replay before any edited replay is interpreted;
-5. expose enough scope controls to capture one function/region rather than a
-   megabyte of unrelated selections;
-6. state that a scheduling trace explains a compiler decision, not original C.
+```sh
+decomp-workbench trace-scheduler examples/traces/scheduler.log
+decomp-workbench trace-scheduler target.log --against candidate.log
+```
 
-Until those conditions are met, use `-g0` to narrow ownership, decoded line
-tables to inspect tags, and `replay-as1` to test pass ownership. Capture a
-temporary scheduler trace only for the smallest unresolved tie, and record the
-field mapping beside the result.
+Every field is named and strictly parsed. Reports can filter one procedure or
+block, align two traces by procedure/block/cycle, and distinguish opcode,
+source-line, ready-set, chosen-node, and tie-break changes.
+
+Generated compiler C is still revision-specific, so the repository does not
+bundle a pretend-universal as1 patch. Apply a project-owned, hash-pinned
+profile:
+
+```sh
+decomp-workbench instrument-scheduler generated-as1.c traced-as1.c \
+  --profile scheduler-profile.json
+```
+
+The adapter checks the exact input SHA-256 and every source anchor, refuses an
+existing output, and reports required calibration gates. A scheduler positive
+control must record at least one real ready-set tie (`ready >= 2`); uncontested
+selections do not establish that tie-break instrumentation works.
+
+The profile is supported evidence only after trace-off section fidelity,
+positive control, unedited replay, collateral, and project-output gates are
+recorded by a real-copy [toolchain](toolchain-calibration.md). A scheduling
+trace explains a compiler decision, never the original C.
 
 ## Required fidelity gates
 
@@ -320,11 +335,15 @@ emitted record schema (phase tags, decoded registers, the `procindex` table),
 the phase-qualified force-key parser, and a host-compiler build of the injected
 header so a syntax or type error cannot ship. They deliberately stop there.
 
-Executing the instrumented pass needs the external research toolchain — a
-statically recompiled IDO build that is neither redistributable nor
-reproducible from this repository — so the gates above remain user-run
-integration checks. A green test suite means the patch is well-formed, not
-that a particular host build is faithful.
+Executing the instrumented pass needs the external research toolchain, so the
+evidence cells remain user-run integration checks. The workbench can
+materialize and hash that external tree, compare object pairs section by
+section, require a scheduler tie positive control, record unedited replay and
+collateral cells, and exact-hash the final project output through
+`toolchain init/calibrate/status`; see
+[External toolchains and calibration](toolchain-calibration.md). A green
+package suite means the adapters and gates are well-formed, not that a
+particular external build has passed them.
 
 ## Profile development
 

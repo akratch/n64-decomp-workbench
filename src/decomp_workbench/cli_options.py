@@ -14,6 +14,7 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
+from .artifacts import DEFAULT_STREAM_LIMIT
 from .schema import explain_keys_text
 
 #: Where the parser records which spelling of the selector was used, so a
@@ -123,4 +124,23 @@ def add_census_argument(parser: argparse.ArgumentParser) -> None:
             "(2 for an unknown key), and print one PASS/FAIL line each. "
             "Repeatable"
         ),
+    )
+
+
+def add_process_output_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add shared bounded-stream and explicit full-artifact controls."""
+
+    parser.add_argument(
+        "--stream-limit",
+        type=int,
+        default=DEFAULT_STREAM_LIMIT,
+        metavar="BYTES",
+        help=(
+            "maximum retained bytes per compiler stream "
+            f"(default: {DEFAULT_STREAM_LIMIT})"
+        ),
+    )
+    parser.add_argument(
+        "--artifact-dir",
+        help="retain complete compiler stdout/stderr here",
     )

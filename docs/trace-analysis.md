@@ -100,6 +100,58 @@ The report computes `total_save` as `adjusted_save × weight`. Field names are
 descriptive handles for the pinned generated source, not stable IDO API names.
 Non-finite values become `"inf"`, `"-inf"`, or `"nan"` in JSON.
 
+## Align webs across source variants
+
+Numeric allocator web IDs are stable only inside one compiler input. Compare
+semantic provenance instead:
+
+```sh
+decomp-workbench trace-webs candidate.cdx --against variant.cdx --proc 7
+```
+
+Fingerprints use allocator phase, dtype/type, virtual-home fields,
+table/expression formation chain, and block provenance. Numeric IDs are
+trace-local handles. A fingerprint that is not unique on either side is
+reported as ambiguous and withheld rather than paired by position.
+
+When neighbor records are present, the diff joins a newly forbidden color to
+the already-colored neighbor that occupies it, naming the neighbor's semantic
+fingerprint and decoded register where known.
+
+`trace-stack-homes TRACE --proc N [--offset VALUE]` classifies only homes for
+which the producer recorded evidence: named source local, compiler temporary,
+outgoing argument home, or allocator spill. Virtual offsets and final offsets
+stay separate; a missing final layout is `null`, not inferred.
+
+## Correlate logical lines to source and listings
+
+Compiler line fields can be coarse, synthetic, and ambiguous after includes.
+Retain the preprocessed/composed input and optional assembly listing:
+
+```sh
+decomp-workbench trace-source \
+  examples/traces/oracle.log \
+  examples/traces/oracle-source.i \
+  --listing examples/traces/oracle-listing.s \
+  --source-file candidate.c
+```
+
+The command replays standard preprocessor markers and `.file/.loc`
+directives. It preserves all candidates when a logical line exists in several
+files and narrows only on an explicit marker filename. Correlation is evidence
+attached to a semantic web, never part of the fingerprint itself.
+
+## Plan a causal allocator probe
+
+```sh
+decomp-workbench oracle plan examples/traces/oracle.log
+```
+
+The planner reports both p1 and p2, uses only measured cost colors (or explicit
+overrides), and omits forbidden endpoints. A ready external toolchain can then
+run one force or the full cached grid. See [Calibrated allocator
+oracle](oracle.md) for the fidelity gates, state, and proof boundary.
+
 ## Trace comparison discipline
 
 - Compare the same procedure ordinal and compiler profile.
@@ -113,3 +165,5 @@ Non-finite values become `"inf"`, `"-inf"`, or `"nan"` in JSON.
   provenance.
 - Reduce a trace to the smallest register class and source window that answers
   the question.
+- Reopen saved oracle evidence with `oracle status`; do not rerun merely to
+  reconstruct a terminal screen.

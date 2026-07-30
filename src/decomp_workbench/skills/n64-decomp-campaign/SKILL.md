@@ -19,11 +19,13 @@ Before editing source, identify and preserve:
 - current comparison report, candidate hash, and project build result;
 - relevant trace/log only when the residual is allocation- or schedule-related.
 
-Run `decomp-workbench compare` or `compare-dumps` before choosing an
-experiment. Record the verdict, not only a scalar score.
+Run `decomp-workbench diagnose` or `diagnose-dumps` before choosing an
+experiment. It loads each input once and returns both exact comparison truth
+and the decisive aligned mechanism view. Use `compare` for a compact gate and
+`view --show-all` for every hunk. Record the verdict, not only a scalar score.
 
 When the input is a downloaded decomp.me ZIP, start with
-`decomp-workbench check-scratch SCRATCH.zip`. It reads the site's own
+`decomp-workbench check-scratch SCRATCH.zip --view`. It reads the site's own
 target/current objects, keeps the display score separate from object truth,
 and can reproduce `ctx.c` + `#line 1 "src.c"` + candidate composition with
 `--compile-command`. It never logs in or uploads.
@@ -51,25 +53,36 @@ when the mismatch is caused by IDO code generation or register allocation.
 
 ## Run a controlled campaign
 
-1. State one causal hypothesis in the candidate name or manifest.
+1. State one causal hypothesis with `campaign note` and in the experiment
+   manifest when a generator produced the family.
 2. Change one family at a time: declaration order, carrier reuse, expression
    tree, loop spelling, literal type, or live-range boundary.
-3. Compile variants through `decomp-workbench campaign` with an explicit
-   compiler wrapper, working directory, environment, cache, and ledger.
-4. Compare every successful object; inspect object basins so identical compiler
-   outcomes do not masquerade as independent discoveries.
+3. Validate a `decomp-workbench-experiment-v1` sidecar with `experiment
+   validate` when parameters or a protected instruction region matter.
+4. Compile variants through `decomp-workbench campaign` with an explicit
+   compiler wrapper, working directory, and environment. The identity-checked
+   manifest and append-only ledger are created under `.decomp-workbench/` by
+   default.
+5. Compare every successful object; inspect `campaign status` so trajectory,
+   failures, family space, and object basins survive interruption. Identical
+   compiler outcomes do not masquerade as independent discoveries.
    Filter a large sweep with `compare --census KEY=VALUE` (exit 0 when every
    predicate holds, 3 when one fails) rather than writing another objdump and
    regular-expression layer.
-5. Keep promising source/object pairs and the associated trace evidence.
-6. Return to a readable, source-level explanation after a force probe or fake
+6. Keep promising source/object pairs and the associated trace evidence.
+7. Use `campaign resume` for work absent from the validated ledger; do not
+   reconstruct the source glob by hand.
+8. Return to a readable, source-level explanation after a force probe or fake
    demonstrates causality.
 
 Use `trace-globalcolor --proc PROC --web WEB` only after the comparator has
-isolated an allocation residual. A force-color build tests a cause; it is not a
-source match. Read `forbidden_colors` before planning a force sweep: those
-endpoints do not exist, and the instrumented pass declines them with a
-`force_declined` record rather than assigning them.
+isolated an allocation residual. Use `trace-webs --against` to align variants
+by semantic provenance and `trace-source` to map a logical line through
+retained `#line`/`.loc` evidence without guessing. Plan a force grid with
+`oracle plan`, which always reports p1 and p2 and excludes forbidden colors.
+`oracle force/sweep` requires an intact, fully calibrated real-copy toolchain;
+reopen results with `oracle status`. A forced exact build tests a cause; it is
+not a source match.
 
 For a schedule residual, rebuilding with `-g0` is a layer-ownership probe. A
 collapse proves debug metadata constrains the `-g3` schedule and as1 can reach

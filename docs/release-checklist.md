@@ -39,18 +39,33 @@ decomp-workbench compare-dumps \
   examples/fixtures/target.objdump \
   examples/fixtures/relocated-match.objdump \
   --fail-on-mismatch
+decomp-workbench diagnose-dumps \
+  examples/fixtures/phase-shift-target.objdump \
+  examples/fixtures/phase-shift-candidate.objdump \
+  --function animStep --json
 decomp-workbench doctor examples/fixtures/decompme-export --json
 decomp-workbench check-scratch examples/fixtures/decompme-export --json
 decomp-workbench trace-fifo examples/traces/ugen-fifo.log \
   --registers t6,t7,t8 \
   --fail-on-violation
+decomp-workbench trace-source \
+  examples/traces/oracle.log \
+  examples/traces/oracle-source.i \
+  --listing examples/traces/oracle-listing.s \
+  --source-file candidate.c --json
+decomp-workbench oracle plan examples/traces/oracle.log --json
+decomp-workbench experiment validate \
+  examples/experiments/statement-grouping/experiment.json --json
+decomp-workbench commands --json
 ```
 
 Inspect both archives. The wheel should contain only the Python package and
 license metadata, including the package-owned Agent Skill resources. The source
 distribution should also contain the documentation, examples, and tests listed
-by `MANIFEST.in`. Install the skill from each artifact into a temporary
-destination and validate its `SKILL.md`.
+by `MANIFEST.in`, including `.i` preprocessor fixtures. Install the skill from
+each artifact into a temporary destination and validate its `SKILL.md`. Scan
+both member lists for ROM/object/compiler extensions and inspect every
+unexpected binary member.
 
 ## Toolchain-dependent checks
 

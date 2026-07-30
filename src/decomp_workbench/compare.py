@@ -248,10 +248,10 @@ ALIGNED_CLASS_KEYS: tuple[str, ...] = (
 )
 
 
-def aligned_residual(
+def aligned_residual_analysis(
     target: Sequence[Instruction], candidate: Sequence[Instruction]
-) -> dict[str, int]:
-    """Return the LCS-aligned residual counts, keyed for the report.
+) -> tuple[dict[str, int], list[dict[str, object]]]:
+    """Return LCS-aligned counts and target-anchored residual sites.
 
     Positional counting misranked candidates in six recorded campaigns: one
     inserted instruction shifts every later position, so a candidate that is one
@@ -262,7 +262,7 @@ def aligned_residual(
 
     # ``view`` is built on top of this module, so the import is deferred rather
     # than inverting the layering for one call.
-    from .view import aligned_class_counts
+    from .view import RESIDUAL_CLASSES, build_view
 
     if not target or not candidate:
         # There is nothing to align against, so every instruction the other side
@@ -270,11 +270,55 @@ def aligned_residual(
         # evidence supports.
         counts = dict.fromkeys(ALIGNED_CLASS_KEYS, 0)
         counts["aligned_structural"] = max(len(target), len(candidate))
-        return counts
-    return {
-        f"aligned_{name}": count
-        for name, count in aligned_class_counts(target, candidate).items()
-    }
+        sites: list[dict[str, object]] = [
+            {
+                "index": index if target else 0,
+                "target_index": index if target else None,
+                "candidate_index": index if candidate else None,
+                "aligned_row": index,
+                "class": "structural",
+                "target": target[index].assembly if target else None,
+                "candidate": candidate[index].assembly if candidate else None,
+            }
+            for index in range(max(len(target), len(candidate)))
+        ]
+        return counts, sites
+    view = build_view(
+        target,
+        candidate,
+        target_name="",
+        candidate_name="",
+    )
+    counts = {f"aligned_{name}": view.counts.get(name, 0) for name in RESIDUAL_CLASSES}
+    next_target = len(target)
+    anchors: dict[int, int] = {}
+    for row in reversed(view.rows):
+        if row.target_index is not None:
+            next_target = row.target_index
+        anchors[row.index] = next_target
+    sites = [
+        {
+            "index": anchors[row.index],
+            "target_index": row.target_index,
+            "candidate_index": row.candidate_index,
+            "aligned_row": row.index,
+            "class": row.classification,
+            "target": row.target,
+            "candidate": row.candidate,
+        }
+        for row in view.rows
+        if row.reported
+    ]
+    return counts, sites
+
+
+def aligned_residual(
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
+) -> dict[str, int]:
+    """Return the LCS-aligned residual counts, keyed for the report."""
+
+    counts, _ = aligned_residual_analysis(target, candidate)
+    return counts
 
 
 def commutative_swap(
@@ -701,7 +745,7 @@ def compare_instructions(
         and frame_size("\n".join(item.assembly for item in target))
         == frame_size("\n".join(item.assembly for item in candidate))
     )
-    aligned = aligned_residual(target, candidate)
+    aligned, aligned_sites = aligned_residual_analysis(target, candidate)
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
@@ -765,6 +809,7 @@ def compare_instructions(
         register_diff=register_diff,
         diff_sites=sites,
         diff_site_classes=site_classes,
+        aligned_diff_sites=aligned_sites,
     )
 
 

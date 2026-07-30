@@ -77,6 +77,7 @@ class Comparison:
     register_diff: list[dict[str, Any]] = field(default_factory=list)
     diff_sites: list[dict[str, Any]] = field(default_factory=list)
     diff_site_classes: dict[str, int] = field(default_factory=dict)
+    aligned_diff_sites: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.
@@ -128,6 +129,13 @@ class CompileResult:
     cache_key: str = ""
     cached: bool = False
     duration_seconds: float = 0.0
+    stdout_bytes: int = 0
+    stderr_bytes: int = 0
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    artifacts: dict[str, str] = field(default_factory=dict)
+    experiment: dict[str, Any] | None = None
+    region: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)

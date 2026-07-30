@@ -1,0 +1,358 @@
+"""Persistent campaign cockpit commands."""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from .campaign import run_campaign
+from .campaign_state import (
+    build_status,
+    export_status,
+    find_manifest,
+    finish_manifest,
+    remaining_sources,
+    update_hypothesis,
+    validate_resume,
+)
+from .experiments import EXPERIMENT_SCHEMA, RegionConstraint
+
+
+def _print_status(report: dict[str, Any]) -> None:
+    print(
+        f"campaign: {report['status']} — {report['recorded_candidates']}/"
+        f"{report['prepared_candidates']} candidate(s), "
+        f"{len(report['object_basins'])} object basin(s)"
+    )
+    best = report.get("best")
+    if isinstance(best, dict):
+        comparison = best.get("comparison")
+        if isinstance(comparison, dict):
+            print(
+                f"best: {best.get('source')} — {comparison.get('verdict')} "
+                f"aligned={comparison.get('aligned_total')} "
+                f"words={comparison.get('words', comparison.get('word_mismatches'))}"
+            )
+    print(
+        f"outcomes: {report['successful_candidates']} successful, "
+        f"{report['failed_candidates']} failed, "
+        f"{report['remaining_candidates']} remaining"
+    )
+    if report["trajectory"]:
+        values = [
+            int(point["best_aligned_total"])
+            for point in report["trajectory"]
+            if point["best_aligned_total"] is not None
+        ]
+        if values:
+            levels = ".:-=+*#%@"
+            high = max(values)
+            low = min(values)
+            scale = max(1, high - low)
+            sparkline = "".join(
+                levels[
+                    min(
+                        len(levels) - 1,
+                        round((high - value) * (len(levels) - 1) / scale),
+                    )
+                ]
+                for value in values[-60:]
+            )
+            print(f"trajectory: {values[0]} {sparkline} {values[-1]} (best aligned)")
+    if report["object_basins"]:
+        variants = sum(int(item["variant_count"]) for item in report["object_basins"])
+        print(
+            f"idea collapse: {variants} successful source variant(s) → "
+            f"{len(report['object_basins'])} distinct object basin(s)"
+        )
+    for warning in report["warnings"]:
+        print(f"warning: {warning}")
+    if report.get("families"):
+        print("families:")
+        for family in report["families"]:
+            state = (
+                "COLLAPSED"
+                if family["tested_candidates"] > 1 and family["object_basins"] == 1
+                else "MOVING"
+            )
+            best = family["best"].get("comparison") or {}
+            print(
+                f"  {family['family']}: {family['tested_candidates']} tried, "
+                f"{family['object_basins']} basin(s), "
+                f"best={best.get('aligned_total')} [{state}]"
+            )
+            print(f"    tested: {family['tested_parameters']}")
+            print(f"    declared: {family['declared_parameter_space']}")
+    if report.get("hypothesis"):
+        print(f"hypothesis: {report['hypothesis']}")
+    print(f"manifest: {report['manifest']}")
+
+
+def campaign_status_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        report = build_status(manifest)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        _print_status(report)
+    return 0
+
+
+def campaign_resume_command(args: argparse.Namespace) -> int:
+    try:
+        manifest_path = find_manifest(args.campaign, state_root=args.state_dir)
+        manifest = validate_resume(manifest_path)
+        previously_exact = manifest.get("status") == "exact"
+        already_exact = (
+            previously_exact
+            and manifest["execution"].get("stop_on_exact", True)
+            and not args.continue_after_exact
+        )
+        sources = [] if already_exact else remaining_sources(manifest)
+        if sources:
+            inputs = manifest["identity_inputs"]
+            compile_info = inputs["compile"]
+            execution = manifest["execution"]
+            experiment = manifest.get("experiment")
+            candidate_metadata = None
+            selected_region = None
+            if isinstance(experiment, dict):
+                parameters_by_source = {
+                    str(item["source"]): item.get("parameters", {})
+                    for item in experiment.get("candidates", [])
+                    if isinstance(item, dict) and "source" in item
+                }
+                candidate_metadata = {
+                    str(source["cache_key"]): {
+                        "schema": EXPERIMENT_SCHEMA,
+                        "family": experiment["family"],
+                        "parameters": parameters_by_source.get(str(source["path"]), {}),
+                        "parameter_space": experiment.get("parameters", {}),
+                        "baseline": experiment.get("baseline"),
+                        "manifest": experiment.get("path"),
+                    }
+                    for source in manifest["sources"]
+                }
+                region = experiment.get("selected_region")
+                if isinstance(region, dict):
+                    selected_region = RegionConstraint(
+                        start=int(region["start"]),
+                        end=int(region["end"]),
+                        name=str(region.get("name", "selected")),
+                    )
+            results, _ = run_campaign(
+                sources,
+                target=inputs["target"]["path"],
+                template=compile_info["template"],
+                cache_dir=manifest["cache_directory"],
+                ledger=manifest["ledger"],
+                jobs=args.jobs or execution["jobs"],
+                objdump=inputs["objdump"]["requested"],
+                symbol=inputs.get("symbol"),
+                section=inputs["section"],
+                environment=compile_info["environment"],
+                compile_cwd=compile_info["working_directory"],
+                stop_on_exact=execution["stop_on_exact"],
+                timeout=(
+                    args.timeout
+                    if args.timeout is not None
+                    else execution["timeout_seconds"]
+                ),
+                artifact_dir=manifest.get("artifact_directory"),
+                candidate_metadata=candidate_metadata,
+                selected_region=selected_region,
+            )
+            finish_manifest(
+                manifest_path,
+                results=len(results),
+                prepared=len(manifest["sources"]),
+                exact=(
+                    previously_exact
+                    or any(
+                        item.comparison is not None and item.comparison.exact
+                        for item in results
+                    )
+                ),
+            )
+        report = build_status(manifest_path)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        if not sources:
+            if already_exact:
+                print(
+                    "resume: exact result already recorded; pass "
+                    "--continue-after-exact to run the intentionally skipped grid"
+                )
+            else:
+                print(
+                    "resume: nothing to run; every manifest candidate has a "
+                    "ledger record"
+                )
+        _print_status(report)
+    return 0
+
+
+def _render_html(report: dict[str, Any]) -> str:
+    campaign = report["campaign"]
+    serialized = json.dumps(report, indent=2, sort_keys=True)
+    rows = []
+    for point in campaign["trajectory"]:
+        rows.append(
+            "<tr>"
+            f"<td>{int(point['record'])}</td>"
+            f"<td>{html.escape(str(point['source']))}</td>"
+            f"<td>{html.escape(str(point['verdict']))}</td>"
+            f"<td>{html.escape(str(point['aligned_total']))}</td>"
+            f"<td>{html.escape(str(point['words']))}</td>"
+            "</tr>"
+        )
+    table = "\n".join(rows) or '<tr><td colspan="5">No results yet.</td></tr>'
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>decomp-workbench campaign report</title>
+<style>
+:root {{ color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }}
+body {{ max-width: 72rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border-bottom: 1px solid #8886; padding: .45rem; text-align: left; }}
+code, pre {{ font-family: ui-monospace, monospace; }}
+pre {{ overflow: auto; padding: 1rem; background: #8881; }}
+.proof {{ border-left: .25rem solid #a86; padding-left: 1rem; }}
+</style>
+</head>
+<body>
+<h1>Campaign {html.escape(str(campaign["status"]))}</h1>
+<p>{int(campaign["recorded_candidates"])} recorded candidate(s),
+{len(campaign["object_basins"])} object basin(s),
+{int(campaign["remaining_candidates"])} remaining.</p>
+<p class="proof">{html.escape(str(report["proof"]))}</p>
+<h2>Trajectory</h2>
+<table>
+<thead><tr><th>#</th><th>Source</th><th>Verdict</th><th>Aligned</th><th>Words</th></tr></thead>
+<tbody>{table}</tbody>
+</table>
+<details><summary>Machine-readable evidence</summary>
+<pre id="report">{html.escape(serialized)}</pre>
+</details>
+</body>
+</html>
+"""
+
+
+def campaign_export_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        report = export_status(manifest)
+        output = Path(args.output).expanduser().resolve()
+        if output.exists():
+            raise FileExistsError(f"refusing to overwrite campaign export: {output}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        content = (
+            _render_html(report)
+            if args.format == "html"
+            else json.dumps(report, indent=2, sort_keys=True) + "\n"
+        )
+        with output.open("x", encoding="utf-8") as destination:
+            destination.write(content)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    payload = {
+        "schema": "decomp-workbench-campaign-export-result-v1",
+        "format": args.format,
+        "output": str(output),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"campaign {args.format} export: {output}")
+    return 0
+
+
+def campaign_note_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        updated = update_hypothesis(manifest, args.note)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    payload = {
+        "schema": "decomp-workbench-campaign-note-v1",
+        "manifest": str(manifest),
+        "hypothesis": updated["hypothesis"],
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"campaign hypothesis: {payload['hypothesis']}")
+        print(f"manifest: {manifest}")
+    return 0
+
+
+def register_campaign_cockpit_commands(
+    commands: argparse._SubParsersAction[Any],
+) -> None:
+    status = commands.add_parser(
+        "campaign-status",
+        help=argparse.SUPPRESS,
+        description="Show best candidate, trajectory, failures, and object basins.",
+    )
+    status.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    status.add_argument("--state-dir", default=".decomp-workbench")
+    status.add_argument("--json", action="store_true", help="emit JSON")
+    status.set_defaults(handler=campaign_status_command)
+
+    resume = commands.add_parser(
+        "campaign-resume",
+        help=argparse.SUPPRESS,
+        description="Resume only candidates not represented in the campaign ledger.",
+    )
+    resume.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    resume.add_argument("--state-dir", default=".decomp-workbench")
+    resume.add_argument("--jobs", type=int)
+    resume.add_argument("--timeout", type=float)
+    resume.add_argument(
+        "--continue-after-exact",
+        action="store_true",
+        help="run candidates intentionally skipped after the first exact result",
+    )
+    resume.add_argument("--json", action="store_true", help="emit JSON")
+    resume.set_defaults(handler=campaign_resume_command)
+
+    export = commands.add_parser(
+        "campaign-export",
+        help=argparse.SUPPRESS,
+        description="Write bounded, shareable campaign evidence as JSON or HTML.",
+    )
+    export.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    export.add_argument("--state-dir", default=".decomp-workbench")
+    export.add_argument("--output", required=True)
+    export.add_argument("--format", choices=("json", "html"), default="html")
+    export.add_argument("--json", action="store_true", help="emit result JSON")
+    export.set_defaults(handler=campaign_export_command)
+
+    note = commands.add_parser(
+        "campaign-note",
+        help=argparse.SUPPRESS,
+        description="Persist the active campaign hypothesis for status and handoff.",
+    )
+    note.add_argument("note")
+    note.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    note.add_argument("--state-dir", default=".decomp-workbench")
+    note.add_argument("--json", action="store_true", help="emit JSON")
+    note.set_defaults(handler=campaign_note_command)

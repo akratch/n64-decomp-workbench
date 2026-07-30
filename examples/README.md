@@ -71,6 +71,40 @@ The trace contains two live ranges, color costs, and one later `[CDX]`
 decision. Values are illustrative; they are not copied from a target compiler
 binary.
 
+## Oracle planning and source correlation
+
+```sh
+decomp-workbench oracle plan examples/traces/oracle.log
+```
+
+The synthetic trace has one web in each allocator phase and measured color
+costs, so planning can be phase-complete without inventing a register universe.
+Map its logical lines back through retained preprocessor and listing evidence:
+
+```sh
+decomp-workbench trace-source \
+  examples/traces/oracle.log \
+  examples/traces/oracle-source.i \
+  --listing examples/traces/oracle-listing.s \
+  --source-file candidate.c
+```
+
+The report says whether each correlation was uniquely observed, selected,
+ambiguous, or unresolved. It never treats a trace-local web number or a
+line-only coincidence as stable source identity.
+
+## Experiment manifest
+
+```sh
+decomp-workbench experiment validate \
+  examples/experiments/statement-grouping/experiment.json
+```
+
+The example is a complete two-by-two parameter grid with a protected
+instruction region. Validation checks every path and assignment without
+compiling or modifying a source file; see
+[its README](experiments/README.md).
+
 ## Alias trace
 
 ```sh

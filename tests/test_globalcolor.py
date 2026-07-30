@@ -83,6 +83,16 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(items[0].color_costs[1]["best_before"], "22.250000")
         self.assertEqual(report.allocator_webs(dtype=6), [])
 
+    def test_phase_less_detail_is_withheld_when_web_number_is_ambiguous(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] webdetail proc=2 role=target web=15 dtype=13 line=5\n"
+            "[CDX] p1dec phase=p1 proc=2 web=15 bestcolor=1 decision=color\n"
+            "[CDX] p2dec phase=p2 proc=2 web=15 bestcolor=2 decision=color\n"
+        )
+        items = report.allocator_webs(proc=2, web=15)
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(item.detail == {} for item in items))
+
     def test_a_decision_names_the_colors_a_force_cannot_take(self) -> None:
         """The mask decodes to the endpoints a CDX_FORCE probe would be declined for.
 

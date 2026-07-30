@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
-import os
 import re
 import shlex
 import shutil
@@ -12,35 +13,56 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
+from .allocator_cli import register_allocator_commands
+from .artifacts import capture_streams
+from .cache_cli import register_cache_commands
 from .campaign import (
+    Candidate,
     CompilerTimeoutError,
     executable_identity,
     file_sha256,
     group_object_basins,
+    prepare_candidates,
     run_campaign,
     run_compiler,
 )
 from .campaign import render_compile_command as render_campaign_command
-from .census import (
-    CensusResult,
-    census_status,
-    evaluate_census,
-    parse_census,
-    print_census,
+from .campaign_cli import register_campaign_cockpit_commands
+from .campaign_registration import register_campaign_run_commands
+from .campaign_state import (
+    campaign_identity,
+    finish_manifest,
+    initialize_manifest,
 )
 from .cli_options import (
     SYMBOL_OPTION_DEST,
-    add_census_argument,
     add_explain_keys_argument,
-    add_symbol_argument,
+    add_process_output_arguments,
 )
-from .compare import ALIGNED_CLASS_KEYS, compare_instructions, compare_objects
+from .compare import compare_instructions, compare_objects
+from .comparison_render import comparison_line as comparison_line
+from .comparison_render import (
+    comparison_payload,
+)
+from .diagnose_cli import register_diagnose_commands
+from .diagnosis import diagnose_instructions, diagnose_objects
+from .discovery import (
+    finalize_command_help,
+    register_discovery_commands,
+    rewrite_group_alias,
+)
+from .environment import merge_toolchain_environment
+from .environment import parse_environment as parse_environment
+from .experiment_cli import register_experiment_commands
+from .experiments import load_experiment, validate_campaign_sources
+from .fidelity_cli import register_fidelity_command
+from .fingerprint_cli import register_fingerprint_commands
 from .globalcolor import (
     optional_integer,
     parse_globalcolor_trace,
@@ -52,14 +74,26 @@ from .instrument_profiles import (
     SUPPORTED_PROFILES,
     instrument_uopt_profiles,
 )
-from .instrument_uopt import (
-    instrument_uopt_globalcolor,
-    parse_force_specification,
-)
+from .instrument_uopt import instrument_uopt_globalcolor
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump, dump_object, parse_disassembly
+from .object_cli import (
+    compare_command,
+    compare_dumps_command,
+    print_comparison_explanation,
+    print_diff_sites,
+    rank_command,
+    register_object_commands,
+    register_rank_command,
+)
+from .oracle_cli import register_oracle_commands
+from .pass_adapter_cli import register_pass_adapter_command
 from .pass_replay import ListingEdit, replay_as1
-from .schema import COMPARISON_CENSUS_KEYS, selected_fields, summary_line
+from .preflight import compile_preflight
+from .relocation_cli import register_relocation_command
+from .reporting import SCHEMAS, error_report, render_json, run_json_handler
+from .scheduler_cli import register_scheduler_commands
+from .schema import selected_fields
 from .scratch_bundle import bundle_scratch
 from .scratch_check import (
     ScratchPackage,
@@ -67,6 +101,10 @@ from .scratch_check import (
     load_scratch,
     scratch_score,
 )
+from .scratch_registration import register_scratch_commands
+from .source_correlation_cli import register_source_correlation_command
+from .toolchain import toolchain_status
+from .toolchain_cli import register_toolchain_commands
 from .trace import (
     alias_trace_summary,
     parse_integer,
@@ -76,7 +114,13 @@ from .trace import (
     replay_fifo,
     trace_summary,
 )
-from .view_cli import register_view_commands
+from .view import MechanismView
+from .view_cli import (
+    Painter,
+    register_view_commands,
+    render_view,
+    resolve_color,
+)
 
 # Ranking metrics kept in `campaign --json-summary`: no compiler streams, no
 # instruction-level evidence.
@@ -106,231 +150,12 @@ CAMPAIGN_SUMMARY_KEYS = (
 )
 
 
-def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
-    add_symbol_argument(parser)
-    add_explain_keys_argument(parser)
-    parser.add_argument(
-        "--section", default=".text", help="object section (default: .text)"
-    )
-    parser.add_argument(
-        "--objdump",
-        help="GNU-compatible MIPS objdump; auto-detected when omitted",
-    )
-    parser.add_argument("--json", action="store_true", help="emit JSON")
+class ScratchCompileFailure(RuntimeError):
+    """A site-faithful compile failed after producing reproducibility evidence."""
 
-
-def add_cross_rom_argument(parser: argparse.ArgumentParser) -> None:
-    """Add structural-only acceptance for a dedicated cross-ROM comparison."""
-
-    parser.add_argument(
-        "--cross-rom",
-        action="store_true",
-        help=(
-            "accept structural cross-ROM evidence; never call it an "
-            "object-exact source match"
-        ),
-    )
-
-
-def comparison_line(item: Comparison) -> str:
-    """Render the summary line from the shared metric registry."""
-
-    return summary_line(item)
-
-
-def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
-    """Return command acceptance independently from the evidence verdict."""
-
-    if item.exact:
-        return True, "function-exact"
-    if cross_rom and item.structural_exact:
-        return True, "cross-rom-structural"
-    return False, "mismatch"
-
-
-def comparison_payload(
-    item: Comparison,
-    *,
-    cross_rom: bool,
-    census: Sequence[CensusResult] = (),
-) -> dict[str, object]:
-    """Add command-level acceptance context to a comparison JSON result."""
-
-    accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
-    payload: dict[str, object] = {
-        **item.as_dict(),
-        "accepted": accepted,
-        "acceptance_basis": basis,
-    }
-    if census:
-        payload["census"] = [result.as_dict() for result in census]
-    return payload
-
-
-def print_comparison_explanation(item: Comparison, *, cross_rom: bool) -> None:
-    """Render a compact, action-oriented comparison explanation."""
-
-    aligned = ", ".join(
-        f"{key}={getattr(item, key)}"
-        for key in ALIGNED_CLASS_KEYS
-        if getattr(item, key)
-    )
-    if aligned:
-        print(f"aligned residual classes: {aligned}")
-    breakdown = ", ".join(
-        f"{name}={count}" for name, count in item.raw_difference_breakdown.items()
-    )
-    if breakdown:
-        print(f"raw difference classes: {breakdown}")
-    if item.diff_sites:
-        classes = ", ".join(
-            f"{name}={count}" for name, count in item.diff_site_classes.items()
-        )
-        print(f"diff_sites={len(item.diff_sites)} ({classes})")
-    for line in item.guidance:
-        print(f"next: {line}")
-    accepted, basis = comparison_acceptance(item, cross_rom=cross_rom)
-    if basis == "cross-rom-structural":
-        print("acceptance: PASS (cross-ROM structural evidence only; exact=false)")
-    elif not accepted and cross_rom:
-        print("acceptance: FAIL (cross-ROM structure also differs)")
-
-
-def print_diff_sites(item: Comparison) -> None:
-    """Print every differing site, whatever the verdict emphasizes.
-
-    The verdict selects the cheapest explanation; it never filters evidence.
-    Grouping is by class so a literal difference cannot hide behind a register
-    summary.
-    """
-
-    for name in item.diff_site_classes:
-        for site in item.diff_sites:
-            if site["class"] != name:
-                continue
-            print(f"\n[{site['index']:4d}] {name}")
-            print(f"       target    {site['target_word']}  {site['target']}")
-            print(f"       candidate {site['candidate_word']}  {site['candidate']}")
-
-
-def compare_command(args: argparse.Namespace) -> int:
-    try:
-        # Parsed before any work: a sweep that spends a compile per candidate
-        # should not spend one to discover a misspelled key.
-        predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    try:
-        comparison = compare_objects(
-            args.target,
-            args.candidate,
-            objdump=args.objdump,
-            symbol=args.symbol,
-            section=args.section,
-        )
-    except (OSError, RuntimeError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
-    try:
-        census = evaluate_census(predicates, comparison.as_dict())
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    if args.json:
-        print(
-            json.dumps(
-                comparison_payload(comparison, cross_rom=args.cross_rom, census=census),
-                indent=2,
-                sort_keys=True,
-            )
-        )
-    else:
-        print(comparison_line(comparison))
-        print_comparison_explanation(comparison, cross_rom=args.cross_rom)
-        print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
-        print(f"FP ranges: {comparison.fp_mismatch_ranges or 'none'}")
-        if comparison.relocation_metadata_mismatches:
-            print(
-                "relocation metadata mismatches: "
-                f"{comparison.relocation_metadata_mismatches}"
-            )
-        if comparison.unknown_relocations:
-            print(
-                "unknown relocations (not masked): "
-                + ", ".join(comparison.unknown_relocations)
-            )
-        if args.show_diff:
-            print_diff_sites(comparison)
-        print_census(census)
-    return census_status(
-        census, otherwise=1 if args.fail_on_mismatch and not accepted else 0
-    )
-
-
-def compare_dumps_command(args: argparse.Namespace) -> int:
-    try:
-        predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    try:
-        target_text = Path(args.target).read_text(encoding="utf-8")
-        candidate_text = Path(args.candidate).read_text(encoding="utf-8")
-    except OSError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    target = parse_disassembly(target_text, symbol=args.symbol)
-    candidate = parse_disassembly(candidate_text, symbol=args.symbol)
-    if not target or not candidate:
-        detail = f" for symbol {args.symbol!r}" if args.symbol else ""
-        print(
-            "error: both files must contain GNU-style objdump instruction "
-            f"lines{detail}",
-            file=sys.stderr,
-        )
-        return 2
-    comparison = compare_instructions(
-        target,
-        candidate,
-        target_name=display_path(args.target),
-        candidate_name=display_path(args.candidate),
-        symbol=args.symbol,
-    )
-    accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
-    try:
-        census = evaluate_census(predicates, comparison.as_dict())
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    if args.json:
-        print(
-            json.dumps(
-                comparison_payload(comparison, cross_rom=args.cross_rom, census=census),
-                indent=2,
-                sort_keys=True,
-            )
-        )
-    else:
-        print(comparison_line(comparison))
-        print_comparison_explanation(comparison, cross_rom=args.cross_rom)
-        if comparison.relocation_metadata_mismatches:
-            print(
-                "relocation metadata mismatches: "
-                f"{comparison.relocation_metadata_mismatches}"
-            )
-        if comparison.unknown_relocations:
-            print(
-                "unknown relocations (not masked): "
-                + ", ".join(comparison.unknown_relocations)
-            )
-        if args.show_diff:
-            print_diff_sites(comparison)
-        print_census(census)
-    return census_status(
-        census, otherwise=1 if args.fail_on_mismatch and not accepted else 0
-    )
+    def __init__(self, message: str, report: dict[str, object]) -> None:
+        super().__init__(message)
+        self.report = report
 
 
 def bundle_scratch_command(args: argparse.Namespace) -> int:
@@ -361,7 +186,12 @@ def _scratch_comparison(
     package: ScratchPackage,
     args: argparse.Namespace,
     workspace: Path,
-) -> tuple[Comparison | None, dict[str, object] | None, str]:
+) -> tuple[
+    Comparison | None,
+    MechanismView | None,
+    dict[str, object] | None,
+    str,
+]:
     """Compile when requested, then select the strongest bundled evidence."""
 
     symbol = args.symbol
@@ -399,12 +229,36 @@ def _scratch_comparison(
                 timeout=args.timeout,
             )
         except CompilerTimeoutError as error:
-            raise RuntimeError(str(error)) from error
+            streams = capture_streams(
+                error.stdout,
+                error.stderr,
+                limit=args.stream_limit,
+                artifact_dir=args.artifact_dir,
+                stem="scratch-compile",
+            )
+            timeout_report: dict[str, object] = {
+                "command": command,
+                "returncode": 124,
+                "stdout": streams.stdout,
+                "stderr": streams.stderr,
+                "stdout_bytes": streams.stdout_bytes,
+                "stderr_bytes": streams.stderr_bytes,
+                "stdout_truncated": streams.stdout_truncated,
+                "stderr_truncated": streams.stderr_truncated,
+                "artifacts": streams.artifacts,
+                "duration_seconds": time.monotonic() - started,
+                "working_directory": str(compile_cwd),
+                "explicit_environment": environment,
+                "compiler": executable_identity(command, cwd=compile_cwd),
+                "timeout_seconds": args.timeout,
+                "source": "override" if args.source else "exported code.c",
+                "composed_source_sha256": file_sha256(composed),
+                "site_line_reset": '#line 1 "src.c"',
+            }
+            raise ScratchCompileFailure(str(error), timeout_report) from error
         compile_report = {
             "command": command,
             "returncode": process.returncode,
-            "stdout": process.stdout,
-            "stderr": process.stderr,
             "duration_seconds": time.monotonic() - started,
             "working_directory": str(compile_cwd),
             "explicit_environment": environment,
@@ -414,14 +268,33 @@ def _scratch_comparison(
             "composed_source_sha256": file_sha256(composed),
             "site_line_reset": '#line 1 "src.c"',
         }
+        streams = capture_streams(
+            process.stdout,
+            process.stderr,
+            limit=args.stream_limit,
+            artifact_dir=args.artifact_dir,
+            stem="scratch-compile",
+        )
+        compile_report.update(
+            {
+                "stdout": streams.stdout,
+                "stderr": streams.stderr,
+                "stdout_bytes": streams.stdout_bytes,
+                "stderr_bytes": streams.stderr_bytes,
+                "stdout_truncated": streams.stdout_truncated,
+                "stderr_truncated": streams.stderr_truncated,
+                "artifacts": streams.artifacts,
+            }
+        )
         if process.returncode:
-            detail = process.stderr.strip() or process.stdout.strip()
-            raise RuntimeError(
+            detail = streams.stderr.strip() or streams.stdout.strip()
+            raise ScratchCompileFailure(
                 f"compiler failed with exit {process.returncode}: "
-                f"{detail or 'no diagnostic'}"
+                f"{detail or 'no diagnostic'}",
+                compile_report,
             )
         if not output.is_file():
-            raise RuntimeError("compiler succeeded but did not create {output}")
+            raise RuntimeError(f"compiler succeeded but did not create {output}")
         candidate_object = output
         if args.keep_composed:
             destination = Path(args.keep_composed).expanduser().resolve()
@@ -436,34 +309,65 @@ def _scratch_comparison(
 
     if candidate_object is not None:
         target_object = package.materialize("target.o", workspace)
-        comparison = compare_objects(
-            target_object,
-            candidate_object,
-            objdump=args.objdump,
-            symbol=symbol,
-            section=args.section,
-        )
+        view = None
+        if args.view:
+            diagnosis = diagnose_objects(
+                target_object,
+                candidate_object,
+                objdump=args.objdump,
+                symbol=symbol,
+                section=args.section,
+                register_profile=args.register_profile,
+            )
+            comparison = diagnosis.comparison
+            view = diagnosis.view
+        else:
+            comparison = compare_objects(
+                target_object,
+                candidate_object,
+                objdump=args.objdump,
+                symbol=symbol,
+                section=args.section,
+            )
         comparison.target = f"{display_path(package.path)}:target.o"
         comparison.candidate = (
             display_path(args.source)
             if args.source
             else f"{display_path(package.path)}:code.c"
         )
-        return comparison, compile_report, "compiled-site-source-vs-target-object"
+        return (
+            comparison,
+            view,
+            compile_report,
+            "compiled-site-source-vs-target-object",
+        )
 
     if {"target.o", "current.o"} <= package.files.keys():
         target_object = package.materialize("target.o", workspace)
         current_object = package.materialize("current.o", workspace)
-        comparison = compare_objects(
-            target_object,
-            current_object,
-            objdump=args.objdump,
-            symbol=symbol,
-            section=args.section,
-        )
+        view = None
+        if args.view:
+            diagnosis = diagnose_objects(
+                target_object,
+                current_object,
+                objdump=args.objdump,
+                symbol=symbol,
+                section=args.section,
+                register_profile=args.register_profile,
+            )
+            comparison = diagnosis.comparison
+            view = diagnosis.view
+        else:
+            comparison = compare_objects(
+                target_object,
+                current_object,
+                objdump=args.objdump,
+                symbol=symbol,
+                section=args.section,
+            )
         comparison.target = f"{display_path(package.path)}:target.o"
         comparison.candidate = f"{display_path(package.path)}:current.o"
-        return comparison, compile_report, "exported-objects"
+        return comparison, view, compile_report, "exported-objects"
 
     dump_pair = next(
         (
@@ -485,15 +389,30 @@ def _scratch_comparison(
                 "both retained dumps must contain GNU-style objdump "
                 f"instruction lines{detail}"
             )
-        comparison = compare_instructions(
-            target,
-            candidate,
-            target_name=f"{display_path(package.path)}:{dump_pair[0]}",
-            candidate_name=f"{display_path(package.path)}:{dump_pair[1]}",
-            symbol=symbol,
-        )
-        return comparison, compile_report, "retained-objdump-text"
-    return None, compile_report, "no-comparable-object-or-dump-pair"
+        target_name = f"{display_path(package.path)}:{dump_pair[0]}"
+        candidate_name = f"{display_path(package.path)}:{dump_pair[1]}"
+        view = None
+        if args.view:
+            diagnosis = diagnose_instructions(
+                target,
+                candidate,
+                target_name=target_name,
+                candidate_name=candidate_name,
+                symbol=symbol,
+                register_profile=args.register_profile,
+            )
+            comparison = diagnosis.comparison
+            view = diagnosis.view
+        else:
+            comparison = compare_instructions(
+                target,
+                candidate,
+                target_name=target_name,
+                candidate_name=candidate_name,
+                symbol=symbol,
+            )
+        return comparison, view, compile_report, "retained-objdump-text"
+    return None, None, compile_report, "no-comparable-object-or-dump-pair"
 
 
 def _scratch_next_actions(
@@ -532,14 +451,31 @@ def check_scratch_command(args: argparse.Namespace) -> int:
     if args.timeout <= 0:
         print("error: --timeout must be positive", file=sys.stderr)
         return 2
+    if args.stream_limit < 0:
+        print("error: --stream-limit must be non-negative", file=sys.stderr)
+        return 2
     try:
         package = load_scratch(args.scratch)
         with tempfile.TemporaryDirectory(prefix="decomp-workbench-scratch-") as temp:
-            comparison, compile_report, evidence = _scratch_comparison(
+            comparison, view, compile_report, evidence = _scratch_comparison(
                 package,
                 args,
                 Path(temp),
             )
+    except ScratchCompileFailure as error:
+        if args.json:
+            report = error_report(
+                "check-scratch",
+                status=2,
+                stage="compile",
+                message=str(error),
+                details={"returncode": error.report.get("returncode")},
+            )
+            report["compile"] = error.report
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            print(f"error: {error}", file=sys.stderr)
+        return 2
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -568,6 +504,9 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             comparison_payload(comparison, cross_rom=False)
             if comparison is not None
             else None
+        ),
+        "view": (
+            view.as_dict(report_regs=args.report_regs) if view is not None else None
         ),
         "compile": compile_report,
         "next_actions": actions,
@@ -601,9 +540,25 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             print("comparison: unavailable")
         else:
             print(comparison_line(comparison))
-            print_comparison_explanation(comparison, cross_rom=False)
+            if view is None:
+                print_comparison_explanation(comparison, cross_rom=False)
             if args.show_diff:
                 print_diff_sites(comparison)
+            if view is not None:
+                print("")
+                for line in render_view(
+                    view,
+                    context=args.context,
+                    max_hunks=0 if args.show_all else args.max_hunks,
+                    lane_window=(
+                        max(view.target_instructions, view.candidate_instructions)
+                        if args.show_all
+                        else args.lane_window
+                    ),
+                    report_regs=args.report_regs,
+                    painter=Painter(resolve_color(args.color)),
+                ):
+                    print(line)
         # A comparison already rendered its own guidance above. The action
         # list remains in JSON as the machine-readable equivalent, while the
         # terminal gets only genuinely additional handoff steps.
@@ -627,6 +582,8 @@ def doctor_command(args: argparse.Namespace) -> int:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=3,
         )
         lines = (version.stdout or version.stderr).splitlines()
@@ -678,6 +635,39 @@ def doctor_command(args: argparse.Namespace) -> int:
         if objdump_path and not object_required
         else "limited"
     )
+    preflight: dict[str, object] | None = None
+    toolchain: dict[str, object] | None = None
+    if args.toolchain:
+        try:
+            toolchain = toolchain_status(args.toolchain)
+        except (OSError, ValueError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+    if args.compile_command:
+        try:
+            environment = parse_environment(args.env)
+            if args.toolchain:
+                environment = merge_toolchain_environment(
+                    environment,
+                    args.toolchain,
+                )
+            compile_cwd = (
+                Path(args.compile_cwd).expanduser().resolve()
+                if args.compile_cwd
+                else Path.cwd().resolve()
+            )
+            preflight = compile_preflight(
+                args.compile_command,
+                compile_cwd=compile_cwd,
+                environment=environment,
+                timeout=args.timeout,
+                objdump=objdump_path,
+                stream_limit=args.stream_limit,
+                artifact_dir=args.artifact_dir,
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
     payload: dict[str, object] = {
         "schema": "decomp-workbench-doctor-v1",
         "workbench_version": __version__,
@@ -709,6 +699,8 @@ def doctor_command(args: argparse.Namespace) -> int:
             if package
             else None
         ),
+        "compile_preflight": preflight,
+        "toolchain": toolchain,
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -743,7 +735,35 @@ def doctor_command(args: argparse.Namespace) -> int:
             if args.objdump:
                 command.extend(["--objdump", args.objdump])
             print(f"next: {shlex.join(command)}")
-    return 1 if (object_required and not object_verified) or cache_error else 0
+        if preflight:
+            label = "READY" if preflight["ready"] else "FAILED"
+            print(
+                f"compiler preflight: {label} "
+                f"({preflight['status']}, {preflight['duration_seconds']:.2f}s)"
+            )
+            if not preflight["ready"]:
+                diagnostic = str(preflight.get("stderr", "")).strip().splitlines()
+                if diagnostic:
+                    print(f"  {diagnostic[-1]}")
+        if toolchain:
+            print(
+                f"toolchain: {str(toolchain['claim']).upper()} "
+                f"(integrity={'PASS' if toolchain['integrity'] else 'FAIL'})"
+            )
+            missing = toolchain["next_missing_gates"]
+            if isinstance(missing, list) and missing:
+                print("  missing gates: " + ", ".join(str(item) for item in missing))
+    return (
+        1
+        if (object_required and not object_verified)
+        or cache_error
+        or (preflight is not None and not preflight["ready"])
+        or (
+            toolchain is not None
+            and (not bool(toolchain["integrity"]) or toolchain["claim"] != "ready")
+        )
+        else 0
+    )
 
 
 def install_skill_command(args: argparse.Namespace) -> int:
@@ -775,157 +795,34 @@ def install_skill_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def rank_command(args: argparse.Namespace) -> int:
-    comparisons: list[Comparison] = []
-    errors: list[dict[str, str]] = []
-    for candidate in args.candidates:
-        try:
-            comparisons.append(
-                compare_objects(
-                    args.target,
-                    candidate,
-                    objdump=args.objdump,
-                    symbol=args.symbol,
-                    section=args.section,
-                )
-            )
-        except (OSError, RuntimeError) as error:
-            errors.append({"candidate": candidate, "error": str(error)})
-    comparisons.sort(key=lambda item: item.sort_key)
-    limited = comparisons[: args.limit] if args.limit else comparisons
-    if args.json:
-        print(
-            json.dumps(
-                {
-                    "results": [item.as_dict() for item in limited],
-                    "errors": errors,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
-    else:
-        for rank, item in enumerate(limited, 1):
-            print(f"{rank:3d} {comparison_line(item)}")
-        for failure in errors:
-            print(
-                f"ERROR {failure['candidate']}: {failure['error']}",
-                file=sys.stderr,
-            )
-    return 0 if comparisons else 1
-
-
 def render_compile_command(template: str, source: Path, output: Path) -> list[str]:
     """Render a compiler command without invoking a shell."""
 
     return render_campaign_command(template, source, output)
 
 
-def compile_sources(
-    sources: Iterable[str],
-    *,
-    target: str,
-    template: str,
-    objdump: str | None,
-    symbol: str | None,
-    section: str,
-    keep_objects: str | None,
-    environment: dict[str, str],
-    compile_cwd: Path,
-    timeout: float,
-) -> list[CompileResult]:
-    """Compile and compare source candidates through the safe process runner."""
-
-    results: list[CompileResult] = []
-    if timeout <= 0:
-        raise ValueError("--timeout must be positive")
-    if not compile_cwd.is_dir():
-        raise NotADirectoryError(
-            f"compiler working directory does not exist: {compile_cwd}"
-        )
-    resolved_sources = [Path(source).expanduser().resolve() for source in sources]
-    missing = [source for source in resolved_sources if not source.is_file()]
-    if missing:
-        raise FileNotFoundError(f"candidate source does not exist: {missing[0]}")
-    keep_dir = Path(keep_objects) if keep_objects else None
-    if keep_dir:
-        keep_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="decomp-workbench-") as temp:
-        temp_dir = Path(temp)
-        for index, source in enumerate(resolved_sources):
-            output = temp_dir / f"{index:05d}-{source.stem}.o"
-            command = render_compile_command(template, source, output)
-            started = time.monotonic()
-            try:
-                process = run_compiler(
-                    command,
-                    environment=environment,
-                    compile_cwd=compile_cwd,
-                    timeout=timeout,
-                )
-            except CompilerTimeoutError as error:
-                results.append(
-                    CompileResult(
-                        source=display_path(source),
-                        command=command,
-                        returncode=124,
-                        stdout=error.stdout,
-                        stderr=f"{error.stderr}\n{error}".strip(),
-                        object_path=None,
-                        comparison=None,
-                        duration_seconds=time.monotonic() - started,
-                    )
-                )
-                continue
-            comparison: Comparison | None = None
-            kept: str | None = None
-            if process.returncode == 0 and output.is_file():
-                comparison = compare_objects(
-                    target,
-                    output,
-                    objdump=objdump,
-                    symbol=symbol,
-                    section=section,
-                )
-                comparison.candidate = display_path(source)
-                if keep_dir:
-                    destination = keep_dir / f"{index:05d}-{source.stem}.o"
-                    shutil.copy2(output, destination)
-                    kept = str(destination)
-            results.append(
-                CompileResult(
-                    source=display_path(source),
-                    command=command,
-                    returncode=process.returncode,
-                    stdout=process.stdout,
-                    stderr=process.stderr,
-                    object_path=kept,
-                    comparison=comparison,
-                    duration_seconds=time.monotonic() - started,
-                )
-            )
-    return results
-
-
 def compile_rank_command(args: argparse.Namespace) -> int:
+    """Compatibility ranking surface backed by the campaign engine."""
+
     try:
         environment = parse_environment(args.env)
-        compile_cwd = (
-            Path(args.compile_cwd).expanduser().resolve()
-            if args.compile_cwd
-            else Path.cwd().resolve()
-        )
-        results = compile_sources(
+        if args.toolchain:
+            environment = merge_toolchain_environment(environment, args.toolchain)
+        results, _ = run_campaign(
             args.sources,
             target=args.target,
             template=args.compile_command,
+            cache_dir=args.cache_dir,
             objdump=args.objdump,
             symbol=args.symbol,
             section=args.section,
-            keep_objects=args.keep_objects,
             environment=environment,
-            compile_cwd=compile_cwd,
+            compile_cwd=args.compile_cwd,
+            keep_objects=args.keep_objects,
+            stop_on_exact=False,
             timeout=args.timeout,
+            stream_limit=args.stream_limit,
+            artifact_dir=args.artifact_dir,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -956,28 +853,6 @@ def compile_rank_command(args: argparse.Namespace) -> int:
     return 0 if successes else 1
 
 
-def parse_environment(values: list[str]) -> dict[str, str]:
-    """Parse explicit NAME=VALUE compiler environment entries.
-
-    Known instrumentation controls are validated here so a malformed probe
-    fails before a campaign spends a compile on it.
-    """
-
-    result: dict[str, str] = {}
-    for value in values:
-        name, separator, content = value.partition("=")
-        if (
-            not separator
-            or not name
-            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
-        ):
-            raise ValueError(f"invalid environment entry: {value!r}")
-        result[name] = content
-    if "CDX_FORCE" in result:
-        parse_force_specification(result["CDX_FORCE"])
-    return result
-
-
 def campaign_command(args: argparse.Namespace) -> int:
     if args.json and args.json_summary:
         print(
@@ -985,25 +860,124 @@ def campaign_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    manifest_path: Path | None = None
+    effective_ledger: str | Path | None = args.ledger
     try:
+        if args.no_ledger and args.ledger:
+            raise ValueError("--ledger and --no-ledger are mutually exclusive")
         environment = parse_environment(args.env)
+        if args.toolchain:
+            environment = merge_toolchain_environment(environment, args.toolchain)
+        compile_cwd = (
+            Path(args.compile_cwd).expanduser().resolve()
+            if args.compile_cwd
+            else Path.cwd().resolve()
+        )
+        target = Path(args.target).expanduser().resolve()
+        if not target.is_file():
+            raise FileNotFoundError(f"target object does not exist: {target}")
+        objdump = discover_objdump(args.objdump)
+        experiment = (
+            load_experiment(args.experiment_manifest)
+            if args.experiment_manifest
+            else None
+        )
+        if experiment is not None:
+            validate_campaign_sources(experiment, args.sources)
+        candidates: list[Candidate] = []
+        if not args.no_ledger or experiment is not None:
+            candidates, _ = prepare_candidates(
+                args.sources,
+                template=args.compile_command,
+                target=target,
+                symbol=args.symbol,
+                environment=environment,
+                compile_cwd=compile_cwd,
+                section=args.section,
+                objdump=objdump,
+            )
+        candidate_metadata = (
+            {
+                candidate.cache_key: experiment.metadata_for(candidate.source)
+                for candidate in candidates
+            }
+            if experiment is not None
+            else None
+        )
+        if not args.no_ledger:
+            identity, identity_inputs = campaign_identity(
+                target=target,
+                symbol=args.symbol,
+                section=args.section,
+                template=args.compile_command,
+                compile_cwd=compile_cwd,
+                environment=environment,
+                objdump=objdump,
+                toolchain=args.toolchain,
+            )
+            manifest_path, ledger_path, _ = initialize_manifest(
+                candidates,
+                identity=identity,
+                identity_inputs=identity_inputs,
+                state_root=args.state_dir,
+                ledger=args.ledger,
+                cache_dir=args.cache_dir,
+                artifact_dir=args.artifact_dir,
+                jobs=args.jobs,
+                timeout=args.timeout,
+                stop_on_exact=args.stop_on_exact,
+                experiment=experiment.as_dict() if experiment else None,
+            )
+            effective_ledger = ledger_path
         results, duplicates = run_campaign(
             args.sources,
-            target=args.target,
+            target=target,
             template=args.compile_command,
             cache_dir=args.cache_dir,
-            ledger=args.ledger,
+            ledger=effective_ledger,
             jobs=args.jobs,
-            objdump=args.objdump,
+            objdump=objdump,
             symbol=args.symbol,
             section=args.section,
             environment=environment,
-            compile_cwd=args.compile_cwd,
+            compile_cwd=compile_cwd,
             keep_objects=args.keep_objects,
             stop_on_exact=args.stop_on_exact,
             timeout=args.timeout,
+            stream_limit=args.stream_limit,
+            artifact_dir=args.artifact_dir,
+            candidate_metadata=candidate_metadata,
+            selected_region=experiment.region if experiment else None,
         )
-    except (OSError, ValueError) as error:
+        if manifest_path is not None:
+            finish_manifest(
+                manifest_path,
+                results=len(results),
+                prepared=len(duplicates),
+                exact=any(
+                    result.comparison is not None and result.comparison.exact
+                    for result in results
+                ),
+            )
+    except KeyboardInterrupt:
+        if manifest_path is not None:
+            finish_manifest(
+                manifest_path,
+                results=0,
+                prepared=0,
+                exact=False,
+                interrupted=True,
+            )
+        raise
+    except (OSError, RuntimeError, ValueError) as error:
+        if manifest_path is not None:
+            finish_manifest(
+                manifest_path,
+                results=0,
+                prepared=0,
+                exact=False,
+                interrupted=True,
+            )
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
@@ -1040,6 +1014,8 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "cache_key": item.cache_key,
                     "cached": item.cached,
                     "duration_seconds": item.duration_seconds,
+                    "experiment": item.experiment,
+                    "region": item.region,
                     "comparison": (
                         selected_fields(comparison, CAMPAIGN_SUMMARY_KEYS)
                         if comparison
@@ -1056,6 +1032,9 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "stopped_on_exact": bool(unrun) and args.stop_on_exact,
                     "source_files": sum(len(items) for items in duplicates.values()),
                     "timeout_seconds": args.timeout,
+                    "manifest": str(manifest_path) if manifest_path else None,
+                    "ledger": str(effective_ledger) if effective_ledger else None,
+                    "experiment": experiment.as_dict() if experiment else None,
                     "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
                 },
@@ -1099,8 +1078,14 @@ def campaign_command(args: argparse.Namespace) -> int:
         duplicate_count = sum(len(items) - 1 for items in duplicates.values())
         if duplicate_count:
             print(f"deduplicated {duplicate_count} identical source file(s)")
-        if args.ledger:
-            print(f"ledger: {Path(args.ledger).resolve()}")
+        if effective_ledger:
+            print(f"ledger: {Path(effective_ledger).resolve()}")
+        if manifest_path:
+            print(f"manifest: {manifest_path}")
+            print(
+                "next: decomp-workbench campaign status "
+                f"{shlex.quote(str(manifest_path.parent))}"
+            )
     return 0 if any(item.comparison for item in results) else 1
 
 
@@ -1475,6 +1460,14 @@ def replay_as1_command(args: argparse.Namespace) -> int:
             edits=edits,
             allow_multiple=args.allow_multiple,
             keep_work=args.keep_work,
+            calibration_object=args.calibration_object,
+            objdump=args.objdump,
+            work_root=args.work_root,
+            compile_cwd=args.compile_cwd,
+            environment=parse_environment(args.env),
+            timeout=args.timeout,
+            stream_limit=args.stream_limit,
+            artifact_dir=args.artifact_dir,
         )
     except (OSError, RuntimeError, ValueError, re.error) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -1487,6 +1480,8 @@ def replay_as1_command(args: argparse.Namespace) -> int:
         print(f"object: {result.output}")
         if result.retained_directory:
             print(f"retained: {result.retained_directory}")
+        if result.calibration:
+            print("unedited replay calibration: PASS (section-scoped)")
     return 0
 
 
@@ -1504,302 +1499,43 @@ def build_parser() -> argparse.ArgumentParser:
     add_explain_keys_argument(parser)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    compare_parser = commands.add_parser(
-        "compare",
-        help="compare two MIPS objects",
-        description="Compare instruction words, relocations, structure, and registers.",
-    )
-    compare_parser.add_argument("target", help="reference object")
-    compare_parser.add_argument("candidate", help="candidate object")
-    add_common_compare_arguments(compare_parser)
-    add_cross_rom_argument(compare_parser)
-    compare_parser.add_argument(
-        "--show-diff",
-        action="store_true",
-        help="print every differing site, grouped by class",
-    )
-    compare_parser.add_argument(
-        "--fail-on-mismatch",
-        action="store_true",
-        help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
-    )
-    add_census_argument(compare_parser)
-    compare_parser.set_defaults(handler=compare_command)
-
-    dumps_parser = commands.add_parser(
-        "compare-dumps",
-        help="compare retained GNU objdump text without object files",
-        description="Run the object comparator on redistributable objdump text.",
-    )
-    dumps_parser.add_argument("target", help="reference objdump text")
-    dumps_parser.add_argument("candidate", help="candidate objdump text")
-    add_symbol_argument(dumps_parser)
-    add_explain_keys_argument(dumps_parser)
-    dumps_parser.add_argument("--json", action="store_true", help="emit JSON")
-    add_cross_rom_argument(dumps_parser)
-    dumps_parser.add_argument(
-        "--show-diff",
-        action="store_true",
-        help="print every differing site, grouped by class",
-    )
-    dumps_parser.add_argument(
-        "--fail-on-mismatch",
-        action="store_true",
-        help=("return exit 1 unless exact, or structurally exact with --cross-rom"),
-    )
-    add_census_argument(dumps_parser)
-    dumps_parser.set_defaults(handler=compare_dumps_command)
-
     # `view` and `view-dumps` read the same two inputs as `compare` and
     # `compare-dumps` and answer the next question about them, so they belong
     # beside them in the listing.
+    register_object_commands(
+        commands,
+        compare_handler=compare_command,
+        compare_dumps_handler=compare_dumps_command,
+    )
     register_view_commands(commands)
+    register_diagnose_commands(commands)
+    register_rank_command(commands, handler=rank_command)
+    register_discovery_commands(commands)
+    register_scheduler_commands(commands)
+    register_allocator_commands(commands)
+    register_source_correlation_command(commands)
+    register_pass_adapter_command(commands)
+    register_fingerprint_commands(commands)
+    register_relocation_command(commands)
+    register_fidelity_command(commands)
+    register_toolchain_commands(commands)
+    register_oracle_commands(commands)
+    register_experiment_commands(commands)
 
-    check_parser = commands.add_parser(
-        "check-scratch",
-        help="inspect or site-faithfully compile a decomp.me export",
-        description=(
-            "Validate an exported ZIP/directory, distinguish the site's display "
-            "score from aligned object truth, and optionally compile context plus "
-            "source with decomp.me's #line reset."
-        ),
+    register_scratch_commands(
+        commands,
+        check_handler=check_scratch_command,
+        doctor_handler=doctor_command,
+        skill_handler=install_skill_command,
     )
-    check_parser.add_argument(
-        "scratch",
-        help="decomp.me export ZIP/directory or workbench scratch bundle",
-    )
-    add_symbol_argument(
-        check_parser,
-        help_text=(
-            "compare this symbol; defaults to metadata.json's diff_label; "
-            "--function is the same option"
-        ),
-    )
-    add_explain_keys_argument(check_parser)
-    check_parser.add_argument(
-        "--compile-command",
-        help="command template containing {source} and {output}",
-    )
-    check_parser.add_argument(
-        "--source",
-        help="candidate code to place after ctx.c; defaults to exported code.c",
-    )
-    check_parser.add_argument(
-        "--compile-cwd",
-        help="working directory for the compiler process",
-    )
-    check_parser.add_argument(
-        "--env",
-        action="append",
-        default=[],
-        metavar="NAME=VALUE",
-        help="compiler environment entry; repeatable",
-    )
-    check_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=120.0,
-        help="compiler timeout in seconds (default: 120)",
-    )
-    check_parser.add_argument(
-        "--keep-composed",
-        metavar="PATH",
-        help="retain the exact context + line reset + source input",
-    )
-    check_parser.add_argument(
-        "--keep-object",
-        metavar="PATH",
-        help="retain the newly compiled object",
-    )
-    check_parser.add_argument(
-        "--section",
-        default=".text",
-        help="object section (default: .text)",
-    )
-    check_parser.add_argument(
-        "--objdump",
-        help="GNU-compatible MIPS objdump; auto-detected when omitted",
-    )
-    check_parser.add_argument(
-        "--show-diff",
-        action="store_true",
-        help="print every differing site, grouped by class",
-    )
-    check_parser.add_argument(
-        "--fail-on-mismatch",
-        action="store_true",
-        help="return exit 1 unless an available comparison is exact",
-    )
-    check_parser.add_argument("--json", action="store_true", help="emit JSON")
-    check_parser.set_defaults(handler=check_scratch_command)
 
-    doctor_parser = commands.add_parser(
-        "doctor",
-        help="check local readiness and validate an optional scratch",
-        description=(
-            "Report Python, retained-dump, and object-reader readiness; when a "
-            "scratch is supplied, validate it and print the exact next command."
-        ),
+    register_campaign_run_commands(
+        commands,
+        compile_rank_handler=compile_rank_command,
+        campaign_handler=campaign_command,
     )
-    doctor_parser.add_argument(
-        "scratch",
-        nargs="?",
-        help="optional decomp.me export ZIP/directory or workbench bundle",
-    )
-    doctor_parser.add_argument(
-        "--objdump",
-        help="GNU-compatible MIPS objdump; auto-detected when omitted",
-    )
-    doctor_parser.add_argument(
-        "--cache-dir",
-        default=".decomp-workbench/cache",
-        help="campaign cache to inspect (default: .decomp-workbench/cache)",
-    )
-    doctor_parser.add_argument("--json", action="store_true", help="emit JSON")
-    doctor_parser.set_defaults(handler=doctor_command)
-
-    skill_parser = commands.add_parser(
-        "install-skill",
-        help="install the bundled N64 decomp Agent Skill",
-        description=(
-            "Install n64-decomp-campaign for Codex or Claude Code. "
-            "Existing differing installations are never overwritten."
-        ),
-    )
-    skill_parser.add_argument("client", choices=("codex", "claude"))
-    skill_parser.add_argument(
-        "--destination",
-        help=(
-            "parent skills directory; defaults to the selected client's "
-            "personal skills directory"
-        ),
-    )
-    skill_parser.add_argument("--json", action="store_true", help="emit JSON")
-    skill_parser.set_defaults(handler=install_skill_command)
-
-    rank_parser = commands.add_parser(
-        "rank",
-        help="rank candidate objects",
-        description="Compare prebuilt candidates and sort the usable results.",
-    )
-    rank_parser.add_argument("target", help="reference object")
-    rank_parser.add_argument("candidates", nargs="+", help="candidate objects")
-    rank_parser.add_argument(
-        "--limit", type=int, default=20, help="maximum results to show"
-    )
-    add_common_compare_arguments(rank_parser)
-    rank_parser.set_defaults(handler=rank_command)
-
-    compile_parser = commands.add_parser(
-        "compile-rank",
-        help="compile and rank C source candidates",
-        description=(
-            "Compile candidates sequentially, then rank their objects. Use "
-            "campaign for caching, provenance, parallelism, and early stopping."
-        ),
-    )
-    compile_parser.add_argument("target", help="reference object")
-    compile_parser.add_argument("sources", nargs="+", help="candidate C files")
-    compile_parser.add_argument(
-        "--compile-command",
-        required=True,
-        help="command template containing {source} and {output}",
-    )
-    compile_parser.add_argument(
-        "--keep-objects", help="directory in which to retain compiled objects"
-    )
-    compile_parser.add_argument(
-        "--env",
-        action="append",
-        default=[],
-        metavar="NAME=VALUE",
-        help="compiler environment entry; repeatable",
-    )
-    compile_parser.add_argument(
-        "--compile-cwd",
-        help="working directory for compiler processes",
-    )
-    compile_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=120.0,
-        help="per-candidate compiler timeout in seconds (default: 120)",
-    )
-    compile_parser.add_argument(
-        "--limit", type=int, default=20, help="maximum results to show"
-    )
-    add_common_compare_arguments(compile_parser)
-    compile_parser.set_defaults(handler=compile_rank_command)
-
-    campaign_parser = commands.add_parser(
-        "campaign",
-        help="run a parallel, cached candidate campaign",
-        description="Compile, cache, rank, and record source candidates.",
-    )
-    campaign_parser.add_argument("target", help="reference object")
-    campaign_parser.add_argument("sources", nargs="+", help="candidate C files")
-    campaign_parser.add_argument(
-        "--compile-command",
-        required=True,
-        help="command template containing {source} and {output}",
-    )
-    campaign_parser.add_argument(
-        "--cache-dir",
-        default=".decomp-workbench/cache",
-        help="content-cache directory",
-    )
-    campaign_parser.add_argument("--ledger", help="append results to this JSONL file")
-    campaign_parser.add_argument(
-        "--jobs",
-        type=int,
-        default=max(1, min(8, os.cpu_count() or 1)),
-        help="parallel compiler processes",
-    )
-    campaign_parser.add_argument(
-        "--env",
-        action="append",
-        default=[],
-        metavar="NAME=VALUE",
-        help="compiler environment included in the cache key; repeatable",
-    )
-    campaign_parser.add_argument(
-        "--compile-cwd",
-        help="working directory for compiler processes; included in the cache key",
-    )
-    campaign_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=120.0,
-        help="per-candidate compiler timeout in seconds (default: 120)",
-    )
-    campaign_parser.add_argument(
-        "--keep-objects", help="directory in which to retain compiled objects"
-    )
-    campaign_parser.add_argument(
-        "--limit", type=int, default=20, help="maximum results to show"
-    )
-    add_common_compare_arguments(campaign_parser)
-    campaign_parser.add_argument(
-        "--json-summary",
-        action="store_true",
-        help="emit compact JSON without compiler streams or instruction-level diffs",
-    )
-    campaign_parser.add_argument(
-        "--stop-on-exact",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help=(
-            "stop submitting candidates once one compares exact "
-            "(default: enabled; pass --no-stop-on-exact to sweep every "
-            "candidate)"
-        ),
-    )
-    campaign_parser.add_argument(
-        "--show-basins",
-        action="store_true",
-        help="show source variants that compiled to each identical object basin",
-    )
-    campaign_parser.set_defaults(handler=campaign_command)
+    register_campaign_cockpit_commands(commands)
+    register_cache_commands(commands)
 
     instrument_parser = commands.add_parser(
         "instrument-ugen",
@@ -1992,6 +1728,25 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument(
         "--keep-work", help="retain the edited listing and intermediate files here"
     )
+    replay_parser.add_argument(
+        "--calibration-object",
+        help="normal unedited output required before any edited replay",
+    )
+    replay_parser.add_argument("--objdump", help="object reader for calibration gates")
+    replay_parser.add_argument(
+        "--work-root",
+        help="project-visible temporary root for Docker/QEMU path visibility",
+    )
+    replay_parser.add_argument("--compile-cwd", help="working directory for as0/as1")
+    replay_parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="explicit pass environment entry; repeatable",
+    )
+    replay_parser.add_argument("--timeout", type=float, default=120.0)
+    add_process_output_arguments(replay_parser)
     replay_parser.add_argument("--json", action="store_true", help="emit JSON")
     replay_parser.set_defaults(handler=replay_as1_command)
 
@@ -2023,15 +1778,55 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_parser.add_argument("--preset", help="optional decomp.me preset identity")
     bundle_parser.add_argument("--json", action="store_true", help="emit manifest JSON")
     bundle_parser.set_defaults(handler=bundle_scratch_command)
+    finalize_command_help(commands)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    arguments = rewrite_group_alias(arguments)
+    json_requested = "--json" in arguments or "--json-summary" in arguments
+    parser = build_parser()
+    if json_requested:
+        parse_stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(parse_stderr):
+                args = parser.parse_args(arguments)
+        except SystemExit as error:
+            if error.code == 0:
+                raise
+            status = error.code if isinstance(error.code, int) else 1
+            nested = (
+                f"{arguments[0]}-{arguments[1]}" if len(arguments) >= 2 else "unknown"
+            )
+            command = (
+                nested
+                if nested in SCHEMAS
+                else next(
+                    (item for item in arguments if item in SCHEMAS),
+                    "unknown",
+                )
+            )
+            diagnostic = parse_stderr.getvalue().strip().splitlines()
+            message = (
+                diagnostic[-1].removeprefix(f"{parser.prog}: error: ").strip()
+                if diagnostic
+                else "invalid command arguments"
+            )
+            print(
+                render_json(error_report(command, status=status, message=message)),
+                end="",
+            )
+            return status
+    else:
+        args = parser.parse_args(arguments)
     # Which spelling of the symbol selector was used is parser bookkeeping,
     # not an argument a command should see.
     vars(args).pop(SYMBOL_OPTION_DEST, None)
     handler = cast(Callable[[argparse.Namespace], int], args.handler)
+    if json_requested:
+        command = str(getattr(args, "report_command", args.command))
+        return run_json_handler(command, args, handler)
     return handler(args)
 
 

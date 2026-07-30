@@ -92,6 +92,26 @@ class PassReplayTests(unittest.TestCase):
                     as1_template="as1 {binasm} -o {object}",
                 )
 
+    def test_edited_replay_requires_an_unedited_calibration_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            listing = root / "unit.s"
+            listing.write_text("nop\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "calibration-object"):
+                replay_as1(
+                    listing,
+                    root / "output.o",
+                    as0_template="as0 {listing} -o {binasm}",
+                    as1_template="as1 {binasm} -o {object}",
+                    edits=[
+                        ListingEdit(
+                            position="before",
+                            pattern="^nop$",
+                            text=".loc 1 1",
+                        )
+                    ],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

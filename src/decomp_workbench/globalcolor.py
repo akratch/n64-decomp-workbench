@@ -317,7 +317,20 @@ class GlobalColorTrace:
     ) -> list[AllocatorWebDecision]:
         """Join p1/p2 decisions to target webdetail records."""
 
-        details: dict[tuple[int, int], dict[str, str]] = {}
+        decision_phases: dict[tuple[int, int], set[str]] = {}
+        for item in self.decisions:
+            if item.phase not in {"p1dec", "p2dec"}:
+                continue
+            item_proc = optional_integer(item.fields.get("proc"))
+            item_web = optional_integer(item.fields.get("web"))
+            if item_proc is None or item_web is None:
+                continue
+            decision_phases.setdefault((item_proc, item_web), set()).add(
+                item.fields.get("phase") or item.phase[:2]
+            )
+
+        details: dict[tuple[int, int, str], dict[str, str]] = {}
+        legacy_details: dict[tuple[int, int], dict[str, str]] = {}
         costs: dict[tuple[int, int, str], list[dict[str, str]]] = {}
         for item in self.decisions:
             if "proc" not in item.fields or "web" not in item.fields:
@@ -328,7 +341,11 @@ class GlobalColorTrace:
                 continue
             key = (item_proc, item_web)
             if item.phase == "webdetail" and item.fields.get("role") == "target":
-                details[key] = item.fields
+                detail_phase = item.fields.get("phase")
+                if detail_phase in {"p1", "p2"}:
+                    details[(*key, detail_phase)] = item.fields
+                else:
+                    legacy_details[key] = item.fields
             elif item.phase in {"p1cost", "p2cost"}:
                 costs.setdefault((*key, item.phase[:2]), []).append(item.fields)
 
@@ -342,13 +359,17 @@ class GlobalColorTrace:
             item_web = optional_integer(item.fields["web"])
             if item_proc is None or item_web is None:
                 continue
-            detail = details.get((item_proc, item_web), {})
+            key = (item_proc, item_web)
+            phase = item.fields.get("phase") or item.phase[:2]
+            detail = details.get((*key, phase))
+            if detail is None and decision_phases.get(key) == {phase}:
+                detail = legacy_details.get(key)
             joined_item = AllocatorWebDecision(
                 proc=item_proc,
                 web=item_web,
                 phase=item.phase,
                 fields=item.fields,
-                detail=detail,
+                detail=detail or {},
                 color_costs=costs.get((item_proc, item_web, item.phase[:2]), []),
             )
             if proc is not None and item_proc != proc:

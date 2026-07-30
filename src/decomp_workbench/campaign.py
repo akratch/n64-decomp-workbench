@@ -15,12 +15,14 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
 from .compare import TargetObject, compare_candidate, load_target
+from .experiments import RegionConstraint
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
 
@@ -149,6 +151,8 @@ def run_compiler(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env={**os.environ, **environment},
         cwd=compile_cwd,
         **process_group_arguments(),
@@ -188,6 +192,15 @@ class Candidate:
     command: list[str]
     cache_key: str
     provenance: dict[str, object]
+
+
+@dataclass(frozen=True)
+class ParameterizedCandidate:
+    """One source compiled under a candidate-specific explicit environment."""
+
+    source: str | Path
+    environment: dict[str, str]
+    metadata: dict[str, Any]
 
 
 def render_compile_command(template: str, source: Path, output: Path) -> list[str]:
@@ -354,6 +367,10 @@ def _compile_candidate(
     compile_cwd: Path,
     keep_dir: Path | None,
     timeout: float | None,
+    stream_limit: int,
+    artifact_dir: Path | None,
+    experiment: dict[str, Any] | None,
+    selected_region: RegionConstraint | None,
 ) -> CompileResult:
     started = time.monotonic()
     cached_object = cache_dir / f"{candidate.cache_key}.o"
@@ -421,17 +438,36 @@ def _compile_candidate(
             returncode = 1
             stderr = f"{stderr}\ncomparison failed: {error}".strip()
 
+    streams = capture_streams(
+        stdout,
+        stderr,
+        limit=stream_limit,
+        artifact_dir=artifact_dir,
+        stem=candidate.cache_key,
+    )
+    region = (
+        region_score(comparison, selected_region)
+        if comparison is not None and selected_region is not None
+        else None
+    )
     return CompileResult(
         source=display_path(candidate.source),
         command=command,
         returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
+        stdout=streams.stdout,
+        stderr=streams.stderr,
         object_path=kept,
         comparison=comparison,
         cache_key=candidate.cache_key,
         cached=cached,
         duration_seconds=time.monotonic() - started,
+        stdout_bytes=streams.stdout_bytes,
+        stderr_bytes=streams.stderr_bytes,
+        stdout_truncated=streams.stdout_truncated,
+        stderr_truncated=streams.stderr_truncated,
+        artifacts=streams.artifacts,
+        experiment=experiment,
+        region=region,
     )
 
 
@@ -457,6 +493,164 @@ def append_ledger(
         stream.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def recorded_ledger_keys(path: Path) -> set[str]:
+    """Return completed cache keys without trusting a torn final JSONL line.
+
+    Campaign and oracle ledgers are append-only. Re-running an identical input
+    may still be useful (for example, to regenerate a terminal report from the
+    cache), but it must not manufacture a second experimental observation.
+    """
+
+    if not path.is_file():
+        return set()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    keys: set[str] = set()
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            if index == len(lines) - 1:
+                continue
+            raise ValueError(
+                f"invalid campaign ledger JSON at line {index + 1}: {path}"
+            ) from None
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"campaign ledger line {index + 1} is not an object: {path}"
+            )
+        key = record.get("cache_key")
+        if isinstance(key, str) and key:
+            keys.add(key)
+    return keys
+
+
+def _execute_candidates(
+    candidates: Sequence[Candidate],
+    duplicates: Mapping[str, list[str]],
+    *,
+    target_object: TargetObject,
+    template: str,
+    cache_path: Path,
+    ledger_path: Path | None,
+    jobs: int,
+    objdump_path: str,
+    section: str,
+    environment_for: Callable[[Candidate], dict[str, str]],
+    compile_cwd_path: Path,
+    keep_path: Path | None,
+    stop_on_exact: bool,
+    timeout: float | None,
+    stream_limit: int,
+    artifact_path: Path | None,
+    candidate_metadata: Mapping[str, dict[str, Any]],
+    selected_region: RegionConstraint | None,
+    deduplicate_ledger: bool,
+) -> list[CompileResult]:
+    """Execute prepared candidates through one lifecycle and target image."""
+
+    results: list[CompileResult] = []
+    queue = iter(candidates)
+    pending: dict[concurrent.futures.Future[CompileResult], Candidate] = {}
+    recorded_keys = (
+        recorded_ledger_keys(ledger_path)
+        if ledger_path is not None and deduplicate_ledger
+        else set()
+    )
+
+    def collect(
+        future: concurrent.futures.Future[CompileResult], candidate: Candidate
+    ) -> CompileResult:
+        """Turn one finished future into a result, including a failure."""
+
+        try:
+            return future.result()
+        except Exception as error:
+            return CompileResult(
+                source=display_path(candidate.source),
+                command=candidate.command,
+                returncode=1,
+                stdout="",
+                stderr=f"campaign error: {type(error).__name__}: {error}",
+                object_path=None,
+                comparison=None,
+                cache_key=candidate.cache_key,
+                experiment=candidate_metadata.get(candidate.cache_key),
+            )
+
+    def record(
+        future: concurrent.futures.Future[CompileResult], candidate: Candidate
+    ) -> CompileResult:
+        result = collect(future, candidate)
+        results.append(result)
+        if ledger_path and (
+            not deduplicate_ledger or result.cache_key not in recorded_keys
+        ):
+            append_ledger(
+                ledger_path,
+                result,
+                duplicate_sources=duplicates[result.cache_key],
+                provenance=candidate.provenance,
+                timeout=timeout,
+            )
+            recorded_keys.add(result.cache_key)
+        return result
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
+
+        def submit_next(count: int) -> None:
+            for candidate in itertools.islice(queue, count):
+                pending[
+                    executor.submit(
+                        _compile_candidate,
+                        candidate,
+                        target=target_object,
+                        template=template,
+                        cache_dir=cache_path,
+                        objdump=objdump_path,
+                        section=section,
+                        environment=environment_for(candidate),
+                        compile_cwd=compile_cwd_path,
+                        keep_dir=keep_path,
+                        timeout=timeout,
+                        stream_limit=stream_limit,
+                        artifact_dir=artifact_path,
+                        experiment=candidate_metadata.get(candidate.cache_key),
+                        selected_region=selected_region,
+                    )
+                ] = candidate
+
+        try:
+            submit_next(jobs)
+            stop = False
+            while pending and not stop:
+                done, _ = concurrent.futures.wait(
+                    pending,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                for future in done:
+                    result = record(future, pending.pop(future))
+                    comparison = result.comparison
+                    if stop_on_exact and comparison is not None and comparison.exact:
+                        stop = True
+                if not stop:
+                    submit_next(len(done))
+            for future in list(pending):
+                if future.cancel():
+                    del pending[future]
+            concurrent.futures.wait(pending)
+            for future in list(pending):
+                record(future, pending.pop(future))
+        except BaseException:
+            for future in pending:
+                future.cancel()
+            terminate_running_compilers()
+            raise
+    results.sort(key=campaign_result_sort_key)
+    return results
+
+
 def run_campaign(
     sources: Iterable[str | Path],
     *,
@@ -473,6 +667,10 @@ def run_campaign(
     keep_objects: str | Path | None = None,
     stop_on_exact: bool = True,
     timeout: float | None = 120.0,
+    stream_limit: int = DEFAULT_STREAM_LIMIT,
+    artifact_dir: str | Path | None = None,
+    candidate_metadata: dict[str, dict[str, Any]] | None = None,
+    selected_region: RegionConstraint | None = None,
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
     """Compile a candidate set and return results in deterministic order.
 
@@ -489,6 +687,8 @@ def run_campaign(
         raise ValueError("--jobs must be at least 1")
     if timeout is not None and timeout <= 0:
         raise ValueError("--timeout must be positive")
+    if stream_limit < 0:
+        raise ValueError("--stream-limit must be non-negative")
     target_path = Path(target).expanduser().resolve()
     if not target_path.is_file():
         raise FileNotFoundError(f"target object does not exist: {target_path}")
@@ -508,6 +708,9 @@ def run_campaign(
     keep_path = Path(keep_objects).expanduser().resolve() if keep_objects else None
     if keep_path:
         keep_path.mkdir(parents=True, exist_ok=True)
+    artifact_path = Path(artifact_dir).expanduser().resolve() if artifact_dir else None
+    if artifact_path:
+        artifact_path.mkdir(parents=True, exist_ok=True)
     ledger_path = Path(ledger).expanduser().resolve() if ledger else None
     if ledger_path:
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -525,112 +728,182 @@ def run_campaign(
     target_object = load_target(
         target_path, objdump=objdump_path, symbol=symbol, section=section
     )
-    results: list[CompileResult] = []
-    queue = iter(candidates)
-    pending: dict[concurrent.futures.Future[CompileResult], Candidate] = {}
-
-    def collect(
-        future: concurrent.futures.Future[CompileResult], candidate: Candidate
-    ) -> CompileResult:
-        """Turn one finished future into a result, including a failure.
-
-        A candidate that raises an unmodelled error is a failed candidate,
-        not a failed campaign: discarding the other results would throw away
-        work the campaign already paid for. ``KeyboardInterrupt`` and
-        ``SystemExit`` are not caught here; they end the run.
-        """
-
-        try:
-            return future.result()
-        except Exception as error:
-            return CompileResult(
-                source=display_path(candidate.source),
-                command=candidate.command,
-                returncode=1,
-                stdout="",
-                stderr=f"campaign error: {type(error).__name__}: {error}",
-                object_path=None,
-                comparison=None,
-                cache_key=candidate.cache_key,
-            )
-
-    def record(
-        future: concurrent.futures.Future[CompileResult], candidate: Candidate
-    ) -> CompileResult:
-        result = collect(future, candidate)
-        results.append(result)
-        if ledger_path:
-            append_ledger(
-                ledger_path,
-                result,
-                duplicate_sources=duplicates[result.cache_key],
-                provenance=candidate.provenance,
-                timeout=timeout,
-            )
-        return result
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
-
-        def submit_next(count: int) -> None:
-            for candidate in itertools.islice(queue, count):
-                pending[
-                    executor.submit(
-                        _compile_candidate,
-                        candidate,
-                        target=target_object,
-                        template=template,
-                        cache_dir=cache_path,
-                        objdump=objdump_path,
-                        section=section,
-                        environment=env,
-                        compile_cwd=compile_cwd_path,
-                        keep_dir=keep_path,
-                        timeout=timeout,
-                    )
-                ] = candidate
-
-        try:
-            # Candidates are submitted in flight-sized batches rather than all
-            # at once so that stopping early actually stops work instead of
-            # cancelling futures the pool has already picked up.
-            submit_next(jobs)
-            stop = False
-            while pending and not stop:
-                done, _ = concurrent.futures.wait(
-                    pending, return_when=concurrent.futures.FIRST_COMPLETED
-                )
-                for future in done:
-                    result = record(future, pending.pop(future))
-                    comparison = result.comparison
-                    if stop_on_exact and comparison is not None and comparison.exact:
-                        stop = True
-                if not stop:
-                    submit_next(len(done))
-            # Stopping means "submit nothing further". Candidates the pool had
-            # already started cannot be cancelled, so they are waited for and
-            # recorded: their objects exist, and a ledger that omitted them
-            # would misreport what the campaign actually tested.
-            for future in list(pending):
-                if future.cancel():
-                    del pending[future]
-            concurrent.futures.wait(pending)
-            for future in list(pending):
-                record(future, pending.pop(future))
-        except BaseException:
-            # Interrupts and errors must not leave compilers (or the tools a
-            # compiler wrapper spawned) running after the campaign.
-            for future in pending:
-                future.cancel()
-            terminate_running_compilers()
-            raise
-    results.sort(
-        key=lambda item: (
-            item.comparison is None,
-            item.comparison.sort_key if item.comparison else (),
-            item.source,
-        )
+    results = _execute_candidates(
+        candidates,
+        duplicates,
+        target_object=target_object,
+        template=template,
+        cache_path=cache_path,
+        ledger_path=ledger_path,
+        jobs=jobs,
+        objdump_path=objdump_path,
+        section=section,
+        environment_for=lambda _candidate: env,
+        compile_cwd_path=compile_cwd_path,
+        keep_path=keep_path,
+        stop_on_exact=stop_on_exact,
+        timeout=timeout,
+        stream_limit=stream_limit,
+        artifact_path=artifact_path,
+        candidate_metadata=candidate_metadata or {},
+        selected_region=selected_region,
+        deduplicate_ledger=False,
     )
     return results, duplicates
+
+
+def run_parameterized_campaign(
+    variants: Sequence[ParameterizedCandidate],
+    *,
+    target: str | Path,
+    template: str,
+    cache_dir: str | Path,
+    ledger: str | Path | None = None,
+    jobs: int = 1,
+    objdump: str | None = None,
+    symbol: str | None = None,
+    section: str = ".text",
+    compile_cwd: str | Path | None = None,
+    keep_objects: str | Path | None = None,
+    stop_on_exact: bool = False,
+    timeout: float | None = 120.0,
+    stream_limit: int = DEFAULT_STREAM_LIMIT,
+    artifact_dir: str | Path | None = None,
+) -> list[CompileResult]:
+    """Run one source under many explicit environments in one campaign core."""
+
+    if jobs < 1:
+        raise ValueError("--jobs must be at least 1")
+    if timeout is not None and timeout <= 0:
+        raise ValueError("--timeout must be positive")
+    if stream_limit < 0:
+        raise ValueError("--stream-limit must be non-negative")
+    target_path = Path(target).expanduser().resolve()
+    if not target_path.is_file():
+        raise FileNotFoundError(f"target object does not exist: {target_path}")
+    cwd = (
+        Path(compile_cwd).expanduser().resolve()
+        if compile_cwd
+        else Path.cwd().resolve()
+    )
+    if not cwd.is_dir():
+        raise NotADirectoryError(f"compiler working directory does not exist: {cwd}")
+    objdump_path = discover_objdump(objdump)
+    cache_path = Path(cache_dir).expanduser().resolve()
+    cache_path.mkdir(parents=True, exist_ok=True)
+    keep_path = Path(keep_objects).expanduser().resolve() if keep_objects else None
+    if keep_path:
+        keep_path.mkdir(parents=True, exist_ok=True)
+    artifact_path = Path(artifact_dir).expanduser().resolve() if artifact_dir else None
+    if artifact_path:
+        artifact_path.mkdir(parents=True, exist_ok=True)
+    ledger_path = Path(ledger).expanduser().resolve() if ledger else None
+    if ledger_path:
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    candidates: list[Candidate] = []
+    duplicates: dict[str, list[str]] = {}
+    environments: dict[str, dict[str, str]] = {}
+    metadata: dict[str, dict[str, Any]] = {}
+    for variant in variants:
+        prepared, _ = prepare_candidates(
+            [variant.source],
+            template=template,
+            target=target_path,
+            symbol=symbol,
+            environment=variant.environment,
+            compile_cwd=cwd,
+            section=section,
+            objdump=objdump_path,
+        )
+        candidate = prepared[0]
+        if candidate.cache_key in environments:
+            raise ValueError(
+                "parameterized candidates have duplicate source/environment inputs"
+            )
+        candidates.append(candidate)
+        duplicates[candidate.cache_key] = [display_path(candidate.source)]
+        environments[candidate.cache_key] = variant.environment
+        metadata[candidate.cache_key] = variant.metadata
+
+    target_object = load_target(
+        target_path,
+        objdump=objdump_path,
+        symbol=symbol,
+        section=section,
+    )
+    return _execute_candidates(
+        candidates,
+        duplicates,
+        target_object=target_object,
+        template=template,
+        cache_path=cache_path,
+        ledger_path=ledger_path,
+        jobs=jobs,
+        objdump_path=objdump_path,
+        section=section,
+        environment_for=lambda candidate: environments[candidate.cache_key],
+        compile_cwd_path=cwd,
+        keep_path=keep_path,
+        stop_on_exact=stop_on_exact,
+        timeout=timeout,
+        stream_limit=stream_limit,
+        artifact_path=artifact_path,
+        candidate_metadata=metadata,
+        selected_region=None,
+        deduplicate_ledger=True,
+    )
+
+
+def region_score(
+    comparison: Comparison,
+    constraint: RegionConstraint,
+) -> dict[str, Any]:
+    """Score one protected instruction region separately from its complement."""
+
+    sites = comparison.aligned_diff_sites
+    inside = [
+        site
+        for site in sites
+        if constraint.start <= int(site["index"]) < constraint.end
+    ]
+    outside = [
+        site
+        for site in sites
+        if not constraint.start <= int(site["index"]) < constraint.end
+    ]
+    covered = (
+        comparison.target_instructions >= constraint.end
+        and comparison.candidate_instructions >= constraint.end
+    )
+    return {
+        **constraint.as_dict(),
+        "covered": covered,
+        "exact": covered and not inside,
+        "selected_mismatches": len(inside),
+        "outside_mismatches": len(outside),
+        "outside_residual_sites": outside[:64],
+        "outside_residual_sites_truncated": len(outside) > 64,
+    }
+
+
+def campaign_result_sort_key(result: CompileResult) -> tuple[object, ...]:
+    """Rank region preservation before the ordinary whole-function metric."""
+
+    region = result.region
+    region_key: tuple[object, ...] = ()
+    if region is not None:
+        region_key = (
+            not bool(region["exact"]),
+            int(region["selected_mismatches"]),
+            int(region["outside_mismatches"]),
+        )
+    return (
+        result.comparison is None,
+        *region_key,
+        result.comparison.sort_key if result.comparison else (),
+        result.source,
+    )
 
 
 def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileResult]]:

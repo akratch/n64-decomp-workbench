@@ -53,7 +53,10 @@ If it differs, the command reports the exact path and leaves it untouched.
 - evidence hierarchy and final-oracle discipline;
 - classification of structural, allocator, relocation, and cross-ROM residuals;
 - IDO lifetime, fake-local, loop-form, and force-probe experiments;
-- reproducible candidate campaigns and object-basin interpretation;
+- combined `diagnose` evidence and the field-guide lever selection;
+- persistent campaign status, hypotheses, resume, experiment manifests,
+  selected regions, and object-basin interpretation;
+- semantic web/source correlation and calibrated allocator oracle discipline;
 - safe decomp.me export checking and site-faithful source composition;
 - safe public proof artifacts and a tooling-gap capture loop.
 
