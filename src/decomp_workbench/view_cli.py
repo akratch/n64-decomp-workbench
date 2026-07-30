@@ -33,7 +33,12 @@ from .cli_options import (
 from .force_spec import write_force_specification
 from .html_report import render_diagnosis_html
 from .model import Instruction, display_path
-from .objdump import dump_object, parse_disassembly
+from .objdump import (
+    cross_function_warning,
+    dump_object,
+    parse_disassembly,
+    symbol_selection_error,
+)
 from .schema import VIEW_CENSUS_KEYS
 from .terminal import add_terminal_arguments, emit_lines
 from .view import (
@@ -356,11 +361,20 @@ def render_view(
     lane_window: int = 32,
     report_regs: bool = False,
     painter: Painter | None = None,
+    show_warnings: bool = True,
 ) -> list[str]:
-    """Render the whole screen as lines of monochrome-safe text."""
+    """Render the whole screen as lines of monochrome-safe text.
+
+    `show_warnings=False` is for `diagnose`, which owns a screen holding two
+    reports built from the same inputs and would otherwise print one input
+    warning twice.
+    """
 
     brush = painter or Painter(False)
-    lines = render_header(view)
+    lines = (
+        [f"warning: {warning}" for warning in view.warnings] if show_warnings else []
+    )
+    lines.extend(render_header(view))
     if view.register_first_divergence:
         lines.append(
             brush.warn(
@@ -475,11 +489,17 @@ def view_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:
-        _, target = dump_object(
+        target_text, target = dump_object(
             args.target, objdump=args.objdump, symbol=symbol, section=args.section
         )
-        _, candidate = dump_object(
+        candidate_text, candidate = dump_object(
             args.candidate, objdump=args.objdump, symbol=symbol, section=args.section
+        )
+        warning = cross_function_warning(
+            target_text,
+            candidate_text,
+            symbol=symbol,
+            section=args.section,
         )
         view = build_view(
             target,
@@ -488,6 +508,7 @@ def view_command(args: argparse.Namespace) -> int:
             candidate_name=display_path(args.candidate),
             symbol=symbol,
             register_profile=args.register_profile,
+            warnings=(warning,) if warning else (),
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -513,13 +534,19 @@ def view_dumps_command(args: argparse.Namespace) -> int:
     target: list[Instruction] = parse_disassembly(target_text, symbol=symbol)
     candidate: list[Instruction] = parse_disassembly(candidate_text, symbol=symbol)
     if not target or not candidate:
-        detail = f" for symbol {symbol!r}" if symbol else ""
         print(
-            "error: both files must contain GNU-style objdump instruction "
-            f"lines{detail}",
+            "error: "
+            + symbol_selection_error(
+                symbol,
+                inputs=(
+                    (display_path(args.target), target_text),
+                    (display_path(args.candidate), candidate_text),
+                ),
+            ),
             file=sys.stderr,
         )
         return 2
+    warning = cross_function_warning(target_text, candidate_text, symbol=symbol)
     try:
         view = build_view(
             target,
@@ -528,6 +555,7 @@ def view_dumps_command(args: argparse.Namespace) -> int:
             candidate_name=display_path(args.candidate),
             symbol=symbol,
             register_profile=args.register_profile,
+            warnings=(warning,) if warning else (),
         )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)

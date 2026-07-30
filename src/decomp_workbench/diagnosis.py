@@ -9,7 +9,12 @@ from typing import Any
 
 from .compare import compare_instructions
 from .model import Comparison, Instruction, display_path
-from .objdump import dump_object, parse_disassembly
+from .objdump import (
+    cross_function_warning,
+    dump_object,
+    parse_disassembly,
+    symbol_selection_error,
+)
 from .view import DEFAULT_REGISTER_PROFILE, MechanismView, build_view
 
 DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v1"
@@ -55,6 +60,7 @@ def diagnose_instructions(
     candidate_name: str,
     symbol: str | None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
+    warnings: Sequence[str] = (),
 ) -> Diagnosis:
     """Build both reports from two already-parsed instruction streams."""
 
@@ -66,6 +72,7 @@ def diagnose_instructions(
         target_name=target_name,
         candidate_name=candidate_name,
         symbol=symbol,
+        warnings=warnings,
     )
     view = build_view(
         target_items,
@@ -74,6 +81,7 @@ def diagnose_instructions(
         candidate_name=candidate_name,
         symbol=symbol,
         register_profile=register_profile,
+        warnings=warnings,
     )
     return Diagnosis(comparison=comparison, view=view)
 
@@ -89,15 +97,21 @@ def diagnose_objects(
 ) -> Diagnosis:
     """Disassemble each object once, then build both reports in process."""
 
-    _, target_items = dump_object(
+    target_text, target_items = dump_object(
         target,
         objdump=objdump,
         symbol=symbol,
         section=section,
     )
-    _, candidate_items = dump_object(
+    candidate_text, candidate_items = dump_object(
         candidate,
         objdump=objdump,
+        symbol=symbol,
+        section=section,
+    )
+    warning = cross_function_warning(
+        target_text,
+        candidate_text,
         symbol=symbol,
         section=section,
     )
@@ -108,6 +122,7 @@ def diagnose_objects(
         candidate_name=display_path(candidate),
         symbol=symbol,
         register_profile=register_profile,
+        warnings=(warning,) if warning else (),
     )
 
 
@@ -120,21 +135,21 @@ def diagnose_dumps(
 ) -> Diagnosis:
     """Load each retained dump once, then build both reports."""
 
-    target_path = Path(target)
-    candidate_path = Path(candidate)
-    target_items = parse_disassembly(
-        target_path.read_text(encoding="utf-8"),
-        symbol=symbol,
-    )
-    candidate_items = parse_disassembly(
-        candidate_path.read_text(encoding="utf-8"),
-        symbol=symbol,
-    )
+    target_text = Path(target).read_text(encoding="utf-8")
+    candidate_text = Path(candidate).read_text(encoding="utf-8")
+    target_items = parse_disassembly(target_text, symbol=symbol)
+    candidate_items = parse_disassembly(candidate_text, symbol=symbol)
     if not target_items or not candidate_items:
-        detail = f" for symbol {symbol!r}" if symbol else ""
         raise ValueError(
-            f"both files must contain GNU-style objdump instruction lines{detail}"
+            symbol_selection_error(
+                symbol,
+                inputs=(
+                    (display_path(target), target_text),
+                    (display_path(candidate), candidate_text),
+                ),
+            )
         )
+    warning = cross_function_warning(target_text, candidate_text, symbol=symbol)
     return diagnose_instructions(
         target_items,
         candidate_items,
@@ -142,4 +157,5 @@ def diagnose_dumps(
         candidate_name=display_path(candidate),
         symbol=symbol,
         register_profile=register_profile,
+        warnings=(warning,) if warning else (),
     )

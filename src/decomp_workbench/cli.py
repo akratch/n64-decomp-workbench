@@ -1486,6 +1486,22 @@ def replay_as1_command(args: argparse.Namespace) -> int:
     return 0
 
 
+#: What a reader who typed the program name and nothing else needs.
+#:
+#: argparse's answer was a comma-separated wall of 44 command names and exit
+#: 2, which reads as a failure and names no starting point. Four lines that
+#: say what this is and where to go next cost nothing and are the first thing
+#: anyone sees.
+WELCOME = (
+    "decomp-workbench: diagnose why an almost-matching MIPS object still "
+    "differs, and what to change next.",
+    "New here? Run `decomp-workbench commands` for the compact map, or read "
+    "docs/START_HERE.md",
+    "Full command list: decomp-workbench --help",
+    "Name a lever family: decomp-workbench guide <playbook|verdict|lever>",
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="decomp-workbench",
@@ -1493,12 +1509,23 @@ def build_parser() -> argparse.ArgumentParser:
             "MIPS object diagnosis, decomp.me handoffs, candidate campaigns, "
             "compiler traces, and pass replay"
         ),
+        epilog=(
+            "Start with `decomp-workbench commands` for the compact "
+            "journey map, or docs/START_HERE.md for the whole workflow."
+        ),
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
     add_explain_keys_argument(parser)
-    commands = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(
+        dest="command",
+        required=True,
+        # The generated ``{a,b,c,...}`` metavar is 44 names wide and is the
+        # first thing an error prints. One word plus a pointer is readable.
+        metavar="COMMAND",
+        help="run `decomp-workbench commands` for the compact journey map",
+    )
 
     # `view` and `view-dumps` read the same two inputs as `compare` and
     # `compare-dumps` and answer the next question about them, so they belong
@@ -1786,6 +1813,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments:
+        print("\n".join(WELCOME))
+        return 0
     arguments = rewrite_group_alias(arguments)
     json_requested = "--json" in arguments or "--json-summary" in arguments
     parser = build_parser()

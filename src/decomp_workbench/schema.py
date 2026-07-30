@@ -252,6 +252,11 @@ METRICS: tuple[Metric, ...] = (
         "histogram of candidate N(sp) operands; spill and local-home evidence",
     ),
     Metric("guidance", "guidance", "the next useful action for this verdict"),
+    Metric(
+        "warnings",
+        "warnings",
+        "conditions that make this verdict answer a different question",
+    ),
     Metric("symbol", "symbol", "selected function, or null for a whole section"),
     Metric("target", "target", "reference object or dump"),
     Metric("candidate", "candidate", "candidate object, dump, or source path"),
@@ -383,6 +388,11 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("lanes", "lanes", "per-class register assignment sequences"),
     Metric("webs", "webs", "consistent register substitutions, grouped"),
     Metric("next", "next", "lever guidance for the dominant class"),
+    Metric(
+        "warnings",
+        "warnings",
+        "conditions that make this verdict answer a different question",
+    ),
     Metric(
         "register_report",
         "register_report",

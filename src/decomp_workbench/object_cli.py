@@ -28,9 +28,14 @@ from .comparison_render import (
     comparison_line,
     comparison_payload,
     diff_site_lines,
+    warning_lines,
 )
 from .model import Comparison, display_path
-from .objdump import parse_disassembly
+from .objdump import (
+    cross_function_warning,
+    parse_disassembly,
+    symbol_selection_error,
+)
 from .schema import COMPARISON_CENSUS_KEYS
 
 Handler = Callable[[argparse.Namespace], int]
@@ -100,6 +105,8 @@ def _emit_comparison(
             )
         )
     else:
+        for line in warning_lines(comparison.warnings):
+            print(line)
         print(comparison_line(comparison))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         if show_ranges:
@@ -153,16 +160,25 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         target = parse_disassembly(target_text, symbol=args.symbol)
         candidate = parse_disassembly(candidate_text, symbol=args.symbol)
         if not target or not candidate:
-            detail = f" for symbol {args.symbol!r}" if args.symbol else ""
             raise ValueError(
-                f"both files must contain GNU-style objdump instruction lines{detail}"
+                symbol_selection_error(
+                    args.symbol,
+                    inputs=(
+                        (display_path(args.target), target_text),
+                        (display_path(args.candidate), candidate_text),
+                    ),
+                )
             )
+        warning = cross_function_warning(
+            target_text, candidate_text, symbol=args.symbol
+        )
         comparison = compare_instructions(
             target,
             candidate,
             target_name=display_path(args.target),
             candidate_name=display_path(args.candidate),
             symbol=args.symbol,
+            warnings=(warning,) if warning else (),
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -206,6 +222,8 @@ def rank_command(args: argparse.Namespace) -> int:
         )
     else:
         for rank, item in enumerate(limited, 1):
+            for line in warning_lines(item.warnings):
+                print(line)
             print(f"{rank:3d} {comparison_line(item)}")
         for failure in errors:
             print(

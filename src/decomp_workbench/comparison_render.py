@@ -16,6 +16,17 @@ def comparison_line(item: Comparison) -> str:
     return summary_line(item)
 
 
+def warning_lines(warnings: Sequence[str]) -> list[str]:
+    """Render input warnings as the first thing a reader sees.
+
+    Ahead of the verdict, not beside the evidence: these say the comparison
+    answered a different question than the one that was asked, and a reader who
+    meets one after the numbers has already believed the numbers.
+    """
+
+    return [f"warning: {warning}" for warning in warnings]
+
+
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
     """Return command acceptance independently from the evidence verdict."""
 

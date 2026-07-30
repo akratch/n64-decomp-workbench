@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Refused to report a confident verdict about two unrelated functions.
+  With no `--function` and exactly one differently-named symbol on each side,
+  `compare`, `view`, `diagnose`, and `rank` now print a warning ahead of the
+  verdict, carry it in `--json`, and say which option fixes it. A multi-symbol
+  input is still the documented whole-section mode and stays quiet.
+
+- Made the novice path legible. The bare program name welcomes and exits `0`
+  instead of printing a 44-command choice wall and exiting `2`; the usage line
+  is one word plus a pointer to `commands`; the `commands` footer teaches the
+  same flat spelling as README and START_HERE; `--symbol`/`--function` says
+  what omitting it means; `docs/README.md` defines IDO, asm-processor,
+  ugen/uopt, and decomp.me, which are also glossed at first use.
+
+- Sharpened two error messages to the standard the census-key error sets.
+  A missing symbol lists what each input actually defines, states that names
+  are case-sensitive, and links the troubleshooting section; an objdump
+  `file format not recognized` failure names the likely cause before quoting
+  objdump's own words underneath.
+
+- Put the trace back where the documentation always had it.
+  `allocation-mismatch` now sends the reader to `view`/`diagnose` and the
+  field-guide levers first, and gates the globalcolor/UGEN trace on those
+  levers being exhausted *and* an instrumented toolchain already existing. The
+  `pool-position` and `temp-fifo-phase` footers lead with their source-only
+  branch for the same reason, and `pool-position` now says up front that it is
+  one of three unresolved allocation families rather than implying a decision
+  the verdict did not make.
+
 - Gave every verdict an on-ramp. The `next:` footer of `compare`, `view`, and
   `diagnose` now keeps its expert content and adds the matching field-guide
   lever numbers with a one-line action each, the literal

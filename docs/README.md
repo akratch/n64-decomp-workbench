@@ -3,6 +3,18 @@
 Read in this order. The first three pages are the whole workflow; everything
 below them is reference you consult when you need it.
 
+## Terms, if you are new to N64 decomp
+
+- **IDO** — SGI's optimizing MIPS C compiler for IRIX, and the usual N64
+  decompilation target. Its passes are what every verdict here is about.
+- **asm-processor** — the community preprocessor that lets hand-written MIPS
+  assembly live inside C while a function is still being matched.
+- **ugen / uopt** — IDO's code generator and optimizer passes. `uopt` colors
+  variable webs into the register pool; `ugen` rotates block-local expression
+  temps. The trace commands read their internal state.
+- **decomp.me** — the community's browser service for sharing a scratch and
+  scoring how close a candidate is.
+
 ## Start
 
 | Read this if... | Document |

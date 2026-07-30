@@ -119,9 +119,30 @@ class LeverMappingTests(unittest.TestCase):
 
         for playbook in ("forced-color-oracle", "pool-position", "temp-fifo-phase"):
             with self.subTest(playbook=playbook):
-                text = "\n".join(field_guide.PLAYBOOK_ONRAMPS[playbook])
-                self.assertIn("have", text)
-                self.assertIn("don't have one?", text)
+                steps = field_guide.PLAYBOOK_ONRAMPS[playbook]
+                self.assertTrue(any(step.startswith("have") for step in steps))
+                self.assertTrue(any(step.startswith("don't have") for step in steps))
+
+    def test_the_source_branch_comes_first_where_source_still_works(self) -> None:
+        """Trace last is the documented order; a footer teaches it or fights it.
+
+        `forced-color-oracle` is the deliberate exception: lever 19 is the
+        point where source search is genuinely over, so its instrumented
+        branch leads.
+        """
+
+        for playbook in ("pool-position", "temp-fifo-phase"):
+            with self.subTest(playbook=playbook):
+                first = field_guide.PLAYBOOK_ONRAMPS[playbook][0]
+                self.assertTrue(first.startswith("don't have"))
+        oracle = field_guide.PLAYBOOK_ONRAMPS["forced-color-oracle"][0]
+        self.assertTrue(oracle.startswith("have an instrumented toolchain?"))
+
+    def test_the_catch_all_playbook_admits_it_is_a_catch_all(self) -> None:
+        caveat = field_guide.PLAYBOOK_CAVEATS["pool-position"]
+        self.assertIn("three unresolved allocation families", caveat)
+        _, stdout, _ = run_cli(["guide", "pool-position", "--pager", "never"])
+        self.assertIn("three unresolved allocation families", stdout)
 
 
 class GuideCommandTests(unittest.TestCase):

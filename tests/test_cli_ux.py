@@ -6,7 +6,6 @@ import argparse
 import contextlib
 import io
 import json
-import re
 import sys
 import tempfile
 import unittest
@@ -235,11 +234,20 @@ class CliUxTests(unittest.TestCase):
                 self.assertIn("--function", selector[0])
 
     def test_the_two_input_commands_are_listed_together(self) -> None:
-        """`view` answers the next question about the inputs `compare` reads."""
+        """`view` answers the next question about the inputs `compare` reads.
 
-        listing = re.search(r"\{([^}]+)\}", build_parser().format_help())
-        assert listing is not None
-        order = re.sub(r"\s+", "", listing.group(1)).split(",")
+        Read from the visible choice actions rather than the usage metavar:
+        the metavar is one word now, because forty-odd names inline made every
+        argument error unreadable. The listed order is still the promise.
+        """
+
+        parser = build_parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        order = [choice.dest for choice in subparsers._choices_actions]
         self.assertEqual(
             order[:6],
             [
@@ -460,6 +468,56 @@ class CliUxTests(unittest.TestCase):
         self.assertEqual(json.loads(first_stdout)["status"], "installed")
         self.assertEqual(second_status, 0)
         self.assertEqual(json.loads(second_stdout)["status"], "current")
+
+    def test_the_bare_program_name_welcomes_instead_of_failing(self) -> None:
+        """Typing the name is curiosity, not a usage error.
+
+        argparse answered it with a 44-name choice wall and exit 2, which reads
+        as "you did something wrong" and names no starting point.
+        """
+
+        status, stdout, stderr = self.run_cli([])
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        lines = stdout.splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertIn("decomp-workbench commands", stdout)
+        self.assertIn("docs/START_HERE.md", stdout)
+        self.assertIn("--help", stdout)
+
+    def test_the_usage_line_is_one_word_not_a_command_wall(self) -> None:
+        help_text = build_parser().format_help()
+        usage = help_text.split("\n\n", 1)[0]
+        self.assertIn("COMMAND", usage)
+        self.assertNotIn("compare-dumps", usage)
+        # the pointer survives in both the subparser help and the epilog
+        self.assertIn("decomp-workbench commands", help_text)
+
+    def test_the_first_recommended_command_matches_the_narrative_docs(self) -> None:
+        """README and START_HERE teach the flat spelling exclusively."""
+
+        status, stdout, _ = self.run_cli(["commands"])
+        self.assertEqual(status, 0)
+        self.assertIn("decomp-workbench diagnose target.o candidate.o", stdout)
+        self.assertNotIn("object diagnose TARGET CANDIDATE", stdout)
+
+    def test_every_selector_says_what_omitting_it_means(self) -> None:
+        parser = build_parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        for command in SYMBOL_COMMANDS:
+            with self.subTest(command=command):
+                child = subparsers.choices[command]
+                selector = next(
+                    action
+                    for action in child._actions
+                    if "--symbol" in action.option_strings
+                )
+                assert selector.help is not None
+                self.assertIn("whole section positionally", selector.help)
 
 
 if __name__ == "__main__":

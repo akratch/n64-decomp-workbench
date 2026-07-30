@@ -25,6 +25,7 @@ from .comparison_render import (
     comparison_explanation_lines,
     comparison_line,
     diff_site_lines,
+    warning_lines,
 )
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
 from .force_spec import write_force_specification
@@ -94,7 +95,11 @@ def _emit(
                 nested["census"] = [item.as_dict() for item in census]
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        lines = ["COMPARISON", comparison_line(comparison)]
+        lines = [
+            *warning_lines(comparison.warnings),
+            "COMPARISON",
+            comparison_line(comparison),
+        ]
         lines.extend(
             comparison_explanation_lines(
                 comparison,
@@ -121,6 +126,7 @@ def _emit(
                 ),
                 report_regs=args.report_regs,
                 painter=painter,
+                show_warnings=False,
             )
         )
         lines.extend(item.line for item in census)

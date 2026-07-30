@@ -362,6 +362,10 @@ class MechanismView:
     lanes: tuple[Lane, ...]
     webs: tuple[Web, ...]
     guidance: tuple[str, ...]
+    #: Reasons not to trust the verdict, as opposed to findings about the
+    #: code. Rendered ahead of everything else by the commands that own the
+    #: screen; carried here so `--json` consumers see them too.
+    warnings: tuple[str, ...] = ()
 
     @property
     def aligned_rows(self) -> int:
@@ -419,6 +423,7 @@ class MechanismView:
             "lanes": [item.as_dict() for item in self.lanes],
             "webs": [item.as_dict() for item in self.webs],
             "next": list(self.guidance),
+            "warnings": list(self.warnings),
         }
         for name in CLASS_ORDER:
             payload[name] = self.counts.get(name, 0)
@@ -1319,6 +1324,7 @@ def build_view(
     candidate_name: str,
     symbol: str | None = None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
+    warnings: Sequence[str] = (),
 ) -> MechanismView:
     """Align two instruction streams and classify the residual by mechanism."""
 
@@ -1464,6 +1470,7 @@ def build_view(
         lanes=lanes,
         webs=webs,
         guidance=_guidance(verdict, counts, lanes, webs, hunks) + next_steps(playbook),
+        warnings=tuple(warnings),
     )
 
 

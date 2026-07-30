@@ -48,8 +48,10 @@ Day-to-day, start with `diagnose`; use `compare` for a compact gate and `view
 ## Minute 1 — "Do I need to isolate the function first?"
 
 **No. Do not isolate.** Build your translation unit exactly the way your
-project normally builds it, with asm-processor and everything else in the
-chain, and point the workbench at the resulting `.o`:
+project normally builds it, with asm-processor (the community preprocessor
+that keeps hand-written MIPS assembly inside C while a function is still being
+matched) and everything else in the chain, and point the workbench at the
+resulting `.o`:
 
 ```sh
 decomp-workbench compare expected/code/foo.o build/src/code/foo.o \
@@ -235,7 +237,8 @@ order, **including the instructions that match**. That inclusion is the whole
 point: the signal here lives in the temps that matched. Diff only the
 mismatched instructions and the queue is invisible.
 
-IDO 5.3 has two register populations, and they behave differently:
+IDO (SGI's optimizing MIPS C compiler, the usual N64 decomp target) 5.3
+has two register populations, and they behave differently:
 
 - **pool** (`v0 v1 a0-a3 t0-t5`) — uopt's colored variable webs. Lowest free
   index wins.
@@ -341,7 +344,7 @@ The mapping is direct:
 | `ast-shape` | [Commutative operand order](field-guide.md#2-commutative-operand-order) |
 | `g0-schedule-probe` | [The `-g0` diagnostic](field-guide.md#3-the--g0-diagnostic) |
 | `temp-fifo-phase` | [Temp-FIFO phase](field-guide.md#the-temp-fifo-lane-ugen) |
-| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) |
+| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) — one of three unresolved allocation families; read `view`'s footer for which |
 | `forced-color-oracle` | [Callee-saved tie-breaks](field-guide.md#19-callee-saved-tie-breaks-and-the-forced-color-oracle) |
 | `structure-buckets` | [Structure first](field-guide.md#working-a-structure-mismatch) |
 

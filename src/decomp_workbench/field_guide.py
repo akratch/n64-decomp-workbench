@@ -213,20 +213,25 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "don't have one? the -g0 rebuild is levers 3 and 4 and needs only your "
         "normal compiler; run it before anything else.",
     ),
+    # Source levers first, trace last: that is the documented order of work,
+    # and a footer that led with instrumentation taught the opposite to every
+    # reader who has none. `forced-color-oracle` is the deliberate exception -
+    # lever 19 is the point at which source search is genuinely over.
     "temp-fifo-phase": (
-        "have a ugen trace? decomp-workbench trace-fifo TRACE.log replays the "
-        "pool get/put schedule and shows where the rotation was set.",
-        "don't have one? levers 14-16 are pure source and need no "
-        "instrumentation; the lane rotation in this view already locates the "
-        "preceding block.",
+        "don't have an instrumented toolchain? levers 14-16 are pure source "
+        "and are the first move; the lane rotation above already locates the "
+        "preceding block to perturb.",
+        "have one, and those levers are spent? decomp-workbench trace-fifo "
+        "TRACE.log replays the pool get/put schedule.",
     ),
     "pool-position": (
-        "have an instrumented toolchain? docs/compiler-instrumentation.md, "
-        "then decomp-workbench instrument-uopt-globalcolor and "
+        "don't have an instrumented toolchain? levers 7-13 are all "
+        "source-only and are the first move; read lever 9 before building any "
+        "search - it is a dial, not a permutation.",
+        "have one, and those levers are spent? "
+        "docs/compiler-instrumentation.md, then "
+        "decomp-workbench instrument-uopt-globalcolor and "
         "decomp-workbench trace-globalcolor TRACE.log --proc N.",
-        "don't have one? levers 7-13 are all source-only; spend them first, "
-        "and read lever 9 before building any search - it is a dial, not a "
-        "permutation.",
     ),
     "forced-color-oracle": (
         "have an instrumented toolchain? docs/compiler-instrumentation.md, "
@@ -240,6 +245,24 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
     "relocation-only": (
         "prove the spellings are linked-address equivalent: "
         "decomp-workbench relocation-aliases TARGET.o CANDIDATE.o",
+    ),
+}
+
+
+#: Where a playbook name promises more precision than the verdict has.
+#:
+#: `pool-position` is the catch-all for a register residual with no consistent
+#: permutation and no lane rotation, and the guidance under it names three
+#: undifferentiated families. Renaming the tag would contradict the field
+#: guide's own cross-references (levers 7 and 11 print "Points here:
+#: playbook=pool-position"), so the honest fix is to say so where the reader
+#: opens it rather than to invent a tidier label.
+PLAYBOOK_CAVEATS: dict[str, str] = {
+    "pool-position": (
+        "This is one of three unresolved allocation families - temp-FIFO "
+        "phase, pool position, or coalescing. `view`'s footer says which one "
+        "the lanes support; the levers below cover the pool family, and "
+        "levers 14-16 and 17-18 cover the other two."
     ),
 }
 
@@ -475,6 +498,9 @@ def render_topic(topic: Topic, available: dict[int, GuideSection]) -> list[str]:
     if numbers:
         header += f"  levers {numbers}"
     lines = [header, f"source: {GUIDE_DOCUMENT}"]
+    caveat = PLAYBOOK_CAVEATS.get(topic.playbook or "")
+    if caveat is not None:
+        lines.extend(("", caveat))
     for number in topic.levers:
         lines.extend(("", "-" * 72, ""))
         lines.extend(_lever_lines(number, available))

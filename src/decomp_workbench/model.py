@@ -78,6 +78,11 @@ class Comparison:
     diff_sites: list[dict[str, Any]] = field(default_factory=list)
     diff_site_classes: dict[str, int] = field(default_factory=dict)
     aligned_diff_sites: list[dict[str, Any]] = field(default_factory=list)
+    #: Conditions that make the verdict itself untrustworthy, as opposed to
+    #: findings about the code. A reader who ignores one of these is reading a
+    #: correct answer to the wrong question, so renderers print them ahead of
+    #: the verdict line rather than beside the evidence.
+    warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.

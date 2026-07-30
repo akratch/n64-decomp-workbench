@@ -8,6 +8,9 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+#: One readable word in place of argparse's generated choice list.
+COMMAND_METAVAR = "COMMAND"
+
 COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "object": (
         ("diagnose", "one-screen exactness, mechanism, and next lever"),
@@ -175,7 +178,11 @@ def render_command_map(*, group: str | None = None) -> list[str]:
         (
             "",
             "Start here: decomp-workbench doctor",
-            "Common diagnosis: decomp-workbench object diagnose TARGET CANDIDATE",
+            # The flat spelling, because it is the only one README and
+            # START_HERE teach. Grouped spellings are explained in
+            # docs/workflows.md; a first command should match the page the
+            # reader just came from.
+            "Common diagnosis: decomp-workbench diagnose target.o candidate.o",
             "Next lever: decomp-workbench guide <playbook|verdict|lever>",
         )
     )
@@ -213,6 +220,10 @@ def finalize_command_help(
     subparsers and still includes those choices in its generated metavar. It
     exposes no public hook for hiding a parseable subcommand, so keep the
     choices intact and adjust only the two presentation attributes.
+
+    The metavar is a single word rather than the visible-command list. Forty-odd
+    names inline made the usage line — the first thing every argument error
+    prints — unreadable, and the list they replaced is one command away.
     """
 
     commands._choices_actions[:] = [
@@ -220,8 +231,7 @@ def finalize_command_help(
         for choice in commands._choices_actions
         if choice.dest not in HIDDEN_FLAT_COMMANDS
     ]
-    visible = [name for name in commands.choices if name not in HIDDEN_FLAT_COMMANDS]
-    commands.metavar = "{" + ",".join(visible) + "}"
+    commands.metavar = COMMAND_METAVAR
 
 
 def _command_options(parser: argparse.ArgumentParser) -> dict[str, list[str]]:

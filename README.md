@@ -12,7 +12,9 @@ ROM, no compiler, no toolchain, no AI.
 
 It answers the three questions people actually arrive with:
 
-- *Do I need to isolate the function so asm-processor stays out of it?* **No.**
+- *Do I need to isolate the function so asm-processor (the community
+  preprocessor that lets hand-written MIPS assembly live inside C) stays
+  out of it?* **No.**
   Compare your normal full-TU build against the expected object; `--function`
   scopes it. Isolation changes codegen, so a harness is the wrong ground truth.
 - *Do I need a permuter or an agent to use this?* **No.** The verdict names the
@@ -87,7 +89,8 @@ Use it when:
 - your candidate is close, but the remaining mismatch is hard to classify;
 - you are compiling many source variants and need caching plus a durable ledger;
 - the instruction shape matches but register allocation does not;
-- you need to test whether uopt, ugen, or as1 owns a difference.
+- you need to test whether uopt, ugen, or as1 (IDO's optimizer, code
+  generator, and final assembler pass) owns a difference.
 
 You do not need a ROM or compiler to try the included fixtures. Real object
 comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
@@ -150,7 +153,8 @@ External generators can attach a validated family/parameter sidecar with
 whole-function residual. See [candidate campaigns][campaigns].
 
 Package a single-function target, full context, and current source for manual
-decomp.me creation without uploading anything:
+decomp.me (the community's browser scratch and match-scoring service)
+creation without uploading anything:
 
 ```sh
 decomp-workbench bundle-scratch scratch/demo \
