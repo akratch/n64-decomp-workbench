@@ -260,6 +260,28 @@ class NextStepsRenderingTests(unittest.TestCase):
         # led by the sentence that says why this command cannot choose
         self.assertIn("compare cannot see which of the three it is", guidance)
 
+    def test_no_coarse_verdict_can_ever_borrow_one_familys_levers(self) -> None:
+        """Structural guard for the bug class behind round-2 finding #1.
+
+        The original defect was a data-table entry: a coarse verdict routed to
+        one family's committed lever list, and a rendering test locked the
+        guess in. Guard the table itself so the regression cannot re-enter
+        through any renderer: every verdict routed to an ambiguous playbook
+        must produce the three-family block, and the allocation catch-alls
+        must stay routed to an ambiguous playbook.
+        """
+
+        ambiguous = field_guide.AMBIGUOUS_PLAYBOOK_FAMILIES
+        for coarse in ("allocation", "allocation-mismatch"):
+            self.assertIn(field_guide.VERDICT_PLAYBOOKS[coarse], ambiguous, coarse)
+        for verdict, playbook in field_guide.VERDICT_PLAYBOOKS.items():
+            if playbook not in ambiguous:
+                continue
+            lines = "\n".join(field_guide.next_steps(playbook))
+            self.assertNotIn("field guide levers for playbook=", lines, verdict)
+            for family in ("temp-fifo-phase", "pool-position", "forced-color-oracle"):
+                self.assertIn(f"decomp-workbench guide {family}", lines, verdict)
+
     def test_the_view_verdict_that_can_choose_still_does(self) -> None:
         """Only the coarse tags go neutral; a named mechanism keeps its levers."""
 
