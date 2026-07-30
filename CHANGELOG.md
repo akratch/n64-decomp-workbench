@@ -1,11 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-07-30
+
+Every verdict now ends in an address: the matching field-guide levers, the
+command that prints them, and both answers to "do you have an instrumented
+toolchain?". Around that, three more themes — input safety, so a comparison
+never reports a confident verdict about two unrelated functions; visualization
+parity, so an exported report and a bounded terminal carry the same evidence as
+a full screen; and the documentation that joins a screen to a source edit.
+
+- Added `decomp-workbench guide <topic>`. It prints the field guide's own
+  sections for a playbook (`forced-color-oracle`), either verdict vocabulary
+  (`register-permutation`, `allocation-mismatch`), or a lever number (`19`),
+  from a copy that ships inside the package — no checkout and no network. Every
+  `next:` footer now names the matching levers with a one-line action each and
+  the command that expands them, and any playbook whose advice mentions a
+  trace, a probe, or an oracle gives both answers to "do you have an
+  instrumented toolchain?", so the reader without one is told which source
+  levers to spend instead.
+
+- Added [From verdict to edit](docs/from-verdict-to-edit.md), the walkthrough
+  from a diagnosis on screen to the source change it implies, and a glossary of
+  the field's vocabulary in the documentation index.
 
 - Symbol selection now falls back to a unique case-insensitive match, at the
   parser and in `dump_object`'s objdump retry: Pascal-era frontends (`upas`)
   fold identifiers to lower case, and comparing those objects previously
-  required an `objcopy --redefine-sym` round-trip.
+  required an `objcopy --redefine-sym` round-trip. That retry and the
+  missing-symbol evidence pass below are one objdump call, not two.
 
 - New documentation from the SSB64 frontend-lineage campaign: alternate
   authentic frontends (`docs/alternate-frontends.md` — accom/ccom/upas
@@ -14,6 +36,7 @@
   families, and field notes (`docs/field-notes-2026-07-30-ssb64.md`)
   including an open comparator report: exact matches occasionally render a
   vestigial `aligned_schedule` residual.
+
 - Fixed a missing-symbol error that blamed the build instead of the typo.
   `objdump --disassemble=NAME` that matches nothing succeeds and prints an
   empty stream, so the "defines:" list built from it announced `no symbols`
