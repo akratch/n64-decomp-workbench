@@ -106,6 +106,8 @@ raw difference classes: relocation_controlled=2
 next: Instruction-exact: raw differences are linker-controlled relocation fields
 ```
 
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
+
 `compare-dumps` is `compare` reading saved GNU objdump text instead of object
 files. Identical analysis, no objdump and no `.o` needed — which is why this
 page is runnable and why you can hand a mismatch to someone else without
@@ -116,7 +118,7 @@ Read the line left to right:
 | Field | Meaning |
 |---|---|
 | `verdict` | the mechanism, not the volume — this is the field that decides your next move |
-| `aligned_total` | LCS-aligned differences: **the number to rank candidates by** |
+| `aligned_total` | LCS-aligned differences: **the number to rank candidates by**. (LCS = longest common subsequence — the same alignment idea behind `diff`, which is why an inserted instruction doesn't cascade into unrelated positional noise) |
 | `words` | relocation-aware positional differences: the matching oracle at zero, a tiebreaker above it |
 | `raw` | literal word differences, including linker-controlled fields |
 | `regs`, `fp` | how many differences are register-only |
@@ -143,6 +145,8 @@ aligned residual classes: aligned_register=1
 diff_sites=3 (register=1, relocation-controlled=2)
 next: Opcode shape matches but register allocation differs.
 ```
+
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
 
 `--show-diff` prints every differing site with both words and both
 disassemblies. **No verdict ever suppresses evidence** — if a site differs, it
@@ -267,6 +271,11 @@ Hunks are LCS-aligned, never positional — see the aside below for why that is
 not a detail. Every non-matching row is printed inside its hunk, with both
 disassemblies and the register substitution named.
 
+A web, in compiler terms, is one live range of a variable — every place it's
+defined and used until it dies — and the allocator gives one web exactly one
+register for its whole life; that's the unit these substitutions are grouped
+by.
+
 The **WEBS** section groups those substitutions: if one swap explains six
 sites, it prints as one web, not six problems. Four webs here, all of them
 consequences of the same rotation.
@@ -279,6 +288,8 @@ next: one upstream event, not 6 sites (temp lane, slot 5, aligned row 12, rotati
       or materialize a phantom pool get with `(x == C) != 0` inside a real `if`; a bare discarded expression is dropped with no codegen effect.
       do not fix the divergent sites individually; declaration-order permutation is a dead family here.
 ```
+
+*(your terminal also prints the matching field-guide levers here — this page trims them for space)*
 
 Four lines: what happened, two levers to try, and one family explicitly ruled
 out. It also tells you what *not* to do — the dead families are as valuable as

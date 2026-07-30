@@ -92,7 +92,29 @@ def _cell(text: str | None, width: int) -> str:
     return ("-" if text is None else text).ljust(width)
 
 
-def render_header(view: MechanismView, painter: Painter | None = None) -> list[str]:
+#: One-time orientation lines: true for every run, useful on the first few.
+#:
+#: They are printed by default because the reader who needs them cannot know
+#: to ask, and suppressed by `--terse` because the reader who does not need
+#: them meets this screen hundreds of times in a campaign.
+SIGNATURE_NOTE = (
+    "signature reads left to right: how much is untouched, where state first "
+    "drifts, then which axis it drifted on - in that causal order."
+)
+LANE_NOTE = (
+    "pool = uopt's colored variable webs (lowest free index wins); "
+    "temp = ugen's block-local FIFO rotation (t6-t9, s8) - two independent "
+    "register populations that diverge independently."
+)
+KEY_NOTE = "labels defined: decomp-workbench --explain-keys"
+
+
+def render_header(
+    view: MechanismView,
+    painter: Painter | None = None,
+    *,
+    terse: bool = False,
+) -> list[str]:
     brush = painter or Painter(False)
     counts = view.counts
     lines: list[str] = []
@@ -130,6 +152,8 @@ def render_header(view: MechanismView, painter: Painter | None = None) -> list[s
         + _tokens(verdict_tokens)
     )
     lines.append("signature: " + " ".join(view.signature))
+    if not terse:
+        lines.append("  " + SIGNATURE_NOTE)
     # The bijection is the highest-leverage fact on the screen and used to sit
     # below every hunk, where a reader who stopped at the first divergence
     # never reached it. The full table stays where it is; this is the index.
@@ -139,10 +163,12 @@ def render_header(view: MechanismView, painter: Painter | None = None) -> list[s
             for number, web in enumerate(view.webs, 1)
         )
         lines.append("webs: " + summary)
+    if not terse:
+        lines.append(KEY_NOTE)
     return lines
 
 
-def render_lanes(view: MechanismView, *, window: int) -> list[str]:
+def render_lanes(view: MechanismView, *, window: int, terse: bool = False) -> list[str]:
     if not view.lanes:
         return []
     lines = [
@@ -150,6 +176,8 @@ def render_lanes(view: MechanismView, *, window: int) -> list[str]:
         "REGISTER LANES (per-class assignment sequences, matching instructions "
         "included)",
     ]
+    if not terse:
+        lines.append("  " + LANE_NOTE)
     label_width = max(len(lane.classification) for lane in view.lanes)
     for lane in view.lanes:
         total = max(len(lane.target), len(lane.candidate))
@@ -486,6 +514,7 @@ def render_view(
     painter: Painter | None = None,
     show_warnings: bool = True,
     width: int = 0,
+    terse: bool = False,
 ) -> list[str]:
     """Render the whole screen as lines of monochrome-safe text.
 
@@ -498,7 +527,7 @@ def render_view(
     lines = (
         [f"warning: {warning}" for warning in view.warnings] if show_warnings else []
     )
-    lines.extend(render_header(view, brush))
+    lines.extend(render_header(view, brush, terse=terse))
     if view.register_first_divergence:
         lines.append(
             brush.warn(
@@ -507,7 +536,7 @@ def render_view(
                 "though it surfaces there."
             )
         )
-    lines.extend(render_lanes(view, window=lane_window))
+    lines.extend(render_lanes(view, window=lane_window, terse=terse))
     lines.extend(
         render_hunks(
             view,
@@ -521,10 +550,52 @@ def render_view(
     if report_regs:
         lines.extend(render_register_report(view))
     lines.append("")
-    for position, entry in enumerate(view.guidance):
-        prefix = "next: " if position == 0 else "      "
-        lines.append(prefix + entry)
+    lines.extend(render_guidance(view.guidance, budget=resolve_width(width)))
     return [line.rstrip() for line in lines]
+
+
+def render_guidance(guidance: Sequence[str], *, budget: int = 0) -> list[str]:
+    """Render the `next:` footer, wrapping rather than ellipsizing.
+
+    This block is the instruction the whole screen exists to deliver, and it
+    carries the dead-family warnings that stop the next round being wasted. At
+    a bounded width `emit_lines` was cutting it from the right, so the sentence
+    that survived was the setup and the one that vanished was the point. Prose
+    wraps on word boundaries; an indented sub-line keeps its own indent so the
+    lever list stays a list.
+    """
+
+    lines: list[str] = []
+    for position, entry in enumerate(guidance):
+        indent = " " * (len(entry) - len(entry.lstrip(" ")))
+        lead = ("next: " if position == 0 else "      ") + indent
+        lines.extend(_wrap_words(entry.strip(), lead=lead, budget=budget))
+    return lines
+
+
+def _wrap_words(text: str, *, lead: str, budget: int) -> list[str]:
+    """Wrap `text` under `lead`, on spaces, never dropping a word.
+
+    Continuation lines sit two columns inside the first, so a wrapped sentence
+    cannot be mistaken for the next guidance entry.
+    """
+
+    if not budget or visible_length(lead) + visible_length(text) <= budget:
+        return [lead + text]
+    continuation = " " * (len(lead) + 2)
+    lines: list[str] = []
+    current = lead
+    for word in text.split(" "):
+        if not word:
+            continue
+        candidate = current + ("" if current in {lead, continuation} else " ") + word
+        if current not in {lead, continuation} and visible_length(candidate) > budget:
+            lines.append(current)
+            current = continuation + word
+        else:
+            current = candidate
+    lines.append(current)
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +657,7 @@ def _emit(
             report_regs=args.report_regs,
             painter=painter,
             width=args.width,
+            terse=args.terse,
         )
         lines.extend(item.line for item in census)
         if args.html:
@@ -739,6 +811,11 @@ def add_view_render_arguments(
         "--report-regs",
         action="store_true",
         help="report per-aligned-index register operands, matching rows included",
+    )
+    parser.add_argument(
+        "--terse",
+        action="store_true",
+        help="drop the one-line orientation notes; every label and count stays",
     )
     parser.add_argument(
         "--context",

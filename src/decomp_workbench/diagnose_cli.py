@@ -126,6 +126,7 @@ def _emit(
                 painter=painter,
                 show_warnings=False,
                 width=args.width,
+                terse=args.terse,
             )
         )
         lines.extend(item.line for item in census)

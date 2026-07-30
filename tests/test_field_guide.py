@@ -223,7 +223,16 @@ class NextStepsRenderingTests(unittest.TestCase):
         self.assertIn("decomp-workbench guide forced-color-oracle", guidance)
         self.assertIn("don't have one?", guidance)
 
-    def test_comparison_guidance_uses_the_same_levers(self) -> None:
+    def test_a_coarse_verdict_names_three_families_and_picks_none(self) -> None:
+        """These very fixtures are why the old lever dump was a guess.
+
+        `compare` calls this pair `allocation-mismatch`; `view`, looking at the
+        same two streams, calls it `register-permutation`, whose levers are
+        17-19. The previous assertion locked in `pool-position`'s levers 7-13
+        on evidence that contradicted them, and the sentence directly above
+        told the reader to run `view` because *it* names the family.
+        """
+
         result = compare_instructions(
             instructions(PERMUTATION_TARGET),
             instructions(PERMUTATION_CANDIDATE),
@@ -232,9 +241,38 @@ class NextStepsRenderingTests(unittest.TestCase):
             symbol=SYMBOL,
         )
         self.assertEqual(result.verdict, "allocation-mismatch")
+        view = build_view(
+            instructions(PERMUTATION_TARGET),
+            instructions(PERMUTATION_CANDIDATE),
+            target_name="target",
+            candidate_name="candidate",
+            symbol=SYMBOL,
+        )
+        self.assertEqual(view.verdict, "register-permutation")
+
         guidance = "\n".join(result.guidance)
-        self.assertIn("decomp-workbench guide pool-position", guidance)
-        self.assertIn("lever 7:", guidance)
+        # all three families, each with the command that opens it
+        for playbook in ("temp-fifo-phase", "pool-position", "forced-color-oracle"):
+            self.assertIn(f"decomp-workbench guide {playbook}", guidance)
+        # and no committed lever list from any one of them
+        self.assertNotIn("lever 7:", guidance)
+        self.assertNotIn("field guide levers for playbook=", guidance)
+        # led by the sentence that says why this command cannot choose
+        self.assertIn("compare cannot see which of the three it is", guidance)
+
+    def test_the_view_verdict_that_can_choose_still_does(self) -> None:
+        """Only the coarse tags go neutral; a named mechanism keeps its levers."""
+
+        view = build_view(
+            instructions(PERMUTATION_TARGET),
+            instructions(PERMUTATION_CANDIDATE),
+            target_name="target",
+            candidate_name="candidate",
+            symbol=SYMBOL,
+        )
+        guidance = "\n".join(view.guidance)
+        self.assertIn("field guide levers for playbook=forced-color-oracle", guidance)
+        self.assertIn("lever 19:", guidance)
 
     def test_the_rendered_footer_keeps_the_next_prefix(self) -> None:
         """The block is one footer, not a second style bolted beside it."""

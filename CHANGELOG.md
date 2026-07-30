@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Fixed a missing-symbol error that blamed the build instead of the typo.
+  `objdump --disassemble=NAME` that matches nothing succeeds and prints an
+  empty stream, so the "defines:" list built from it announced `no symbols`
+  about an object that plainly defines the function the reader misspelled — on
+  real `.o` files, the primary path. A single unfiltered second pass now
+  supplies that list.
+
+- Stopped a coarse verdict from guessing a lever family. `allocation-mismatch`
+  dumped `pool-position`'s seven levers even though the same two streams make
+  `view` say `phase-shift` or `register-permutation`, whose levers are 14-16
+  and 17-19 — a guess that contradicted the sentence above it telling the
+  reader to run `view` because *it* names the family, and that leaked into
+  `--json` and the HTML payload beside a `view.next` that disagreed. The
+  verdict now names all three families with the `guide` command for each and
+  picks none, led by the sentence saying why it cannot.
+
+- `--width` no longer truncates the `next:` footer. Guidance wraps on word
+  boundaries with an indented continuation, so a bounded terminal keeps the
+  dead-family warnings instead of the setup sentence that preceded them.
+
+- Added four one-line explanations where the vocabulary is first used: what a
+  web is, what LCS buys, what the `pool` and `temp` lane classes are, and how
+  to read the signature in causal order — plus a pointer to
+  `--explain-keys`. The three in-tool notes are removable with `--terse`.
+  `--html` now renders each lever as its own runnable
+  `decomp-workbench guide N` snippet.
+
 - Made the HTML report carry the evidence it claimed to. It is rebuilt from
   the same view model the terminal renderer consumes: a sticky verdict bar,
   register lanes with the divergent slot outlined, one linkable

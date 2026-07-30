@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -105,6 +106,8 @@ tr.diverge td.num { opacity: 1; font-weight: 700; }
   margin-right: .35rem;
 }
 .annot { font-size: .85rem; white-space: nowrap; }
+li.lever code { background: #8881; padding: .1rem .35rem; border-radius: .2rem; }
+ol li { margin-bottom: .3rem; }
 @media print {
   details { display: block; }
   .verdict-bar { position: static; }
@@ -287,6 +290,30 @@ def _webs_section(view: MechanismView, hunk_of_row: dict[int, int]) -> str:
 </table>"""
 
 
+LEVER_RE = re.compile(r"^\s*lever (\d+):\s*(.+)$")
+COMMAND_RE = re.compile(r"decomp-workbench [a-z0-9 <>|\-]+")
+
+
+def _guidance_item(line: str) -> str:
+    """Render one footer entry, making its runnable parts look runnable.
+
+    A `lever 19:` entry is an instruction plus an address, and in a browser the
+    address should be copyable at a glance rather than buried mid-sentence.
+    The snippet is rendered inline, offline: there is nowhere to link to that
+    would still work from a file:// URL on a machine with no network.
+    """
+
+    lever = LEVER_RE.match(line)
+    if lever is not None:
+        number, action = lever.groups()
+        return (
+            f'<li class="lever"><code>decomp-workbench guide {number}</code> '
+            f"&mdash; {html.escape(action)}</li>"
+        )
+    escaped = html.escape(line)
+    return f"<li>{COMMAND_RE.sub(lambda m: f'<code>{m.group()}</code>', escaped)}</li>"
+
+
 def _identity_chip(view: MechanismView) -> str:
     """Return an honest aligned-identity chip.
 
@@ -327,7 +354,7 @@ def render_diagnosis_html(
     hunk_of_row = {
         row: hunk.hunk for hunk in view.hunks for row in range(hunk.start, hunk.end + 1)
     }
-    guidance = "".join(f"<li>{html.escape(line)}</li>" for line in view.guidance)
+    guidance = "".join(_guidance_item(line) for line in view.guidance)
     chips = "".join(
         f'<span class="chip">{html.escape(name)}={count}</span>'
         for name, count in view.counts.items()

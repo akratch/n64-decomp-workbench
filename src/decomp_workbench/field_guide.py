@@ -26,11 +26,14 @@ one-liner rather than to silence.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from importlib import resources
 
 __all__ = [
+    "AMBIGUOUS_ONRAMPS",
+    "AMBIGUOUS_PLAYBOOK_FAMILIES",
+    "COARSE_ALLOCATION_LEAD_IN",
     "GUIDE_DOCUMENT",
     "LEVER_ACTIONS",
     "PLAYBOOK_LEVERS",
@@ -267,16 +270,71 @@ PLAYBOOK_CAVEATS: dict[str, str] = {
 }
 
 
-def next_steps(playbook: str) -> tuple[str, ...]:
+#: Playbooks whose verdict does not actually choose a lever family.
+#:
+#: `pool-position` is the tag for "register-only, no rotation, no bijection",
+#: which is three families wearing one name. Printing its seven levers there
+#: was a guess dressed as a finding: on both shipped register fixtures `view`
+#: calls the residual `phase-shift` or `register-permutation`, whose levers are
+#: 14-16 and 17-19. Worse, the guess contradicted the sentence directly above
+#: it, which tells the reader to run `view` because *it* names the family.
+#:
+#: So this verdict names all three and picks none. `guide <playbook>` still
+#: prints a family's levers in full -- once the reader has chosen one.
+AMBIGUOUS_PLAYBOOK_FAMILIES: dict[str, tuple[tuple[str, str], ...]] = {
+    "pool-position": (
+        ("temp-fifo-phase", "temp-FIFO phase - ugen's block-local queue"),
+        ("pool-position", "pool position - uopt's coloring order"),
+        ("forced-color-oracle", "coalescing and callee-saved tie-breaks"),
+    ),
+}
+
+#: The instrumentation branch for a verdict that has not chosen a family.
+#:
+#: `pool-position`'s own branch names levers 7-13, which is the same
+#: over-commitment in a different sentence, so the neutral block gets a neutral
+#: pair.
+AMBIGUOUS_ONRAMPS: tuple[str, ...] = (
+    "don't have an instrumented toolchain? every lever in all three families "
+    "is source-only except lever 19 - start with the one `view` names, none "
+    "of them need a trace.",
+    "have one? it is still the last step: docs/compiler-instrumentation.md, "
+    "then decomp-workbench instrument-uopt-globalcolor and "
+    "decomp-workbench trace-globalcolor TRACE.log --proc N.",
+)
+
+#: What `compare` must say before any of the three, because `compare` sees
+#: less than `view` does and should not sound like it saw more.
+COARSE_ALLOCATION_LEAD_IN = (
+    "(compare cannot see which of the three it is - run `view` first to "
+    "confirm the family before spending a variant.)"
+)
+
+
+def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]:
     """Return the on-ramp lines appended to one verdict's guidance.
 
     Pure data by design. `diagnose` must produce the same footer on a machine
     with no documentation installed as on the maintainer's checkout, so nothing
     here reads the guide; the block ends with the command that does.
+
+    `lead_in` lets the caller say what *its* evidence could not settle, so a
+    coarse verdict never borrows a precise one's confidence.
     """
 
+    lines: list[str] = list(lead_in)
+    families = AMBIGUOUS_PLAYBOOK_FAMILIES.get(playbook)
+    if families is not None:
+        lines.append(
+            "field guide: this residual is one of three allocation families "
+            "and this verdict cannot choose between them:"
+        )
+        lines.extend(
+            f"  {label}: decomp-workbench guide {name}" for name, label in families
+        )
+        lines.extend(AMBIGUOUS_ONRAMPS)
+        return tuple(lines)
     levers = PLAYBOOK_LEVERS.get(playbook, ())
-    lines: list[str] = []
     if levers:
         lines.append(f"field guide levers for playbook={playbook}:")
         lines.extend(f"  lever {number}: {LEVER_ACTIONS[number]}" for number in levers)

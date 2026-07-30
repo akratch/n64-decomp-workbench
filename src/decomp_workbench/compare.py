@@ -10,7 +10,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .field_guide import VERDICT_PLAYBOOKS, next_steps
+from .field_guide import (
+    AMBIGUOUS_PLAYBOOK_FAMILIES,
+    COARSE_ALLOCATION_LEAD_IN,
+    VERDICT_PLAYBOOKS,
+    next_steps,
+)
 from .model import Comparison, Instruction, display_path
 from .objdump import cross_function_warning, dump_object, symbol_labels
 
@@ -554,7 +559,12 @@ def comparison_guidance(
     )
     playbook = VERDICT_PLAYBOOKS.get(verdict)
     if playbook is not None:
-        guidance.extend(next_steps(playbook))
+        lead_in = (
+            (COARSE_ALLOCATION_LEAD_IN,)
+            if playbook in AMBIGUOUS_PLAYBOOK_FAMILIES
+            else ()
+        )
+        guidance.extend(next_steps(playbook, lead_in=lead_in))
     return verdict, guidance
 
 

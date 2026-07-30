@@ -170,6 +170,7 @@ def symbol_selection_error(
     symbol: str | None,
     *,
     inputs: Sequence[tuple[str, str]],
+    missing: Sequence[str] = (),
 ) -> str:
     """Return the error for a selection that matched no instructions.
 
@@ -180,19 +181,25 @@ def symbol_selection_error(
     obvious when the names are long.
     """
 
+    # `missing` is for the caller that already knows which input failed --
+    # `dump_object` reports the unfiltered section dump here precisely because
+    # the filtered one was empty, so re-deriving emptiness from it would
+    # contradict the fact that brought us here.
     empty = [
         (name, text)
         for name, text in inputs
-        if not parse_disassembly(text, symbol=symbol)
+        if name in missing or not parse_disassembly(text, symbol=symbol)
     ]
+    listed = ", ".join(name for name, _ in empty) or ", ".join(
+        name for name, _ in inputs
+    )
     if symbol is None:
-        names = ", ".join(name for name, _ in empty) or "the inputs"
         return (
-            f"no GNU-style objdump instruction lines in {names}; expected "
-            "lines like `  1c: 8f998010 lw t9,-32752(gp)`. "
+            f"no GNU-style objdump instruction lines in {listed or 'the inputs'}; "
+            "expected lines like `  1c: 8f998010 lw t9,-32752(gp)`. "
             f"See {TROUBLESHOOTING_NO_INSTRUCTIONS}"
         )
-    names = ", ".join(name for name, _ in empty) or "the inputs"
+    names = listed or "the inputs"
     lines = [f"symbol {symbol!r} produced no instructions in {names}."]
     lines.extend(
         f"  {name} defines: {_name_list(symbol_labels(text))}" for name, text in inputs
@@ -224,6 +231,54 @@ def trim_function_padding(instructions: list[Instruction]) -> list[Instruction]:
     return instructions
 
 
+def _run_objdump(
+    executable: str,
+    path: str | Path,
+    *,
+    section: str,
+    symbol: str | None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one disassembly, optionally narrowed to a single symbol."""
+
+    command = [executable, "-d", "-r", "-z", "-j", section, str(path)]
+    if symbol:
+        command.append(f"--disassemble={symbol}")
+    return subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _whole_section_text(
+    executable: str,
+    path: str | Path,
+    *,
+    section: str,
+    fallback: str,
+) -> str:
+    """Return the unfiltered section dump, for reporting what an object defines.
+
+    ``--disassemble=NAME`` that matches nothing prints *nothing*: no error, no
+    symbol headers, an empty stream. The error built from that stream therefore
+    announced "defines: no symbols" about an object that plainly defines the
+    function the reader misspelled, which points at a broken build instead of
+    at a typo -- on the primary path, real ``.o`` files, which is what the
+    documentation puts in front of every new user.
+
+    One unfiltered second pass answers it. **When the casefold fallback on
+    `ssb64-frontend-lineage` merges, this should become that fallback's second
+    pass**: both need exactly this text, that branch already retries here, and
+    two retries would double the objdump cost of every miss.
+    """
+
+    retry = _run_objdump(executable, path, section=section, symbol=None)
+    return fallback if retry.returncode else retry.stdout
+
+
 def dump_object(
     path: str | Path,
     *,
@@ -234,23 +289,22 @@ def dump_object(
     """Disassemble an object and return raw text plus parsed instructions."""
 
     executable = discover_objdump(objdump)
-    command = [executable, "-d", "-r", "-z", "-j", section, str(path)]
-    if symbol:
-        command.append(f"--disassemble={symbol}")
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = _run_objdump(executable, path, section=section, symbol=symbol)
     if result.returncode:
         raise RuntimeError(_objdump_failure(path, result))
     instructions = parse_disassembly(result.stdout, symbol=symbol)
     if not instructions:
+        evidence = (
+            _whole_section_text(
+                executable, path, section=section, fallback=result.stdout
+            )
+            if symbol
+            else result.stdout
+        )
         raise RuntimeError(
-            symbol_selection_error(symbol, inputs=((str(path), result.stdout),))
+            symbol_selection_error(
+                symbol, inputs=((str(path), evidence),), missing=(str(path),)
+            )
         )
     return result.stdout, instructions
 

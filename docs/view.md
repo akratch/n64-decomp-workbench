@@ -249,9 +249,20 @@ Every non-matching row is annotated, whether or not it falls inside the hunk
 being printed. The `>` marker is what distinguishes this hunk's rows from the
 evidence around them; a context row whose swap belongs to a known web says so.
 
-`--width` never costs an annotation. When a row will not fit, the annotation
-moves to its own continuation line rather than being cut — the assembly columns
-are what the requested width truncates.
+`--width` never costs an annotation, and never costs a `next:` line. When a row
+or a guidance sentence will not fit, it wraps to a continuation line rather than
+being cut — the assembly columns are what the requested width truncates. The
+footer carries the dead-family warnings, and a truncated warning is worse than
+no warning.
+
+## Orientation notes and `--terse`
+
+Three one-line notes are printed by default: what the signature's parts mean in
+order, what the `pool` and `temp` lane classes are, and where the label registry
+lives (`decomp-workbench --explain-keys`). They are true of every run and useful
+on the first few, so the reader who needs them does not have to know to ask.
+`--terse` removes exactly those three lines and nothing else — every label,
+count, lane, hunk, web, and footer line is unchanged.
 
 ## `--report-regs`
 
@@ -304,6 +315,7 @@ vocabularies are listed separately.
 | `--lane-window N` | lane slots rendered around a divergence (default 32) |
 | `--register-profile` | lane class table (default `ido53`) |
 | `--report-regs` | per-row register operands |
+| `--terse` | drop the one-line orientation notes; every label and count stays |
 | `--color auto\|always\|never` | ANSI web and verdict coloring |
 | `--width`, `--pager` | bound and page terminal output; annotations wrap rather than truncate |
 | `--html PATH` | self-contained report: lanes, per-hunk sections, webs, and the JSON payload |

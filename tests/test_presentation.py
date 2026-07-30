@@ -324,6 +324,117 @@ class LaneUnitTests(unittest.TestCase):
         self.assertNotIn("index=12", stdout)
 
 
+class GuidanceFooterTests(unittest.TestCase):
+    """The footer is the instruction the whole screen exists to deliver."""
+
+    def footer(self, *extra: str) -> str:
+        _, stdout, _ = run_cli(
+            [
+                "view-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--function",
+                "animStep",
+                "--pager",
+                "never",
+                *extra,
+            ]
+        )
+        return stdout.split("next: ", 1)[1]
+
+    def test_a_bounded_width_wraps_the_footer_instead_of_cutting_it(self) -> None:
+        """The sentence that survived truncation was the setup, not the point."""
+
+        footer = self.footer("--width", "60")
+        self.assertNotIn("\u2026", footer)
+        self.assertLessEqual(max(len(line) for line in footer.splitlines()), 60)
+
+    def test_the_dead_family_warning_survives_a_narrow_terminal(self) -> None:
+        self.assertIn("dead family here", self.footer("--width", "60"))
+        self.assertIn("dead family here", self.footer())
+
+    def test_wrapped_continuations_cannot_be_read_as_new_entries(self) -> None:
+        footer = self.footer("--width", "60")
+        entries = [line for line in footer.splitlines() if line.startswith("      ")]
+        continuations = [line for line in entries if line.startswith("        ")]
+        self.assertTrue(continuations)
+
+    def test_an_unbounded_width_leaves_the_footer_alone(self) -> None:
+        footer = self.footer()
+        self.assertIn(
+            "perturb the PRECEDING block: hoist a call-argument expression "
+            "into a named local, which reorders value deaths.",
+            footer,
+        )
+
+
+class OrientationNoteTests(unittest.TestCase):
+    """One-time notes, on by default, gone under `--terse`."""
+
+    def screen(self, *extra: str) -> str:
+        _, stdout, _ = run_cli(
+            [
+                "view-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--function",
+                "animStep",
+                "--pager",
+                "never",
+                *extra,
+            ]
+        )
+        return stdout
+
+    def test_the_notes_are_printed_by_default(self) -> None:
+        screen = self.screen()
+        self.assertIn("signature reads left to right", screen)
+        self.assertIn("pool = uopt's colored variable webs", screen)
+        self.assertIn("labels defined: decomp-workbench --explain-keys", screen)
+
+    def test_terse_drops_the_notes_and_nothing_else(self) -> None:
+        full, terse = self.screen(), self.screen("--terse")
+        self.assertNotIn("signature reads left to right", terse)
+        self.assertNotIn("pool = uopt's colored", terse)
+        self.assertNotIn("labels defined:", terse)
+        for kept in ("verdict: phase-shift", "REGISTER LANES", "WEBS", "[w1]", "next:"):
+            self.assertIn(kept, terse)
+        self.assertLess(len(terse), len(full))
+
+    def test_diagnose_offers_the_same_switch(self) -> None:
+        _, stdout, _ = run_cli(
+            [
+                "diagnose-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--function",
+                "animStep",
+                "--pager",
+                "never",
+                "--terse",
+            ]
+        )
+        self.assertNotIn("signature reads left to right", stdout)
+        self.assertIn("MECHANISM", stdout)
+
+
+class HtmlGuidanceTests(unittest.TestCase):
+    def test_a_lever_entry_renders_its_own_command(self) -> None:
+        document = render_diagnosis_html(phase_view())
+        self.assertIn(
+            '<li class="lever"><code>decomp-workbench guide 14</code>', document
+        )
+
+    def test_commands_in_prose_entries_are_marked_up_too(self) -> None:
+        document = render_diagnosis_html(phase_view())
+        self.assertIn("<code>decomp-workbench guide temp-fifo-phase</code>", document)
+
+    def test_the_snippets_need_no_network(self) -> None:
+        document = render_diagnosis_html(phase_view())
+        self.assertNotIn("<script", document)
+        self.assertEqual(re.findall(r'href="https?:', document), [])
+
+
 class MustNotBreakTests(unittest.TestCase):
     """Properties the presentation layer is not allowed to cost us."""
 

@@ -19,7 +19,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from decomp_workbench import objdump
 from decomp_workbench.cli import main
 from decomp_workbench.objdump import (
     _objdump_failure,
@@ -198,6 +200,102 @@ class SymbolSelectionErrorTests(unittest.TestCase):
                 self.assertEqual(status, 2)
                 self.assertIn("Names are case-sensitive.", stderr)
                 self.assertIn("defines: drawObject", stderr)
+
+
+class FilteredDumpEvidenceTests(unittest.TestCase):
+    """The primary path: real objects, where the filtered pass prints nothing.
+
+    ``objdump --disassemble=NAME`` that matches nothing succeeds and emits an
+    empty stream -- no error, no symbol headers. Building the "defines:" list
+    from *that* stream told the reader an object with two functions defines no
+    symbols, which reads as a broken build rather than as a typo, on exactly
+    the command START_HERE's first minute tells them to run.
+    """
+
+    SECTION = """
+00000000 <funcA>:
+   0: 27bdffe0  addiu $sp,$sp,-32
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+
+0000000c <funcB>:
+   c: 03e00008  jr $ra
+"""
+
+    def dump(self, symbol: str | None) -> tuple[int, str]:
+        """Run `dump_object` against a fake objdump, counting its invocations."""
+
+        calls = 0
+
+        def fake_run(
+            command: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            calls += 1
+            filtered = any(str(item).startswith("--disassemble=") for item in command)
+            return subprocess.CompletedProcess(
+                command, 0, "" if filtered else self.SECTION, ""
+            )
+
+        with (
+            mock.patch("decomp_workbench.objdump.subprocess.run", fake_run),
+            mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+        ):
+            try:
+                objdump.dump_object("build/foo.o", symbol=symbol)
+            except RuntimeError as error:
+                return calls, str(error)
+        raise AssertionError("expected the empty selection to be refused")
+
+    def test_a_case_slip_lists_what_the_object_really_defines(self) -> None:
+        _calls, message = self.dump("FuncA")
+        self.assertIn("symbol 'FuncA' produced no instructions", message)
+        self.assertIn("defines: funcA, funcB", message)
+        self.assertNotIn("no symbols", message)
+        self.assertIn("Names are case-sensitive.", message)
+
+    def test_the_evidence_costs_exactly_one_extra_dump(self) -> None:
+        """One retry, shared with the casefold fallback when it merges."""
+
+        calls, _ = self.dump("FuncA")
+        self.assertEqual(calls, 2)
+
+    def test_no_selector_does_not_pay_for_a_retry(self) -> None:
+        calls = 0
+
+        def fake_run(
+            command: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(command, 0, "nothing here\n", "")
+
+        with (
+            mock.patch("decomp_workbench.objdump.subprocess.run", fake_run),
+            mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+        ):
+            with self.assertRaises(RuntimeError):
+                objdump.dump_object("build/foo.o")
+        self.assertEqual(calls, 1)
+
+    def test_a_failing_retry_falls_back_to_what_we_had(self) -> None:
+        """A second failure must not replace a bad message with a crash."""
+
+        def fake_run(
+            command: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            filtered = any(str(item).startswith("--disassemble=") for item in command)
+            if filtered:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return subprocess.CompletedProcess(command, 1, "", "boom")
+
+        with (
+            mock.patch("decomp_workbench.objdump.subprocess.run", fake_run),
+            mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                objdump.dump_object("build/foo.o", symbol="FuncA")
+        self.assertIn("produced no instructions", str(caught.exception))
 
 
 class ObjdumpFailureTests(unittest.TestCase):
