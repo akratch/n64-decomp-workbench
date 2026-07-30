@@ -37,6 +37,7 @@ from .objdump import (
     symbol_selection_error,
 )
 from .schema import COMPARISON_CENSUS_KEYS
+from .terminal import Painter, add_color_argument, resolve_color
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -44,6 +45,7 @@ Handler = Callable[[argparse.Namespace], int]
 def add_common_compare_arguments(parser: argparse.ArgumentParser) -> None:
     add_symbol_argument(parser)
     add_explain_keys_argument(parser)
+    add_color_argument(parser)
     parser.add_argument(
         "--section",
         default=".text",
@@ -105,9 +107,10 @@ def _emit_comparison(
             )
         )
     else:
+        painter = Painter(resolve_color(getattr(args, "color", "never")))
         for line in warning_lines(comparison.warnings):
             print(line)
-        print(comparison_line(comparison))
+        print(comparison_line(comparison, painter))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         if show_ranges:
             print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
@@ -221,10 +224,11 @@ def rank_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        painter = Painter(resolve_color(getattr(args, "color", "never")))
         for rank, item in enumerate(limited, 1):
             for line in warning_lines(item.warnings):
                 print(line)
-            print(f"{rank:3d} {comparison_line(item)}")
+            print(f"{rank:3d} {comparison_line(item, painter)}")
         for failure in errors:
             print(
                 f"ERROR {failure['candidate']}: {failure['error']}",
@@ -270,6 +274,7 @@ def register_object_commands(
     dumps.add_argument("candidate", help="candidate objdump text")
     add_symbol_argument(dumps)
     add_explain_keys_argument(dumps)
+    add_color_argument(dumps)
     dumps.add_argument("--json", action="store_true", help="emit JSON")
     add_cross_rom_argument(dumps)
     dumps.add_argument(

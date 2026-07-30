@@ -8,12 +8,25 @@ from .census import CensusResult
 from .compare import ALIGNED_CLASS_KEYS
 from .model import Comparison
 from .schema import summary_line
+from .terminal import Painter
 
 
-def comparison_line(item: Comparison) -> str:
-    """Render the summary line from the shared metric registry."""
+def comparison_line(item: Comparison, painter: Painter | None = None) -> str:
+    """Render the summary line from the shared metric registry.
 
-    return summary_line(item)
+    The verdict is the reason the line exists, and it was the only plain token
+    on a screen where a downstream explanatory sentence rendered bold red. The
+    key is bolded and the value takes its family's colour, so a scrolled batch
+    of reports is separable by hue before any of it is read.
+    """
+
+    line = summary_line(item)
+    if painter is None or not painter.enabled:
+        return line
+    token = f"verdict={item.verdict}"
+    if not line.startswith(token):
+        return line
+    return painter.bold("verdict=") + painter.verdict(item.verdict) + line[len(token) :]
 
 
 def warning_lines(warnings: Sequence[str]) -> list[str]:

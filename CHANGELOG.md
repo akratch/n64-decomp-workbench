@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Made the HTML report carry the evidence it claimed to. It is rebuilt from
+  the same view model the terminal renderer consumes: a sticky verdict bar,
+  register lanes with the divergent slot outlined, one linkable
+  `<section id="hunk-N">` per hunk with context and divergence row classes, a
+  per-row substitution cell whose colour swatch links to its web, and a `Webs`
+  table linking each bijection to every hunk it explains. Lanes, hunk grouping,
+  webs, and the `t7->t8 [w1]` annotations previously existed only inside the
+  collapsed JSON blob, which is still there. Still one self-contained file with
+  no script and no network.
+
+- Fixed four comprehension defects in the terminal rendering. The verdict is
+  bolded and coloured by family (green for exact, one hue per mismatch family)
+  instead of being the only plain token beside a bold-red explanatory sentence,
+  and `compare`/`compare-dumps`/`rank` gained the `--color` they never had, so
+  batch triage can be colourized. `--width` now wraps a row's annotation to a
+  continuation line instead of silently cutting a second web tag. Every
+  non-matching row is annotated, in or out of the hunk being printed, so a
+  context row in a known web no longer reads as an unexplained `register` site.
+  The lane caret names its two units: `slot=5 aligned_row=12`, replacing
+  `divergence=5 index=12` on screen **and in `--json`**, because one vocabulary
+  across both audiences is the point of the metric registry.
+
+- Added the highest-leverage fact to the header. A compact
+  `webs: w1 t7->t8 x2, ...` line prints above the hunks, and the substituted
+  register token inside the disassembly now takes its web's colour, so the
+  annotation says *which* registers moved and the text says where.
+
+- An unknown command now names itself and points at `decomp-workbench
+  commands` instead of printing argparse's forty-odd-name `(choose from ...)`
+  catalogue.
+
 - Refused to report a confident verdict about two unrelated functions.
   With no `--function` and exactly one differently-named symbol on each side,
   `compare`, `view`, `diagnose`, and `rank` now print a warning ahead of the

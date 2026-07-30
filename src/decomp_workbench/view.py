@@ -314,8 +314,12 @@ class Lane:
             "target": list(self.target),
             "candidate": list(self.candidate),
             "rows": list(self.target_rows),
-            "divergence": self.divergence,
-            "index": self.divergence_row,
+            # `slot` and `aligned_row` are two different units, and spelling
+            # them `divergence` and `index` made them read as one coordinate
+            # pair. The screen and the payload rename together: one vocabulary
+            # is the whole point of the metric registry.
+            "slot": self.divergence,
+            "aligned_row": self.divergence_row,
             "rotation": self.rotation,
         }
 

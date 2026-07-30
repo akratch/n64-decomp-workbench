@@ -1034,7 +1034,10 @@ class ViewCommandTests(unittest.TestCase):
         self.assertIn("register-first-divergence", payload["signature"])
         temp = next(lane for lane in payload["lanes"] if lane["class"] == "temp")
         self.assertEqual(temp["rotation"], 1)
-        self.assertEqual(temp["divergence"], 5)
+        # Two units, two names, and the same two names on the screen.
+        self.assertEqual(temp["slot"], 5)
+        self.assertEqual(temp["aligned_row"], 12)
+        self.assertNotIn("divergence", temp)
 
     def test_fail_on_mismatch_is_opt_in(self) -> None:
         arguments = [

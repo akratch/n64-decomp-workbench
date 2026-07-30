@@ -405,7 +405,16 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("target_bytes", "target_bytes", "target section offsets covered"),
     Metric("candidate_bytes", "candidate_bytes", "candidate section offsets covered"),
     Metric("index", "index", "aligned row index"),
-    Metric("divergence", "divergence", "first lane slot where the two sides differ"),
+    Metric(
+        "slot",
+        "slot",
+        "first lane position where the two sides differ",
+    ),
+    Metric(
+        "aligned_row",
+        "aligned_row",
+        "aligned row holding a lane divergence; the same unit as aligned_rows",
+    ),
     Metric(
         "rotation",
         "rotation",

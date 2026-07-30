@@ -53,6 +53,7 @@ from .comparison_render import (
 from .diagnose_cli import register_diagnose_commands
 from .diagnosis import diagnose_instructions, diagnose_objects
 from .discovery import (
+    CommandParser,
     finalize_command_help,
     register_discovery_commands,
     rewrite_group_alias,
@@ -1503,7 +1504,7 @@ WELCOME = (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = CommandParser(
         prog="decomp-workbench",
         description=(
             "MIPS object diagnosis, decomp.me handoffs, candidate campaigns, "
@@ -1840,8 +1841,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             diagnostic = parse_stderr.getvalue().strip().splitlines()
+            # An argparse diagnostic can run to several lines (usage, the
+            # error, and for an unknown command a pointer at `commands`). The
+            # reportable part is the one argparse prefixed.
+            prefix = f"{parser.prog}: error: "
+            reported = [line for line in diagnostic if line.startswith(prefix)]
             message = (
-                diagnostic[-1].removeprefix(f"{parser.prog}: error: ").strip()
+                reported[-1].removeprefix(prefix).strip()
+                if reported
+                else diagnostic[-1].strip()
                 if diagnostic
                 else "invalid command arguments"
             )

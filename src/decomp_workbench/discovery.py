@@ -4,12 +4,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NoReturn
 
 #: One readable word in place of argparse's generated choice list.
 COMMAND_METAVAR = "COMMAND"
+
+#: Matches argparse's own invalid-choice sentence, whichever metavar it used.
+INVALID_CHOICE_RE = re.compile(
+    r"argument (?P<argument>\S+): invalid choice: (?P<value>'[^']*')"
+)
+
+
+class CommandParser(argparse.ArgumentParser):
+    """An `ArgumentParser` that will not answer a typo with a catalogue.
+
+    argparse generates its own ``(choose from a, b, c, ...)`` list, which for
+    this program is a forty-odd name paragraph attached to a one-word mistake.
+    Suppressing the metavar fixes the usage line but not this sentence, and
+    there is no public hook for it, so the message is rewritten on the way out.
+    Everything else about `error` is left exactly as argparse defines it,
+    including the exit status.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        match = INVALID_CHOICE_RE.match(message)
+        if match is not None:
+            self.print_usage(sys.stderr)
+            self.exit(
+                2,
+                f"{self.prog}: error: {match.group('value')} is not a "
+                f"{self.prog} command.\n"
+                f"Run `{self.prog} commands` for the compact journey map, or "
+                f"`{self.prog} --help` for every command.\n",
+            )
+        super().error(message)
+
 
 COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "object": (

@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from .census import (
     Predicate,
@@ -40,7 +39,17 @@ from .objdump import (
     symbol_selection_error,
 )
 from .schema import VIEW_CENSUS_KEYS
-from .terminal import add_terminal_arguments, emit_lines
+from .terminal import (
+    WEB_COLORS,
+    Painter,
+    add_color_argument,
+    add_terminal_arguments,
+    emit_lines,
+    resolve_color,
+    resolve_width,
+    visible_length,
+    visible_ljust,
+)
 from .view import (
     DEFAULT_REGISTER_PROFILE,
     MATCH,
@@ -51,39 +60,18 @@ from .view import (
     build_view,
 )
 
-WEB_COLORS = ("36", "33", "35", "32", "34", "31")
-
-
-class Painter:
-    """Minimal ANSI painter with a monochrome-safe default."""
-
-    def __init__(self, enabled: bool) -> None:
-        self.enabled = enabled
-
-    def _wrap(self, code: str, text: str) -> str:
-        return f"\033[{code}m{text}\033[0m" if self.enabled and text else text
-
-    def bold(self, text: str) -> str:
-        return self._wrap("1", text)
-
-    def warn(self, text: str) -> str:
-        return self._wrap("1;31", text)
-
-    def web(self, number: int, text: str) -> str:
-        return self._wrap(WEB_COLORS[(number - 1) % len(WEB_COLORS)], text)
-
-
-def resolve_color(choice: str, *, stream: TextIO | None = None) -> bool:
-    """Decide whether ANSI output is appropriate."""
-
-    if choice == "always":
-        return True
-    if choice == "never":
-        return False
-    if os.environ.get("NO_COLOR"):
-        return False
-    target = sys.stdout if stream is None else stream
-    return bool(getattr(target, "isatty", lambda: False)())
+# `Painter` and `resolve_color` moved to `terminal`, beside the width and pager
+# controls they share a screen with, once `compare` needed them too. They are
+# re-exported here because this is where every caller already looked.
+__all__ = [
+    "WEB_COLORS",
+    "Painter",
+    "add_view_output_arguments",
+    "add_view_render_arguments",
+    "register_view_commands",
+    "render_view",
+    "resolve_color",
+]
 
 
 def _tokens(pairs: Sequence[tuple[str, object]]) -> str:
@@ -104,7 +92,8 @@ def _cell(text: str | None, width: int) -> str:
     return ("-" if text is None else text).ljust(width)
 
 
-def render_header(view: MechanismView) -> list[str]:
+def render_header(view: MechanismView, painter: Painter | None = None) -> list[str]:
+    brush = painter or Painter(False)
     counts = view.counts
     lines: list[str] = []
     title = f"view {view.symbol or 'all-instructions'}"
@@ -133,8 +122,23 @@ def render_header(view: MechanismView) -> list[str]:
             verdict_tokens.append((optional, counts[optional]))
     verdict_tokens.append(("hunks", len(view.hunks)))
     verdict_tokens.append(("playbook", view.playbook))
-    lines.append(f"verdict: {view.verdict}  " + _tokens(verdict_tokens))
+    lines.append(
+        brush.bold("verdict:")
+        + " "
+        + brush.verdict(view.verdict)
+        + "  "
+        + _tokens(verdict_tokens)
+    )
     lines.append("signature: " + " ".join(view.signature))
+    # The bijection is the highest-leverage fact on the screen and used to sit
+    # below every hunk, where a reader who stopped at the first divergence
+    # never reached it. The full table stays where it is; this is the index.
+    if view.webs:
+        summary = ", ".join(
+            brush.web(number, f"{web.web} {web.target}->{web.candidate} x{web.count}")
+            for number, web in enumerate(view.webs, 1)
+        )
+        lines.append("webs: " + summary)
     return lines
 
 
@@ -185,9 +189,13 @@ def render_lanes(view: MechanismView, *, window: int) -> list[str]:
         offset = sum(widths[: max(0, lane.divergence - start)]) + max(
             0, lane.divergence - start
         )
+        # Two different units used to be spelled `divergence=5 index=12`,
+        # which read as one coordinate pair. `slot` counts positions in this
+        # lane; `aligned_row` counts rows of the alignment, the same unit the
+        # header's `aligned_rows` and every hunk range use.
         detail: list[tuple[str, object]] = [
-            ("divergence", lane.divergence),
-            ("index", lane.divergence_row),
+            ("slot", lane.divergence),
+            ("aligned_row", lane.divergence_row),
         ]
         if lane.rotation:
             detail.append(("rotation", f"+{lane.rotation}"))
@@ -195,9 +203,11 @@ def render_lanes(view: MechanismView, *, window: int) -> list[str]:
     return lines
 
 
-def _annotation(
+def _annotation_parts(
     row: AlignedRow, webs: dict[tuple[str, str], int], painter: Painter
-) -> str:
+) -> list[str]:
+    """Return one label per substitution, kept separable for wrapping."""
+
     parts = []
     for pair in row.substitutions:
         number = webs.get(pair)
@@ -205,7 +215,13 @@ def _annotation(
         if number is not None:
             label = painter.web(number, f"{label} [w{number}]")
         parts.append(label)
-    return " ".join(parts)
+    return parts
+
+
+def _annotation(
+    row: AlignedRow, webs: dict[tuple[str, str], int], painter: Painter
+) -> str:
+    return " ".join(_annotation_parts(row, webs, painter))
 
 
 def _assembly_width(rows: Sequence[AlignedRow]) -> int:
@@ -234,6 +250,7 @@ def render_hunks(
     context: int,
     max_hunks: int,
     painter: Painter,
+    budget: int = 0,
 ) -> list[str]:
     if not view.hunks:
         return []
@@ -260,7 +277,14 @@ def render_hunks(
             )
         )
         lines.extend(
-            _render_hunk_rows(view, hunk, window=window, webs=webs, painter=painter)
+            _render_hunk_rows(
+                view,
+                hunk,
+                window=window,
+                webs=webs,
+                painter=painter,
+                budget=budget,
+            )
         )
     if max_hunks and len(view.hunks) > max_hunks:
         lines.append("")
@@ -296,6 +320,58 @@ def _context_windows(
     return windows
 
 
+#: Columns consumed by ``"  12345 > "`` before the first assembly cell.
+ROW_PREFIX = 2 + 5 + 1 + 1 + 1
+
+#: Where a wrapped annotation restarts. Deep enough to read as a continuation
+#: of the row above rather than as a new row.
+ANNOTATION_INDENT = " " * (ROW_PREFIX + 2)
+
+
+def _paint_registers(
+    text: str | None,
+    registers: Sequence[str],
+    row: AlignedRow,
+    webs: dict[tuple[str, str], int],
+    painter: Painter,
+    *,
+    target_side: bool,
+) -> str:
+    """Colour the substituted register tokens inside the disassembly itself.
+
+    The trailing ``t7->t8 [w1]`` says which registers moved; it does not say
+    *where* in a sixty-column instruction they are. Painting the token in its
+    web's own colour puts the answer under the reader's eye, and the two sides
+    of one substitution then share a hue across the ``|``.
+    """
+
+    rendered = "-" if text is None else text
+    if not painter.enabled or text is None:
+        return rendered
+    for pair in row.substitutions:
+        number = webs.get(pair)
+        if number is None:
+            continue
+        register = pair[0] if target_side else pair[1]
+        if register not in registers:
+            continue
+        for token in (f"${register}", register):
+            index = rendered.find(token)
+            if index < 0:
+                continue
+            # Only a whole operand token: `$t1` must never match inside `$t10`.
+            trailing = rendered[index + len(token) : index + len(token) + 1]
+            if trailing.isalnum():
+                continue
+            rendered = (
+                rendered[:index]
+                + painter.web(number, token)
+                + rendered[index + len(token) :]
+            )
+            break
+    return rendered
+
+
 def _render_hunk_rows(
     view: MechanismView,
     hunk: Hunk,
@@ -303,6 +379,7 @@ def _render_hunk_rows(
     window: tuple[int, int],
     webs: dict[tuple[str, str], int],
     painter: Painter,
+    budget: int = 0,
 ) -> list[str]:
     start, end = window
     rows = view.rows[start : end + 1]
@@ -311,16 +388,62 @@ def _render_hunk_rows(
     for row in rows:
         inside = hunk.start <= row.index <= hunk.end
         marker = ">" if inside else " "
-        annotation = _annotation(row, webs, painter) if inside else ""
-        if not annotation and not row.matched:
-            # Context rows carry their class too: a displacement never opens a
-            # hunk, and it must still be visible where it happens.
-            annotation = row.classification
-        lines.append(
-            f"  {row.index:5d} {marker} "
-            f"{_cell(row.target, width)} | "
-            f"{_cell(row.candidate, width)}" + (f"  {annotation}" if annotation else "")
+        # Every non-matched row gets its substitution named, in or out of this
+        # hunk. A context row whose swap belongs to a known web used to print
+        # a bare `register`, which reads as an unexplained site sitting beside
+        # the explained ones -- the exact opposite of what a web is for. The
+        # `>` marker, not the annotation, is what separates this hunk's rows
+        # from the evidence around them.
+        parts = _annotation_parts(row, webs, painter) if not row.matched else []
+        if not parts and not row.matched:
+            # A displacement never opens a hunk and carries no substitution,
+            # and it must still be visible where it happens.
+            parts = [row.classification]
+        target = _paint_registers(
+            row.target, row.target_registers, row, webs, painter, target_side=True
         )
+        candidate = _paint_registers(
+            row.candidate,
+            row.candidate_registers,
+            row,
+            webs,
+            painter,
+            target_side=False,
+        )
+        body = (
+            f"  {row.index:5d} {marker} "
+            f"{visible_ljust(target, width)} | "
+            f"{visible_ljust(candidate, width)}"
+        )
+        lines.extend(_wrap_annotation(body, parts, budget))
+    return lines
+
+
+def _wrap_annotation(body: str, parts: Sequence[str], budget: int) -> list[str]:
+    """Attach the annotation to `body`, wrapping rather than losing any of it.
+
+    `--width` truncates from the right, so a narrow terminal used to cut a
+    row's second web tag off silently -- a verdict suppressing its own
+    evidence, which is the one thing this tool promises never to do. The
+    assembly columns may be cut by the width the reader asked for; the
+    annotation moves to a continuation line instead.
+    """
+
+    if not parts:
+        return [body]
+    joined = " ".join(parts)
+    if not budget or visible_length(body) + 2 + visible_length(joined) <= budget:
+        return [f"{body}  {joined}"]
+    lines = [body]
+    current = ANNOTATION_INDENT
+    for part in parts:
+        candidate = current + (" " if current != ANNOTATION_INDENT else "") + part
+        if current != ANNOTATION_INDENT and visible_length(candidate) > budget:
+            lines.append(current)
+            current = ANNOTATION_INDENT + part
+        else:
+            current = candidate
+    lines.append(current)
     return lines
 
 
@@ -362,6 +485,7 @@ def render_view(
     report_regs: bool = False,
     painter: Painter | None = None,
     show_warnings: bool = True,
+    width: int = 0,
 ) -> list[str]:
     """Render the whole screen as lines of monochrome-safe text.
 
@@ -374,7 +498,7 @@ def render_view(
     lines = (
         [f"warning: {warning}" for warning in view.warnings] if show_warnings else []
     )
-    lines.extend(render_header(view))
+    lines.extend(render_header(view, brush))
     if view.register_first_divergence:
         lines.append(
             brush.warn(
@@ -385,7 +509,13 @@ def render_view(
         )
     lines.extend(render_lanes(view, window=lane_window))
     lines.extend(
-        render_hunks(view, context=context, max_hunks=max_hunks, painter=brush)
+        render_hunks(
+            view,
+            context=context,
+            max_hunks=max_hunks,
+            painter=brush,
+            budget=resolve_width(width),
+        )
     )
     lines.extend(render_webs(view, painter=brush))
     if report_regs:
@@ -455,6 +585,7 @@ def _emit(
             lane_window=args.lane_window,
             report_regs=args.report_regs,
             painter=painter,
+            width=args.width,
         )
         lines.extend(item.line for item in census)
         if args.html:
@@ -635,12 +766,7 @@ def add_view_render_arguments(
             f"register class table for the lanes (default: {DEFAULT_REGISTER_PROFILE})"
         ),
     )
-    parser.add_argument(
-        "--color",
-        choices=("auto", "always", "never"),
-        default="auto",
-        help="ANSI web coloring; monochrome annotations are always present",
-    )
+    add_color_argument(parser)
 
 
 def add_view_output_arguments(parser: argparse.ArgumentParser) -> None:

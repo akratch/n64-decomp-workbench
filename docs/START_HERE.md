@@ -204,6 +204,7 @@ sections. Read the mechanism in this order.
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
+webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
 ```
 
@@ -229,7 +230,7 @@ REGISTER LANES (per-class assignment sequences, matching instructions included)
                    identical 3/3
   temp  target     t6 t7 t8 t9 t6 t7 t8 t9 t6   slots=0..8/9
         candidate  t6 t7 t8 t9 t6 t8 t9 t6 t7
-                   ---------------^ divergence=5 index=12 rotation=+1
+                   ---------------^ slot=5 aligned_row=12 rotation=+1
 ```
 
 A lane is the ordered sequence of registers a class gets assigned, in emission
