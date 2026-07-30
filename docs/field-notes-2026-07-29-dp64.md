@@ -56,8 +56,8 @@ no ROMs, objects, or proprietary artifacts. Roll confirmed items into
   after the winner compiles.
 - ~~trace-globalcolor/instrument-uopt unusable; 5.3 has no uopt~~ **CORRECTION
   (objprint campaign): IDO 5.3 does ship uopt, and an instrumented 5.3
-  toolchain already exists on this machine** at
-  `/private/tmp/sf64-ido-research.LtCtle/build/5.3/` (`uopt.instrumented-v6`
+  toolchain already exists on this machine** in the research tree's
+  `build/5.3/` directory (`uopt.instrumented-v6`
   with CDX_LOG/CDX_PROC/CDX_FORCE/CDX_DETAIL_WEB, `ugen.instrumented` with
   DKWB_UGEN_TRACE). Wiring is manual (symlink dir + swap binaries + USR_LIB) —
   wants a `--toolchain-dir` flag that automates it. Real gaps found instead:

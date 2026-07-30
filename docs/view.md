@@ -108,6 +108,12 @@ different place.
 come from this same analysis, and they are what ranks candidates. `view` is
 what tells you **where**: the hunk, the lane, the web, and the lever.
 
+The `playbook=` token in the verdict line is a `guide` topic. Whatever it says,
+`decomp-workbench guide <playbook>` prints that family's field-guide levers;
+so does the verdict itself, and so does any lever number.
+[From verdict to edit](from-verdict-to-edit.md) walks one of them to a source
+change.
+
 Two anchorings are built with `difflib.SequenceMatcher(autojunk=False)`, and
 the one that explains more of the function as identical wins:
 

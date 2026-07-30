@@ -456,6 +456,12 @@ for the census contract.
 pick the lever from the `next:` footer and [the field guide](field-guide.md),
 try it. Everything on this page is something you do by reading a screen.
 
+If the step from "the footer named a lever" to "I typed something into the
+`.c`" is the one that feels unclear, [From verdict to
+edit](from-verdict-to-edit.md) works exactly that step, once, on a fixture you
+already have. `decomp-workbench guide <playbook>` prints the lever's own
+section straight into your terminal.
+
 The permuter is **optional, and it is a hypothesis generator, not a solver**.
 Measured over roughly 140,000 iterations across four real campaigns, it solved
 zero residuals directly. It earned its keep exactly once, by producing a

@@ -74,11 +74,11 @@ did the actual winning.
   `docs/skill-feed-2026-07-29.md` (skill-file staging).
 - **Instrument patchers + key harnesses**:
   `research-archive/dp64-2026-07-29/` (this repo — our authored code
-  only). The instrumented toolchain *builds* live in `/private/tmp/...`
-  (ephemeral!): rebuild by applying the patchers to a static-recomp
-  `uopt`/`ugen` C source per their headers. The base research tree was at
-  `/private/tmp/sf64-ido-research.LtCtle/` — if gone, regenerate via
-  ido-static-recomp and re-apply patchers.
+  only). The instrumented toolchain *builds* live in an ephemeral scratch
+  directory outside this repository: rebuild by applying the patchers to a
+  static-recomp `uopt`/`ugen` C source per their headers. The base research
+  tree is not redistributable and is not preserved — if gone, regenerate
+  via ido-static-recomp and re-apply the patchers.
 - **dp64 branches**: `match-core-functions` / `match-dlls-batch1` (the PR
   branches, clean history); `match-rzipUncompress` (original 15 commits,
   still carries Co-Authored-By trailers — clean before ever pushing).
@@ -199,7 +199,7 @@ Next moves:
 3. CDX_FORCE: decline forbidden colors with a message (SIGABRT killed
    probes in 3 campaigns); phase-qualified keys everywhere (the workbench
    validators are fixed; the research-tree binaries predate that).
-4. If the /private/tmp research tree is gone: rebuild ido-static-recomp
+4. If the scratch research tree is gone: rebuild ido-static-recomp
    5.3, apply `research-archive/dp64-2026-07-29/instrument-patchers/` in
    order (pool → emit → webform → copyprop → prehoist share lineage;
    headers document their base files).

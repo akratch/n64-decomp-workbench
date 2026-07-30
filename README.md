@@ -200,13 +200,15 @@ decomp-workbench install-skill claude
 | `constant-mismatch` | Audit the flag/enum against the assembly, then re-derive fakes |
 | `commutative-order` | Change the expression tree (`x \|= y`), not the allocator |
 | `schedule-mismatch` | Regroup statements; use `-g0` to locate ownership, not to prove the C |
-| `allocation-mismatch` | Run `view`, then the pool/temp levers in the field guide |
+| `allocation-mismatch` | Run `view` to name the family, then `decomp-workbench guide <playbook>` |
 | `relocation-layout-mismatch` | Check relocation metadata, then the project link/ROM check |
 | `exact=true` | Run the project’s normal collateral and full-output verification |
 
 Whatever the verdict, `--show-diff` prints every differing site: no verdict
 suppresses evidence. [The field guide](docs/field-guide.md) turns each of these
-rows into the C that moves it.
+rows into the C that moves it, `decomp-workbench guide <playbook|verdict|lever>`
+prints the relevant part of it in the terminal, and [from verdict to
+edit](docs/from-verdict-to-edit.md) walks one case end to end.
 
 ## Command reference
 
@@ -255,6 +257,7 @@ The three narrative pages first, then the focused guides:
 - [Start here][start-here] — an almost-matched function, end to end
 - [Field guide][field-guide] — the IDO codegen levers, with the C
 - [The `guide` command][guide-command] — those levers, in the terminal
+- [From verdict to edit][from-verdict-to-edit] — one screen to one source change, end to end
 - [Backlog walkthrough][walkthrough] — thirty near matches, in triage order
 - [Workflow selection][workflows]
 - [Object comparison][object-comparison]
@@ -267,6 +270,7 @@ The three narrative pages first, then the focused guides:
 - [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
 - [Lessons from final-function campaigns][final-function-campaigns]
+- [Alternate authentic frontends][alternate-frontends] — when the compiler itself is the variable
 - [Portable Codex and Claude Code skill][agent-skill]
 - [IDO version support][ido-support]
 - [Trace analysis][trace-analysis]
@@ -317,6 +321,8 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [start-here]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/START_HERE.md
 [field-guide]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/field-guide.md
 [guide-command]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/guide-command.md
+[from-verdict-to-edit]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/from-verdict-to-edit.md
+[alternate-frontends]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/alternate-frontends.md
 [walkthrough]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/walkthrough-30-near-matches.md
 [view]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/view.md
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md

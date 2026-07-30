@@ -193,6 +193,10 @@ are stable across the whole pile.
 Now the pile is small and every row is register-only. Split it by lane, which
 `view` has already told you:
 
+Every playbook below is also a `guide` topic: `decomp-workbench guide
+temp-fifo-phase` prints that family's levers in full, and
+`decomp-workbench guide 19` prints a single one, without leaving the terminal.
+
 **`temp-fifo-phase`** — the temp lane shows `rotation=+N`. One upstream event.
 The lever is in the *preceding* block:
 [hoist a call argument](field-guide.md#14-temp-fifo-phase--perturb-the-preceding-block),

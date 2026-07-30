@@ -21,6 +21,7 @@ below them is reference you consult when you need it.
 |---|---|
 | You have an almost-matched function and do not know what to do next | **[Start here](START_HERE.md)** |
 | `view` named a mechanism and you need the C that moves it | **[Field guide](field-guide.md)** |
+| You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** |
 | You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 
@@ -48,6 +49,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | Read this if... | Document |
 |---|---|
 | You want the longer reasoning behind a difficult finish | [Final-function campaign lessons](final-function-campaigns.md) |
+| The project compiler provably cannot emit what the target does | [Alternate authentic frontends](alternate-frontends.md) |
 | You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
 | You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
@@ -70,8 +72,10 @@ traces, and three functions have been matched without ever reading one.
 | A late scheduling decision is suspect | [Pass replay](pass-replay.md) | A retained listing plus as0/as1 |
 
 The dated field notes, skill feed, postmortem, review, and UX vision preserve
-the evidence as it looked on 2026-07-29. Use
-[Product status](product-status.md) for current syntax and support claims.
+the evidence as it looked on the day each was written — 2026-07-29 for the
+dp64 set, [2026-07-30](field-notes-2026-07-30-ssb64.md) for the SSB64
+frontend-lineage campaign. Use [Product status](product-status.md) for current
+syntax and support claims.
 
 Every command has `--help`. `decomp-workbench --explain-keys` prints the one
 registry of printed labels, JSON keys, and their meanings; reporting commands

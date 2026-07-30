@@ -533,6 +533,7 @@ def topic_index_lines() -> list[str]:
         (
             "",
             "Example: decomp-workbench guide forced-color-oracle",
+            "Worked end to end: docs/from-verdict-to-edit.md",
         )
     )
     return lines

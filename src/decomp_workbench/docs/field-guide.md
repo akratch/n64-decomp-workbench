@@ -7,14 +7,22 @@ that were found by matching real functions, written down so you can apply them
 by hand. [Start here](START_HERE.md) explains the loop these fit into; this page
 is what you consult once `view` has named a mechanism.
 
-Every lever below was proven on a real IDO 5.3 `-O2 -g3 -mips2` function, and
-the measured effect is quoted so you can calibrate how much to believe it. The
-C snippets are illustrative shapes, not copy-paste patches: the *form* is the
-lever, the identifiers are yours.
+Levers 1-19 were each proven on a real IDO 5.3 `-O2 -g3 -mips2` function, and
+the measured effect is quoted so you can calibrate how much to believe it.
+Levers 20-22 come from a later campaign and are a different kind of finding —
+they are about the *frontend* being a variable rather than about the C you
+write under one — so they carry their own provenance. The C snippets are
+illustrative shapes, not copy-paste patches: the *form* is the lever, the
+identifiers are yours.
 
 **Read the order as priority.** Levers 1-4 cost one variant each and can erase
 a hundred words. Do not touch the register sections until the instruction count
 and opcode schedule have stopped moving.
+
+Any section here can be printed in the terminal:
+`decomp-workbench guide <playbook>`, `guide <verdict>`, or `guide <number>`.
+[From verdict to edit](from-verdict-to-edit.md) takes one lever from this page
+to a source change and back.
 
 - [Cheap first — one variant each](#cheap-first--one-variant-each)
 - [Working a structure mismatch](#working-a-structure-mismatch)
@@ -22,6 +30,7 @@ and opcode schedule have stopped moving.
 - [The temp-FIFO lane (ugen)](#the-temp-fifo-lane-ugen)
 - [Coalescing copies](#coalescing-copies)
 - [When source search is over](#when-source-search-is-over)
+- [When the compiler itself is the variable](#when-the-compiler-itself-is-the-variable)
 - [Dead families — do not spend variants here](#dead-families--do-not-spend-variants-here)
 
 ---
@@ -576,6 +585,10 @@ valuable as any lever above.
 ## See also
 
 - [Start here](START_HERE.md) — the loop these levers fit into.
+- [From verdict to edit](from-verdict-to-edit.md) — one worked example of
+  taking a lever from this page to a source change and back.
+- [The `guide` command](guide-command.md) — `decomp-workbench guide <playbook>`
+  prints any section below without leaving the terminal.
 - [Working a backlog of near matches](walkthrough-30-near-matches.md) — how to
   apply this guide to thirty functions instead of one.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
