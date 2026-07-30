@@ -4,6 +4,14 @@
 
 Find the cause of late-stage MIPS decompilation mismatches.
 
+![One diagnose run on a shipped fixture: the verdict, the register lanes with
+the divergence caret, the aligned hunk with per-web colored substitutions, the
+webs table, and the next-steps footer naming the field-guide levers to try.](docs/assets/diagnose-phase-shift.svg)
+
+*Real output — `decomp-workbench diagnose-dumps` on the phase-shift fixture in
+this repository. [From verdict to edit](docs/from-verdict-to-edit.md) walks
+this exact screen from top to bottom.*
+
 ## You have an almost-matched function. Now what?
 
 **→ Read [docs/START_HERE.md](docs/START_HERE.md).** Ten minutes, in order,
@@ -118,6 +126,14 @@ decomp-workbench diagnose target.o candidate.o \
 `compare` and `view` remain composable primitives; `diagnose` loads each input
 once and renders both truths together. Add `--show-all` for every hunk or
 `--html report.html` for a self-contained handoff.
+
+![The same diagnosis as a self-contained HTML report: sticky verdict bar with
+an aligned-identity chip, register lanes with the divergent slot outlined,
+annotated hunks, and a webs table linking each substitution to the hunks it
+explains.](docs/assets/html-report.png)
+
+*The `--html` report carries the same evidence — no scripts, no network, one
+file you can attach to a PR or a Discord thread.*
 
 Run generated source variants through your existing compile wrapper. Each
 `{source}` is a full translation unit, compiled the way your project compiles
