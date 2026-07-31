@@ -124,6 +124,11 @@ def _emit(
             )
             with html_output.open("x", encoding="utf-8") as destination:
                 destination.write(document)
+            print(
+                f"note: {html_output} contains the target's disassembly. "
+                "It is ROM-derived -- keep it out of version control.",
+                file=sys.stderr,
+            )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

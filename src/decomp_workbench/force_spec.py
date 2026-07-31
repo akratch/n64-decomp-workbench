@@ -31,6 +31,10 @@ def force_specification(view: MechanismView) -> dict[str, Any]:
         "permutation": [
             {
                 "aligned_web": web.web,
+                # ROM-derived, like the HTML report and for the same reason:
+                # this names a register in the *target*. A force specification
+                # is an operator-named artifact, not an automatic one, but it
+                # is still not something to commit. See ledger_redaction.
                 "target_register": web.target,
                 "candidate_register": web.candidate,
                 "affected_indices": list(web.rows),

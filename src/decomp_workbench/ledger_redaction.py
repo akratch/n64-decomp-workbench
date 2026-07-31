@@ -144,36 +144,59 @@ MASKED_OPCODE_SITE_LIMIT = 3
 SALT_BYTES = 16
 
 
-def warn_if_unredacted(ledger_path: str | Path) -> str | None:
-    """Return a warning if this ledger already holds pre-redaction records.
+def warn_if_unredacted(
+    ledger_path: str | Path, *, scan_lines: int = 4096
+) -> str | None:
+    """Return a warning if this ledger holds any pre-redaction records.
 
     Ledgers are append-only and campaigns resume, so a ledger written before
-    this module existed keeps being appended to. New records are redacted; the
+    redaction existed keeps being appended to. New records are redacted; the
     old ones in the same file still carry the ROM's instruction text, and the
-    file as a whole is exactly as dangerous as it was. Silence there would let
-    an operator believe the fix applied retroactively, which is the sort of
-    belief that gets a file committed.
+    file as a whole is exactly as dangerous as it was. Silence would let an
+    operator believe the fix applied retroactively, which is the sort of belief
+    that gets a file committed.
+
+    Scans the file rather than its first line: a ledger can start with a blank
+    or torn line, and a resumed campaign produces a *mixed* file whose first
+    record may well be redacted while later ones are not.
     """
 
     path = Path(ledger_path)
     try:
         with path.open("r", encoding="utf-8") as stream:
-            first = stream.readline()
+            lines: list[str] = []
+            for _ in range(scan_lines):
+                line = stream.readline()
+                if not line:
+                    break
+                lines.append(line)
     except OSError:
         return None
-    if not first.strip():
-        return None
-    try:
-        record = json.loads(first)
-    except ValueError:
-        return None
-    if isinstance(record, dict) and "redaction" in record:
+
+    unredacted = 0
+    total = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        total += 1
+        try:
+            record = json.loads(line)
+        except ValueError:
+            # A torn line is not evidence of redaction, so it counts against.
+            unredacted += 1
+            continue
+        if not isinstance(record, dict) or not isinstance(
+            record.get("redaction"), dict
+        ):
+            unredacted += 1
+    if not total or not unredacted:
         return None
     return (
-        f"warning: {path} predates ledger redaction. Records already in it "
-        "carry the target ROM's instruction text; only newly appended records "
-        "are redacted. Treat the whole file as ROM-derived -- do not commit "
-        "it, and delete or re-run the campaign to get a clean ledger."
+        f"warning: {path} contains {unredacted} of {total} scanned record(s) "
+        "written before ledger redaction. They carry the target ROM's "
+        "instruction text; only newly appended records are redacted. Treat the "
+        "whole file as ROM-derived -- do not commit it, and delete it or re-run "
+        "the campaign for a clean ledger."
     )
 
 
@@ -285,36 +308,78 @@ def redact_site(
     return out
 
 
-def redact_comparison(comparison: Any, salt: bytes) -> Any:
-    """Return ``comparison`` with every target-side site field masked."""
+def _is_path_like(value: Any) -> bool:
+    """True for the `target` fields that are filesystem paths, not code.
 
-    if not isinstance(comparison, dict):
-        return comparison
-    out = dict(comparison)
-    for name in SITE_LISTS:
-        sites = out.get(name)
-        if not isinstance(sites, list):
-            continue
-        out[name] = [
-            redact_site(site, salt, mask_opcodes=position < MASKED_OPCODE_SITE_LIMIT)
-            if isinstance(site, dict)
-            else site
-            for position, site in enumerate(sites)
+    ``provenance.target`` and ``comparison.target`` name the target *object
+    file*. They feed the cache key and the resume logic, and redacting them
+    would break both.
+    """
+
+    return isinstance(value, str) and ("/" in value or value.endswith(".o"))
+
+
+def _sweep(node: Any, salt: bytes, *, in_site_list: bool, position: int) -> Any:
+    """Recursively remove target-side content from an arbitrary JSON tree.
+
+    An earlier version filtered only the three known site lists and copied
+    everything else verbatim. A review then put ``comparison["hunks"][i]
+    ["target"]``, ``comparison["target_disassembly"]`` and a top-level
+    ``record["target_dump"]`` straight through it. Filtering the places the
+    leak happened to live last time is not a policy. This is:
+
+    **Covered, exactly:** every mapping key whose name begins with ``target``,
+    at any depth, anywhere in the record, unless its value is path-like. Site
+    records inside the known lists additionally go through
+    :func:`redact_site`, which is a positive allow-list of surviving keys.
+
+    **Not covered:** a field carrying the target's code under a name that does
+    not begin with ``target``. Nothing here reads string *contents* to decide
+    whether they are disassembly. That residue is the consuming project's
+    clean-room gate to catch, and it is why both layers exist.
+    """
+
+    if isinstance(node, list):
+        return [
+            _sweep(item, salt, in_site_list=in_site_list, position=i)
+            for i, item in enumerate(node)
         ]
+    if not isinstance(node, dict):
+        return node
+
+    if in_site_list:
+        return redact_site(node, salt, mask_opcodes=position < MASKED_OPCODE_SITE_LIMIT)
+
+    out: dict[str, Any] = {}
+    dropped: list[str] = []
+    for key, value in node.items():
+        if key.startswith("target") and not _is_path_like(value):
+            dropped.append(key)
+            continue
+        out[key] = _sweep(value, salt, in_site_list=key in SITE_LISTS, position=0)
+    if dropped:
+        existing = out.get("dropped_fields") or []
+        out["dropped_fields"] = sorted(set(existing) | set(dropped))
     return out
+
+
+def redact_comparison(comparison: Any, salt: bytes) -> Any:
+    """Return ``comparison`` with every target-side field removed, at any depth."""
+
+    return _sweep(comparison, salt, in_site_list=False, position=0)
 
 
 def redact_record(record: dict[str, Any], salt: bytes) -> dict[str, Any]:
     """Return one ledger record with the target ROM's instruction text removed.
 
-    Everything outside ``comparison``'s site lists is passed through untouched,
-    including ``provenance`` -- whose ``target`` is a filesystem path and whose
-    contents feed the cache key.
+    The sweep is recursive and covers the whole record, not just
+    ``comparison``; :func:`_sweep` documents exactly what that reaches and what
+    it does not. Path-valued ``target`` fields survive, because
+    ``provenance.target`` and ``comparison.target`` name the target object file
+    and feed the cache key.
     """
 
-    out = dict(record)
-    if "comparison" in out:
-        out["comparison"] = redact_comparison(out["comparison"], salt)
+    out: dict[str, Any] = _sweep(record, salt, in_site_list=False, position=0)
     out["redaction"] = {
         "schema": REDACTION_SCHEMA,
         "digest_bits": DIGEST_HEX * 4,

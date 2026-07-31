@@ -306,6 +306,33 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
                 # target_index is a position in the alignment, not content.
                 self.assertEqual(key, "target_index", f"{key!r} is target content")
 
+    def test_target_content_is_removed_at_every_depth(self) -> None:
+        """The sweep used to filter only three named lists.
+
+        Everything below reached the output verbatim until it was made
+        recursive -- nested hunks, a sibling key on `comparison`, a top-level
+        key, and a dict buried under an allow-listed one.
+        """
+
+        record = make_record()
+        record["target_dump"] = "addiu\tsp,sp,-64"
+        record["comparison"]["target_disassembly"] = ["sw\tra,28(sp)"]
+        record["comparison"]["hunks"] = [
+            {"start": 0, "target": "lui\tv0,0x8005", "candidate": "lui\tv0,0x8006"}
+        ]
+        record["comparison"]["nested"] = {"deep": {"target_bytes": "27 bd ff c0"}}
+
+        blob = json.dumps(redact_record(record, b"salt"), sort_keys=True)
+        for probe in (
+            "addiu\\tsp,sp,-64",
+            "sw\\tra,28(sp)",
+            "lui\\tv0,0x8005",
+            "27 bd ff c0",
+        ):
+            self.assertNotIn(probe, blob, f"{probe!r} survived the sweep")
+        # ...while the candidate side of the same hunk is kept.
+        self.assertIn("lui\\tv0,0x8006", blob)
+
     def test_paths_named_target_are_not_redacted(self) -> None:
         """``provenance.target`` and ``comparison.target`` are filesystem
         paths; redacting by key name would break resume and cache keys."""
@@ -407,7 +434,7 @@ class UnredactedLedgerWarningTest(unittest.TestCase):
             warning = warn_if_unredacted(ledger)
             self.assertIsNotNone(warning)
             assert warning is not None
-            self.assertIn("predates ledger redaction", warning)
+            self.assertIn("written before ledger redaction", warning)
 
     def test_redacted_ledger_is_not_flagged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -420,6 +447,36 @@ class UnredactedLedgerWarningTest(unittest.TestCase):
     def test_absent_ledger_is_not_flagged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(warn_if_unredacted(Path(tmp) / "nope.jsonl"))
+
+    def test_mixed_ledger_is_flagged_even_when_the_first_record_is_clean(self) -> None:
+        """A resumed campaign appends redacted records to an unredacted file,
+        so the first line proves nothing about the rest."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            append_ledger(
+                ledger, make_result(), duplicate_sources=[], provenance={}, timeout=None
+            )
+            with ledger.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"schema": "v1", "comparison": {}}) + "\n")
+            warning = warn_if_unredacted(ledger)
+            self.assertIsNotNone(warning)
+            assert warning is not None
+            self.assertIn("1 of 2", warning)
+
+    def test_blank_and_torn_lines_do_not_hide_an_unredacted_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            ledger.write_text("\n" + '{"schema": "v1", "comp' + "\n", encoding="utf-8")
+            self.assertIsNotNone(warn_if_unredacted(ledger))
+
+    def test_null_redaction_key_is_not_treated_as_redacted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            ledger.write_text(
+                json.dumps({"schema": "v1", "redaction": None}) + "\n", encoding="utf-8"
+            )
+            self.assertIsNotNone(warn_if_unredacted(ledger))
 
 
 if __name__ == "__main__":

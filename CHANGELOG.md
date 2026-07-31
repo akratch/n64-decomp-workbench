@@ -77,11 +77,11 @@ byte-exact ROM rebuild. Each entry names the failure it encodes.
   is the single place a comparison becomes a file. The in-memory `Comparison`
   is untouched, so the terminal diff, the HTML report and every diagnosis path
   show exactly what they showed before. What lands on disk keeps only what the
-  ledger is for: a 16-bit salted `target_digest` (lossy by construction -- ~2^16
-  preimages per digest, so the property does not depend on the salt staying
-  secret), a `target_opcode_masked` word with every operand field zeroed for at
-  most the first three sites of each list, and `target_register_count` in place
-  of the target's register names. The candidate side -- the operator's own
+  ledger is for: a 16-bit salted `target_digest` (lossy by construction, ~2^16
+  preimages per digest -- but see the retraction below, the property *does*
+  depend on the salt staying secret), a `target_opcode_masked` word with every
+  operand field zeroed for at most the first three sites of each list, and
+  `target_register_count` in place of the target's register names. The candidate side -- the operator's own
   compiler output from their own C -- is untouched.
 
   Salts live in a `<ledger>.salt` sidecar, never in the ledger, so a leaked
