@@ -50,6 +50,7 @@ from .comparison_render import comparison_line as comparison_line
 from .comparison_render import (
     comparison_payload,
 )
+from .context_lint_cli import register_context_commands
 from .diagnose_cli import register_diagnose_commands
 from .diagnosis import diagnose_instructions, diagnose_objects
 from .discovery import (
@@ -101,6 +102,7 @@ from .scratch_check import (
     ScratchPackage,
     compose_site_source,
     load_scratch,
+    scratch_context_hardening,
     scratch_score,
 )
 from .scratch_registration import register_scratch_commands
@@ -486,6 +488,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         scratch_score(package.metadata) if package.kind == "decomp.me-export" else None
     )
     actions = _scratch_next_actions(package, comparison, evidence)
+    hardening = scratch_context_hardening(package)
     scratch_payload: dict[str, object] = {
         "path": display_path(package.path),
         "kind": package.kind,
@@ -502,6 +505,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             "site_faithful": bool(args.compile_command),
             "line_reset": '#line 1 "src.c"' if args.compile_command else None,
         },
+        "context_hardening": hardening,
         "comparison": (
             comparison_payload(comparison, cross_rom=False)
             if comparison is not None
@@ -526,6 +530,34 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         print("files: " + ", ".join(sorted(package.files)))
         if package.checksums_valid:
             print("integrity: PASS (all workbench bundle checksums)")
+        if hardening["applicable"]:
+            if hardening["context_newline_warning"]:
+                print(f"warning: {hardening['context_newline_warning']}")
+            for duplicate in hardening["duplicate_symbols"]:
+                print(
+                    f"warning: {duplicate['symbol']} is defined in both ctx.c "
+                    f"(line {duplicate['ctx_line']}) and code.c "
+                    f"(line {duplicate['code_line']}); keep the file-scope "
+                    "definition in exactly one of them"
+                )
+            lint_findings = hardening["context_lint"]["findings"]
+            if lint_findings:
+                print(
+                    f"context lint: {len(lint_findings)} finding(s) in "
+                    "ctx.c/code.c"
+                )
+                for finding in lint_findings:
+                    print(
+                        f"  [{finding['severity'].upper()}] {finding['kind']} "
+                        f"{finding['source']}:{finding['line']}  "
+                        f"#{finding['directive']} {finding['expression']}"
+                    )
+                    print(f"    do: {finding['action']}")
+            else:
+                print(
+                    "context lint: no undefined-identifier collapse found in "
+                    "ctx.c/code.c"
+                )
         if score is not None:
             print(
                 "decomp.me display: "
@@ -1566,6 +1598,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     register_campaign_cockpit_commands(commands)
     register_cache_commands(commands)
+    register_context_commands(commands)
 
     instrument_parser = commands.add_parser(
         "instrument-ugen",

@@ -131,6 +131,48 @@ schedule and branch-likely selection on their own.
 against the project's real build rules, and compare against the full-TU build
 rather than a harness. See [Minute 1 of Start here](START_HERE.md#minute-1--do-i-need-to-isolate-the-function-first).
 
+**See also:** lever 24 audits the same missing-context family when it takes
+the shape of an `#if`/`#elif` guard rather than a flag or `ctx.c` diff.
+
+### 24. Preprocessor-conditional audit
+
+**Diff looks like:** a large `structure-mismatch` with extra cases, an
+unexplained jump table, or a whole block of code that "shouldn't" be there —
+and the guard directly above it reads like it excludes that code.
+
+```c
+/* neither BUILD_VERSION nor VERSION_J is defined in this translation unit */
+#if BUILD_VERSION >= VERSION_J
+case DRAW_SOMETHING:
+    ...
+#endif
+```
+
+**Why:** when neither identifier in an `#if`/`#elif` expression is defined,
+the C preprocessor substitutes `0` for both, and `0 >= 0` is true — the guard
+silently compiles the region in. Nothing about the source *reads* as wrong:
+both names are plausible macros, and the mistake is legible only to the
+preprocessor, not to a person scanning the diff. This kept SSB64's
+`drawbitmap` unmatched for years: the undefined-vs-undefined
+`#if BUILD_VERSION >= VERSION_J` compiled in an extra switch case — +109
+instructions and a jump table nobody asked for — and the resulting structure
+diff gave no honest hint that a stale conditional was the entire cause. One
+`#include <PR/os_version.h>`, which defines `BUILD_VERSION`, collapsed the
+residual to size-exact. The general trap is any `#if`/`#elif` whose
+expression's identifiers are *all* undefined: comparisons and equality
+collapse to a constant truth value the author almost certainly did not
+intend, most dangerously when that constant is true.
+
+**Do this before any source search on a large structural residual:**
+`decomp-workbench context lint FILE.c --define NAME=VALUE` parses every
+`#if`/`#elif` in the file against the macros you name plus whatever the file
+`#define`s along the way, and reports every guard whose truth was decided
+entirely by identifiers nobody defined.
+
+**Points here:** `verdict=structure-mismatch` or `schedule-mismatch` on source
+you otherwise trust, and any large residual whose earliest hunk sits just
+inside a conditional block.
+
 ---
 
 ## Working a structure mismatch
@@ -574,8 +616,8 @@ valuable as any lever above.
 |---|---|
 | `constant` / `constant-audit` | 1, then re-derive fakes |
 | `commutative-order` / `ast-shape` | 2 |
-| `schedule` / `g0-schedule-probe` | 3, 4 |
-| `structure` / `structure-buckets` | 1, 4, 5, 6 |
+| `schedule` / `g0-schedule-probe` | 3, 4, 24 |
+| `structure` / `structure-buckets` | 1, 4, 24, 5, 6 |
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |

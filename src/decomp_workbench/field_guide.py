@@ -155,6 +155,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "classify the dispatch construct first (source order is never a "
         "switch) before spending variants on the wrong one"
     ),
+    24: (
+        "run `decomp-workbench context lint` over the translation unit: an "
+        "#if/#elif whose identifiers are ALL undefined evaluates a constant "
+        "no one intended (0 >= 0 is true) -- define the macro, include its "
+        "header, or delete the stale guard"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -163,8 +169,8 @@ LEVER_ACTIONS: dict[int, str] = {
 PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     "constant-audit": (1,),
     "ast-shape": (2,),
-    "g0-schedule-probe": (3, 4),
-    "structure-buckets": (1, 4, 5, 6),
+    "g0-schedule-probe": (3, 4, 24),
+    "structure-buckets": (1, 4, 24, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
     "forced-color-oracle": (17, 18, 19),
