@@ -155,6 +155,10 @@ LEVER_ACTIONS: dict[int, str] = {
         "classify the dispatch construct first (source order is never a "
         "switch) before spending variants on the wrong one"
     ),
+    23: (
+        "preprocess the TU with IDO's acpp (`acpp <defines> f.c > f.i && cc -c "
+        "<flags> f.i`): uopt/ugen honor statement line boundaries even at -g0"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -163,7 +167,12 @@ LEVER_ACTIONS: dict[int, str] = {
 PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     "constant-audit": (1,),
     "ast-shape": (2,),
-    "g0-schedule-probe": (3, 4),
+    # Lever 23 joins this family rather than replacing it: the -g0 probe is
+    # still the first move for a project that builds -g3. It is also the lever
+    # that rescues the reader for whom lever 3 is vacuous, which is why a
+    # schedule verdict must reach it without a second command.
+    "g0-schedule-probe": (3, 4, 23),
+    "line-assignment-probe": (23, 4),
     "structure-buckets": (1, 4, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
@@ -223,6 +232,17 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "--as1-command ... tests whether as1 owns the ordering.",
         "don't have one? the -g0 rebuild is levers 3 and 4 and needs only your "
         "normal compiler; run it before anything else.",
+        "already building -g0, so the probe has nothing to collapse? that is "
+        "lever 23: statement line boundaries constrain uopt/ugen at -g0 too. "
+        "decomp-workbench diagnose ... --candidate-listing LISTING.s measures "
+        "it before you spend a build.",
+    ),
+    "line-assignment-probe": (
+        "no acpp in your toolchain? reflow the divergent statements onto their "
+        "own source lines - token-identical, newlines only - and rebuild; same "
+        "experiment, coarser dial.",
+        "have IDO's acpp? acpp <defines> file.c > file.i && cc -c <flags> "
+        "file.i, then diagnose again against the new listing.",
     ),
     # Source levers first, trace last: that is the documented order of work,
     # and a footer that led with instrumentation taught the opposite to every

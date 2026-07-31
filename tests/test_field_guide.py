@@ -69,7 +69,11 @@ class PackagedGuideTests(unittest.TestCase):
 
     def test_every_shipped_section_parses_with_its_number(self) -> None:
         sections = field_guide.sections()
-        self.assertEqual(sorted(sections), list(range(1, 23)))
+        # Numbering is contiguous from 1 and only ever grows: asserting the
+        # exact upper bound made every new lever a two-file edit, and the
+        # property that matters is that no number is skipped.
+        self.assertEqual(sorted(sections), list(range(1, max(sections) + 1)))
+        self.assertGreaterEqual(max(sections), 23)
         self.assertEqual(sections[19].family, "When source search is over")
         self.assertIn("forced-color", sections[19].title)
         self.assertEqual(
