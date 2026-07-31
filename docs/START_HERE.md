@@ -186,7 +186,7 @@ Three of these are traps worth naming now:
   suspecting the compiler build: `cfe` records per-statement line numbers
   from its preprocessed input, and `uopt`/`ugen` can honor those as
   scheduling barriers even at `-g0`, which only strips `.loc` records from
-  the object. The workbench's line-assignment probe (and, where available, a
+  the object. The workbench's line-assignment probe (`decomp-workbench probe-lines`; and, where available, a
   re-preprocess with an external K&R-lineage preprocessor such as IDO's
   `acpp`) can confirm this in one comparison. See the [SSB64 `drawbitmap`
   case study](../case-studies/ssb64-drawbitmap.md), where months' worth of

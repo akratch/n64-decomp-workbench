@@ -33,7 +33,7 @@ source with a one-rule Makefile change (route this TU through `acpp` first).
   `schedule-mismatch` residue is not proof the scheduler is unreachable — it
   can mean the barrier is upstream of `-g0`. Worth a documented caveat
   alongside lever 3, ideally backed by something like the workbench's
-  line-assignment probe so this is a one-command check instead of a manual
+  line-assignment probe (`decomp-workbench probe-lines`, docs/line-assignment-probe.md) so this is a one-command check instead of a manual
   `.loc`/line-reflow comparison.
 - **Silent flag fallback produced a false exhaustion proof.** `as1`'s
   `-t0`..`-t9` scheduling-model flags were swept with stderr suppressed;
@@ -55,7 +55,7 @@ source with a one-rule Makefile change (route this TU through `acpp` first).
   newline on `ctx` (site concatenates verbatim; first code line fuses onto
   the last context statement) and re-declaring statics the exported `ctx`
   already declares. Both cost paste cycles before the actual export bundle
-  was used as the template instead of a hand-assembled one. A context lint
+  was used as the template instead of a hand-assembled one. A context lint (`decomp-workbench context lint`)
   ahead of paste would catch both mechanically.
 
 ## Validated (keep doing this)

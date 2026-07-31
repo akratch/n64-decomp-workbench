@@ -236,7 +236,7 @@ to physical file position inside certain expansions, which a plain reflow of
 the pasted text cannot reproduce).
 
 Building that paste-ready bundle surfaced two more pitfalls, both worth
-checking with whatever the workbench's context lint ends up validating before
+checking with the workbench's context lint (`decomp-workbench context lint`, and the hardened `check-scratch`) before
 a paste, and both entered in [Troubleshooting](../docs/troubleshooting.md):
 
 1. **The scratch context needs a trailing newline.** decomp.me concatenates

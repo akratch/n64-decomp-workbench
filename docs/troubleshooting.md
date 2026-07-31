@@ -39,7 +39,7 @@ actual export — commonly declares them a second time in the "code" portion,
 which fails to compile. Use the export's `ctx.c` as the source of truth for
 what is already declared, and start the editable portion after it, not from
 the top of the original file. `check-scratch` (or `doctor`) against the real
-export catches this before you paste anything, and a future context lint
+export catches this before you paste anything, and `decomp-workbench context lint`
 should flag a duplicate top-level declaration between `ctx` and `code`
 mechanically instead of leaving it as a compiler error to interpret.
 

@@ -23,6 +23,7 @@ below them is reference you consult when you need it.
 | `view` named a mechanism and you need the C that moves it | **[Field guide](field-guide.md)** |
 | You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** |
 | You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
+| You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 
 New here? [Start here](START_HERE.md) takes ten minutes, and every command in
@@ -36,6 +37,8 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want every `view` option, the alignment rules, and the JSON schema | [Aligned mechanism view](view.md) | Two objects or two reduced dumps |
 | A `next:` footer named a playbook and you want its levers now | [The `guide` command](guide-command.md) | Nothing; the guide ships with the package |
 | You are sweeping a variant family and want durable state | [Candidate campaigns](campaigns.md) | A compile-one wrapper |
+| You keep hand-rolling the same byte-scoring loop, or a flag sweep might be lying to you | [score and matrix](score-and-matrix.md) | A candidate object; a ROM or target object |
+| A `schedule` verdict survives `-g0` and every compiler you own | [Line-assignment probe](line-assignment-probe.md) | A preprocessed `.i` and your compile command |
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
 | You are wiring an external compiler tree safely | [Toolchain calibration](toolchain-calibration.md) | User-supplied toolchain and fidelity cells |
 | You consume reports from scripts or CI | [JSON contracts](json-contracts.md) | `--json` |

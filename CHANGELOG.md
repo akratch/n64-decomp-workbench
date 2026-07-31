@@ -27,6 +27,22 @@
   cannot attribute are printed as unmapped and excluded from the majority
   rather than counted either way, and a `schedule` verdict with no listing is
   told the option exists and where the file comes from.
+- **`probe-lines` turns the campaign's decisive experiment into one command.**
+  Token-identical line-reflow of a preprocessed TU (split long multi-statement
+  lines; a blank-line global shift as the control) proves or refutes
+  line-assignment sensitivity in minutes, and with a target supplied reports
+  the emotionally important number: how many divergent sites moved toward the
+  ROM. See `docs/line-assignment-probe.md`.
+
+- **`context lint` catches the guard that kept drawbitmap unmatched for
+  years.** An `#if`/`#elif` whose identifiers are all undefined evaluates to a
+  constant nobody intended (`#if BUILD_VERSION >= VERSION_J` is TRUE when both
+  are undefined: `0 >= 0`). The lint evaluates the cpp expression subset,
+  classifies `always-true-by-absence` as HIGH, and `check-scratch` now runs it
+  over ctx+code -- along with two new decomp.me concatenation checks (a ctx
+  that ends without a trailing newline, and symbols defined in both ctx and
+  code). Lever 24 routes structure verdicts here.
+
 - **New `score` and `matrix` commands replace the hand-rolled scoring
   snippet from the SSB64 drawbitmap campaign.** The operator rewrote the same
   ~30-line objcopy/window/mask/compare routine roughly ten times by hand, and

@@ -96,7 +96,7 @@ frontends (and languages).
 | in-loop if-chain compare | **const-first** | value-first (const-first only with a global expression on the LHS) | — |
 | address-sum reassociation | never | tree-height reduction | — |
 | s16-counter strength reduction | blocked | blocked | performed |
-| source line numbers | **semantic** (newline placement changes scheduling) | not observed | not observed |
+| source line numbers | **semantic** (newline placement changes scheduling) | **semantic via preprocessed input** (statement `.loc` boundaries gate uopt/ugen scheduling even at `-g0`; external acpp assigns them differently than the internal cpp -- lever 23, SSB64 drawbitmap 59 words -> 0) | not observed |
 
 Anonymous unions, `//` comments, and statements-before-declarations are
 hard errors under accom — rejections are evidence about original source
