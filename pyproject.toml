@@ -71,6 +71,7 @@ strict = true
 
 [tool.codespell]
 # "tne" is the MIPS trap-if-not-equal mnemonic; "pavin" is the uopt
-# partial-availability-in per-block field decoded in the dp64 field notes.
-ignore-words-list = "disjointness,dout,pavin,tne,nd"
+# partial-availability-in per-block field decoded in the dp64 field notes;
+# "statics" is the C term for file-scope static definitions.
+ignore-words-list = "disjointness,dout,pavin,tne,nd,statics"
 skip = "examples/cv64/scratches/*/context.c,./research-archive"

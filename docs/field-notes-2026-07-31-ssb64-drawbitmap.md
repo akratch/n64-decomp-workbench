@@ -53,7 +53,7 @@ source with a one-rule Makefile change (route this TU through `acpp` first).
   unreconciled.
 - **decomp.me paste pitfalls, now in troubleshooting.md**: missing trailing
   newline on `ctx` (site concatenates verbatim; first code line fuses onto
-  the last context statement) and re-declaring statics the exported `ctx`
+  the last context statement) and redeclaring statics the exported `ctx`
   already declares. Both cost paste cycles before the actual export bundle
   was used as the template instead of a hand-assembled one. A context lint (`decomp-workbench context lint`)
   ahead of paste would catch both mechanically.
