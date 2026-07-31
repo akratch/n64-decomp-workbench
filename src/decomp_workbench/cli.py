@@ -77,6 +77,7 @@ from .instrument_profiles import (
     instrument_uopt_profiles,
 )
 from .instrument_uopt import instrument_uopt_globalcolor
+from .matrix_cli import register_matrix_command
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump, dump_object, parse_disassembly
 from .object_cli import (
@@ -96,6 +97,7 @@ from .relocation_cli import register_relocation_command
 from .reporting import SCHEMAS, error_report, render_json, run_json_handler
 from .scheduler_cli import register_scheduler_commands
 from .schema import selected_fields
+from .score_cli import register_score_command
 from .scratch_bundle import bundle_scratch
 from .scratch_check import (
     ScratchPackage,
@@ -1551,6 +1553,8 @@ def build_parser() -> argparse.ArgumentParser:
     register_toolchain_commands(commands)
     register_oracle_commands(commands)
     register_experiment_commands(commands)
+    register_score_command(commands)
+    register_matrix_command(commands)
 
     register_scratch_commands(
         commands,

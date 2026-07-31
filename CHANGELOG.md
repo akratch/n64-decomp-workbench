@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **New `score` and `matrix` commands replace the hand-rolled scoring
+  snippet from the SSB64 drawbitmap campaign.** The operator rewrote the same
+  ~30-line objcopy/window/mask/compare routine roughly ten times by hand, and
+  it broke twice doing so: a hardcoded function offset went stale when a
+  translation unit changed, and IDO's stripping of local (`static`) function
+  symbols made a symbol lookup return nothing, which a downstream tool then
+  read as "100% different." `score` windows the candidate function through
+  the symbol table (`--function`) or, for a stripped local, between the two
+  visible symbols around it (`--between`), masks relocation words from
+  `objdump -r` into a separate "relocation floor" rather than counting them
+  as diffs, and checks repeatable `--control` functions so a lever that
+  changes something it must not touch marks the whole run `CONTROLS BROKEN`.
+  `matrix` runs a batch of pipeline variants from a JSON spec, hashes each
+  one's scored function bytes, and clusters identical hashes into lettered
+  attractors -- the analytical device that caught a compiler-era sweep
+  silently collapsing eleven differently-flagged outputs into byte-identical
+  results during the same campaign. See `docs/score-and-matrix.md`.
+
 - **Campaign ledgers no longer carry the target ROM's instruction text.** The
   schema used to ask for it: every diff site recorded `"target"` (the
   disassembly) beside `"target_word"` (the 32-bit word), so writing a correct
