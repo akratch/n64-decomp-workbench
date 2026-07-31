@@ -106,9 +106,7 @@ class ExpressionEvaluatorTests(unittest.TestCase):
         analysis = analyze_expression("BUILD_VERSION >= VERSION_J", {})
         self.assertTrue(analysis.ok)
         self.assertEqual(analysis.value, 1)
-        self.assertEqual(
-            analysis.undefined_identifiers, ("BUILD_VERSION", "VERSION_J")
-        )
+        self.assertEqual(analysis.undefined_identifiers, ("BUILD_VERSION", "VERSION_J"))
 
     def test_function_like_reference_still_collects_argument_identifiers(self) -> None:
         analysis = analyze_expression("FOO(BAR, 1)", {})
@@ -397,9 +395,7 @@ class ContextLintCliTests(unittest.TestCase):
             source.write_text(
                 "#if BUILD_VERSION >= VERSION_J\ncase DRAW_SOMETHING:\n#endif\n"
             )
-            status, _, _ = run_cli(
-                ["context", "lint", str(source), "--fail-on-high"]
-            )
+            status, _, _ = run_cli(["context", "lint", str(source), "--fail-on-high"])
 
         self.assertEqual(status, 1)
 
@@ -431,9 +427,7 @@ class ContextLintCliTests(unittest.TestCase):
             source.write_text(
                 "#if BUILD_VERSION >= VERSION_J\ncase DRAW_SOMETHING:\n#endif\n"
             )
-            status, stdout, stderr = run_cli(
-                ["context", "lint", str(source), "--json"]
-            )
+            status, stdout, stderr = run_cli(["context", "lint", str(source), "--json"])
 
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
@@ -454,9 +448,7 @@ class ContextLintCliTests(unittest.TestCase):
             header.write_text("#define BUILD_VERSION 3\n#define VERSION_J 5\n")
             body.write_text("#if BUILD_VERSION >= VERSION_J\ncase X:\n#endif\n")
 
-            status, stdout, _ = run_cli(
-                ["context", "lint", str(header), str(body)]
-            )
+            status, stdout, _ = run_cli(["context", "lint", str(header), str(body)])
 
         self.assertEqual(status, 0)
         self.assertIn("0 finding", stdout)

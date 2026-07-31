@@ -427,9 +427,7 @@ def code_splice_report(code: str) -> dict[str, list[int]]:
     return {"broken": broken, "load_bearing": load_bearing}
 
 
-def duplicate_file_scope_symbols(
-    context: str, code: str
-) -> list[dict[str, object]]:
+def duplicate_file_scope_symbols(context: str, code: str) -> list[dict[str, object]]:
     """Report names that `file_scope_definitions` sees defined in both files.
 
     This is the regex-level, honestly-approximate pass `context_lint`

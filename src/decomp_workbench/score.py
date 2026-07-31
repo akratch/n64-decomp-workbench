@@ -184,8 +184,7 @@ def read_rom_window(path: str | Path, *, offset: int, size: int) -> bytes:
     file_path = Path(path)
     if not file_path.is_file():
         raise ScoreError(
-            f"ROM file does not exist: {display_path(file_path)} "
-            "(check --rom)"
+            f"ROM file does not exist: {display_path(file_path)} (check --rom)"
         )
     if offset < 0:
         raise ScoreError(f"--rom-offset must not be negative: {offset:#x}")
@@ -397,9 +396,7 @@ def score_spec_from_dict(data: dict[str, Any]) -> ScoreSpec:
         target = TargetSpec(kind="rom", rom=str(rom), rom_offset=rom_offset, size=size)
     else:
         target = TargetSpec(kind="object", target_object=str(target_object))
-    controls = tuple(
-        parse_control_spec(str(item)) for item in data.get("controls", [])
-    )
+    controls = tuple(parse_control_spec(str(item)) for item in data.get("controls", []))
     return ScoreSpec(
         target=target,
         function=str(function) if function else None,
@@ -456,9 +453,7 @@ def resolve_candidate_window(candidate_path: str | Path, spec: ScoreSpec) -> Win
     )
 
 
-def _resolve_target_words(
-    spec: ScoreSpec, window: Window
-) -> tuple[list[str], str]:
+def _resolve_target_words(spec: ScoreSpec, window: Window) -> tuple[list[str], str]:
     """Return target words plus a human description of where they came from."""
 
     if spec.target.kind == "rom":

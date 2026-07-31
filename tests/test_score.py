@@ -7,10 +7,12 @@ import io
 import json
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
 from decomp_workbench.cli import main
+from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.score import (
     BETWEEN_RATIONALE,
@@ -59,7 +61,9 @@ RELOC_CANDIDATE_TEXT = """
 """
 
 
-def fake_dump_object(section_text: str):
+def fake_dump_object(
+    section_text: str,
+) -> Callable[..., tuple[str, list[Instruction]]]:
     """Return a `dump_object`-shaped stub driven entirely by parsed text.
 
     Mirrors real `dump_object` success behavior (symbol filtering, padding
@@ -68,7 +72,13 @@ def fake_dump_object(section_text: str):
     already use for object-shaped tests.
     """
 
-    def _dump(path, *, objdump=None, symbol=None, section=".text"):
+    def _dump(
+        path: str | Path,
+        *,
+        objdump: str | None = None,
+        symbol: str | None = None,
+        section: str = ".text",
+    ) -> tuple[str, list[Instruction]]:
         instructions = parse_disassembly(section_text, symbol=symbol)
         if symbol and not instructions:
             raise RuntimeError(f"symbol {symbol!r} produced no instructions")
@@ -238,8 +248,10 @@ class ScoreReportTests(unittest.TestCase):
             rom = Path(temp) / "baserom.z64"
             rom.write_bytes(
                 b"\x00" * 32
-                + bytes.fromhex("0c123456") + bytes.fromhex("24020005")
-                + bytes.fromhex("03e00008") + bytes.fromhex("00000000")
+                + bytes.fromhex("0c123456")
+                + bytes.fromhex("24020005")
+                + bytes.fromhex("03e00008")
+                + bytes.fromhex("00000000")
             )
             candidate = Path(temp) / "candidate.o"
             candidate.write_bytes(b"placeholder")
@@ -267,7 +279,13 @@ class ScoreReportTests(unittest.TestCase):
    8: 00000000  nop
 """
 
-        def dump(path, *, objdump=None, symbol=None, section=".text"):
+        def dump(
+            path: str | Path,
+            *,
+            objdump: str | None = None,
+            symbol: str | None = None,
+            section: str = ".text",
+        ) -> tuple[str, list[Instruction]]:
             if symbol == "demo" or (symbol is None and "demo" in str(path)):
                 return RELOC_CANDIDATE_TEXT, parse_disassembly(
                     RELOC_CANDIDATE_TEXT, symbol=symbol

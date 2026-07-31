@@ -562,10 +562,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                 )
             lint_findings = hardening["context_lint"]["findings"]
             if lint_findings:
-                print(
-                    f"context lint: {len(lint_findings)} finding(s) in "
-                    "ctx.c/code.c"
-                )
+                print(f"context lint: {len(lint_findings)} finding(s) in ctx.c/code.c")
                 for finding in lint_findings:
                     print(
                         f"  [{finding['severity'].upper()}] {finding['kind']} "

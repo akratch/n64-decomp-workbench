@@ -344,9 +344,7 @@ class _Parser:
     def parse(self) -> int:
         value = self._conditional()
         if self._peek().kind != "EOF":
-            raise ExpressionError(
-                f"unexpected trailing token {self._peek().value!r}"
-            )
+            raise ExpressionError(f"unexpected trailing token {self._peek().value!r}")
         return value
 
     def _peek(self) -> _Token:
@@ -654,8 +652,7 @@ _ACTIONS: dict[str, str] = {
         "partial definition"
     ),
     "unparseable-expression": (
-        "audit this guard by hand; the scanner could not parse its "
-        "expression ({error})"
+        "audit this guard by hand; the scanner could not parse its expression ({error})"
     ),
 }
 

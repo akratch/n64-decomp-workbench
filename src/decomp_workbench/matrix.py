@@ -240,7 +240,11 @@ def run_variant(
     try:
         process = subprocess.run(
             rendered,
-            shell=True,
+            # The rendered command is the user's own compiler invocation from
+            # their matrix manifest, run on their machine: the trust model of
+            # `make`. The shell is the point -- real compile commands carry
+            # wrappers, environment variables, and redirects.
+            shell=True,  # nosec B602
             capture_output=True,
             text=True,
             encoding="utf-8",

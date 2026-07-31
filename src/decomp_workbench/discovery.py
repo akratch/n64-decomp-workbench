@@ -71,9 +71,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("prune", "dry-run or recoverably move old entries to trash"),
         ("restore", "restore a prune without overwriting entries"),
     ),
-    "context": (
-        ("lint", "audit #if/#elif guards for the undefined-identifier trap"),
-    ),
+    "context": (("lint", "audit #if/#elif guards for the undefined-identifier trap"),),
     "trace": (
         ("summary", "summarize function and allocator trace events"),
         ("fifo", "replay ugen pool get/put state"),

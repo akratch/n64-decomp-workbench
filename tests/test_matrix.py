@@ -14,12 +14,12 @@ from unittest import mock
 
 from decomp_workbench.cli import main
 from decomp_workbench.matrix import (
-    ScoreError,
     cluster_attractors,
     load_matrix_spec,
     run_matrix,
 )
 from decomp_workbench.model import Instruction
+from decomp_workbench.score import ScoreError
 
 #: Every variant "object" in these tests is a plain 16-byte file: four raw
 #: 32-bit words, no ELF wrapper. `_stub_dump_object` below turns those bytes
@@ -28,7 +28,13 @@ from decomp_workbench.model import Instruction
 MATCH_WORDS = "0102030411121314212223243132\x00\x00\x00"  # placeholder, unused
 
 
-def _stub_dump_object(path, *, objdump=None, symbol=None, section=".text"):
+def _stub_dump_object(
+    path: str | Path,
+    *,
+    objdump: str | None = None,
+    symbol: str | None = None,
+    section: str = ".text",
+) -> tuple[str, list[Instruction]]:
     data = Path(path).read_bytes()
     instructions = [
         Instruction(
@@ -54,8 +60,8 @@ def _command_for(helper: Path) -> str:
     return f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))} $OUTPUT"
 
 
-TARGET_BYTES = bytes.fromhex("01020304" "05060708" "090a0b0c" "0d0e0f10")
-DIFFERENT_BYTES = bytes.fromhex("ffffffff" "05060708" "090a0b0c" "0d0e0f10")
+TARGET_BYTES = bytes.fromhex("0102030405060708090a0b0c0d0e0f10")
+DIFFERENT_BYTES = bytes.fromhex("ffffffff05060708090a0b0c0d0e0f10")
 
 
 class MatrixSpecTests(unittest.TestCase):

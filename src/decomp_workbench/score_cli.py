@@ -32,8 +32,7 @@ def score_spec_from_args(args: argparse.Namespace) -> ScoreSpec:
         parts = [item.strip() for item in args.between.split(",")]
         if len(parts) != 2 or not all(parts):
             raise ScoreError(
-                f"--between expects SYMA,SYMB (two symbol names): got "
-                f"{args.between!r}"
+                f"--between expects SYMA,SYMB (two symbol names): got {args.between!r}"
             )
         between = (parts[0], parts[1])
     if bool(function) == bool(between):
@@ -43,8 +42,7 @@ def score_spec_from_args(args: argparse.Namespace) -> ScoreSpec:
         )
     if bool(args.target_object) == bool(args.rom):
         raise ScoreError(
-            "pass exactly one of --target-object or --rom to supply target "
-            "bytes"
+            "pass exactly one of --target-object or --rom to supply target bytes"
         )
     if args.rom:
         if not args.rom_offset:

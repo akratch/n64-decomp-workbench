@@ -476,9 +476,7 @@ class CodeSpliceReportTests(unittest.TestCase):
 
     def test_a_clean_file_reports_nothing(self) -> None:
         code = "s32 demo(void) {\n    return 1;\n}\n"
-        self.assertEqual(
-            code_splice_report(code), {"broken": [], "load_bearing": []}
-        )
+        self.assertEqual(code_splice_report(code), {"broken": [], "load_bearing": []})
 
 
 class ScratchContextHardeningTests(unittest.TestCase):
@@ -516,9 +514,7 @@ class ScratchContextHardeningTests(unittest.TestCase):
         self.assertTrue(hardening["applicable"])
         self.assertIsNone(hardening["context_newline_warning"])
         self.assertEqual(hardening["duplicate_symbols"], [])
-        self.assertEqual(
-            hardening["code_splices"], {"broken": [], "load_bearing": []}
-        )
+        self.assertEqual(hardening["code_splices"], {"broken": [], "load_bearing": []})
         self.assertEqual(hardening["context_lint"]["findings"], [])
 
     def test_the_drawbitmap_trap_is_caught_end_to_end(self) -> None:
@@ -627,9 +623,7 @@ class CheckScratchHardeningIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
         self.assertNotIn("warning:", stdout)
-        self.assertIn(
-            "context lint: no undefined-identifier collapse found", stdout
-        )
+        self.assertIn("context lint: no undefined-identifier collapse found", stdout)
 
 
 if __name__ == "__main__":
