@@ -18,6 +18,31 @@ local candidate, use `--compile-command`: compiling `code.c` alone omits the
 site's context and `#line 1 "src.c"` reset, which can change an IDO `-g3`
 schedule. See [the export tutorial](decompme-exports.md).
 
+## A pasted scratch fails to compile with an error on the first code line
+
+Check whether the context you pasted ends with a trailing newline. decomp.me
+concatenates the context and the editable code **verbatim**, with nothing
+inserted between them. If the context's last line has no trailing newline,
+the first line of code fuses onto the context's last statement, and the
+compiler reports an error on a line that looks correct in isolation. This is
+a paste-assembly problem, not a source problem: it shows up when a context is
+hand-assembled (e.g. copied out of a source tree) rather than pasted from the
+actual export, which always ends its `ctx` member in a newline. Diff your
+pasted context against the exported `ctx.c` byte for byte before suspecting
+the code.
+
+## A pasted scratch fails on redeclaration of a file-scope static
+
+The exported context already declares the translation unit's file-scope
+statics. A paste assembled by hand from the raw source — rather than from the
+actual export — commonly declares them a second time in the "code" portion,
+which fails to compile. Use the export's `ctx.c` as the source of truth for
+what is already declared, and start the editable portion after it, not from
+the top of the original file. `check-scratch` (or `doctor`) against the real
+export catches this before you paste anything, and a future context lint
+should flag a duplicate top-level declaration between `ctx` and `code`
+mechanically instead of leaving it as a compiler error to interpret.
+
 ## Objdump cannot be found
 
 Pass the executable explicitly:

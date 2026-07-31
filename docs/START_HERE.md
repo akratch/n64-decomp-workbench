@@ -170,7 +170,7 @@ Cheap classes are cheap to fix; work them first.
 | `allocation-mismatch` | shape matches, registers do not | go to `view` — the lever is upstream of what you can see |
 | `relocation-layout-mismatch` | relocation metadata differs | a TU/linker question, not a source question |
 
-Two of these are traps worth naming now:
+Three of these are traps worth naming now:
 
 - A **`structure-mismatch` with a huge word count can be one wrong constant.**
   One wrong enum identifier once produced 183 "structural" words. If the
@@ -179,6 +179,19 @@ Two of these are traps worth naming now:
 - A **`structure-mismatch` can be one inserted instruction.** Positional word
   counting turns a single insertion into a cascade. That is what `view` fixes,
   next.
+- A **`schedule-mismatch` that survives `-g0` is not automatically a
+  "wrong compiler version" question.** If the instruction multiset is already
+  equal and the allocator lanes are already identical, suspect *which source
+  line each statement was attributed to by the preprocessor* before
+  suspecting the compiler build: `cfe` records per-statement line numbers
+  from its preprocessed input, and `uopt`/`ugen` can honor those as
+  scheduling barriers even at `-g0`, which only strips `.loc` records from
+  the object. The workbench's line-assignment probe (and, where available, a
+  re-preprocess with an external K&R-lineage preprocessor such as IDO's
+  `acpp`) can confirm this in one comparison. See the [SSB64 `drawbitmap`
+  case study](../case-studies/ssb64-drawbitmap.md), where months' worth of
+  compiler-version archaeology across five toolchain generations turned out
+  to be exactly this.
 
 Whatever the verdict, **you are looking for the mechanism, not the count.**
 
