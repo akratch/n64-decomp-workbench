@@ -732,7 +732,11 @@ proof.
 trailing whitespace, formatters, or some paste paths, and the failure is a
 regressed score rather than an error. If the file has to travel, prefer the
 one-physical-line form. Neither form survives `clang-format`, so settle it with
-maintainers before an upstream PR.
+maintainers before an upstream PR. `decomp-workbench check-scratch` reports
+both hazards on every export: an intact statement-level splice is listed as
+load-bearing so the reader re-checks it after pasting, and a backslash
+followed by trailing whitespace — which is not a splice at all, only the
+score-regressing corpse of one — is a warning.
 
 **See also:** lever 21 bisects whitespace for the same reason under accom
 lineage; lever 23 is the same variable one stage earlier, at macro expansion.

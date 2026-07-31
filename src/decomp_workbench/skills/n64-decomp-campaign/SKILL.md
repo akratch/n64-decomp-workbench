@@ -60,7 +60,7 @@ differences. `words=0` with `exact=true` is still the only matching claim.
 | Instruction count, opcode sequence, or frame differs | Control flow, loop form, calls, expression tree, declaration form | Register forcing or fake locals |
 | Opcode shape is stable but registers differ | Lifetimes, variable reuse, declaration order, and one allocator web | Broad source rewrites |
 | Only relocation-controlled raw words differ | Translation-unit context and final linked/ROM output | Chasing a display percentage |
-| Same instruction multiset, different order | Expression/statement topology, line tags, then as1 scheduling | Calling `-g0` collapse source proof |
+| Same instruction multiset, different order | Expression/statement topology, then statement line assignment — moves change which numbers a statement can carry, hoists and logical-line ties (splices) change the relations — then as1 scheduling | Calling `-g0` collapse source proof |
 | Cross-ROM structure matches | Shared lineage as a structural witness | Calling it target-object exact |
 | A local forced/unrolled loop looks good but the function does not | Whole-function roles and liveness | More local fakes or manual unrolling |
 | A dispatch shape the project frontend provably cannot emit, clustering by translation unit | Frontend lineage: alternate authentic frontends, dispatch-construct discrimination | More source spellings against the impossible shape |
@@ -89,6 +89,11 @@ when the mismatch is caused by IDO code generation or register allocation.
    predicate holds, 3 when one fails) rather than writing another objdump and
    regular-expression layer.
 6. Keep promising source/object pairs and the associated trace evidence.
+   Treat a variant that fixes any subset of the residual as a new baseline
+   and re-run the layout levers on top of it, even when its own score is
+   dominated — the recorded `unref_800036B4` match was two edits from
+   variants already on disk in a campaign that had scored them "partial,
+   dominated" and moved on.
 7. Use `campaign resume` for work absent from the validated ledger; do not
    reconstruct the source glob by hand.
 8. Return to a readable, source-level explanation after a force probe or fake
@@ -137,5 +142,9 @@ or rejected; the smallest source-level explanation; exact commands or manifest
 location; and any tool gap discovered. A clean negative on a callee-saved
 tie-break (field-guide lever 19) is a legitimate terminal result: record it,
 bundle the scratch, and take the next function rather than grinding variants
-past the point the evidence supports. Keep ROMs, proprietary compiler
+past the point the evidence supports. Scope every negative or impossibility
+claim to the space actually searched — statement order, physical layout,
+frontend, flag set. "No layout reaches the target" published without the
+fixed-statement-order caveat was falsified within a day by a natural-source
+match built from ties the sweep never varied. Keep ROMs, proprietary compiler
 binaries, and non-redistributable target objects out of public artifacts.

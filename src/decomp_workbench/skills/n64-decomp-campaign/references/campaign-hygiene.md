@@ -30,7 +30,16 @@ understandable:
 - include the current source/context artifact where redistribution permits;
 - record the evidence level, not just a percentage;
 - distinguish a promising sketch from an exact verified function;
-- use an unmistakable final commit message only after the final verifier passes.
+- use an unmistakable final commit message only after the final verifier passes;
+- scope any published negative — name the statement order, layout family,
+  frontend, and flags it was measured under. An unscoped "impossible" invites
+  the community to disprove the claim you did not intend to make, and one
+  such claim was disproved within a day. Credit the disprover prominently
+  when that happens: a falsified claim that names its falsifier is still
+  good science, and the campaign record gains a lever from it;
+- keep dominated variants on disk and say where they live. A variant that
+  fixed a subset of the residual is a baseline someone else can stack one
+  more lever on, and deleting it deletes that path.
 
 ## Capture tooling gaps
 

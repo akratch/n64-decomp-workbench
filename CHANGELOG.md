@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Everything here descends from one falsification: a community member matched
+SSB64 `unref_800036B4` with no `#line` directive after this project helped
+publish the claim that no natural layout could reach it. The claim had been
+scoped, silently, to one statement order and one statement per physical line.
+
+- **Lever 25: line-number ties by splicing.** cfe numbers statements by
+  *logical* line, so the numbers a natural layout produces are non-decreasing
+  but not strictly increasing — ties are free, via same-line placement or
+  trailing-backslash splices, and a block's closing brace plus the statement
+  after it can both be tied back to the block's first line. Field guide,
+  `guide lever 25`, playbook ordering, and the line-assignment-probe doc all
+  route to it; the full arc (290 → 120 → 4 → 0 with `#line` → 0 natural) is
+  [a case study](case-studies/ssb64-unref-800036B4.md).
+
+- **`check-scratch` now reports line-splice hazards in `code.c`.** An intact
+  statement-level splice is load-bearing for exactly these ties and does not
+  survive whitespace-trimming editors, formatters, or some paste paths — the
+  failure is a regressed score, not an error — so it is listed for re-checking
+  after every paste. A backslash followed by trailing whitespace, which looks
+  tied but compiles untied, is a warning. Macro continuations are excluded.
+
+- **`python -m decomp_workbench` works.** It failed with "No module named
+  decomp_workbench.__main__", which reads as a broken install rather than a
+  missing convenience, in every environment where the console script is not
+  on PATH.
+
+- **The skill and its references now carry the campaign-strategy lessons.**
+  Scope every published negative to the space actually searched; treat a
+  variant that fixes a subset of the residual as a new baseline for layout
+  levers even when its own score is dominated (this match was two edits from
+  variants already on disk); keep dominated variants and say where they live;
+  and credit the falsifier prominently when a claim falls.
+
 ## 0.4.0 - 2026-07-31
 
 Everything in this release descends from one campaign: SSB64 `drawbitmap`

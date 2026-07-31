@@ -66,6 +66,16 @@ A normal decomp.me export contains:
 every recorded SHA-256, but such a pre-upload bundle has no object comparison
 yet.
 
+On every decomp.me export it additionally runs the pre-paste hardening
+checks, each of which encodes a failure that cost a real campaign round-trips:
+a `ctx.c` that does not end in a newline (the site glues `code.c` straight
+onto it), a file-scope symbol defined in both files (the redefinition error
+never names the context as the other half), a directive the context makes
+vacuously true, and line-splice hazards in `code.c` — an intact
+statement-level splice is load-bearing for line-number ties (field-guide
+lever 25) and is listed so you re-check it after pasting, while a backslash
+followed by trailing whitespace is not a splice at all and is a warning.
+
 ## Recompile exactly as the site sees the source
 
 Under `-g3`, compiling `code.c` alone is not equivalent to compiling it on

@@ -18,6 +18,7 @@ from decomp_workbench.compare import compare_instructions
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.scratch_check import (
     SITE_SOURCE_MARKER,
+    code_splice_report,
     compose_site_source,
     context_newline_warning,
     duplicate_file_scope_symbols,
@@ -439,6 +440,47 @@ class DuplicateFileScopeSymbolTests(unittest.TestCase):
         self.assertEqual(duplicate_file_scope_symbols(context, code), [])
 
 
+class CodeSpliceReportTests(unittest.TestCase):
+    """Statement-level line splices are load-bearing and travel badly."""
+
+    def test_a_backslash_plus_whitespace_is_reported_as_broken(self) -> None:
+        code = "void f(void) {\n    if (x) \\ \n        y();\n}\n"
+        report = code_splice_report(code)
+        self.assertEqual(report["broken"], [2])
+        self.assertEqual(report["load_bearing"], [])
+
+    def test_an_intact_statement_splice_is_reported_as_load_bearing(self) -> None:
+        code = (
+            "void f(void) {\n"
+            "    if (temp_s1 <= 0)      \\\n"
+            "    {                      \\\n"
+            "        temp_s1 -= 0x8;    \\\n"
+            "    }                      \\\n"
+            "    sp134 = temp_s2;\n"
+            "}\n"
+        )
+        report = code_splice_report(code)
+        self.assertEqual(report["load_bearing"], [2, 3, 4, 5])
+        self.assertEqual(report["broken"], [])
+
+    def test_macro_continuations_are_not_load_bearing(self) -> None:
+        code = "#define STEP(x) \\\n    do_one(x); \\\n    do_two(x)\nint g;\n"
+        report = code_splice_report(code)
+        self.assertEqual(report["load_bearing"], [])
+        self.assertEqual(report["broken"], [])
+
+    def test_a_broken_splice_inside_a_macro_is_still_broken(self) -> None:
+        code = "#define STEP(x) \\ \n    do_one(x)\n"
+        report = code_splice_report(code)
+        self.assertEqual(report["broken"], [1])
+
+    def test_a_clean_file_reports_nothing(self) -> None:
+        code = "s32 demo(void) {\n    return 1;\n}\n"
+        self.assertEqual(
+            code_splice_report(code), {"broken": [], "load_bearing": []}
+        )
+
+
 class ScratchContextHardeningTests(unittest.TestCase):
     def test_workbench_bundles_are_not_applicable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -474,6 +516,9 @@ class ScratchContextHardeningTests(unittest.TestCase):
         self.assertTrue(hardening["applicable"])
         self.assertIsNone(hardening["context_newline_warning"])
         self.assertEqual(hardening["duplicate_symbols"], [])
+        self.assertEqual(
+            hardening["code_splices"], {"broken": [], "load_bearing": []}
+        )
         self.assertEqual(hardening["context_lint"]["findings"], [])
 
     def test_the_drawbitmap_trap_is_caught_end_to_end(self) -> None:

@@ -543,6 +543,23 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                     f"(line {duplicate['code_line']}); keep the file-scope "
                     "definition in exactly one of them"
                 )
+            splices = hardening["code_splices"]
+            for line_number in splices["broken"]:
+                print(
+                    f"warning: code.c line {line_number} ends in a backslash "
+                    "followed by whitespace -- that is not a line splice, the "
+                    "statements compile untied; delete the trailing "
+                    "whitespace or put both statements on one physical line"
+                )
+            if splices["load_bearing"]:
+                lines = ", ".join(str(n) for n in splices["load_bearing"])
+                print(
+                    "note: code.c splices statements onto one logical line at "
+                    f"line(s) {lines}; if these ties are load-bearing "
+                    "(guide lever 25), re-check them after every paste -- "
+                    "whitespace-trimming editors and formatters strip them "
+                    "silently, and the one-physical-line form travels better"
+                )
             lint_findings = hardening["context_lint"]["findings"]
             if lint_findings:
                 print(

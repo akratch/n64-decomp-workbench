@@ -384,6 +384,49 @@ def context_newline_warning(context: str) -> str | None:
     )
 
 
+#: A backslash that only *looks* like a line splice: whitespace follows it, so
+#: translation phase 2 never joins the lines. The layout reads as tied; the
+#: compiler numbers the statements as untied; the only symptom is the score.
+_BROKEN_SPLICE = re.compile(r"\\[ \t]+$")
+
+
+def code_splice_report(code: str) -> dict[str, list[int]]:
+    """Report line-splice hazards in code.c before a paste silently loses them.
+
+    Statement-level trailing-backslash splices are how a candidate ties a
+    statement to an earlier logical line (field-guide lever 25), and cfe
+    numbers statements by logical line — so they are load-bearing, and they
+    are exactly what whitespace-trimming editors, formatters, and some paste
+    paths destroy. Two hazards, both silent:
+
+    * ``broken``: a backslash followed by trailing whitespace is not a splice
+      at all — the layout looks tied but compiles untied;
+    * ``load_bearing``: an intact splice outside a preprocessor directive,
+      which the reader must re-verify after every paste or reformat (splices
+      inside directives are ordinary macro continuations and are not listed).
+
+    Line-scanning is honestly approximate in the same way `context_lint` is:
+    a backslash ending a ``//`` comment line is reported as load-bearing even
+    though its effect is to continue the comment — that too is a hazard worth
+    a look, not a false alarm.
+    """
+
+    broken: list[int] = []
+    load_bearing: list[int] = []
+    in_directive = False
+    continuing = False
+    for number, line in enumerate(code.split("\n"), start=1):
+        if not continuing:
+            in_directive = line.lstrip().startswith("#")
+        splices = line.endswith("\\")
+        if _BROKEN_SPLICE.search(line):
+            broken.append(number)
+        elif splices and not in_directive:
+            load_bearing.append(number)
+        continuing = splices
+    return {"broken": broken, "load_bearing": load_bearing}
+
+
 def duplicate_file_scope_symbols(
     context: str, code: str
 ) -> list[dict[str, object]]:
@@ -460,5 +503,6 @@ def scratch_context_hardening(package: ScratchPackage) -> dict[str, Any]:
         "applicable": True,
         "context_newline_warning": newline_warning,
         "duplicate_symbols": duplicate_file_scope_symbols(context, code),
+        "code_splices": code_splice_report(code),
         "context_lint": report.as_dict(),
     }

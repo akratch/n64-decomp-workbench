@@ -32,6 +32,19 @@ input: two token-identical bodies grouped differently across source lines can
 schedule differently. When token-level spellings are exhausted, bisect
 whitespace before concluding the schedule is unreachable.
 
+cfe numbers each statement by the logical line it starts on, so the numbers a
+natural layout produces are non-decreasing along statement order but not
+strictly increasing — ties are free, via several statements on one physical
+line or trailing-backslash splices. Splicing a block's closing brace and the
+statement after it back to the block's first line hands that statement a
+number from inside the block, which one-statement-per-line layouts cannot
+express (field-guide lever 25). What matters is the relation between
+statements' numbers, not their absolute values: uniform shifts are inert.
+Line-number reachability is therefore two dials, not one — a statement move
+changes which numbers a statement can carry at all; a tie changes the
+relation between two of them — and a sweep that varies only physical layout
+under a fixed statement order has not searched the space.
+
 ## Diagnose allocation rather than decorating it
 
 When opcode shape stabilizes but registers differ:
