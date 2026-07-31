@@ -36,6 +36,26 @@ carry one extra instruction, where positional counting reports eleven differing
 words and the alignment reports one hunk. Both pairs are synthetic and encode
 real MIPS words, so byte-level signatures are meaningful.
 
+## Statement-line (`.loc`) boundary fixtures
+
+```sh
+decomp-workbench diagnose-dumps \
+  examples/fixtures/loc-boundary-target.objdump \
+  examples/fixtures/loc-boundary-candidate.objdump \
+  --function blitRow \
+  --candidate-listing examples/fixtures/loc-boundary-candidate.s
+```
+
+`loc-boundary-*.objdump` hold the same instruction multiset in two orders, so
+the verdict is `schedule`. `loc-boundary-candidate.s` is a synthetic IDO ugen
+listing for the candidate — the file `cc -K` keeps and `ugen -l` writes — with
+`.loc`, `.livereg`, a label, and a `li` macro as1 has not expanded yet. Two of
+the three divergent sites straddle a `.loc` change and one does not, so the
+report routes to `playbook=line-assignment-probe`. The C statements named in
+the listing's comments are invented; nothing here is derived from a game ROM,
+and the causal claim the fixture demonstrates is the *shape* of the evidence,
+not a measurement.
+
 ## decomp.me export fixture
 
 ```sh
