@@ -134,10 +134,12 @@ class PreprocessorAuditLeverTests(unittest.TestCase):
         self.assertIn("### 24.", stdout)
         self.assertIn("drawbitmap", stdout)
 
-    def test_lever_23_is_deliberately_not_claimed_by_this_branch(self) -> None:
-        """A sibling branch owns 23; this branch must not collide with it."""
+    def test_levers_23_and_24_coexist_after_integration(self) -> None:
+        """23 (line assignment) and 24 (conditional audit) were developed on
+        sibling branches; the merged guide must carry both."""
 
-        self.assertNotIn(23, field_guide.LEVER_ACTIONS)
+        self.assertIn(23, field_guide.LEVER_ACTIONS)
+        self.assertIn(24, field_guide.LEVER_ACTIONS)
 
     def test_structure_and_schedule_verdicts_print_lever_24_in_their_on_ramp(
         self,
