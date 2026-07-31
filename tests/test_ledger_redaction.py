@@ -28,6 +28,7 @@ from decomp_workbench.ledger_redaction import (
     MASKED_OPCODE_SITE_LIMIT,
     REDACTION_SCHEMA,
     SITE_KEEP,
+    RedactionError,
     digest_target,
     load_or_create_salt,
     mask_opcode,
@@ -49,6 +50,9 @@ TARGET_SITES = [
     ("sltu\tv1,v0,a1", "0045182b"),
     ("beq\tv1,zero,.L80051abc", "10600004"),
 ]
+
+#: One target instruction, for the sweep-bypass tests below.
+TARGET_TEXT = TARGET_SITES[0][0]
 
 CANDIDATE_SITES = [
     ("addiu\tsp,sp,-72", "27bdffb8"),
@@ -477,6 +481,114 @@ class UnredactedLedgerWarningTest(unittest.TestCase):
                 json.dumps({"schema": "v1", "redaction": None}) + "\n", encoding="utf-8"
             )
             self.assertIsNotNone(warn_if_unredacted(ledger))
+
+
+class SweepIsRecursiveAndTypeCompleteTest(unittest.TestCase):
+    """The bypasses a review found in the "recursive default-deny" sweep.
+
+    Each of these put the target's instruction text into a written record while
+    the sweep reported success. They are grouped here because they are one
+    defect, not six: the sweep was recursive over the two container types it
+    happened to test for, and default-deny over key names spelled exactly one
+    way.
+    """
+
+    SALT = b"\x00" * 16
+
+    def emit(self, record: dict[str, Any]) -> str:
+        return json.dumps(redact_record(record, self.SALT), default=str)
+
+    def test_nested_dict_under_an_allow_listed_site_key_is_swept(self) -> None:
+        """``redact_site`` copied allow-listed values with a shallow dict
+        comprehension, so anything nested under ``candidate`` was verbatim."""
+
+        text = self.emit(
+            {"diff_sites": [{"index": 0, "candidate": {"target": TARGET_TEXT}}]}
+        )
+        self.assertNotIn(TARGET_TEXT, text)
+
+    def test_tuples_are_traversed(self) -> None:
+        """``model`` keeps tuples through ``dataclasses.asdict``; the sweep
+        entered lists only, so a tuple was copied whole."""
+
+        text = self.emit({"comparison": {"hunks": ({"target": TARGET_TEXT},)}})
+        self.assertNotIn(TARGET_TEXT, text)
+
+    def test_sets_are_traversed(self) -> None:
+        text = self.emit({"comparison": {"hunks": [{"target": TARGET_TEXT}]}})
+        self.assertNotIn(TARGET_TEXT, text)
+
+    def test_a_payload_used_as_a_mapping_key_is_dropped(self) -> None:
+        """Only key *names* were ever checked, never key content."""
+
+        text = self.emit({"comparison": {TARGET_TEXT: 1}})
+        self.assertNotIn(TARGET_TEXT, text)
+
+    def test_target_key_matching_is_case_and_prefix_insensitive(self) -> None:
+        for key in ("Target_dump", "TARGET", "_target_dump", "-target-listing"):
+            with self.subTest(key=key):
+                text = self.emit({"comparison": {key: TARGET_TEXT}})
+                self.assertNotIn(TARGET_TEXT, text)
+
+    def test_instruction_text_containing_a_slash_is_not_mistaken_for_a_path(
+        self,
+    ) -> None:
+        """``_is_path_like`` kept any ``target*`` string containing one ``/``.
+        Real objdump source-interleaved output qualifies."""
+
+        payload = f"{TARGET_TEXT}  ; see src/main/runlink.c"
+        text = self.emit({"comparison": {"target_disassembly": payload}})
+        self.assertNotIn(TARGET_TEXT, text)
+
+    def test_genuine_object_paths_still_survive(self) -> None:
+        path = "/tmp/build/wb/Foo.target.o"
+        record = redact_record({"provenance": {"target": path}}, self.SALT)
+        self.assertEqual(record["provenance"]["target"], path)
+
+    def test_excessive_nesting_raises_instead_of_crashing_the_campaign(self) -> None:
+        """3000 levels used to unwind as an uncaught RecursionError."""
+
+        deep: dict[str, Any] = {}
+        cursor = deep
+        for _ in range(3000):
+            cursor["a"] = {}
+            cursor = cursor["a"]
+        cursor["target"] = TARGET_TEXT
+        with self.assertRaises(RedactionError):
+            redact_record(deep, self.SALT)
+
+    def test_a_record_at_a_sane_depth_still_redacts(self) -> None:
+        node: dict[str, Any] = {"target": TARGET_TEXT}
+        for _ in range(8):
+            node = {"a": node}
+        text = self.emit(node)
+        self.assertNotIn(TARGET_TEXT, text)
+
+
+class ResumeWarningScansTheWholeFileTest(unittest.TestCase):
+    def test_an_unredacted_record_past_the_old_4096_line_cap_is_found(self) -> None:
+        """The docstring said "scans the file"; the default capped at 4096."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            clean = json.dumps({"schema": "v1", "redaction": {"schema": "x"}})
+            lines = [clean] * 5000 + [json.dumps({"schema": "v1"})]
+            ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            warning = warn_if_unredacted(ledger)
+            self.assertIsNotNone(warning)
+            assert warning is not None
+            self.assertIn("1 of 5001", warning)
+
+    def test_an_explicit_cap_says_it_only_looked_that_far(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            ledger.write_text(
+                "\n".join([json.dumps({"schema": "v1"})] * 10) + "\n",
+                encoding="utf-8",
+            )
+            warning = warn_if_unredacted(ledger, scan_lines=4)
+            assert warning is not None
+            self.assertIn("the first 4 record(s)", warning)
 
 
 if __name__ == "__main__":

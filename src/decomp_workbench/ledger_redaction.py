@@ -24,11 +24,22 @@ boundary, so:
 **This module covers the ledger, not every file the tool can write.**
 ``--html`` on ``view`` and ``diagnose`` renders target assembly rows into an
 HTML report (see :func:`decomp_workbench.html_report.render_diagnosis_html`),
-and that export is the same class of hazard. It is meaningfully better placed
-than the ledger was -- it happens only when the operator asks for it, at a path
-the operator names, rather than automatically into the project tree on every
-campaign run -- but it is not covered here, and a consuming project's
-clean-room gate should be what stops it being committed.
+and ``force_spec`` records ``target_register`` for each aligned web. Both are
+the same class of hazard. They are meaningfully better placed than the ledger
+was -- they happen only when the operator asks, at a path the operator names,
+rather than automatically into the project tree on every campaign run -- but
+neither is covered here, and a consuming project's clean-room gate should be
+what stops them being committed.
+
+**And be exact about what "recursive default-deny" means here**, because it
+has been overstated before. The sweep is recursive over *containers* and
+default-deny over *field names*. It enters dicts, lists, tuples, sets and
+frozensets to any depth up to :data:`MAX_DEPTH`, examines mapping keys as well
+as values, matches target-naming keys case-insensitively, and re-sweeps the
+values of keys it allow-lists. It does **not** read string contents: a target
+instruction stored under an innocuous key name, or as a bare list element,
+survives. That is a documented residue, not an oversight, and it is the reason
+ledgers stay gitignored.
 
 What survives redaction is what the ledger is actually *for*: per-site
 bookkeeping. Which sites differ, how many, of what class, and whether the
@@ -90,6 +101,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 from pathlib import Path
 from typing import Any
@@ -145,7 +157,7 @@ SALT_BYTES = 16
 
 
 def warn_if_unredacted(
-    ledger_path: str | Path, *, scan_lines: int = 4096
+    ledger_path: str | Path, *, scan_lines: int | None = None
 ) -> str | None:
     """Return a warning if this ledger holds any pre-redaction records.
 
@@ -156,43 +168,51 @@ def warn_if_unredacted(
     operator believe the fix applied retroactively, which is the sort of belief
     that gets a file committed.
 
-    Scans the file rather than its first line: a ledger can start with a blank
-    or torn line, and a resumed campaign produces a *mixed* file whose first
+    Reads every record, not the first line: a ledger can start with a blank or
+    torn line, and a resumed campaign produces a *mixed* file whose first
     record may well be redacted while later ones are not.
+
+    ``scan_lines`` caps the read for a caller that needs a bounded cost.
+    It defaults to ``None`` -- no cap -- because this used to default to 4096
+    while the docstring claimed the file was scanned, so an unredacted record
+    on line 4097 of a long campaign's ledger produced silence. The file is
+    streamed a line at a time, so scanning all of it costs no memory. When a
+    cap *is* given and reached, the warning says how far it got instead of
+    implying the whole file was examined.
     """
 
     path = Path(ledger_path)
+    unredacted = 0
+    total = 0
+    truncated = False
     try:
         with path.open("r", encoding="utf-8") as stream:
-            lines: list[str] = []
-            for _ in range(scan_lines):
-                line = stream.readline()
-                if not line:
+            for lineno, line in enumerate(stream, 1):
+                if scan_lines is not None and lineno > scan_lines:
+                    truncated = True
                     break
-                lines.append(line)
+                if not line.strip():
+                    continue
+                total += 1
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    # A torn line is not evidence of redaction, so it counts
+                    # against.
+                    unredacted += 1
+                    continue
+                if not isinstance(record, dict) or not isinstance(
+                    record.get("redaction"), dict
+                ):
+                    unredacted += 1
     except OSError:
         return None
 
-    unredacted = 0
-    total = 0
-    for line in lines:
-        if not line.strip():
-            continue
-        total += 1
-        try:
-            record = json.loads(line)
-        except ValueError:
-            # A torn line is not evidence of redaction, so it counts against.
-            unredacted += 1
-            continue
-        if not isinstance(record, dict) or not isinstance(
-            record.get("redaction"), dict
-        ):
-            unredacted += 1
     if not total or not unredacted:
         return None
+    scope = f"the first {total} record(s)" if truncated else f"{total} record(s)"
     return (
-        f"warning: {path} contains {unredacted} of {total} scanned record(s) "
+        f"warning: {path} contains {unredacted} of {scope} "
         "written before ledger redaction. They carry the target ROM's "
         "instruction text; only newly appended records are redacted. Treat the "
         "whole file as ROM-derived -- do not commit it, and delete it or re-run "
@@ -274,19 +294,28 @@ def mask_opcode(word: Any) -> str | None:
 
 
 def redact_site(
-    site: dict[str, Any], salt: bytes, *, mask_opcodes: bool
+    site: dict[str, Any], salt: bytes, *, mask_opcodes: bool, depth: int = 0
 ) -> dict[str, Any]:
     """Return a copy of one diff-site record with the target side masked.
 
-    Default-deny: only keys in :data:`SITE_KEEP` survive verbatim. Anything
-    else is dropped and its *name* -- never its value -- is listed under
+    Default-deny: only keys in :data:`SITE_KEEP` survive. Anything else is
+    dropped and its *name* -- never its value -- is listed under
     ``dropped_fields``, so an operator can see that a field exists upstream and
     is not being recorded, and so adding a field to ``compare`` cannot quietly
     reopen the leak.
+
+    Surviving values are **swept, not copied**. An allow-listed key name says
+    nothing about what is nested underneath it: ``{"candidate": {"target":
+    "lw\\t$v0,0x10($sp)"}}`` has an allow-listed key and the target's
+    instruction text one level down, and a shallow copy emitted it verbatim.
     """
 
-    out = {key: value for key, value in site.items() if key in SITE_KEEP}
-    dropped = sorted(key for key in site if key not in SITE_KEEP)
+    out = {
+        key: _sweep(value, salt, in_site_list=False, position=0, depth=depth + 1)
+        for key, value in site.items()
+        if key in SITE_KEEP
+    }
+    dropped = sorted(str(key) for key in site if key not in SITE_KEEP)
     if dropped:
         out["dropped_fields"] = dropped
 
@@ -308,55 +337,145 @@ def redact_site(
     return out
 
 
+class RedactionError(ValueError):
+    """Raised when a record cannot be redacted safely.
+
+    Raised, not warned. A record the redactor cannot fully traverse is a record
+    whose target side it cannot vouch for, and the one outcome that must never
+    happen is writing it anyway.
+    """
+
+
+#: How deep the sweep will walk. A ledger record is a handful of levels; 3000
+#: is not a ledger record, it is a way to make the walk die partway through.
+#: Hitting this raises :class:`RedactionError` rather than unwinding as an
+#: uncaught ``RecursionError`` through the middle of a campaign.
+MAX_DEPTH = 64
+
+#: Keys are field names, so they look like field names. A key that does not is
+#: not a name the schema meant, and -- as a review demonstrated with
+#: ``{"addiu\tsp,sp,-64": 1}`` -- a mapping key is a place to put a payload
+#: that nothing checking only key *names* will ever look at.
+_KEY_SHAPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$")
+
+#: Suffixes that make a bare token an object file even without a directory.
+_OBJECT_SUFFIXES = (".o", ".obj", ".elf", ".a", ".ko", ".so")
+
+
+def _is_target_key(key: Any) -> bool:
+    """True for a mapping key naming the target side, however it is spelled.
+
+    Case-insensitive and insensitive to leading punctuation, because
+    ``Target``, ``TARGET``, ``_target`` and ``-target-dump`` are all the same
+    field to a reader and all passed a case-sensitive ``startswith``.
+    """
+
+    if not isinstance(key, str):
+        return False
+    return key.lower().lstrip("_-. ").startswith("target")
+
+
 def _is_path_like(value: Any) -> bool:
     """True for the `target` fields that are filesystem paths, not code.
 
     ``provenance.target`` and ``comparison.target`` name the target *object
     file*. They feed the cache key and the resume logic, and redacting them
-    would break both.
+    would break both, so they are the one exception to the key rule.
+
+    The old test was ``"/" in value``, which is satisfied by a great deal that
+    is not a path -- including real ``objdump`` source-interleaved output,
+    which carries file paths inside it, and any disassembly containing a
+    division or a comment. The test now is that the value contains **no
+    whitespace at all** and either sits under a directory or ends in an object
+    suffix. Instruction text always has a separator between mnemonic and
+    operands; a path does not.
     """
 
-    return isinstance(value, str) and ("/" in value or value.endswith(".o"))
+    if not isinstance(value, str) or not value:
+        return False
+    if len(value) > 4096 or any(char.isspace() for char in value):
+        return False
+    return "/" in value or value.endswith(_OBJECT_SUFFIXES)
 
 
-def _sweep(node: Any, salt: bytes, *, in_site_list: bool, position: int) -> Any:
-    """Recursively remove target-side content from an arbitrary JSON tree.
+def _sweep(
+    node: Any, salt: bytes, *, in_site_list: bool, position: int, depth: int = 0
+) -> Any:
+    """Recursively remove target-side content from an arbitrary record tree.
 
-    An earlier version filtered only the three known site lists and copied
-    everything else verbatim. A review then put ``comparison["hunks"][i]
-    ["target"]``, ``comparison["target_disassembly"]`` and a top-level
-    ``record["target_dump"]`` straight through it. Filtering the places the
-    leak happened to live last time is not a policy. This is:
+    **Covered, exactly.** Every mapping key naming the target side -- any case,
+    any leading punctuation -- at any depth, in any container, unless its value
+    is a path. Containers are traversed by type rather than by the two the
+    first version happened to test for: ``dict``, ``list``, ``tuple``, ``set``
+    and ``frozenset`` are all entered, and mapping **keys** are examined as
+    well as values. Site records inside the known lists additionally go through
+    :func:`redact_site`, whose surviving values are themselves swept -- they
+    used to be copied by a shallow dict comprehension, so
+    ``{"candidate": {"target": "lw\\t$v0,0x10($sp)"}}`` was written out
+    verbatim under an allow-listed key.
 
-    **Covered, exactly:** every mapping key whose name begins with ``target``,
-    at any depth, anywhere in the record, unless its value is path-like. Site
-    records inside the known lists additionally go through
-    :func:`redact_site`, which is a positive allow-list of surviving keys.
+    Keys must also *look* like field names (:data:`_KEY_SHAPE`); one that does
+    not is dropped, because a mapping key is otherwise an unexamined place to
+    put a payload.
 
-    **Not covered:** a field carrying the target's code under a name that does
-    not begin with ``target``. Nothing here reads string *contents* to decide
-    whether they are disassembly. That residue is the consuming project's
+    Depth is capped at :data:`MAX_DEPTH` and exceeding it raises
+    :class:`RedactionError`. Previously a deeply nested record raised
+    ``RecursionError`` out of the middle of a campaign.
+
+    **Not covered, still.** A string carrying the target's code as a plain
+    value -- under a key that does not name the target, or as a bare element of
+    a list or a set, where there is no key at all. Nothing here reads string
+    *contents* to decide whether they are disassembly, and this docstring is
+    the only place that claim is made. That residue is the consuming project's
     clean-room gate to catch, and it is why both layers exist.
     """
 
-    if isinstance(node, list):
-        return [
-            _sweep(item, salt, in_site_list=in_site_list, position=i)
+    if depth > MAX_DEPTH:
+        raise RedactionError(
+            f"ledger record nests deeper than {MAX_DEPTH} levels; refusing to "
+            "write a record the redactor cannot fully traverse"
+        )
+
+    if isinstance(node, (list, tuple)):
+        swept = [
+            _sweep(item, salt, in_site_list=in_site_list, position=i, depth=depth + 1)
             for i, item in enumerate(node)
         ]
+        return type(node)(swept) if isinstance(node, tuple) else swept
+    if isinstance(node, (set, frozenset)):
+        # No keys here to identify a target field, but nested containers inside
+        # still get cleaned. Order is not meaningful in a set, so position is 0.
+        return type(node)(
+            _sweep(item, salt, in_site_list=False, position=0, depth=depth + 1)
+            for item in node
+        )
     if not isinstance(node, dict):
         return node
 
     if in_site_list:
-        return redact_site(node, salt, mask_opcodes=position < MASKED_OPCODE_SITE_LIMIT)
+        return redact_site(
+            node,
+            salt,
+            mask_opcodes=position < MASKED_OPCODE_SITE_LIMIT,
+            depth=depth,
+        )
 
     out: dict[str, Any] = {}
     dropped: list[str] = []
     for key, value in node.items():
-        if key.startswith("target") and not _is_path_like(value):
+        if not isinstance(key, str) or not _KEY_SHAPE.match(key):
+            dropped.append(f"<{type(key).__name__} key of unexpected shape>")
+            continue
+        if _is_target_key(key) and not _is_path_like(value):
             dropped.append(key)
             continue
-        out[key] = _sweep(value, salt, in_site_list=key in SITE_LISTS, position=0)
+        out[key] = _sweep(
+            value,
+            salt,
+            in_site_list=key in SITE_LISTS,
+            position=0,
+            depth=depth + 1,
+        )
     if dropped:
         existing = out.get("dropped_fields") or []
         out["dropped_fields"] = sorted(set(existing) | set(dropped))

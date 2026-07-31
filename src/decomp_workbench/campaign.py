@@ -486,12 +486,24 @@ def append_ledger(
     redaction lives here and not in ``compare``: the in-memory comparison keeps
     the target's disassembly, so the terminal, the reports and the diagnosis
     paths are unaffected, while the ledger -- written automatically, into the
-    project tree, on every campaign run -- cannot carry the ROM's instruction
-    text at all.
+    project tree, on every campaign run -- has every target-named field
+    removed or replaced with a lossy summary, at any depth and in any
+    container.
+
+    Be exact about the scope, because an earlier version of this docstring said
+    "cannot carry the ROM's instruction text at all" and that was not true.
+    :func:`~decomp_workbench.ledger_redaction._sweep` keys on *field names*; it
+    does not read string contents. Target code stored under a name that does
+    not say ``target``, or as a bare element of a list with no key at all,
+    still reaches the file. That residue is deliberate -- deciding whether an
+    arbitrary string is disassembly is the consuming project's clean-room gate
+    to do -- and it is why the ledger is gitignored rather than merely
+    redacted.
 
     It is not the only file the tool can write with target assembly in it:
-    ``--html`` renders target rows into a report. That one is opt-in and lands
-    where the operator asks, which is a real mitigation but not a redaction.
+    ``--html`` renders target rows into a report, and ``force_spec`` records
+    ``target_register``. Both are opt-in and land where the operator asks,
+    which is a real mitigation but not a redaction.
     See :mod:`decomp_workbench.ledger_redaction`.
     """
 

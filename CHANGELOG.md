@@ -116,6 +116,54 @@ byte-exact ROM rebuild. Each entry names the failure it encodes.
   and `diagnose` renders target assembly rows into an HTML report. That export
   is opt-in and lands where the operator names it -- a real mitigation, not a
   redaction -- and it is now documented as a known second instance of the class.
+  **`force_spec` is a third**: each aligned web it records carries
+  `target_register`, which names a register in the target. Same class, same
+  handling -- operator-named, opt-in, not something to commit -- and it is now
+  recorded here rather than only in a comment at the point of use.
+
+- **The sweep is now actually recursive, and the claim now matches the code.**
+
+  "Recursive default-deny" was, on execution, recursive over `dict` and `list`
+  and default-deny over keys spelled `target` in lower case. Six bypasses were
+  demonstrated by driving `redact_record` directly, each writing the target's
+  instruction text into the output while the redactor reported success:
+
+  - a nested dict under an **allow-listed** site key -- `redact_site` copied
+    surviving values with a shallow dict comprehension, so
+    `{"candidate": {"target": "lw\t$v0,0x10($sp)"}}` was emitted verbatim;
+  - a payload in a **tuple** -- `model` keeps tuples through
+    `dataclasses.asdict`, and the sweep entered lists only;
+  - a payload used as a **mapping key** -- only key *names* were ever
+    inspected, never key content;
+  - `Target`, `TARGET`, `_target` -- the match was a case-sensitive
+    `startswith`;
+  - instruction text containing a `/`, which `_is_path_like` accepted as a
+    filesystem path (real `objdump` source-interleaved output qualifies);
+  - 3000-deep nesting, which raised an uncaught `RecursionError` out of the
+    middle of a campaign.
+
+  All six are closed and each has a regression test. The sweep now enters
+  `dict`, `list`, `tuple`, `set` and `frozenset`, examines keys as well as
+  values, requires keys to be shaped like field names, matches target-naming
+  keys case- and prefix-insensitively, re-sweeps allow-listed values, and caps
+  depth at `MAX_DEPTH` (64) with a new `RedactionError` instead of unwinding.
+  `_is_path_like` now requires a value with no whitespace at all, since
+  instruction text always has a separator and a path does not.
+
+  **The claim is also restated where it was overstated.** `append_ledger`'s
+  docstring said the ledger "cannot carry the ROM's instruction text at all".
+  It cannot carry it *under a target-named field*, at any depth, in any
+  container. It can still carry a target instruction stored under an innocuous
+  key name or as a bare list element, because nothing here reads string
+  contents. That residue is documented at the function, at `_sweep`, in the
+  module docstring, and here -- and it is why ledgers stay gitignored rather
+  than merely redacted.
+
+- **The resume warning now reads the whole ledger.** Its docstring said it
+  "scans the file"; the default capped at 4096 lines, so an unredacted record
+  on line 4097 of a long campaign produced silence. It now streams every
+  record by default, and when an explicit `scan_lines` cap is given and reached
+  it says how far it got rather than implying the file was fully examined.
 
 ## 0.3.1 - 2026-07-30
 
