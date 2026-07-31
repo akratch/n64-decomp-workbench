@@ -387,8 +387,20 @@ class FieldGuideRegistryTests(unittest.TestCase):
         self.assertIn(23, field_guide.sections())
 
     def test_the_new_playbook_and_the_old_one_both_reach_lever_23(self) -> None:
-        self.assertEqual(field_guide.PLAYBOOK_LEVERS["line-assignment-probe"], (23, 4))
+        self.assertEqual(
+            field_guide.PLAYBOOK_LEVERS["line-assignment-probe"], (23, 25, 4)
+        )
         self.assertIn(23, field_guide.PLAYBOOK_LEVERS["g0-schedule-probe"])
+
+    def test_lever_25_follows_lever_23_on_the_line_assignment_playbook(self) -> None:
+        # 23 says the residue is line numbers; 25 is what you reach for when the
+        # number you need is unreachable one statement per physical line. The
+        # order is the point, so assert adjacency rather than membership.
+        levers = field_guide.PLAYBOOK_LEVERS["line-assignment-probe"]
+        self.assertEqual(levers[levers.index(23) + 1], 25)
+        self.assertIn(25, field_guide.LEVER_ACTIONS)
+        self.assertIn("LOGICAL", field_guide.LEVER_ACTIONS[25])
+        self.assertIn(25, field_guide.sections())
 
     def test_the_playbook_offers_both_branches(self) -> None:
         steps = field_guide.PLAYBOOK_ONRAMPS["line-assignment-probe"]

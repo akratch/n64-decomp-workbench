@@ -24,6 +24,7 @@ below them is reference you consult when you need it.
 | You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** |
 | You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
 | You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
+| You are about to conclude that no source form can reach your target | **[Case study: SSB64 unref_800036B4](../case-studies/ssb64-unref-800036B4.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 
 New here? [Start here](START_HERE.md) takes ten minutes, and every command in

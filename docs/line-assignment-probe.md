@@ -184,6 +184,25 @@ then, quite correctly by its own bookkeeping, all "the same line," and the
 scheduler treats them as one interleaving-eligible group instead of the
 several distinct groups the macro's author saw when they wrote it.
 
+**The dial is coarser than a macro expansion, and this cuts both ways.** Any
+two statements sharing a *logical* line share a line number - and a logical
+line is what survives backslash-newline splicing, so `\`-joined physical lines
+and several statements on one physical line are the same lever. That is
+[field guide lever 25](field-guide.md#25-line-number-ties-by-splicing), and it
+means a natural layout's statement line numbers are non-decreasing but *not*
+strictly increasing.
+
+**Caution: scope every impossibility you conclude from a bisection.** When you
+sweep a statement's line number and find a plateau, what you have measured is
+that plateau *under the statement order you swept and the physical layout you
+swept it in*. Neither is a property of the language. A published claim from
+this project - "no natural layout can express what this function needs, only
+`#line` can" - was falsified within a day by someone who moved one statement
+and spliced a block onto the next one; both halves were already in the
+campaign's own variant matrix, filed as "inert" and "dead end". Write the
+qualifiers down next to the conclusion, or do not draw the conclusion. See
+[Case study: SSB64 `unref_800036B4`](../case-studies/ssb64-unref-800036B4.md).
+
 ## 6. The acpp recipe
 
 IDO ships its own external preprocessor, `acpp`, and it does something GNU
@@ -248,6 +267,9 @@ See also:
 
 - [Field guide lever 3](field-guide.md#3-the--g0-diagnostic) - the `-g0`
   diagnostic, this probe's sibling ownership test.
+- [Field guide lever 25](field-guide.md#25-line-number-ties-by-splicing) - the
+  same variable turned from natural source, with no preprocessor swap and no
+  `#line`.
 - [Retained-pass replay](pass-replay.md) - the same "one targeted, reversible
   change plus a mandatory unedited control" method, one pass boundary later.
 - [Principles](principles.md) - measuring the owning pass, and treating a

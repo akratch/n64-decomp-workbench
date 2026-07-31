@@ -165,6 +165,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "no one intended (0 >= 0 is true) -- define the macro, include its "
         "header, or delete the stale guard"
     ),
+    25: (
+        "cfe numbers statements by LOGICAL line, so ties are free: splice the "
+        "block and the statement after it onto one line (trailing `\\`, or one "
+        "physical line) to give that statement a line number from inside the "
+        "block, and pair it with a legal statement hoist"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -179,7 +185,10 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     # schedule verdict must reach it without a second command. Lever 24 rides
     # along because an undefined-macro guard can also masquerade late.
     "g0-schedule-probe": (3, 4, 23, 24),
-    "line-assignment-probe": (23, 4),
+    # Lever 25 sits second: once 23 has told you the residue is line numbers,
+    # 25 is what you reach for when the number you need is unreachable one
+    # statement per physical line.
+    "line-assignment-probe": (23, 25, 4),
     "structure-buckets": (1, 4, 24, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
@@ -250,6 +259,11 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "experiment, coarser dial.",
         "have IDO's acpp? acpp <defines> file.c > file.i && cc -c <flags> "
         "file.i, then diagnose again against the new listing.",
+        "swept the line numbers and the one you need is unreachable one "
+        "statement per line? that is lever 25: cfe numbers by LOGICAL line, so "
+        "splicing a block onto the next statement (trailing `\\`) ties them to "
+        "one number - and the plateau you measured is scoped to the statement "
+        "order you swept.",
     ),
     # Source levers first, trace last: that is the documented order of work,
     # and a footer that led with instrumentation taught the opposite to every

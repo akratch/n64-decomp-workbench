@@ -12,10 +12,10 @@ the measured effect is quoted so you can calibrate how much to believe it.
 Levers 20-22 come from a later campaign and are a different kind of finding —
 they are about the *frontend* being a variable rather than about the C you
 write under one — so they carry their own provenance. Lever 23 is the same
-kind of finding one stage earlier: the *preprocessor* as a variable. The C
-snippets are
-illustrative shapes, not copy-paste patches: the *form* is the lever, the
-identifiers are yours.
+kind of finding one stage earlier: the *preprocessor* as a variable, and lever
+25 is its natural-source counterpart — line numbers as a dial you can turn
+without a directive. The C snippets are illustrative shapes, not copy-paste
+patches: the *form* is the lever, the identifiers are yours.
 
 **Read the order as priority.** Levers 1-4 cost one variant each and can erase
 a hundred words. Do not touch the register sections until the instruction count
@@ -671,6 +671,78 @@ but it moves the same variable.
 `playbook=line-assignment-probe`, and any `-g0` build whose lever 3 probe came
 back empty.
 
+**Scope anything you conclude is impossible.** A line-number bisection measures
+one statement order and one physical layout. "No layout reaches the target" is
+a fact about the variants you built, not about the language — see lever 25,
+which is the counterexample that cost us a published claim.
+
+### 25. Line-number ties by splicing
+
+**Diff looks like:** `verdict=schedule-mismatch` you have already localized to
+statement line numbers (lever 23), where the target needs some statement to
+carry a line number *less than or equal to* one that is textually above it —
+typically a statement just below a block that must be scheduled as though it
+were inside the block.
+
+```c
+    var_s3 = sp14C;               /* legal hoist: now at or above line L      */
+    ...
+    bytecsr = out_buf;
+
+    if (temp_s1 <= 0)                                            \
+    {                                                            \
+        temp_s1 -= 0x8;                                          \
+        temp_s2 <<= 0x10, temp_s2 |= *(csr++), temp_s1 += 0x10;  \
+    }                                                            \
+    sp134 = (temp_s2 << (0x18 - temp_s1)) >> 0x18;   /* gets the `if`'s line */
+```
+
+**Why:** cfe numbers each statement by the *logical* source line it starts on,
+and a logical line is what survives translation phase 2 — backslash-newline
+splicing. Statements that share a logical line share a line number. So the
+sequence of statement line numbers a natural layout can produce is
+non-decreasing along statement order but **not strictly increasing**, and the
+ties are free: put several statements on one physical line, or join several
+physical lines with trailing `\`. Splice a block's closing brace *and* the
+statement after it back to the block's first line and that statement now carries
+a number from *inside* the block — the one thing a one-statement-per-line layout
+cannot express. Two forms, one effect: `} sp134 = …;` on one physical line
+produces the identical object.
+
+**Measured:** SSB64 `unref_800036B4`, 339 instructions, IDO 7.1 `-O2 -mips2`. A
+four-word residue split into two independent pairs. Hoisting `var_s3 = sp14C;`
+above `bytecsr = out_buf;` fixed one pair and left the other at 2 words;
+splicing the `if` block onto the following statement fixed the other pair and
+left the first at 2; together, 0 — `.text` byte-identical. A 26-variant ablation
+puts sharp boundaries on both: the hoisted statement may tie its predecessor's
+line but not exceed it, and the spliced statement's line may reach the block's
+last interior statement but not its `}`. The `cc -K` listing shows it directly —
+the same four instructions carry `.loc 2 13302` spliced and `.loc 2 13307`
+unspliced.
+
+**Pairs with a statement move, and that is the point.** Neither lever reaches
+the target alone here. A hoist changes *which* line numbers a statement can
+reach at all; a tie changes the *relation* between two of them. Campaigns that
+score a statement move as "partial, dominated" and drop the family never try the
+layout levers on top of it — this match was two edits from variants already on
+disk, in a campaign that had built 128 of them and published an impossibility
+proof.
+
+**Practical note:** trailing backslashes do not survive editors that trim
+trailing whitespace, formatters, or some paste paths, and the failure is a
+regressed score rather than an error. If the file has to travel, prefer the
+one-physical-line form. Neither form survives `clang-format`, so settle it with
+maintainers before an upstream PR.
+
+**See also:** lever 21 bisects whitespace for the same reason under accom
+lineage; lever 23 is the same variable one stage earlier, at macro expansion.
+The full campaign is
+[Case study: SSB64 `unref_800036B4`](../case-studies/ssb64-unref-800036B4.md).
+
+**Points here:** `verdict=schedule-mismatch` with identical allocation,
+`playbook=line-assignment-probe`, and any campaign whose line-number sweep found
+a plateau it cannot reach with one statement per line.
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -681,7 +753,7 @@ valuable as any lever above.
 | `a \| b` versus `b \| a` | Canonicalized to byte-identical objects. Use `x \|= y` (lever 2). |
 | Declaration-order permutation | Inert across three campaigns and ~1000 variants. Test once, cheaply, then drop it. Two exceptions exist: absolute first-declared position mattered on `texLoadTextureActual`, and removing a fully-unreferenced local once changed codegen 20+ instructions away. |
 | Bare discarded expressions | `id == id;`, `(void)(x & mask);`, dead second stores — all eliminated with zero codegen effect. Use an empty-if (lever 7). |
-| Line joins and comma merges to beat `-g3` | `.loc` is per statement; the barriers do not move (lever 3). What does move them is *which* line each statement is attributed to at preprocessing time — that is lever 23, and it is not this. |
+| Line joins and comma merges to beat `-g3` | `.loc` is per statement; the barriers do not move (lever 3). What does move them is *which* line each statement is attributed to — at preprocessing time (lever 23) or by splicing statements onto one logical line (lever 25). Joining lines to remove a barrier is dead; joining them to make two statements share a number is lever 25, and it matched a function. |
 | Loop splitting to force a memory re-read | Defeats IDO's own loop-invariant motion; +147 words measured (lever 5). |
 | The permuter on varargs functions | IDO's `va_arg` is unparsable by pycparser either expanded or preserved. Plan `printf`-family campaigns without it. |
 | The permuter as a solver | Roughly 140,000 iterations across four campaigns solved zero residuals. It is a hypothesis generator; it earned its keep once, by exposing lever 17 through a red herring. |
@@ -697,7 +769,7 @@ valuable as any lever above.
 | `constant` / `constant-audit` | 1, then re-derive fakes |
 | `commutative-order` / `ast-shape` | 2 |
 | `schedule` / `g0-schedule-probe` | 3, 4, then 23, 24 |
-| `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 4 |
+| `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 25, 4 |
 | `structure` / `structure-buckets` | 1, 4, 24, 5, 6 |
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
