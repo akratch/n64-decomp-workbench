@@ -23,8 +23,36 @@
 
   Salts live in a `<ledger>.salt` sidecar, never in the ledger, so a leaked
   ledger carries no rainbow-table shortcut with it. `tests/test_ledger_redaction.py`
-  is the regression test, including a whitelist of every surviving target-side
-  field that fails if a future change reintroduces an invertible one.
+  is the regression test.
+
+- **Redaction hardened after review, and two claims corrected.**
+
+  Site records are now filtered through an **allow-list** (`SITE_KEEP`) rather
+  than a list of banned keys. A deny-list made the wrong promise: the incident's
+  leak lived in the per-site records `compare` emits, so a *new* target-side
+  field added upstream would have been carried straight to disk, and no test
+  could have caught it -- the fixtures are hand-written and would not contain
+  the new field either. Unknown keys are now dropped by default, with their
+  names (never their values) recorded under `dropped_fields`.
+
+  The claim that "the security property does not depend on the salt staying
+  secret" was **wrong** and is retracted. It assumed a uniform prior over
+  instruction words; at a diff site the record deliberately keeps `candidate`
+  and `candidate_word` in full, which narrows the target to a small set of
+  plausible variants, and against a small set a known-salt 16-bit digest is an
+  exact-match confirmation oracle. The salt is load-bearing; the 16-bit width
+  is the second, independent defence for sites with no such constraint. Treat
+  `<ledger>.salt` as sensitive.
+
+  Resuming a campaign whose ledger predates this change now prints a warning:
+  new records are redacted, the old ones in the same file are not, and the file
+  as a whole remains ROM-derived.
+
+  Also corrected: `append_ledger` is the only place a **ledger** record is
+  written, not the only place a comparison becomes a file. `--html` on `view`
+  and `diagnose` renders target assembly rows into an HTML report. That export
+  is opt-in and lands where the operator names it -- a real mitigation, not a
+  redaction -- and it is now documented as a known second instance of the class.
 
 ## 0.3.1 - 2026-07-30
 

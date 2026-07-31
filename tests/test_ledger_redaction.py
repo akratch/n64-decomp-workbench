@@ -27,11 +27,13 @@ from decomp_workbench.ledger_redaction import (
     DIGEST_HEX,
     MASKED_OPCODE_SITE_LIMIT,
     REDACTION_SCHEMA,
+    SITE_KEEP,
     digest_target,
     load_or_create_salt,
     mask_opcode,
     redact_record,
     salt_path,
+    warn_if_unredacted,
 )
 from decomp_workbench.model import Comparison, CompileResult
 
@@ -231,8 +233,11 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
     def test_no_retained_target_field_is_invertible(self) -> None:
         """Enumerates every surviving target-side key and shows it is lossy.
 
-        A future change that reintroduces a reconstructable field fails here on
-        the whitelist rather than at someone's code review.
+        This checks the fields the *fixtures* produce. On its own it could
+        never catch a new field added upstream in ``compare`` -- the fixtures
+        are hand-written and would not contain it. That gap is closed
+        structurally instead, by :data:`SITE_KEEP` being an allow-list; see
+        ``test_unknown_site_fields_are_dropped_by_default``.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,6 +248,10 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
             "target_index",  # a position in the alignment, not content
             "target_register_count",  # how many, never which
         }
+        # `dropped_fields` holds names of removed keys, never their values.
+        for site in record["comparison"]["diff_sites"]:
+            for name in site.get("dropped_fields", []):
+                self.assertNotIn(name, set(site) - {"dropped_fields"})
         for name in ("diff_sites", "aligned_diff_sites", "register_diff"):
             for site in record["comparison"][name]:
                 for key in site:
@@ -259,6 +268,43 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
             self.assertNotEqual(
                 site["target_opcode_masked"], TARGET_SITES[site["index"]][1]
             )
+
+    def test_unknown_site_fields_are_dropped_by_default(self) -> None:
+        """The real regression guard: a field nobody anticipated.
+
+        The incident's leak lived in per-site records emitted by ``compare``.
+        If that emitter grows a new target-side field tomorrow, no fixture here
+        will contain it and no whitelist assertion will see it -- so the
+        redactor must drop it without being told. This simulates exactly that.
+        """
+
+        record = make_record()
+        for site in record["comparison"]["diff_sites"]:
+            site["target_pseudocode"] = "sp -= 64  /* invented upstream */"
+            site["target_bytes"] = "27 bd ff c0"
+
+        redacted = redact_record(record, b"salt")
+        blob = json.dumps(redacted, sort_keys=True)
+
+        # The values are gone...
+        self.assertNotIn("sp -= 64", blob)
+        self.assertNotIn("27 bd ff c0", blob)
+        self.assertNotIn("invented upstream", blob)
+
+        # ...and the names survive only as a record of what was dropped, which
+        # is how an operator finds out the upstream field exists at all.
+        first = redacted["comparison"]["diff_sites"][0]
+        self.assertIn("target_pseudocode", first["dropped_fields"])
+        self.assertIn("target_bytes", first["dropped_fields"])
+        self.assertNotIn("target_pseudocode", set(first) - {"dropped_fields"})
+
+    def test_site_keep_holds_nothing_target_valued(self) -> None:
+        """The allow-list is the whole guarantee, so guard its contents."""
+
+        for key in SITE_KEEP:
+            if key.startswith("target"):
+                # target_index is a position in the alignment, not content.
+                self.assertEqual(key, "target_index", f"{key!r} is target content")
 
     def test_paths_named_target_are_not_redacted(self) -> None:
         """``provenance.target`` and ``comparison.target`` are filesystem
@@ -345,6 +391,35 @@ class LedgerSaltTest(unittest.TestCase):
                 ledger, make_result(), duplicate_sources=[], provenance={}, timeout=None
             )
             self.assertNotIn(salt.hex(), ledger.read_text(encoding="utf-8"))
+
+
+class UnredactedLedgerWarningTest(unittest.TestCase):
+    """A resumed campaign appends redacted records to an unredacted file."""
+
+    def test_pre_redaction_ledger_is_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            ledger.write_text(
+                json.dumps({"schema": "decomp-workbench-campaign-v1", "comparison": {}})
+                + "\n",
+                encoding="utf-8",
+            )
+            warning = warn_if_unredacted(ledger)
+            self.assertIsNotNone(warning)
+            assert warning is not None
+            self.assertIn("predates ledger redaction", warning)
+
+    def test_redacted_ledger_is_not_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            append_ledger(
+                ledger, make_result(), duplicate_sources=[], provenance={}, timeout=None
+            )
+            self.assertIsNone(warn_if_unredacted(ledger))
+
+    def test_absent_ledger_is_not_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(warn_if_unredacted(Path(tmp) / "nope.jsonl"))
 
 
 if __name__ == "__main__":

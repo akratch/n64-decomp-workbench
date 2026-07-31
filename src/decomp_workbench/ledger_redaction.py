@@ -14,12 +14,21 @@ instructions verbatim. Removing them took a history rewrite.
 
 The gap was architectural, not clerical: the ledger's schema *asked* for the
 target's disassembly, so writing a correct ledger and leaking the ROM were the
-same act. This module closes that by redacting at the serialisation boundary --
-the one place every ledger record passes through -- so:
+same act. This module closes that by redacting at the ledger's serialisation
+boundary, so:
 
 * the in-memory :class:`~decomp_workbench.model.Comparison` is untouched, and
   every renderer, report and diagnosis keeps showing the full diff;
-* nothing that reaches disk can be turned back into instruction text.
+* nothing that reaches a *ledger* can be turned back into instruction text.
+
+**This module covers the ledger, not every file the tool can write.**
+``--html`` on ``view`` and ``diagnose`` renders target assembly rows into an
+HTML report (see :func:`decomp_workbench.html_report.render_diagnosis_html`),
+and that export is the same class of hazard. It is meaningfully better placed
+than the ledger was -- it happens only when the operator asks for it, at a path
+the operator names, rather than automatically into the project tree on every
+campaign run -- but it is not covered here, and a consuming project's
+clean-room gate should be what stops it being committed.
 
 What survives redaction is what the ledger is actually *for*: per-site
 bookkeeping. Which sites differ, how many, of what class, and whether the
@@ -30,15 +39,32 @@ Three mechanisms, in order of how much they give up:
 
 ``target_digest``
     A **16-bit** salted digest of the target word (or, where there is no word,
-    of its assembly text). Sixteen bits is deliberate: it is ample to notice
-    that the target at some index changed between records -- a 1-in-65536 miss
-    -- and it is hopeless as a reconstruction primitive, because every digest
-    has on the order of 2^16 preimages in the 32-bit instruction space. The
-    security property therefore does not depend on the salt staying secret,
-    which is the only kind of security property worth relying on here. The
-    salt still earns its place: it is per-ledger, so identical instructions in
-    two different campaigns do not produce identical digests, and no rainbow
-    table spans ledgers.
+    of its assembly text).
+
+    The salt is load-bearing, and an earlier version of this docstring was
+    wrong to say otherwise. The argument it made -- "every digest has ~2^16
+    preimages in the 32-bit instruction space, so the salt need not stay
+    secret" -- assumes an attacker with a *uniform* prior over instruction
+    words. At a diff site that assumption is false, because the record
+    deliberately retains ``candidate`` and ``candidate_word`` in full. Knowing
+    the candidate narrows the target to a small set of plausible variants (the
+    same instruction with a different register, a different immediate), and
+    against a set of size n a known-salt digest is an exact-match confirmation
+    oracle with roughly n/65536 false accepts. For small n that is recovery,
+    not obfuscation.
+
+    So the two mechanisms defend against two different attackers, and both are
+    needed. The **salt** defends against the narrow prior: without it no digest
+    can be computed at all, so no candidate can be tested. The **16-bit width**
+    defends against the uniform prior: even with the salt, a site whose target
+    is not constrained by anything leaves ~2^16 possibilities. Widening
+    :data:`DIGEST_HEX` would give away the second defence entirely -- do not.
+    And treat the salt file as sensitive: a leak of ledger *and* salt together
+    puts target recovery at diff sites back on the table.
+
+    Being per-ledger, the salt also means identical instructions in two
+    campaigns do not produce identical digests, so no rainbow table spans
+    ledgers.
 
 ``target_opcode_masked``
     The instruction word with every operand field zeroed -- primary opcode
@@ -62,6 +88,7 @@ it is not the ROM's.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 from pathlib import Path
@@ -78,8 +105,33 @@ REDACTION_SCHEMA = "decomp-workbench-ledger-redaction-v1"
 #: them.
 SITE_LISTS: tuple[str, ...] = ("diff_sites", "aligned_diff_sites", "register_diff")
 
-#: Target-side keys removed from every site record.
-REDACTED_KEYS: tuple[str, ...] = ("target", "target_word", "target_registers")
+#: Site-record keys carried through verbatim. This is an ALLOW-list, so the
+#: default for anything else is to drop it.
+#:
+#: It was a deny-list until a review pointed out that a deny-list makes exactly
+#: the wrong promise here. The incident's leak lived in the per-site records
+#: that ``compare`` emits; a new target-side field added there would have been
+#: carried straight through to disk, and no test could have caught it, because
+#: the fixtures are hand-written and would never have contained the new field
+#: either. Defaulting to drop means a new field is silently *excluded* until
+#: someone deliberately adds it here -- failing safe rather than failing open,
+#: and turning "we forgot" into a missing feature rather than a leak.
+#:
+#: Note what is not here: ``target`` and ``target_word`` (instruction text and
+#: the word itself) and ``target_registers`` (operand data). Their information
+#: is re-added, lossily, by :func:`redact_site`.
+SITE_KEEP: frozenset[str] = frozenset(
+    {
+        "index",  # position in the diff-site list
+        "class",  # operand / register / schedule / structural
+        "aligned_row",  # row in the alignment table
+        "target_index",  # a position in the target's stream, not its content
+        "candidate",  # the operator's own compiler output, not the ROM's
+        "candidate_word",
+        "candidate_index",
+        "candidate_registers",
+    }
+)
 
 #: Digest width. 4 hex characters = 16 bits: enough to detect change, far too
 #: little to reconstruct. Do not widen this without re-reading the module
@@ -90,6 +142,39 @@ DIGEST_HEX = 4
 MASKED_OPCODE_SITE_LIMIT = 3
 
 SALT_BYTES = 16
+
+
+def warn_if_unredacted(ledger_path: str | Path) -> str | None:
+    """Return a warning if this ledger already holds pre-redaction records.
+
+    Ledgers are append-only and campaigns resume, so a ledger written before
+    this module existed keeps being appended to. New records are redacted; the
+    old ones in the same file still carry the ROM's instruction text, and the
+    file as a whole is exactly as dangerous as it was. Silence there would let
+    an operator believe the fix applied retroactively, which is the sort of
+    belief that gets a file committed.
+    """
+
+    path = Path(ledger_path)
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            first = stream.readline()
+    except OSError:
+        return None
+    if not first.strip():
+        return None
+    try:
+        record = json.loads(first)
+    except ValueError:
+        return None
+    if isinstance(record, dict) and "redaction" in record:
+        return None
+    return (
+        f"warning: {path} predates ledger redaction. Records already in it "
+        "carry the target ROM's instruction text; only newly appended records "
+        "are redacted. Treat the whole file as ROM-derived -- do not commit "
+        "it, and delete or re-run the campaign to get a clean ledger."
+    )
 
 
 def salt_path(ledger_path: str | Path) -> Path:
@@ -168,9 +253,19 @@ def mask_opcode(word: Any) -> str | None:
 def redact_site(
     site: dict[str, Any], salt: bytes, *, mask_opcodes: bool
 ) -> dict[str, Any]:
-    """Return a copy of one diff-site record with the target side masked."""
+    """Return a copy of one diff-site record with the target side masked.
 
-    out = {key: value for key, value in site.items() if key not in REDACTED_KEYS}
+    Default-deny: only keys in :data:`SITE_KEEP` survive verbatim. Anything
+    else is dropped and its *name* -- never its value -- is listed under
+    ``dropped_fields``, so an operator can see that a field exists upstream and
+    is not being recorded, and so adding a field to ``compare`` cannot quietly
+    reopen the leak.
+    """
+
+    out = {key: value for key, value in site.items() if key in SITE_KEEP}
+    dropped = sorted(key for key in site if key not in SITE_KEEP)
+    if dropped:
+        out["dropped_fields"] = dropped
 
     word = site.get("target_word")
     text = site.get("target")

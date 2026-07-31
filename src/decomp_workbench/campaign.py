@@ -23,7 +23,7 @@ from typing import Any
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
 from .compare import TargetObject, compare_candidate, load_target
 from .experiments import RegionConstraint
-from .ledger_redaction import load_or_create_salt, redact_record
+from .ledger_redaction import load_or_create_salt, redact_record, warn_if_unredacted
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
 
@@ -482,12 +482,17 @@ def append_ledger(
 ) -> None:
     """Append one self-contained JSONL record, with the target side redacted.
 
-    This is the only place a comparison is written to a file, which is why the
+    This is the only place a *ledger* record is written, which is why the
     redaction lives here and not in ``compare``: the in-memory comparison keeps
     the target's disassembly, so the terminal, the reports and the diagnosis
-    paths are unaffected, and the ledger -- the artifact that gets committed --
-    cannot carry the ROM's instruction text at all. See
-    :mod:`decomp_workbench.ledger_redaction`.
+    paths are unaffected, while the ledger -- written automatically, into the
+    project tree, on every campaign run -- cannot carry the ROM's instruction
+    text at all.
+
+    It is not the only file the tool can write with target assembly in it:
+    ``--html`` renders target rows into a report. That one is opt-in and lands
+    where the operator asks, which is a real mitigation but not a redaction.
+    See :mod:`decomp_workbench.ledger_redaction`.
     """
 
     record = {
@@ -498,6 +503,9 @@ def append_ledger(
         "execution": {"timeout_seconds": timeout},
         **result.as_dict(),
     }
+    warning = warn_if_unredacted(path)
+    if warning is not None:
+        print(warning, file=sys.stderr)
     record = redact_record(record, load_or_create_salt(path))
     with path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, sort_keys=True) + "\n")
