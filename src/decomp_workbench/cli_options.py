@@ -138,6 +138,27 @@ def add_census_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_candidate_listing_argument(parser: argparse.ArgumentParser) -> None:
+    """Offer the candidate's ugen assembly listing as statement-line evidence.
+
+    Opt-in, because most readers do not keep the intermediate. The help text
+    says where the file comes from rather than naming the file type and
+    stopping: a diagnostic input nobody knows how to produce is not an option,
+    it is a wall.
+    """
+
+    parser.add_argument(
+        "--candidate-listing",
+        metavar="PATH",
+        help=(
+            "the assembly listing ugen wrote for the candidate, used to report "
+            "whether schedule-divergent sites sit at .loc statement-line "
+            "boundaries; the IDO driver keeps it beside the object when you "
+            "pass `cc -K`, and `ugen -l` writes it directly"
+        ),
+    )
+
+
 def add_process_output_arguments(parser: argparse.ArgumentParser) -> None:
     """Add shared bounded-stream and explicit full-artifact controls."""
 
