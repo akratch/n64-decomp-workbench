@@ -33,6 +33,7 @@ SCHEMAS: dict[str, str] = {
     "compare-dumps": "decomp-workbench-comparison-v1",
     "compile-rank": "decomp-workbench-compile-rank-v1",
     "commands": "decomp-workbench-command-map-v1",
+    "context-lint": "decomp-workbench-context-lint-v1",
     "doctor": "decomp-workbench-doctor-v1",
     "experiment-validate": "decomp-workbench-experiment-v1",
     "fingerprint-toolchain": "decomp-workbench-toolchain-fingerprint-v1",

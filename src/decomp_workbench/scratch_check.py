@@ -6,10 +6,13 @@ import hashlib
 import json
 import math
 import re
+import shlex
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from .context_lint import analyze_expression, file_scope_definitions, lint_sources
 
 MAX_FILES = 64
 MAX_FILE_BYTES = 16 * 1024 * 1024
@@ -18,6 +21,10 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 DECOMP_ME_METADATA = "metadata.json"
 WORKBENCH_MANIFEST = "scratch.json"
 SITE_SOURCE_MARKER = '#line 1 "src.c"\n'
+
+#: How much of ctx.c's tail to show when it will glue onto code.c's first
+#: line. Long enough to recognize the statement; short enough for one line.
+CONTEXT_GLUE_TAIL = 40
 
 
 @dataclass(frozen=True)
@@ -343,4 +350,115 @@ def scratch_score(metadata: dict[str, Any]) -> dict[str, float] | None:
         "score": float(score),
         "max_score": float(maximum),
         "percentage": 100.0 * (1.0 - float(score) / float(maximum)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pre-paste hardening: the two traps this repository was built to catch.
+#
+# decomp.me concatenates a scratch's context and code sections verbatim. A
+# ctx.c that does not end in a newline glues its last statement onto code.c's
+# first line, and a name declared in both sections fails to compile with no
+# hint that the culprit is duplication rather than the candidate's logic.
+# Both cost real human round-trips on the drawbitmap scratch before anyone
+# saw a diff; both are checked here before the reader pastes anything.
+# ---------------------------------------------------------------------------
+
+
+def context_newline_warning(context: str) -> str | None:
+    """Report exactly what happens when ctx.c does not end in a newline.
+
+    decomp.me pastes `ctx.c` and `code.c` back to back with no separator of
+    its own, so a missing trailing newline glues the first line of code onto
+    the context's last statement. Returns `None` when the context is empty or
+    already ends in a newline -- both are safe.
+    """
+
+    if not context or context.endswith("\n"):
+        return None
+    tail = context[-CONTEXT_GLUE_TAIL:]
+    return (
+        "context does not end in a newline; decomp.me concatenates ctx.c and "
+        f"code.c verbatim, so your code's first line will glue onto ...{tail!r}"
+        " -- start code.c with a blank line, or add a trailing newline to ctx.c"
+    )
+
+
+def duplicate_file_scope_symbols(
+    context: str, code: str
+) -> list[dict[str, object]]:
+    """Report names that `file_scope_definitions` sees defined in both files.
+
+    This is the regex-level, honestly-approximate pass `context_lint`
+    documents: it recognizes single-line static/global definitions and
+    one-line function signatures, and it will miss more elaborate shapes
+    (multi-line declarations, brace-initialized declarators, K&R signatures
+    split across lines). A context that already declares a file-scope static
+    the pasted code redeclares is exactly the second decomp.me trap -- the
+    paste compiles-fails with a redefinition error that gives no hint the
+    context is the other half of the conflict.
+    """
+
+    ctx_names = file_scope_definitions(context)
+    code_names = file_scope_definitions(code)
+    return [
+        {
+            "symbol": name,
+            "ctx_line": ctx_names[name],
+            "code_line": code_names[name],
+        }
+        for name in sorted(set(ctx_names) & set(code_names))
+    ]
+
+
+def _defines_from_compiler_flags(flags: object) -> dict[str, int | None]:
+    """Seed the context lint's macro table from `metadata.json`'s -D flags.
+
+    Best effort only: unparsable flag strings or non-string metadata yield an
+    empty table rather than an error, since this is a bonus signal on top of
+    the lint, not something the check should fail over.
+    """
+
+    if not isinstance(flags, str):
+        return {}
+    try:
+        tokens = shlex.split(flags)
+    except ValueError:
+        return {}
+    result: dict[str, int | None] = {}
+    for token in tokens:
+        if not token.startswith("-D") or len(token) <= 2:
+            continue
+        name, separator, value = token[2:].partition("=")
+        if not re.fullmatch(r"[A-Za-z_]\w*", name):
+            continue
+        if not separator:
+            result[name] = None
+            continue
+        analysis = analyze_expression(value, result)
+        result[name] = analysis.value if analysis.ok else None
+    return result
+
+
+def scratch_context_hardening(package: ScratchPackage) -> dict[str, Any]:
+    """Run the ctx.c/code.c checks that would have caught both known traps.
+
+    Applies only to a decomp.me export, where the ctx.c + code.c concatenation
+    and file-scope duplication risks actually exist; a workbench bundle uses
+    differently named, differently composed files and gets
+    `{"applicable": False}`.
+    """
+
+    if package.kind != "decomp.me-export":
+        return {"applicable": False}
+    context = package.text("ctx.c")
+    code = package.text("code.c")
+    defines = _defines_from_compiler_flags(package.metadata.get("compiler_flags"))
+    report = lint_sources((("ctx.c", context), ("code.c", code)), defines)
+    newline_warning = context_newline_warning(context)
+    return {
+        "applicable": True,
+        "context_newline_warning": newline_warning,
+        "duplicate_symbols": duplicate_file_scope_symbols(context, code),
+        "context_lint": report.as_dict(),
     }

@@ -19,7 +19,10 @@ from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.scratch_check import (
     SITE_SOURCE_MARKER,
     compose_site_source,
+    context_newline_warning,
+    duplicate_file_scope_symbols,
     load_scratch,
+    scratch_context_hardening,
 )
 
 TARGET_DUMP = """\
@@ -388,6 +391,200 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertIn("object workflow: LIMITED", stdout)
         self.assertIn("explicit objdump", stdout)
+
+
+class ContextNewlineWarningTests(unittest.TestCase):
+    """decomp.me pastes ctx.c and code.c back to back with no separator."""
+
+    def test_a_missing_trailing_newline_names_exactly_what_will_glue(self) -> None:
+        warning = context_newline_warning("static int *prev_bmbuf = 0;")
+        self.assertIsNotNone(warning)
+        assert warning is not None
+        self.assertIn("prev_bmbuf = 0;", warning)
+        self.assertIn("decomp.me concatenates", warning)
+        self.assertIn("blank line", warning)
+
+    def test_a_trailing_newline_is_silent(self) -> None:
+        self.assertIsNone(context_newline_warning("static int *prev_bmbuf = 0;\n"))
+
+    def test_empty_context_is_silent(self) -> None:
+        self.assertIsNone(context_newline_warning(""))
+
+    def test_only_the_last_forty_characters_are_quoted(self) -> None:
+        context = "x" * 100
+        warning = context_newline_warning(context)
+        assert warning is not None
+        self.assertIn("x" * 40, warning)
+        self.assertNotIn("x" * 41, warning)
+
+
+class DuplicateFileScopeSymbolTests(unittest.TestCase):
+    def test_a_symbol_declared_in_both_files_is_reported_with_both_lines(self) -> None:
+        context = "typedef int s32;\nstatic int *prev_bmbuf = 0;\n"
+        code = "static int *prev_bmbuf = 0;\n\ns32 demo(void) { return 1; }\n"
+        duplicates = duplicate_file_scope_symbols(context, code)
+        self.assertEqual(len(duplicates), 1)
+        self.assertEqual(duplicates[0]["symbol"], "prev_bmbuf")
+        self.assertEqual(duplicates[0]["ctx_line"], 2)
+        self.assertEqual(duplicates[0]["code_line"], 1)
+
+    def test_a_local_with_the_same_name_is_not_a_file_scope_conflict(self) -> None:
+        context = "static int prev_bmbuf = 0;\n"
+        code = "void f(void) {\n    int prev_bmbuf = 0;\n}\n"
+        self.assertEqual(duplicate_file_scope_symbols(context, code), [])
+
+    def test_no_overlap_reports_no_duplicates(self) -> None:
+        context = "typedef int s32;\n"
+        code = "s32 demo(void) { return 1; }\n"
+        self.assertEqual(duplicate_file_scope_symbols(context, code), [])
+
+
+class ScratchContextHardeningTests(unittest.TestCase):
+    def test_workbench_bundles_are_not_applicable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source.c").write_text("int demo(void) { return 0; }\n")
+            (root / "scratch.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "decomp-workbench-scratch-bundle-v1",
+                        "files": {
+                            "source.c": {
+                                "sha256": __import__("hashlib")
+                                .sha256((root / "source.c").read_bytes())
+                                .hexdigest()
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            package = load_scratch(root)
+
+        hardening = scratch_context_hardening(package)
+        self.assertEqual(hardening, {"applicable": False})
+
+    def test_a_healthy_export_reports_no_warnings_and_no_lint_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            package = load_scratch(root)
+
+        hardening = scratch_context_hardening(package)
+        self.assertTrue(hardening["applicable"])
+        self.assertIsNone(hardening["context_newline_warning"])
+        self.assertEqual(hardening["duplicate_symbols"], [])
+        self.assertEqual(hardening["context_lint"]["findings"], [])
+
+    def test_the_drawbitmap_trap_is_caught_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "ctx.c").write_bytes(
+                b"typedef int s32;\nstatic int *prev_bmbuf = 0;"
+            )
+            (root / "code.c").write_text(
+                "static int *prev_bmbuf = 0;\n\n"
+                "s32 demo(void) {\n"
+                "#if BUILD_VERSION >= VERSION_J\n"
+                "    do_extra();\n"
+                "#endif\n"
+                "    return 1;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            package = load_scratch(root)
+
+        hardening = scratch_context_hardening(package)
+        self.assertIsNotNone(hardening["context_newline_warning"])
+        self.assertEqual(len(hardening["duplicate_symbols"]), 1)
+        self.assertEqual(hardening["duplicate_symbols"][0]["symbol"], "prev_bmbuf")
+        findings = hardening["context_lint"]["findings"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["kind"], "always-true-by-absence")
+
+    def test_compiler_flags_seed_defines_and_can_resolve_the_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            metadata = json.loads((root / "metadata.json").read_text())
+            metadata["compiler_flags"] = "-O2 -DBUILD_VERSION=3 -DVERSION_J=5"
+            (root / "metadata.json").write_text(json.dumps(metadata))
+            (root / "code.c").write_text(
+                "s32 demo(void) {\n"
+                "#if BUILD_VERSION >= VERSION_J\n"
+                "    do_extra();\n"
+                "#endif\n"
+                "    return 1;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            package = load_scratch(root)
+
+        hardening = scratch_context_hardening(package)
+        self.assertEqual(hardening["context_lint"]["findings"], [])
+        self.assertEqual(hardening["context_lint"]["defines"]["BUILD_VERSION"], 3)
+
+
+class CheckScratchHardeningIntegrationTests(unittest.TestCase):
+    def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_check_scratch_surfaces_both_traps_in_the_terminal_and_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "ctx.c").write_bytes(
+                b"typedef int s32;\nstatic int *prev_bmbuf = 0;"
+            )
+            (root / "code.c").write_text(
+                "static int *prev_bmbuf = 0;\n\n"
+                "s32 demo(void) {\n"
+                "#if BUILD_VERSION >= VERSION_J\n"
+                "    do_extra();\n"
+                "#endif\n"
+                "    return 1;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            status, stdout, stderr = self.run_cli(["check-scratch", str(root)])
+            json_status, json_stdout, _ = self.run_cli(
+                ["check-scratch", str(root), "--json"]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("warning: context does not end in a newline", stdout)
+        self.assertIn("prev_bmbuf is defined in both ctx.c", stdout)
+        self.assertIn("always-true-by-absence", stdout)
+
+        payload = json.loads(json_stdout)
+        self.assertEqual(json_status, 0)
+        hardening = payload["context_hardening"]
+        self.assertTrue(hardening["applicable"])
+        self.assertIsNotNone(hardening["context_newline_warning"])
+        self.assertEqual(len(hardening["duplicate_symbols"]), 1)
+        self.assertEqual(len(hardening["context_lint"]["findings"]), 1)
+
+    def test_check_scratch_stays_calm_when_ctx_and_code_are_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            status, stdout, stderr = self.run_cli(["check-scratch", str(root)])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertNotIn("warning:", stdout)
+        self.assertIn(
+            "context lint: no undefined-identifier collapse found", stdout
+        )
 
 
 if __name__ == "__main__":

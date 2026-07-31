@@ -73,7 +73,7 @@ class PackagedGuideTests(unittest.TestCase):
         # exact upper bound made every new lever a two-file edit, and the
         # property that matters is that no number is skipped.
         self.assertEqual(sorted(sections), list(range(1, max(sections) + 1)))
-        self.assertGreaterEqual(max(sections), 23)
+        self.assertGreaterEqual(max(sections), 24)
         self.assertEqual(sections[19].family, "When source search is over")
         self.assertIn("forced-color", sections[19].title)
         self.assertEqual(
@@ -111,6 +111,42 @@ class PackagedGuideTests(unittest.TestCase):
         self.assertIn("### 21.", rendered)
         self.assertIn("### 22.", rendered)
         self.assertIn("docs/alternate-frontends.md", rendered)
+
+
+class PreprocessorAuditLeverTests(unittest.TestCase):
+    """Lever 24: the drawbitmap-class undefined-identifier collapse."""
+
+    def test_lever_24_has_a_one_line_action_naming_the_command(self) -> None:
+        action = field_guide.LEVER_ACTIONS[24]
+        self.assertNotIn("\n", action)
+        self.assertIn("context lint", action)
+
+    def test_lever_24_routes_from_the_structural_and_schedule_playbooks(self) -> None:
+        self.assertIn(24, field_guide.PLAYBOOK_LEVERS["structure-buckets"])
+        self.assertIn(24, field_guide.PLAYBOOK_LEVERS["g0-schedule-probe"])
+
+    def test_lever_24_section_is_shipped_and_reachable_by_number(self) -> None:
+        shipped = field_guide.sections()
+        self.assertIn(24, shipped)
+        self.assertIn("Preprocessor-conditional audit", shipped[24].title)
+        status, stdout, _ = run_cli(["guide", "24", "--pager", "never"])
+        self.assertEqual(status, 0)
+        self.assertIn("### 24.", stdout)
+        self.assertIn("drawbitmap", stdout)
+
+    def test_lever_23_is_deliberately_not_claimed_by_this_branch(self) -> None:
+        """A sibling branch owns 23; this branch must not collide with it."""
+
+        self.assertNotIn(23, field_guide.LEVER_ACTIONS)
+
+    def test_structure_and_schedule_verdicts_print_lever_24_in_their_on_ramp(
+        self,
+    ) -> None:
+        for playbook in ("structure-buckets", "g0-schedule-probe"):
+            with self.subTest(playbook=playbook):
+                steps = field_guide.next_steps(playbook)
+                text = "\n".join(steps)
+                self.assertIn("lever 24:", text)
 
 
 class LeverMappingTests(unittest.TestCase):

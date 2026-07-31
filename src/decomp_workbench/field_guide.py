@@ -159,6 +159,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "preprocess the TU with IDO's acpp (`acpp <defines> f.c > f.i && cc -c "
         "<flags> f.i`): uopt/ugen honor statement line boundaries even at -g0"
     ),
+    24: (
+        "run `decomp-workbench context lint` over the translation unit: an "
+        "#if/#elif whose identifiers are ALL undefined evaluates a constant "
+        "no one intended (0 >= 0 is true) -- define the macro, include its "
+        "header, or delete the stale guard"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -170,10 +176,11 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     # Lever 23 joins this family rather than replacing it: the -g0 probe is
     # still the first move for a project that builds -g3. It is also the lever
     # that rescues the reader for whom lever 3 is vacuous, which is why a
-    # schedule verdict must reach it without a second command.
-    "g0-schedule-probe": (3, 4, 23),
+    # schedule verdict must reach it without a second command. Lever 24 rides
+    # along because an undefined-macro guard can also masquerade late.
+    "g0-schedule-probe": (3, 4, 23, 24),
     "line-assignment-probe": (23, 4),
-    "structure-buckets": (1, 4, 5, 6),
+    "structure-buckets": (1, 4, 24, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
     "forced-color-oracle": (17, 18, 19),
