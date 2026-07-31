@@ -23,6 +23,7 @@ from typing import Any
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
 from .compare import TargetObject, compare_candidate, load_target
 from .experiments import RegionConstraint
+from .ledger_redaction import load_or_create_salt, redact_record
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
 
@@ -479,7 +480,15 @@ def append_ledger(
     provenance: dict[str, object],
     timeout: float | None,
 ) -> None:
-    """Append one self-contained JSONL record."""
+    """Append one self-contained JSONL record, with the target side redacted.
+
+    This is the only place a comparison is written to a file, which is why the
+    redaction lives here and not in ``compare``: the in-memory comparison keeps
+    the target's disassembly, so the terminal, the reports and the diagnosis
+    paths are unaffected, and the ledger -- the artifact that gets committed --
+    cannot carry the ROM's instruction text at all. See
+    :mod:`decomp_workbench.ledger_redaction`.
+    """
 
     record = {
         "schema": LEDGER_SCHEMA,
@@ -489,6 +498,7 @@ def append_ledger(
         "execution": {"timeout_seconds": timeout},
         **result.as_dict(),
     }
+    record = redact_record(record, load_or_create_salt(path))
     with path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, sort_keys=True) + "\n")
 

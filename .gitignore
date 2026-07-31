@@ -1,6 +1,10 @@
 /build/
 /dist/
 /.decomp-workbench/
+# Per-ledger digest salts (see ledger_redaction). Machine-local randomness;
+# committing one would ship a rainbow-table shortcut alongside any leaked
+# ledger, which is the whole reason it lives outside the ledger.
+*.salt
 /.workbench/
 /.mypy_cache/
 /.ruff_cache/

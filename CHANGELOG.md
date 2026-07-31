@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- **Campaign ledgers no longer carry the target ROM's instruction text.** The
+  schema used to ask for it: every diff site recorded `"target"` (the
+  disassembly) beside `"target_word"` (the 32-bit word), so writing a correct
+  ledger and writing a redistributable copy of the game's code were the same
+  act. Two such ledgers from a Mickey's Speedway USA campaign reached a public
+  remote with 126 sites apiece -- enough to reconstruct 129 of one function's
+  146 instructions -- and undoing it took a history rewrite.
+
+  Redaction now happens at the serialisation boundary (`append_ledger`), which
+  is the single place a comparison becomes a file. The in-memory `Comparison`
+  is untouched, so the terminal diff, the HTML report and every diagnosis path
+  show exactly what they showed before. What lands on disk keeps only what the
+  ledger is for: a 16-bit salted `target_digest` (lossy by construction -- ~2^16
+  preimages per digest, so the property does not depend on the salt staying
+  secret), a `target_opcode_masked` word with every operand field zeroed for at
+  most the first three sites of each list, and `target_register_count` in place
+  of the target's register names. The candidate side -- the operator's own
+  compiler output from their own C -- is untouched.
+
+  Salts live in a `<ledger>.salt` sidecar, never in the ledger, so a leaked
+  ledger carries no rainbow-table shortcut with it. `tests/test_ledger_redaction.py`
+  is the regression test, including a whitelist of every surviving target-side
+  field that fails if a future change reintroduces an invertible one.
+
 ## 0.3.1 - 2026-07-30
 
 - The bundled `n64-decomp-campaign` Agent Skill caught up with the tool it
