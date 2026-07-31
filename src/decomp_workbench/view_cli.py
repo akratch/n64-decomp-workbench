@@ -515,12 +515,18 @@ def render_view(
     show_warnings: bool = True,
     width: int = 0,
     terse: bool = False,
+    extra_sections: Sequence[str] = (),
 ) -> list[str]:
     """Render the whole screen as lines of monochrome-safe text.
 
     `show_warnings=False` is for `diagnose`, which owns a screen holding two
     reports built from the same inputs and would otherwise print one input
     warning twice.
+
+    `extra_sections` are already-rendered blocks belonging to an opt-in input
+    this module does not read -- today, the statement-line evidence a ugen
+    listing supplies. They land after the evidence and before the footer,
+    because the footer is the instruction and must stay last on the screen.
     """
 
     brush = painter or Painter(False)
@@ -549,6 +555,7 @@ def render_view(
     lines.extend(render_webs(view, painter=brush))
     if report_regs:
         lines.extend(render_register_report(view))
+    lines.extend(extra_sections)
     lines.append("")
     lines.extend(render_guidance(view.guidance, budget=resolve_width(width)))
     return [line.rstrip() for line in lines]

@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **A `schedule` verdict can now be tested against statement lines instead of
+  against compiler versions.** The one documented next step for
+  `verdict=schedule-mismatch` was a `-g0` rebuild (lever 3), which is vacuous
+  for a project that already builds `-g0` -- and the reader who runs it, sees
+  nothing move, and concludes the compiler must be exotic has been sent to a
+  dead family by the tool. One campaign spent hours there: IDO 5.2, 5.3, 6.0,
+  7.1 and MIPSpro 7.4.4, every `as1` flag and pipeline model, all producing
+  identical output.
+
+  The mechanism that actually owned that residue is now lever 23: cfe takes
+  each statement's source line number from its *preprocessed* input, and
+  uopt/ugen treat a statement line boundary as a scheduling barrier at `-g0`
+  as well as `-g3`. On SSB64 `drawbitmap` (1479 instructions) preprocessing the
+  TU with IDO's external `acpp` instead of cfe's internal cpp took 59
+  schedule-swapped words to zero, with no other change.
+
+  `decomp-workbench diagnose ... --candidate-listing LISTING.s` reads the
+  assembly listing ugen wrote for the candidate (`cc -K` keeps it, `ugen -l`
+  writes it) and reports, per schedule-divergent site, the `.loc` statement
+  lines of the instructions involved -- so `N of M sites sit at statement-line
+  boundaries` is a measurement rather than a guess. A boundary majority
+  promotes `playbook=line-assignment-probe` in the footer. Sites the listing
+  cannot attribute are printed as unmapped and excluded from the majority
+  rather than counted either way, and a `schedule` verdict with no listing is
+  told the option exists and where the file comes from.
+
 - **Campaign ledgers no longer carry the target ROM's instruction text.** The
   schema used to ask for it: every diff site recorded `"target"` (the
   disassembly) beside `"target_word"` (the 32-bit word), so writing a correct

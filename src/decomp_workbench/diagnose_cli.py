@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from collections.abc import Sequence
@@ -16,6 +17,7 @@ from .census import (
     parse_census,
 )
 from .cli_options import (
+    add_candidate_listing_argument,
     add_census_argument,
     add_explain_keys_argument,
     add_symbol_argument,
@@ -30,6 +32,15 @@ from .comparison_render import (
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
 from .force_spec import write_force_specification
 from .html_report import render_diagnosis_html
+from .loc_boundaries import (
+    MISSING_LISTING_STEPS,
+    LocBoundaryReport,
+    annotate_schedule_sites,
+    render_loc_boundaries,
+    report_guidance,
+    schedule_class_count,
+)
+from .model import display_path
 from .schema import COMPARISON_CENSUS_KEYS
 from .terminal import Painter, emit_lines, resolve_color
 from .view_cli import (
@@ -37,6 +48,37 @@ from .view_cli import (
     add_view_render_arguments,
     render_view,
 )
+
+
+def _statement_lines(
+    diagnosis: Diagnosis, args: argparse.Namespace
+) -> tuple[Diagnosis, LocBoundaryReport | None]:
+    """Attach statement-line evidence, or say the option exists.
+
+    Two branches, and the second is the one that matters: a `schedule` verdict
+    whose only documented next step is a `-g0` rebuild is a dead end for every
+    project that already builds `-g0`, and the reader cannot ask for evidence
+    they have never been told the tool can read.
+    """
+
+    view = diagnosis.view
+    listing = getattr(args, "candidate_listing", None)
+    if not listing:
+        if schedule_class_count(view):
+            view = dataclasses.replace(
+                view, guidance=view.guidance + MISSING_LISTING_STEPS
+            )
+            return dataclasses.replace(diagnosis, view=view), None
+        return diagnosis, None
+    text = Path(listing).expanduser().read_text(encoding="utf-8")
+    report = annotate_schedule_sites(
+        view,
+        text,
+        listing_name=display_path(listing),
+        symbol=args.symbol,
+    )
+    view = dataclasses.replace(view, guidance=view.guidance + report_guidance(report))
+    return dataclasses.replace(diagnosis, view=view), report
 
 
 def _emit(
@@ -47,6 +89,11 @@ def _emit(
     comparison = diagnosis.comparison
     if args.json and args.html:
         print("error: --json and --html are mutually exclusive", file=sys.stderr)
+        return 2
+    try:
+        diagnosis, listing_report = _statement_lines(diagnosis, args)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
         return 2
     try:
         census = evaluate_census(predicates, comparison.as_dict())
@@ -91,6 +138,8 @@ def _emit(
             nested = payload["comparison"]
             if isinstance(nested, dict):
                 nested["census"] = [item.as_dict() for item in census]
+        if listing_report is not None:
+            payload["loc_boundaries"] = listing_report.as_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(args.color))
@@ -127,6 +176,11 @@ def _emit(
                 show_warnings=False,
                 width=args.width,
                 terse=args.terse,
+                extra_sections=(
+                    render_loc_boundaries(listing_report, painter)
+                    if listing_report is not None
+                    else ()
+                ),
             )
         )
         lines.extend(item.line for item in census)
@@ -202,6 +256,7 @@ def _add_shared_arguments(
             "--objdump",
             help="GNU-compatible MIPS objdump; auto-detected when omitted",
         )
+    add_candidate_listing_argument(parser)
     parser.add_argument("--json", action="store_true", help="emit JSON")
     add_view_render_arguments(parser, default_max_hunks=1)
     add_view_output_arguments(parser)

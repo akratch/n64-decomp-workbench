@@ -11,7 +11,9 @@ Levers 1-19 were each proven on a real IDO 5.3 `-O2 -g3 -mips2` function, and
 the measured effect is quoted so you can calibrate how much to believe it.
 Levers 20-22 come from a later campaign and are a different kind of finding —
 they are about the *frontend* being a variable rather than about the C you
-write under one — so they carry their own provenance. The C snippets are
+write under one — so they carry their own provenance. Lever 23 is the same
+kind of finding one stage earlier: the *preprocessor* as a variable. The C
+snippets are
 illustrative shapes, not copy-paste patches: the *form* is the lever, the
 identifiers are yours.
 
@@ -31,6 +33,7 @@ to a source change and back.
 - [Coalescing copies](#coalescing-copies)
 - [When source search is over](#when-source-search-is-over)
 - [When the compiler itself is the variable](#when-the-compiler-itself-is-the-variable)
+- [When the preprocessor is the variable](#when-the-preprocessor-is-the-variable)
 - [Dead families — do not spend variants here](#dead-families--do-not-spend-variants-here)
 
 ---
@@ -111,6 +114,13 @@ collapse a region, that region is not explained solely by debug-line
 constraints for the exact source, flags, context, and toolchain you tested.
 Verify those inputs before retiring the hypothesis; do not generalize one
 negative region to the whole function.
+
+**If you are already `-g0`, this probe is vacuous.** There is no `-g3` schedule
+to collapse, and a null result here says nothing about the compiler. When the
+multiset is equal and the register allocation is identical, go to
+[lever 23](#23-preprocessor-line-assignment): statement line boundaries
+constrain uopt and ugen at `-g0` too, and *which* line each statement lands on
+is a preprocessor decision you can change.
 
 **Points here:** `verdict=schedule-mismatch`, `playbook=g0-schedule-probe`.
 The probe narrows layer ownership; it never awards a source match.
@@ -549,6 +559,76 @@ a global on the left. Classify the dispatch before spending variants on
 the wrong construct: two prior campaigns fought a "switch" for weeks that
 was never a switch.
 
+## When the preprocessor is the variable
+
+One stage earlier than the section above: not which compiler ran, but what the
+compiler was handed.
+
+### 23. Preprocessor line assignment
+
+**Diff looks like:** an equal instruction multiset in a different order with
+register allocation identical — `verdict=schedule-mismatch` — on a `-g0`
+build, so [lever 3](#3-the--g0-diagnostic) has nothing left to collapse and
+every compiler version you try produces the same output.
+
+```sh
+# IDO's external preprocessor, then compile the preprocessed unit
+acpp <defines> <includes> file.c > file.i
+cc -c <the same flags the project already uses> file.i
+```
+
+**Why:** cfe takes each statement's source line number from its *preprocessed*
+input, and uopt/ugen treat a statement line boundary as an instruction
+scheduling barrier — **at `-g0` as well as at `-g3`**. Line numbers are an
+input to the schedule even when no debug record reaches the object. cfe's
+internal cpp attributes every statement of a multi-line macro expansion to the
+invocation's *first* line; IDO's external `acpp` attributes them to the
+invocation's *successive* lines. Same token stream, two line assignments, two
+schedules.
+
+The evidence is in the listing ugen writes (`ugen -l`, or the `.s` the driver
+keeps with `cc -K`). At one divergent site the internal-cpp build read:
+
+```
+	.loc	2	200
+	sw	$a1, 12($a0)
+	.loc	2	200
+	lui	$t2, 0x1234
+```
+
+and the acpp build read:
+
+```
+	.loc	2	211
+	sw	$a1, 12($a0)
+	.loc	2	214
+	lui	$t2, 0x1234
+```
+
+Only the second scheduled the store *between* the `lui`/`ori` halves of the
+next statement's constant — which is what the retail ROM does.
+
+**Measured:** SSB64 `drawbitmap`, 1479 instructions: 59 schedule-swapped words
+→ 0 under `acpp` preprocessing. Every IDO era tested (5.2, 5.3, 6.0, 7.1,
+MIPSpro 7.4.4) and every `as1` flag and pipeline model produced identical
+output given the same `.i`, so this lever — not the compiler version — owned
+the residue. The compiler-era hunt that preceded it was a total red herring,
+and it cost hours.
+
+**Measure before you spend a build.** `decomp-workbench diagnose TARGET.o
+CANDIDATE.o --candidate-listing LISTING.s` reports, per schedule-divergent
+site, whether the reordered instructions straddle a `.loc` change, and routes
+to this lever when most of them do.
+
+**No `acpp`?** The cheaper form of the same experiment is a token-identical
+line reflow: put the divergent statements on their own source lines, changing
+newlines only, and rebuild. It is a coarser dial than swapping preprocessors,
+but it moves the same variable.
+
+**Points here:** `verdict=schedule-mismatch` with identical allocation,
+`playbook=line-assignment-probe`, and any `-g0` build whose lever 3 probe came
+back empty.
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -559,7 +639,7 @@ valuable as any lever above.
 | `a \| b` versus `b \| a` | Canonicalized to byte-identical objects. Use `x \|= y` (lever 2). |
 | Declaration-order permutation | Inert across three campaigns and ~1000 variants. Test once, cheaply, then drop it. Two exceptions exist: absolute first-declared position mattered on `texLoadTextureActual`, and removing a fully-unreferenced local once changed codegen 20+ instructions away. |
 | Bare discarded expressions | `id == id;`, `(void)(x & mask);`, dead second stores — all eliminated with zero codegen effect. Use an empty-if (lever 7). |
-| Line joins and comma merges to beat `-g3` | `.loc` is per statement; the barriers do not move (lever 3). |
+| Line joins and comma merges to beat `-g3` | `.loc` is per statement; the barriers do not move (lever 3). What does move them is *which* line each statement is attributed to at preprocessing time — that is lever 23, and it is not this. |
 | Loop splitting to force a memory re-read | Defeats IDO's own loop-invariant motion; +147 words measured (lever 5). |
 | The permuter on varargs functions | IDO's `va_arg` is unparsable by pycparser either expanded or preserved. Plan `printf`-family campaigns without it. |
 | The permuter as a solver | Roughly 140,000 iterations across four campaigns solved zero residuals. It is a hypothesis generator; it earned its keep once, by exposing lever 17 through a red herring. |
@@ -574,7 +654,8 @@ valuable as any lever above.
 |---|---|
 | `constant` / `constant-audit` | 1, then re-derive fakes |
 | `commutative-order` / `ast-shape` | 2 |
-| `schedule` / `g0-schedule-probe` | 3, 4 |
+| `schedule` / `g0-schedule-probe` | 3, 4, then 23 |
+| `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 4 |
 | `structure` / `structure-buckets` | 1, 4, 5, 6 |
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
