@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-07-31
+
+Everything in this release descends from one campaign: SSB64 `drawbitmap`
+(decomp.me scratch EqDZe), taken from a years-old structure-mismatch to a
+byte-exact ROM rebuild. Each entry names the failure it encodes.
 
 - **A `schedule` verdict can now be tested against statement lines instead of
   against compiler versions.** The one documented next step for
