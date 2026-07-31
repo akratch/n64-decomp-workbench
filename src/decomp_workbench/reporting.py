@@ -47,6 +47,7 @@ SCHEMAS: dict[str, str] = {
     "oracle-plan": "decomp-workbench-oracle-plan-v1",
     "oracle-status": "decomp-workbench-oracle-sweep-v1",
     "oracle-sweep": "decomp-workbench-oracle-sweep-v1",
+    "probe-lines": "decomp-workbench-line-probe-v1",
     "rank": "decomp-workbench-rank-v1",
     "relocation-aliases": "decomp-workbench-relocation-aliases-v1",
     "pass-diff": "decomp-workbench-original-pass-diff-v1",
