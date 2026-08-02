@@ -60,13 +60,34 @@ def fingerprint_toolchain_command(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         if args.compare:
-            state = "IDENTICAL" if report["identical"] else "DIFFERENT"
+            state = (
+                "INCOMPATIBLE SUITES"
+                if not report["compatible"]
+                else "IDENTICAL"
+                if report["identical"]
+                else "DIFFERENT"
+            )
             print(f"toolchain fingerprints: {state}")
+            if not report["compatible"]:
+                print("rebuild both reports with the same workbench microcase suite")
             for item in report["differences"]:
                 print(f"{item['case']}: " + ", ".join(item["changed_features"]))
         else:
             print(f"toolchain fingerprint: {report['fingerprint']}")
+            print(f"microcase suite: {report['suite']}")
             print(f"cases: {len(report['cases'])}")
+            dispatch = {
+                item["name"]: item["features"]["computed_jump"]
+                for item in report["cases"]
+                if item["name"].startswith("dense-switch-")
+            }
+            if dispatch:
+                rendered = ", ".join(
+                    f"{name.removeprefix('dense-switch-')}="
+                    f"{'table' if computed else 'chain'}"
+                    for name, computed in dispatch.items()
+                )
+                print(f"dense switch dispatch: {rendered}")
             print(f"proof: {report['proof']}")
         if args.output:
             print(f"report: {Path(args.output).expanduser().resolve()}")
@@ -112,7 +133,7 @@ def register_fingerprint_commands(
 ) -> None:
     fingerprint = commands.add_parser(
         "fingerprint-toolchain",
-        help="identify compiler behavior with four redistributable microcases",
+        help="identify compiler/frontend behavior with redistributable microcases",
     )
     mode = fingerprint.add_mutually_exclusive_group(required=True)
     mode.add_argument(

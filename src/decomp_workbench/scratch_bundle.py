@@ -45,6 +45,8 @@ def bundle_scratch(
     diff_label: str,
     project: str | None = None,
     preset: str | None = None,
+    compiler_id: str | None = None,
+    language: str | None = None,
 ) -> ScratchBundleResult:
     """Copy scratch inputs and write a deterministic manifest and instructions."""
 
@@ -85,6 +87,10 @@ def bundle_scratch(
     }
     if preset:
         decomp_me["preset"] = preset
+    if compiler_id:
+        decomp_me["compiler_id"] = compiler_id
+    if language:
+        decomp_me["language"] = language
     manifest: dict[str, Any] = {
         "schema": "decomp-workbench-scratch-bundle-v1",
         "decomp_me": decomp_me,
@@ -111,11 +117,22 @@ def bundle_scratch(
 def _bundle_readme(manifest: dict[str, Any]) -> str:
     settings = manifest["decomp_me"]
     preset = settings.get("preset")
-    selection = (
-        f"select preset `{preset}`"
-        if preset
-        else f"select compiler `{settings['compiler']}`"
-    )
+    compiler_id = settings.get("compiler_id")
+    language = settings.get("language")
+    identity = f" (canonical compiler id `{compiler_id}`)" if compiler_id else ""
+    language_step = f"\n5. Verify the language is `{language}`." if language else ""
+    if preset:
+        selection = f"""3. Select preset `{preset}`.
+4. Under **Compiler options**, verify compiler `{settings["compiler"]}`{identity};
+   presets can silently select a different frontend even when their names look
+   similar.{language_step}"""
+    else:
+        compiler_line = (
+            "4. Under **Compiler options**, select compiler "
+            f"`{settings['compiler']}`{identity}."
+        )
+        selection = f"""3. Set **Preset** to **Custom**.
+{compiler_line}{language_step}"""
     project = manifest.get("project")
     project_line = f"\nProject: `{project}`.\n" if project else ""
     return f"""# decomp.me scratch bundle
@@ -123,12 +140,14 @@ def _bundle_readme(manifest: dict[str, Any]) -> str:
 This directory is upload-neutral: creating it does not contact decomp.me.
 
 1. Open <https://www.decomp.me/new>.
-2. Select platform `{settings["platform"]}` and {selection}.
-3. Use diff label `{settings["diff_label"]}`.
-4. Paste `target.s` into **Target assembly**.
-5. Paste `context.c` into **Context**.
-6. Create the scratch, then paste `source.c` into the source editor.
-7. If a preset was not selected, use these compiler flags:
+2. Select platform `{settings["platform"]}`.
+{selection}
+
+Then use diff label `{settings["diff_label"]}`, paste `target.s` into **Target
+assembly**, paste `context.c` into **Context**, create the scratch, and paste
+`source.c` into the source editor.
+
+If a preset was not selected, use these compiler flags:
 
    ```text
    {settings["compiler_flags"]}

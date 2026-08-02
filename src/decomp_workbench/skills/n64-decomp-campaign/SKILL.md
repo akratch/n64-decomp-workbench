@@ -15,7 +15,8 @@ Before editing source, identify and preserve:
 
 - target function object or a redistributable objdump dump;
 - current source and its translation-unit context;
-- compiler version, flags, wrapper, and working directory;
+- compiler family/version, canonical compiler ID, language/frontend, preset,
+  driver, flags, wrapper, and working directory as separate fields;
 - current comparison report, candidate hash, and project build result;
 - relevant trace/log only when the residual is allocation- or schedule-related.
 
@@ -34,8 +35,10 @@ and the decisive aligned mechanism view. Use `compare` for a compact gate and
 When the input is a downloaded decomp.me ZIP, start with
 `decomp-workbench check-scratch SCRATCH.zip --view`. It reads the site's own
 target/current objects, keeps the display score separate from object truth,
-and can reproduce `ctx.c` + `#line 1 "src.c"` + candidate composition with
-`--compile-command`. It never logs in or uploads.
+and can reproduce `ctx.c` plus the language-aware `src.c`/`src.cxx` line reset
+and candidate composition with `--compile-command`. Its frontend line names
+the canonical compiler ID, language, expected driver, and frontend family;
+verify those before interpreting a compiler error. It never logs in or uploads.
 
 The `next:` footer under every verdict names the matching field-guide
 levers and the exact `decomp-workbench guide <playbook|lever|verdict>` command
@@ -122,6 +125,13 @@ project compiler — the frontend is a variable, not a constant, and hundreds of
 variants against an unreachable shape are the most expensive way to learn
 that.
 
+Before calling a compiler path patched or impossible, run
+`fingerprint-toolchain` through every plausible stock driver. Its dense-four
+and dense-five switch cells report `chain` versus `table`; record the driver
+and frontend with the result. A backend shared by two drivers does not imply
+the drivers hand it the same control-flow IR, so source-level lowering remains
+a frontend question until pass-boundary evidence proves otherwise.
+
 ## Validate in the right order
 
 1. Accept `instruction-words-identical` or `instruction-exact` only as
@@ -131,6 +141,10 @@ that.
 3. Run the project's normal build and whole-ROM or project-level verifier.
 4. Preserve the exact command, inputs, output hash, and commit that produced
    the final result.
+5. Before publishing a proof repository, run:
+   `decomp-workbench handoff audit PATH --dependency-root PROJECT`. Resolve
+   every missing or untracked dependency; a file on the author's machine is
+   not a reproducible handoff.
 
 Do not claim completion from normalized distance, a register-only report,
 cross-ROM structural evidence, a forced compiler result, or a decomp.me score.

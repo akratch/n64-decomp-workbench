@@ -83,11 +83,13 @@ decomp.me. The site builds one translation unit with this shape:
 
 ```c
 /* ctx.c */
-#line 1 "src.c"
+#line 1 "src.c"   /* C; old-C++ exports use src.cxx */
 /* code.c */
 ```
 
-The line reset can affect IDO/as1 scheduling. `check-scratch` reproduces it
+The line reset can affect IDO/as1 scheduling. `check-scratch` derives
+`src.c` versus `src.cxx` from the exported language and canonical compiler ID,
+then reports the compiler ID, frontend family, and expected driver separately
 before invoking your wrapper:
 
 ```sh

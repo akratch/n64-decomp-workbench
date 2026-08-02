@@ -1,3 +1,7 @@
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern int dkwb_fp_call(int *, int);
 
 int dkwb_fp_stack_home(int value)
@@ -7,3 +11,7 @@ int dkwb_fp_stack_home(int value)
     int third = first * second;
     return dkwb_fp_call(&second, third) + first;
 }
+
+#ifdef __cplusplus
+}
+#endif

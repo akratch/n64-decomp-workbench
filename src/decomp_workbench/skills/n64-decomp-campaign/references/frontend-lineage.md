@@ -40,6 +40,10 @@ frontends and even languages.
    compare operand order, and the strength-reduction signature of a narrow
    loop counter. Minutes per probe; each cell either matches the target
    binary's pattern or excludes a candidate.
+   Start with `decomp-workbench fingerprint-toolchain`: its bundled
+   dense-four and dense-five switch cells explicitly report comparison chain
+   versus computed jump. Run the identical flags/backend through each stock
+   driver before building a project-specific atlas.
 3. **Discriminate constructs before frontends.** Source-order chains are not
    switches in any IDO-family frontend — they are `if`/`else if` chains.
    Sorted tests with dispatch-first layout is one frontend's switch; sorted
@@ -58,3 +62,10 @@ shipping point release. Say which claim you are making. Frontend strictness
 is itself evidence: a construct the candidate frontend rejects (anonymous
 unions, `//` comments, statements before declarations) tells you what the
 original source could not have contained.
+
+Keep compiler family, frontend, language, driver, and preset separate in every
+report. A stock C++ entry beside a C preset is not a compiler hack merely
+because both say "IDO 7.1"; conversely, an exact function under that stock
+entry proves the function-level lowering, not which frontend compiled every
+other function in the translation unit. Locate ownership at a pass boundary
+before saying uopt "must" have created or suppressed a table.

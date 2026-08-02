@@ -10,11 +10,26 @@ from pathlib import Path
 from decomp_workbench.fingerprint import (
     compare_fingerprint_reports,
     cross_rom_lineage,
+    instruction_fingerprint,
     run_toolchain_fingerprint,
 )
+from decomp_workbench.model import Instruction
 
 
 class FingerprintTests(unittest.TestCase):
+    def test_computed_jump_excludes_return_register_in_both_objdump_dialects(
+        self,
+    ) -> None:
+        instructions = [
+            Instruction(0, "01c00008", "jr\tt6"),
+            Instruction(4, "03e00008", "jr\t$ra"),
+        ]
+
+        features = instruction_fingerprint(instructions)
+
+        self.assertTrue(features["computed_jump"])
+        self.assertEqual(features["computed_jumps"], ["jr\tt6"])
+
     def make_tools(self, root: Path) -> tuple[Path, Path]:
         compiler = root / "compile.py"
         compiler.write_text(
@@ -27,7 +42,8 @@ class FingerprintTests(unittest.TestCase):
         objdump.write_text(
             "#!/usr/bin/env python3\n"
             "for name in ('dkwb_fp_control_flow', 'dkwb_fp_stack_home', "
-            "'dkwb_fp_schedule', 'dkwb_fp_allocation'):\n"
+            "'dkwb_fp_schedule', 'dkwb_fp_allocation', "
+            "'dkwb_fp_dense_switch_4', 'dkwb_fp_dense_switch_5'):\n"
             " print('00000000 <%s>:' % name)\n"
             " print('   0: 27bdffe0  addiu $sp,$sp,-32')\n"
             " print('   4: 03e00008  jr $ra')\n"
@@ -48,13 +64,26 @@ class FingerprintTests(unittest.TestCase):
                 objdump=str(objdump),
                 timeout=10,
             )
-        self.assertEqual(len(report["cases"]), 4)
+        self.assertEqual(len(report["cases"]), 6)
         self.assertEqual(len(report["fingerprint"]), 64)
         self.assertTrue(
             all(case["features"]["instructions"] == 3 for case in report["cases"])
         )
         self.assertIn("not a claim", report["proof"])
+        self.assertEqual(len(report["suite"]), 64)
+        dispatch = {
+            case["name"]: case["features"]["computed_jump"]
+            for case in report["cases"]
+            if case["name"].startswith("dense-switch-")
+        }
+        self.assertEqual(dispatch, {"dense-switch-4": False, "dense-switch-5": False})
         self.assertTrue(compare_fingerprint_reports(report, report)["identical"])
+
+        older_suite = dict(report)
+        older_suite["suite"] = "0" * 64
+        comparison = compare_fingerprint_reports(report, older_suite)
+        self.assertFalse(comparison["compatible"])
+        self.assertFalse(comparison["identical"])
 
     def test_lineage_records_hashes_without_reading_rom_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

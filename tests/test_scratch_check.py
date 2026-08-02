@@ -17,6 +17,7 @@ from decomp_workbench.cli import main
 from decomp_workbench.compare import compare_instructions
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.scratch_check import (
+    SITE_CXX_SOURCE_MARKER,
     SITE_SOURCE_MARKER,
     code_splice_report,
     compose_site_source,
@@ -24,6 +25,7 @@ from decomp_workbench.scratch_check import (
     duplicate_file_scope_symbols,
     load_scratch,
     scratch_context_hardening,
+    scratch_frontend,
 )
 
 TARGET_DUMP = """\
@@ -134,6 +136,26 @@ class ScratchCheckTests(unittest.TestCase):
             b'#line 1 "src.c"\n'
             b"s32 demo(void) {\r\nreturn 1;\r\n}\r\n",
         )
+
+    def test_cpp_export_uses_cxx_line_identity_and_names_the_ncc_frontend(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            metadata = json.loads((root / "metadata.json").read_text())
+            metadata.update({"language": "C++", "compiler": "ido7.1_c++"})
+            (root / "metadata.json").write_text(json.dumps(metadata))
+            package = load_scratch(root)
+
+            composed = compose_site_source(package, None)
+            frontend = scratch_frontend(package)
+
+        self.assertIn(SITE_CXX_SOURCE_MARKER, composed)
+        self.assertNotIn(SITE_SOURCE_MARKER, composed)
+        self.assertEqual(frontend["source_name"], "src.cxx")
+        self.assertEqual(frontend["expected_driver"], "NCC")
+        self.assertEqual(frontend["frontend"], "EDG C++")
 
     def test_compile_mode_uses_composed_source_and_can_retain_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

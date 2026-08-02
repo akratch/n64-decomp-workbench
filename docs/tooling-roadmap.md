@@ -43,7 +43,8 @@ ROMs, target objects, and proprietary compiler files.
   handoffs, and prints a shell-quoted next command.
 - `check-scratch` safely reads decomp.me export ZIPs/directories without
   extracting them, separates browser score context from object truth, and can
-  recompile `ctx.c` plus source with the site's `#line 1 "src.c"` semantics.
+  recompile `ctx.c` plus source with the site's language-aware `src.c`/`src.cxx`
+  line-reset semantics.
 - The portable Agent Skill ships in package artifacts and has a safe,
   idempotent installer for Codex and Claude Code.
 

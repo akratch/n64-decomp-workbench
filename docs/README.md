@@ -45,6 +45,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You consume reports from scripts or CI | [JSON contracts](json-contracts.md) | `--json` |
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
+| You are about to publish a proof or integration repository | [Public handoff audit](public-handoffs.md) | Exact handoff tree; optional project dependency root |
 | You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |
 | A command failed or returned nothing usable | [Troubleshooting](troubleshooting.md) | Command, stderr, and tool identities |
 

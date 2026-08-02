@@ -31,6 +31,8 @@ class ScratchBundleTests(unittest.TestCase):
                 compiler_flags="-O2 -mips2",
                 diff_label="demo",
                 project="example",
+                compiler_id="ido7.1_c++",
+                language="C++",
             )
 
             output = Path(result.output)
@@ -41,12 +43,17 @@ class ScratchBundleTests(unittest.TestCase):
             self.assertEqual(manifest["schema"], "decomp-workbench-scratch-bundle-v1")
             self.assertEqual(manifest["decomp_me"]["diff_label"], "demo")
             self.assertEqual(manifest["project"], "example")
+            self.assertEqual(manifest["decomp_me"]["compiler_id"], "ido7.1_c++")
+            self.assertEqual(manifest["decomp_me"]["language"], "C++")
             self.assertEqual(len(manifest["files"]["target.s"]["sha256"]), 64)
             self.assertNotIn(str(root), (output / "scratch.json").read_text())
             self.assertIn(
                 "https://www.decomp.me/new",
                 (output / "README.md").read_text(),
             )
+            readme = (output / "README.md").read_text()
+            self.assertIn("Preset** to **Custom", readme)
+            self.assertIn("canonical compiler id `ido7.1_c++`", readme)
 
     def test_refuses_a_nonempty_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

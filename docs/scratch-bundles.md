@@ -14,7 +14,9 @@ decomp-workbench bundle-scratch scratch/demo \
   --context ctx.c \
   --source candidate.c \
   --platform n64 \
-  --compiler 'IDO 7.1' \
+  --compiler 'IDO 7.1 C++' \
+  --compiler-id ido7.1_c++ \
+  --language C++ \
   --compiler-flags='-O2 -mips2' \
   --diff-label demo \
   --project example
@@ -39,6 +41,12 @@ scratch/demo/
 - `scratch.json` records the decomp.me selections and SHA-256 identities.
 - `SHA256SUMS` lets a recipient verify the copied inputs.
 - `README.md` gives the manual paste order.
+
+The generated instructions explicitly say **Preset → Custom** before the
+compiler selection and show the canonical compiler ID and language when they
+were supplied. Compiler family, preset, frontend, and language are separate
+settings: the `IDO 7.1` preset can select `ido7.1`/C even when the intended
+compiler is `ido7.1_c++`/C++.
 
 Use `--json` to print the manifest after a successful bundle operation.
 
@@ -65,6 +73,8 @@ decomp-workbench bundle-scratch scratch/demo \
   --source candidate.c \
   --platform n64 \
   --compiler 'IDO 7.1' \
+  --compiler-id ido7.1 \
+  --language C \
   --compiler-flags='-O2 -mips2' \
   --preset 'Project preset name' \
   --diff-label demo

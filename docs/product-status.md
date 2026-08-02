@@ -10,6 +10,7 @@ this page says what users can rely on now.
 |---|---|
 | Explain one mismatch | `doctor` → `diagnose` → field-guide lever → rebuild |
 | Check a 99.xx% decomp.me result | `doctor ZIP` → `check-scratch --view` → optional site-faithful compile |
+| Publish a proof repository | `handoff audit` → resolve missing/untracked dependencies → fresh-clone review |
 | Work a candidate family | `experiment validate` → `campaign` → `campaign status/note/resume/export` |
 | Manage local state | default `.decomp-workbench/` manifests/ledgers/cache; recoverable `cache prune/restore` |
 | Establish pass ownership | `fidelity`, `pass diff`, calibrated `replay-as1` |
@@ -19,8 +20,8 @@ this page says what users can rely on now.
 | Automate safely | versioned success/error JSON, census exit codes, bounded streams, generated completions |
 
 Flat command names remain compatible. `decomp-workbench commands` presents the
-same surface as task groups (`object`, `scratch`, `campaign`, `cache`, `trace`,
-`instrument`, `pass`, `toolchain`, `oracle`, `experiment`).
+same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
+`cache`, `trace`, `instrument`, `pass`, `toolchain`, `oracle`, `experiment`).
 
 ## Intentional boundaries
 

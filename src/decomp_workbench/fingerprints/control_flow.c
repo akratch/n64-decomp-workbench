@@ -1,3 +1,7 @@
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 volatile int dkwb_fp_sink;
 
 int dkwb_fp_control_flow(int value)
@@ -13,3 +17,7 @@ int dkwb_fp_control_flow(int value)
     dkwb_fp_sink = result;
     return result;
 }
+
+#ifdef __cplusplus
+}
+#endif

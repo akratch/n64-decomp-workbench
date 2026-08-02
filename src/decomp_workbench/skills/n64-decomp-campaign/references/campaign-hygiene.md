@@ -41,6 +41,13 @@ understandable:
   fixed a subset of the residual is a baseline someone else can stack one
   more lever on, and deleting it deletes that path.
 
+Before pushing, run `decomp-workbench handoff audit PATH`. If the README
+refers into a separate project, add `--dependency-root PROJECT`; the audit
+then distinguishes a published dependency from a file that merely exists in
+the local worktree. Fix every `missing-path-reference`, `untracked-file`, and
+`untracked-dependency`. The audit establishes publication completeness, not
+function exactness or compiler provenance.
+
 ## Capture tooling gaps
 
 When the investigation exposes a missing diagnostic, record: the input class,

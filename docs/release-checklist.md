@@ -7,7 +7,16 @@ workbench; compiler and game inputs have separate fidelity gates.
 
 1. Update `version` in `pyproject.toml`, `__version__` in
    `src/decomp_workbench/__init__.py`, and `CHANGELOG.md`.
-2. Confirm every local Markdown link and each pinned external provenance link.
+2. Run:
+
+   ```sh
+   decomp-workbench handoff audit . --fail-on-warning \
+     --exclude src/decomp_workbench/docs/field-guide.md
+   ```
+
+   The excluded file is a tested, byte-identical package-data mirror whose
+   links belong to the canonical `docs/` copy. Then confirm each pinned
+   external provenance link, which remains a network check.
 3. Check the source tree for ROMs, objects, compiler binaries, credentials,
    absolute user paths, and generated build products.
 4. Review `git diff --check` and the complete staged diff.

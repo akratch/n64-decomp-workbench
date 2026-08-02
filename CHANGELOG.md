@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Public proof repositories now have a pre-push gate.** `handoff audit`
+  checks relative Markdown and inline-code paths, absolute user paths, files
+  present locally but absent from Git, and dependencies in another declared
+  project root. It reproduces the SSB64 `threshold4` failure directly: the
+  referenced README existed locally but was untracked, so a public clone could
+  never follow the integration instructions.
+
+- **Scratch UX now treats the frontend as an identity, not a nickname.**
+  Bundles can record display label, canonical compiler ID, language, and preset
+  separately; generated instructions explicitly set Preset to Custom before
+  choosing the compiler. `check-scratch` reports the frontend and expected
+  driver and uses `src.cxx` for old-C++ line identity instead of hardcoding
+  `src.c`. This catches the `IDO 7.1` preset/`ido7.1_c++` compiler confusion
+  that made valid `extern "C"` source fail under `cfe`.
+
+- **Toolchain fingerprints now measure switch lowering.** Redistributable
+  dense-four and dense-five probes report comparison chain versus computed
+  jump. Running the same backend through `cc`/cfe and `NCC`/EDG can now answer
+  whether jump tables are disabled or merely cross a frontend threshold
+  without relying on a function-specific compiler patch.
+
 Everything here descends from one falsification: a community member matched
 SSB64 `unref_800036B4` with no `#line` directive after this project helped
 publish the claim that no natural layout could reach it. The claim had been

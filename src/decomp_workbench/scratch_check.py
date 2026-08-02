@@ -21,6 +21,7 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 DECOMP_ME_METADATA = "metadata.json"
 WORKBENCH_MANIFEST = "scratch.json"
 SITE_SOURCE_MARKER = '#line 1 "src.c"\n'
+SITE_CXX_SOURCE_MARKER = '#line 1 "src.cxx"\n'
 
 #: How much of ctx.c's tail to show when it will glue onto code.c's first
 #: line. Long enough to recognize the statement; short enough for one line.
@@ -305,13 +306,76 @@ def load_scratch(path: str | Path) -> ScratchPackage:
     raise ValueError("unrecognized scratch: expected metadata.json or scratch.json")
 
 
+def scratch_frontend(package: ScratchPackage) -> dict[str, str | None]:
+    """Describe the selected language/frontend without conflating a preset.
+
+    decomp.me exports record canonical compiler IDs (for example
+    ``ido7.1_c++``), while workbench bundles may also carry a human-facing
+    compiler label and an explicit ``compiler_id``. The distinction matters:
+    the similarly named IDO 7.1 preset selects the C frontend, not NCC/EDG.
+    """
+
+    if package.kind == "workbench-bundle":
+        settings = package.metadata.get("decomp_me")
+        metadata = settings if isinstance(settings, dict) else {}
+    else:
+        metadata = package.metadata
+    compiler_value = metadata.get("compiler")
+    compiler = compiler_value if isinstance(compiler_value, str) else None
+    compiler_id_value = metadata.get("compiler_id")
+    compiler_id = (
+        compiler_id_value
+        if isinstance(compiler_id_value, str)
+        else compiler
+        if package.kind == "decomp.me-export"
+        else None
+    )
+    language_value = metadata.get("language")
+    language = language_value if isinstance(language_value, str) else None
+    normalized_language = language.casefold() if language else ""
+    normalized_compiler = (compiler_id or compiler or "").casefold()
+    cxx = (
+        "++" in normalized_language
+        or normalized_language in {"cxx", "cpp", "old_cxx"}
+        or normalized_compiler.endswith("_c++")
+    )
+    source_name = "src.cxx" if cxx else "src.c"
+    driver: str | None = None
+    frontend: str | None = None
+    if normalized_compiler.startswith("ido") and (
+        normalized_compiler.endswith("_c++") or cxx
+    ):
+        driver = "NCC"
+        frontend = "EDG C++"
+    elif normalized_compiler.startswith("ido"):
+        driver = "cc"
+        frontend = "cfe C"
+    return {
+        "compiler": compiler,
+        "compiler_id": compiler_id,
+        "language": language or ("C++" if cxx else None),
+        "frontend": frontend,
+        "expected_driver": driver,
+        "source_name": source_name,
+        "line_reset": f'#line 1 "{source_name}"',
+    }
+
+
+def site_source_marker(package: ScratchPackage) -> str:
+    """Return decomp.me's editable-source marker for the selected language."""
+
+    source_name = scratch_frontend(package)["source_name"]
+    return f'#line 1 "{source_name}"\n'
+
+
 def compose_site_source(package: ScratchPackage, source: str | Path | None) -> str:
     """Compose context and source with decomp.me's source line reset.
 
     decomp.me feeds the context and editable source to the compiler as one
-    translation unit, inserting this marker before the editable source:
-    ``#line 1 "src.c"``. With ``-g3`` that line identity can affect IDO/as1
-    scheduling, so compiling ``code.c`` alone is not a faithful verification.
+    translation unit, inserting a language-aware marker before the editable
+    source: ``#line 1 "src.c"`` for C and ``#line 1 "src.cxx"`` for old C++.
+    With ``-g3`` that line identity can affect IDO/as1 scheduling, so compiling
+    ``code.c`` alone is not a faithful verification.
     """
 
     if package.kind != "decomp.me-export":
@@ -330,7 +394,7 @@ def compose_site_source(package: ScratchPackage, source: str | Path | None) -> s
                 f"candidate source is not UTF-8 text: {source_path}"
             ) from error
     separator = "" if context.endswith("\n") else "\n"
-    return context + separator + SITE_SOURCE_MARKER + candidate
+    return context + separator + site_source_marker(package) + candidate
 
 
 def scratch_score(metadata: dict[str, Any]) -> dict[str, float] | None:

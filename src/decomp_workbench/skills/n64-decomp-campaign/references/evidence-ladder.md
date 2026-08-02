@@ -11,6 +11,7 @@ Use the strongest available evidence and state its scope precisely.
 | Cross-ROM structural match | Shared compiler/source lineage evidence | Exact target object or project match |
 | Force-color or pass-replay experiment | A late compiler cause is plausible | A valid C source match |
 | Frontend algorithm analysis proving a shape unreachable | That branch of source search is closed; the residual is a toolchain question | Which historical toolchain actually built it |
+| Stock decomp.me compiler-ID exact match | That selected stock frontend/driver reproduces the function | That a similarly named preset uses it, or that the whole original TU used it |
 | Byte-exact reproduction through an alternate authentic frontend | The historical lowering is identified behaviorally, with unmodified binaries | That the exact shipping binary or point release is found |
 | Relocation-aware instruction-exact object comparison | The selected function's instructions and known relocation layout agree | Whole-project or final-ROM identity |
 | Normal project link and full-output verifier | The project's required final proof | A portable conclusion for another revision without comparison |

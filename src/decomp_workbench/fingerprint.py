@@ -31,6 +31,8 @@ MICROCASES = (
     ("stack-home", "stack_home.c", "dkwb_fp_stack_home"),
     ("schedule", "schedule.c", "dkwb_fp_schedule"),
     ("allocation", "allocation.c", "dkwb_fp_allocation"),
+    ("dense-switch-4", "dense_switch_4.c", "dkwb_fp_dense_switch_4"),
+    ("dense-switch-5", "dense_switch_5.c", "dkwb_fp_dense_switch_5"),
 )
 
 
@@ -50,6 +52,16 @@ def instruction_fingerprint(instructions: list[Instruction]) -> dict[str, Any]:
         if item.opcode.startswith("b") or item.opcode in {"j", "jr", "jal", "jalr"}
     ]
     calls = sum(item.opcode in {"jal", "jalr"} for item in instructions)
+    computed_jumps = []
+    for item in instructions:
+        if item.opcode != "jr":
+            continue
+        parts = item.assembly.split(maxsplit=1)
+        register = (
+            parts[1].split(",", 1)[0].strip().lstrip("$") if len(parts) > 1 else ""
+        )
+        if register not in {"ra", "31"}:
+            computed_jumps.append(item.assembly)
     payload = "".join(item.word for item in instructions).encode("ascii")
     normalized_payload = "\n".join(normalized).encode("utf-8")
     schedule_ngrams = collections.Counter(
@@ -62,6 +74,8 @@ def instruction_fingerprint(instructions: list[Instruction]) -> dict[str, Any]:
         "opcode_histogram": dict(sorted(collections.Counter(opcodes).items())),
         "branch_skeleton": branch_ops,
         "call_count": calls,
+        "computed_jump": bool(computed_jumps),
+        "computed_jumps": computed_jumps,
         "float_loads": sum(item.opcode in {"lwc1", "ldc1"} for item in instructions),
         "float_stores": sum(item.opcode in {"swc1", "sdc1"} for item in instructions),
         "destination_registers": destination_sequence,
@@ -105,7 +119,7 @@ def run_toolchain_fingerprint(
     stream_limit: int = DEFAULT_STREAM_LIMIT,
     artifact_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Compile four bundled microcases and combine their feature signatures."""
+    """Compile bundled microcases and combine their feature signatures."""
 
     cwd = Path(compile_cwd).expanduser().resolve()
     if not cwd.is_dir():
@@ -169,6 +183,10 @@ def run_toolchain_fingerprint(
             )
             cases.append(case)
     identity_payload = {case["name"]: case["features"] for case in cases}
+    suite_payload = {case["name"]: case["source_sha256"] for case in cases}
+    suite = hashlib.sha256(
+        json.dumps(suite_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     fingerprint = hashlib.sha256(
         json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode(
             "utf-8"
@@ -176,6 +194,7 @@ def run_toolchain_fingerprint(
     ).hexdigest()
     return {
         "schema": FINGERPRINT_SCHEMA,
+        "suite": suite,
         "fingerprint": fingerprint,
         "compiler": compiler_identity,
         "objdump": executable_identity([objdump_path], cwd=cwd),
@@ -197,6 +216,9 @@ def compare_fingerprint_reports(
 
     target_cases = {item["name"]: item for item in target.get("cases", [])}
     candidate_cases = {item["name"]: item for item in candidate.get("cases", [])}
+    target_suite = target.get("suite") or _report_suite(target_cases)
+    candidate_suite = candidate.get("suite") or _report_suite(candidate_cases)
+    compatible = target_suite is not None and target_suite == candidate_suite
     differences = []
     for name in sorted(set(target_cases) | set(candidate_cases)):
         expected = target_cases.get(name)
@@ -213,11 +235,30 @@ def compare_fingerprint_reports(
         differences.append({"case": name, "changed_features": changed})
     return {
         "schema": "decomp-workbench-toolchain-fingerprint-diff-v1",
-        "identical": target.get("fingerprint") == candidate.get("fingerprint"),
+        "compatible": compatible,
+        "identical": compatible
+        and target.get("fingerprint") == candidate.get("fingerprint"),
+        "target_suite": target_suite,
+        "candidate_suite": candidate_suite,
         "target_fingerprint": target.get("fingerprint"),
         "candidate_fingerprint": candidate.get("fingerprint"),
         "differences": differences,
     }
+
+
+def _report_suite(cases: dict[str, dict[str, Any]]) -> str | None:
+    """Recover a suite identity from legacy reports that predate the field."""
+
+    payload = {
+        name: item.get("source_sha256")
+        for name, item in cases.items()
+        if isinstance(item.get("source_sha256"), str)
+    }
+    if len(payload) != len(cases) or not payload:
+        return None
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def cross_rom_lineage(

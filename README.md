@@ -178,7 +178,9 @@ decomp-workbench bundle-scratch scratch/demo \
   --context ctx.c \
   --source candidate.c \
   --platform n64 \
-  --compiler 'IDO 7.1' \
+  --compiler 'IDO 7.1 C++' \
+  --compiler-id ido7.1_c++ \
+  --language C++ \
   --compiler-flags='-O2 -mips2' \
   --diff-label demo
 ```
@@ -195,9 +197,22 @@ decomp-workbench check-scratch "/path/to/scratch.zip" \
 
 `check-scratch` prints the browser score as context, then reports the
 relocation-aware, LCS-aligned truth. With `--compile-command`, it composes
-`ctx.c`, decomp.me's `#line 1 "src.c"` reset, and the candidate source before
-compiling, eliminating a subtle source-line mismatch that can change IDO's
-`-g3` schedule. See [the export tutorial][decompme-exports].
+`ctx.c`, decomp.me's language-aware `src.c`/`src.cxx` line reset, and the
+candidate source before compiling, eliminating a subtle source-line mismatch
+that can change IDO's `-g3` schedule. The report keeps preset, canonical
+compiler ID, language, frontend, and expected driver distinct. See [the export
+tutorial][decompme-exports].
+
+Before publishing a proof or integration repository, check that every local
+dependency will actually travel:
+
+```sh
+decomp-workbench handoff audit /path/to/public-proof-repo \
+  --dependency-root /path/to/game-project
+```
+
+This catches missing references and dependencies that exist locally but were
+never tracked. See [public handoff audits][public-handoffs].
 
 Install the campaign skill for your preferred agent — optional, and it runs the
 same commands you would:
@@ -249,6 +264,7 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
+| Will this proof repository work from a fresh clone? | `handoff audit` | Missing paths, absolute paths, and untracked local dependencies |
 | Can an agent follow the proven campaign method? | `install-skill` | Portable Codex or Claude Code Agent Skill |
 | Can I observe static-recompiled IDO? | `instrument-ugen`, `instrument-uopt` | Instrumented generated C with opt-in traces |
 
@@ -285,6 +301,7 @@ The three narrative pages first, then the focused guides:
 - [Current product status and intentional boundaries][product-status]
 - [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
+- [Public handoff audits][public-handoffs]
 - [Lessons from final-function campaigns][final-function-campaigns]
 - [Alternate authentic frontends][alternate-frontends] — when the compiler itself is the variable
 - [Portable Codex and Claude Code skill][agent-skill]
@@ -363,3 +380,4 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [toolchain-calibration]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/toolchain-calibration.md
 [json-contracts]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/json-contracts.md
 [product-status]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/product-status.md
+[public-handoffs]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/public-handoffs.md

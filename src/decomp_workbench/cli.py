@@ -71,6 +71,7 @@ from .globalcolor import (
     register_for_color,
 )
 from .guide_cli import register_guide_command
+from .handoff_cli import register_handoff_command
 from .instrument import instrument_ugen
 from .instrument_alias import instrument_uopt_alias
 from .instrument_profiles import (
@@ -106,7 +107,9 @@ from .scratch_check import (
     compose_site_source,
     load_scratch,
     scratch_context_hardening,
+    scratch_frontend,
     scratch_score,
+    site_source_marker,
 )
 from .scratch_registration import register_scratch_commands
 from .source_correlation_cli import register_source_correlation_command
@@ -178,6 +181,8 @@ def bundle_scratch_command(args: argparse.Namespace) -> int:
             diff_label=args.diff_label,
             project=args.project,
             preset=args.preset,
+            compiler_id=args.compiler_id,
+            language=args.language,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -213,7 +218,8 @@ def _scratch_comparison(
             raise ValueError("site-faithful compilation requires a decomp.me export")
         if "target.o" not in package.files:
             raise ValueError("site-faithful compilation needs target.o in the export")
-        composed = workspace / "site-source.c"
+        frontend = scratch_frontend(package)
+        composed = workspace / str(frontend["source_name"])
         composed.write_bytes(compose_site_source(package, args.source).encode("utf-8"))
         output = workspace / "compiled.o"
         command = render_compile_command(args.compile_command, composed, output)
@@ -260,7 +266,8 @@ def _scratch_comparison(
                 "timeout_seconds": args.timeout,
                 "source": "override" if args.source else "exported code.c",
                 "composed_source_sha256": file_sha256(composed),
-                "site_line_reset": '#line 1 "src.c"',
+                "site_line_reset": frontend["line_reset"],
+                "frontend": frontend,
             }
             raise ScratchCompileFailure(str(error), timeout_report) from error
         compile_report = {
@@ -273,7 +280,8 @@ def _scratch_comparison(
             "timeout_seconds": args.timeout,
             "source": "override" if args.source else "exported code.c",
             "composed_source_sha256": file_sha256(composed),
-            "site_line_reset": '#line 1 "src.c"',
+            "site_line_reset": frontend["line_reset"],
+            "frontend": frontend,
         }
         streams = capture_streams(
             process.stdout,
@@ -492,6 +500,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
     )
     actions = _scratch_next_actions(package, comparison, evidence)
     hardening = scratch_context_hardening(package)
+    frontend = scratch_frontend(package)
     scratch_payload: dict[str, object] = {
         "path": display_path(package.path),
         "kind": package.kind,
@@ -506,7 +515,9 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         "evidence": evidence,
         "source_semantics": {
             "site_faithful": bool(args.compile_command),
-            "line_reset": '#line 1 "src.c"' if args.compile_command else None,
+            "line_reset": frontend["line_reset"] if args.compile_command else None,
+            "source_name": frontend["source_name"],
+            "frontend": frontend,
         },
         "context_hardening": hardening,
         "comparison": (
@@ -531,6 +542,20 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             parts = [str(value) for value in (identity, slug) if value]
             print("identity: " + " / ".join(parts))
         print("files: " + ", ".join(sorted(package.files)))
+        frontend_parts = [
+            f"compiler_id={frontend['compiler_id']}"
+            if frontend["compiler_id"]
+            else f"compiler_selection={frontend['compiler']}"
+            if frontend["compiler"]
+            else None,
+            f"language={frontend['language']}" if frontend["language"] else None,
+            f"frontend={frontend['frontend']}" if frontend["frontend"] else None,
+            f"driver={frontend['expected_driver']}"
+            if frontend["expected_driver"]
+            else None,
+        ]
+        if any(frontend_parts):
+            print("frontend: " + ", ".join(item for item in frontend_parts if item))
         if package.checksums_valid:
             print("integrity: PASS (all workbench bundle checksums)")
         if hardening["applicable"]:
@@ -584,7 +609,8 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         print(f"evidence: {evidence}")
         if args.compile_command:
             print(
-                'source composition: site-faithful (inserted #line 1 "src.c" '
+                f"source composition: site-faithful (inserted "
+                f"{site_source_marker(package).strip()} "
                 "between ctx.c and candidate source)"
             )
         if comparison is None:
@@ -1589,6 +1615,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_diagnose_commands(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)
+    register_handoff_command(commands)
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
     register_allocator_commands(commands)
@@ -1851,6 +1878,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bundle_parser.add_argument("--platform", required=True, help="decomp.me platform")
     bundle_parser.add_argument("--compiler", required=True, help="compiler identity")
+    bundle_parser.add_argument(
+        "--compiler-id",
+        help="canonical decomp.me compiler id, distinct from the display label",
+    )
+    bundle_parser.add_argument(
+        "--language",
+        help="decomp.me language selection (for example C or C++)",
+    )
     bundle_parser.add_argument(
         "--compiler-flags", default="", help="compiler flags copied to the manifest"
     )

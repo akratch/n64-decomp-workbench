@@ -58,7 +58,9 @@ If it differs, the command reports the exact path and leaves it untouched.
   selected regions, and object-basin interpretation;
 - semantic web/source correlation and calibrated allocator oracle discipline;
 - safe decomp.me export checking and site-faithful source composition;
-- safe public proof artifacts and a tooling-gap capture loop.
+- compiler-ID/language/frontend separation and switch-lowering probes;
+- safe public proof artifacts, automated handoff audits, and a tooling-gap
+  capture loop.
 
 Use the workbench commands for actual comparison and trace analysis. The skill
 teaches an agent which command/result is appropriate; it does not replace a

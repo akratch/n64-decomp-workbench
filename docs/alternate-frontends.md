@@ -71,6 +71,25 @@ hybrid is the point.
 Before porting whole functions, discriminate frontends with a probe
 matrix, one small function per cell, through the identical backend:
 
+Start with the redistributable baseline rather than a hand-written switch
+probe:
+
+```sh
+decomp-workbench fingerprint-toolchain \
+  --compile-command '/path/to/compile-one {source} {output}' \
+  --compile-cwd /path/to/toolchain \
+  --output frontend-fingerprint.json
+```
+
+The dense-four and dense-five cases print `chain` or `table`. Repeat the
+identical flags/backend through each stock driver and preserve each report;
+the executable hash and all microcase features are part of the fingerprint.
+The report also hashes the microcase suite itself; comparison labels reports
+from different suite revisions incompatible instead of blaming the compiler.
+This distinguishes “the selected frontend preserved a switch construct for
+later passes” from “this pipeline only received a flattened comparison chain”
+without patching either pass.
+
 1. dense switches N=2..6 → threshold map (`sltiu` immediate or chain);
 2. sparse switches in source order, standalone and in-loop with the
    selector re-read from a global → test order, layout, and whether

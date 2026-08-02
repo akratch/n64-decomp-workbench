@@ -56,6 +56,9 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("bundle", "build a deterministic manual-upload handoff"),
         ("doctor", "verify retained-dump, object, and compiler readiness"),
     ),
+    "handoff": (
+        ("audit", "catch missing, local-only, and untracked publication dependencies"),
+    ),
     "campaign": (
         ("run", "compile, cache, rank, and record source candidates"),
         ("status", "show trajectory, failures, families, and basins"),
@@ -124,6 +127,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("scratch", "check"): "check-scratch",
     ("scratch", "bundle"): "bundle-scratch",
     ("scratch", "doctor"): "doctor",
+    ("handoff", "audit"): "audit-handoff",
     ("campaign", "run"): "campaign",
     ("campaign", "status"): "campaign-status",
     ("campaign", "resume"): "campaign-resume",

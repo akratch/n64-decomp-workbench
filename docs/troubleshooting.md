@@ -15,8 +15,17 @@ decomp-workbench check-scratch "/path/to/scratch.zip" --show-diff
 This compares `target.o` and `current.o` from the same site state, so the
 browser score and local oracle no longer refer to different inputs. For a
 local candidate, use `--compile-command`: compiling `code.c` alone omits the
-site's context and `#line 1 "src.c"` reset, which can change an IDO `-g3`
-schedule. See [the export tutorial](decompme-exports.md).
+site's context and language-aware `src.c`/`src.cxx` reset, which can change an
+IDO `-g3` schedule. See [the export tutorial](decompme-exports.md).
+
+## `extern "C"` is a syntax error on decomp.me
+
+Check the exported/compiler metadata, not only the name at the top of the
+Options panel. `ido7.1` runs the C frontend (`cc`/`cfe`) and cannot parse C++
+linkage. For the stock IDO 7.1 C++ path, set **Preset** to **Custom**, select
+compiler `ido7.1_c++`, and verify language C++; that path uses `NCC`/EDG.
+`check-scratch` prints these identities separately so a preset cannot hide the
+frontend change.
 
 ## A pasted scratch fails to compile with an error on the first code line
 
