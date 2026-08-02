@@ -23,6 +23,13 @@
   whether jump tables are disabled or merely cross a frontend threshold
   without relying on a function-specific compiler patch.
 
+- **Frontend-lineage guidance no longer generalizes `cfe` to all of IDO.** A
+  source-order sparse comparison chain can come from IDO 7.1 EDG C++ even
+  though `cfe` sorts the same switch values. The skill now also requires
+  inspection of the actual phase command and intermediate before treating a
+  removed driver flag or a frontend's representative-C printer as a real
+  Cfront-style compilation path.
+
 Everything here descends from one falsification: a community member matched
 SSB64 `unref_800036B4` with no `#line` directive after this project helped
 publish the claim that no natural layout could reach it. The claim had been
