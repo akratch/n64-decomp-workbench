@@ -45,6 +45,14 @@ changes which numbers a statement can carry at all; a tie changes the
 relation between two of them — and a sweep that varies only physical layout
 under a fixed statement order has not searched the space.
 
+Do not generalize that cfe rule to every IDO frontend. Stock 7.1 NCC/EDG can
+attribute the same tokens differently: in `func_ovl8_8037C710`, the existing
+backslash-spliced layout missed while explicitly giving both initialization
+statements one line and both calls an earlier line matched all 49 instruction
+words. Putting each pair literally on one physical line preserved the match.
+Treat a splice, a same-physical-line pair, and repeated `#line` markers as
+separate experiment cells, and always run them through the named frontend.
+
 ## Diagnose allocation rather than decorating it
 
 When opcode shape stabilizes but registers differ:

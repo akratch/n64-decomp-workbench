@@ -22,6 +22,7 @@ DECOMP_ME_METADATA = "metadata.json"
 WORKBENCH_MANIFEST = "scratch.json"
 SITE_SOURCE_MARKER = '#line 1 "src.c"\n'
 SITE_CXX_SOURCE_MARKER = '#line 1 "src.cxx"\n'
+DECOMP_ME_SOURCE_SUFFIXES = (".c", ".c++", ".cc", ".cpp", ".cxx")
 
 #: How much of ctx.c's tail to show when it will glue onto code.c's first
 #: line. Long enough to recognize the statement; short enough for one line.
@@ -218,10 +219,39 @@ def _parse_json(files: dict[str, bytes], name: str) -> dict[str, Any]:
     return value
 
 
+def _canonicalize_decomp_me_sources(files: dict[str, bytes]) -> dict[str, bytes]:
+    """Alias decomp.me's language-specific export names to code.c/ctx.c.
+
+    Older exports use ``code.c`` and ``ctx.c`` even for C++, while current
+    C++ exports use names such as ``code.c++`` and ``ctx.c++``. Internally we
+    retain the canonical pair so every downstream check follows one path.
+    """
+
+    pairs = [
+        (f"code{suffix}", f"ctx{suffix}")
+        for suffix in DECOMP_ME_SOURCE_SUFFIXES
+        if f"code{suffix}" in files and f"ctx{suffix}" in files
+    ]
+    if not pairs:
+        expected = ", ".join(
+            f"code{suffix}/ctx{suffix}" for suffix in DECOMP_ME_SOURCE_SUFFIXES
+        )
+        raise ValueError(f"decomp.me export is missing a source pair ({expected})")
+    if len(pairs) > 1:
+        rendered = ", ".join(f"{code}/{context}" for code, context in pairs)
+        raise ValueError(f"decomp.me export has ambiguous source pairs: {rendered}")
+    code_name, context_name = pairs[0]
+    canonical = dict(files)
+    if code_name != "code.c":
+        canonical.pop(code_name)
+        canonical["code.c"] = files[code_name]
+    if context_name != "ctx.c":
+        canonical.pop(context_name)
+        canonical["ctx.c"] = files[context_name]
+    return canonical
+
+
 def _validate_decomp_me(files: dict[str, bytes], metadata: dict[str, Any]) -> None:
-    missing = [name for name in ("code.c", "ctx.c") if name not in files]
-    if missing:
-        raise ValueError("decomp.me export is missing " + ", ".join(missing))
     for key in ("platform", "compiler", "diff_label"):
         value = metadata.get(key)
         if value is not None and not isinstance(value, str):
@@ -285,6 +315,7 @@ def load_scratch(path: str | Path) -> ScratchPackage:
 
     if DECOMP_ME_METADATA in files:
         metadata = _parse_json(files, DECOMP_ME_METADATA)
+        files = _canonicalize_decomp_me_sources(files)
         _validate_decomp_me(files, metadata)
         return ScratchPackage(
             path=resolved,

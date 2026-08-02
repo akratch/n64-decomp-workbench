@@ -17,6 +17,16 @@
   `src.c`. This catches the `IDO 7.1` preset/`ido7.1_c++` compiler confusion
   that made valid `extern "C"` source fail under `cfe`.
 
+- **Current C++ scratch exports load directly.** decomp.me now names their
+  members `code.c++` and `ctx.c++`; `check-scratch` accepts that pair (plus
+  `.cc`, `.cpp`, and `.cxx`) and normalizes it internally instead of falsely
+  reporting that `code.c` and `ctx.c` are missing.
+
+- **Line-layout guidance is frontend-specific.** The campaign skill now keeps
+  cfe splice behavior separate from NCC/EDG statement attribution and asks
+  schedule investigations to test splices, physical-line ties, and repeated
+  `#line` markers independently.
+
 - **Toolchain fingerprints now measure switch lowering.** Redistributable
   dense-four and dense-five probes report comparison chain versus computed
   jump. Running the same backend through `cc`/cfe and `NCC`/EDG can now answer

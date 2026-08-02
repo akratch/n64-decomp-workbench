@@ -63,7 +63,7 @@ differences. `words=0` with `exact=true` is still the only matching claim.
 | Instruction count, opcode sequence, or frame differs | Control flow, loop form, calls, expression tree, declaration form | Register forcing or fake locals |
 | Opcode shape is stable but registers differ | Lifetimes, variable reuse, declaration order, and one allocator web | Broad source rewrites |
 | Only relocation-controlled raw words differ | Translation-unit context and final linked/ROM output | Chasing a display percentage |
-| Same instruction multiset, different order | Expression/statement topology, then statement line assignment — moves change which numbers a statement can carry, hoists and logical-line ties (splices) change the relations — then as1 scheduling | Calling `-g0` collapse source proof |
+| Same instruction multiset, different order | Expression/statement topology, then frontend-specific statement line assignment — moves change which numbers a statement can carry and logical-line ties change the relations — then as1 scheduling | Assuming cfe and EDG attribute a backslash splice identically; calling `-g0` collapse source proof |
 | Cross-ROM structure matches | Shared lineage as a structural witness | Calling it target-object exact |
 | A local forced/unrolled loop looks good but the function does not | Whole-function roles and liveness | More local fakes or manual unrolling |
 | A dispatch shape the project frontend provably cannot emit, clustering by translation unit | Frontend lineage: alternate authentic frontends, dispatch-construct discrimination | More source spellings against the impossible shape |

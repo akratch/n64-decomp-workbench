@@ -157,6 +157,22 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertEqual(frontend["expected_driver"], "NCC")
         self.assertEqual(frontend["frontend"], "EDG C++")
 
+    def test_cpp_export_accepts_current_dot_c_plus_plus_member_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            metadata = json.loads((root / "metadata.json").read_text())
+            metadata.update({"language": "C++", "compiler": "ido7.1_c++"})
+            (root / "metadata.json").write_text(json.dumps(metadata))
+            (root / "code.c").rename(root / "code.c++")
+            (root / "ctx.c").rename(root / "ctx.c++")
+
+            package = load_scratch(root)
+            composed = compose_site_source(package, None)
+
+        self.assertIn(SITE_CXX_SOURCE_MARKER, composed)
+        self.assertTrue(composed.endswith("s32 demo(void) { return 1; }\n"))
+
     def test_compile_mode_uses_composed_source_and_can_retain_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
