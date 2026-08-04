@@ -32,8 +32,42 @@ PROVENANCE_FIELDS = (
     "defbb",
     "usebbs",
     "ancestry",
+    "owner_sym",
+    "owner_type",
+    "owner_dtype",
+    "primary_ichain_table",
+    "primary_ichain_chain",
+    "expr_table",
+    "expr_chain",
+    "ir_bb",
+    "source_span",
+    "merge_lineage",
+    "merge_lineage_scope",
+    "semantic_reason",
 )
 SOURCE_FIELDS = ("file", "line", "source", "expr", "listing")
+SOURCE_SEMANTIC_FIELD = "source_semantic"
+_MISSING_SOURCE_SEMANTICS = {
+    "",
+    "-",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "unavailable",
+    "unattributed",
+    "unset",
+    "missing",
+    "not-available",
+    "not_available",
+    "not-applicable",
+    "not_applicable",
+    "no-metadata",
+    "no_metadata",
+    "no-source-metadata",
+    "no_source_metadata",
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +79,7 @@ class SemanticWeb:
     decision: AllocatorWebDecision
     provenance: dict[str, str]
     source: dict[str, str]
+    source_attribution: dict[str, str]
     neighbors: tuple[int, ...]
 
     def as_dict(self) -> dict[str, Any]:
@@ -57,6 +92,7 @@ class SemanticWeb:
             "force_key": self.decision.force_key,
             "provenance": self.provenance,
             "source": self.source,
+            "source_attribution": self.source_attribution,
             "neighbors": list(self.neighbors),
             "assigned_color": self.decision.assigned_color,
             "assigned_register": self.decision.assigned_register,
@@ -69,6 +105,31 @@ class SemanticWeb:
                 for color in self.decision.forbidden_colors
             ],
         }
+
+
+def source_attribution(detail: dict[str, str]) -> dict[str, str]:
+    """Classify whether a trace names a source-level semantic handle.
+
+    Web IDs, colors, owner-like fields, compiler lineage, and logical lines
+    identify one compiler run or help correlate retained evidence. None names
+    the source operation being changed. Only an explicit producer-recorded
+    ``source_semantic`` field earns source-experiment guidance. Explicit
+    unavailable/no-metadata sentinel values remain run-local.
+    """
+
+    semantic = detail.get(SOURCE_SEMANTIC_FIELD, "").strip()
+    if semantic.casefold() not in _MISSING_SOURCE_SEMANTICS:
+        return {
+            "classification": "source-attributed",
+            "source_semantic": semantic,
+        }
+    return {
+        "classification": "run-local-unattributed",
+        "next_gate": (
+            "Record a direct source_semantic for this web; line, owner, and "
+            "lineage fields are run-local evidence, not source attribution."
+        ),
+    }
 
 
 def _neighbor_map(trace: GlobalColorTrace) -> dict[tuple[int, str, int], set[int]]:
@@ -124,6 +185,7 @@ def semantic_webs(
             for key in SOURCE_FIELDS
             if decision.detail.get(key) not in {None, ""}
         }
+        attribution = source_attribution(decision.detail)
         identity = {
             "phase": decision.phase_tag,
             "provenance": provenance,
@@ -140,6 +202,7 @@ def semantic_webs(
                 decision=decision,
                 provenance=provenance,
                 source=source,
+                source_attribution=attribution,
                 neighbors=tuple(
                     sorted(neighbors[(decision.proc, decision.phase_tag, decision.web)])
                 ),
@@ -158,6 +221,9 @@ def semantic_webs(
 
 def web_report(trace: GlobalColorTrace, *, proc: int | None = None) -> dict[str, Any]:
     webs = semantic_webs(trace, proc=proc)
+    attributed = sum(
+        web.source_attribution["classification"] == "source-attributed" for web in webs
+    )
     return {
         "schema": FINGERPRINT_SCHEMA,
         "proof": (
@@ -167,6 +233,14 @@ def web_report(trace: GlobalColorTrace, *, proc: int | None = None) -> dict[str,
         "webs": [web.as_dict() for web in webs],
         "web_count": len(webs),
         "low_confidence": sum(web.confidence == "low" for web in webs),
+        "source_attributed_webs": attributed,
+        "run_local_unattributed_webs": len(webs) - attributed,
+        "next_gate": (
+            None
+            if attributed
+            else "Record a direct source_semantic before using this trace to "
+            "recommend a source experiment."
+        ),
     }
 
 

@@ -8,6 +8,7 @@ from decomp_workbench.allocator_analysis import (
     compare_semantic_webs,
     semantic_webs,
     stack_home_report,
+    web_report,
 )
 from decomp_workbench.globalcolor import parse_globalcolor_trace
 
@@ -103,6 +104,78 @@ class AllocatorAnalysisTests(unittest.TestCase):
         self.assertEqual(by_phase["p2"].neighbors, (11,))
         self.assertEqual(by_phase["p1"].decision.dtype, 1)
         self.assertEqual(by_phase["p2"].decision.dtype, 2)
+
+    def test_owner_line_and_lineage_do_not_claim_source_attribution(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] webdetail proc=3 role=owner web=9 dtype=13 bb=4 "
+            "line=20 lineage=frontend-a owner=42\n"
+            "[CDX] p1dec phase=p1 proc=3 web=9 bestcolor=1 decision=color\n"
+        )
+        web = semantic_webs(trace, proc=3)[0]
+        self.assertEqual(
+            web.source_attribution["classification"], "run-local-unattributed"
+        )
+        self.assertIn("source_semantic", web.source_attribution["next_gate"])
+        report = web_report(trace, proc=3)
+        self.assertEqual(report["run_local_unattributed_webs"], 1)
+        self.assertIn("source_semantic", report["next_gate"])
+
+    def test_unavailable_source_semantic_remains_run_local(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=3 phase=p1 web=9 snapshot=preselect "
+            "source_semantic=unavailable "
+            "semantic_reason=no-source-metadata-at-globalcolor owner_sym=17 "
+            "owner_type=3 owner_dtype=13 primary_ichain_table=4 "
+            "primary_ichain_chain=7 expr_table=2 expr_chain=1 ir_bb=9 "
+            "source_span=20:24 merge_lineage=42 merge_lineage_scope=local\n"
+            "[CDX] provenance_web proc=3 phase=p1 web=9 snapshot=postselect "
+            "source_semantic=unavailable "
+            "semantic_reason=no-source-metadata-at-globalcolor owner_sym=17 "
+            "owner_type=3 owner_dtype=13 primary_ichain_table=4 "
+            "primary_ichain_chain=7 expr_table=2 expr_chain=1 ir_bb=9 "
+            "source_span=20:24 merge_lineage=42 merge_lineage_scope=local\n"
+            "[CDX] p1dec phase=p1 proc=3 web=9 bestcolor=1 decision=color\n"
+        )
+        web = semantic_webs(trace, proc=3)[0]
+        self.assertEqual(
+            web.source_attribution["classification"], "run-local-unattributed"
+        )
+        self.assertIn("source_semantic", web.source_attribution["next_gate"])
+        self.assertEqual(
+            web.provenance,
+            {
+                "owner_sym": "17",
+                "owner_type": "3",
+                "owner_dtype": "13",
+                "primary_ichain_table": "4",
+                "primary_ichain_chain": "7",
+                "expr_table": "2",
+                "expr_chain": "1",
+                "ir_bb": "9",
+                "source_span": "20:24",
+                "merge_lineage": "42",
+                "merge_lineage_scope": "local",
+                "semantic_reason": "no-source-metadata-at-globalcolor",
+            },
+        )
+        self.assertNotIn("source_semantic", web.provenance)
+
+    def test_direct_source_semantic_unlocks_source_attribution(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=3 phase=p2 web=62 snapshot=preselect "
+            "source_semantic=local:pending-flag semantic_reason=ir-local\n"
+            "[CDX] provenance_web proc=3 phase=p2 web=62 snapshot=postselect "
+            "source_semantic=local:pending-flag semantic_reason=ir-local\n"
+            "[CDX] p2dec phase=p2 proc=3 web=62 bestcolor=1 decision=color\n"
+        )
+        web = semantic_webs(trace, proc=3)[0]
+        self.assertEqual(
+            web.source_attribution,
+            {
+                "classification": "source-attributed",
+                "source_semantic": "local:pending-flag",
+            },
+        )
 
 
 if __name__ == "__main__":

@@ -141,6 +141,11 @@ directives. It preserves all candidates when a logical line exists in several
 files and narrows only on an explicit marker filename. Correlation is evidence
 attached to a semantic web, never part of the fingerprint itself.
 
+Neither correlation nor allocator metadata is a source semantic. Without a
+direct trace `source_semantic`, `trace-webs` and `oracle plan` classify the web
+as run-local/unattributed. Capture that field before turning a force result into
+a source-experiment recommendation.
+
 ## Plan a causal allocator probe
 
 ```sh

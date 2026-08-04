@@ -60,6 +60,37 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(report["coverage"]["p2"]["webs"], 0)
         self.assertIn("p2: 0 allocator webs recorded", report["warnings"])
 
+    def test_plan_with_only_run_local_trace_evidence_withholds_source_advice(
+        self,
+    ) -> None:
+        report = oracle_plan(parse_globalcolor_trace(TRACE))
+        attribution = report["source_attribution"]
+        self.assertEqual(attribution["classification"], "run-local-unattributed")
+        self.assertEqual(attribution["source_experiment_recommendations"], [])
+        self.assertIn("source_semantic", attribution["next_gate"])
+        self.assertTrue(
+            all(
+                row["source_attribution"]["classification"] == "run-local-unattributed"
+                for row in report["forces"]
+            )
+        )
+
+    def test_plan_recommends_source_experiment_only_for_direct_semantic(
+        self,
+    ) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=7 phase=p1 web=9 snapshot=preselect "
+            "source_semantic=local:flag semantic_reason=ir-local\n"
+            "[CDX] provenance_web proc=7 phase=p1 web=9 snapshot=postselect "
+            "source_semantic=local:flag semantic_reason=ir-local\n" + TRACE
+        )
+        report = oracle_plan(trace)
+        recommendations = report["source_attribution"][
+            "source_experiment_recommendations"
+        ]
+        self.assertEqual(len(recommendations), 1)
+        self.assertEqual(recommendations[0]["source_semantic"], "local:flag")
+
     def test_semantic_diff_does_not_align_on_numeric_web_id(self) -> None:
         target = parse_globalcolor_trace(TRACE)
         candidate = parse_globalcolor_trace(

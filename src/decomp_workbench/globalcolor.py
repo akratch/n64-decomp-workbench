@@ -315,7 +315,7 @@ class GlobalColorTrace:
         dtype: int | None = None,
         limit: int | None = None,
     ) -> list[AllocatorWebDecision]:
-        """Join p1/p2 decisions to target webdetail records."""
+        """Join p1/p2 decisions to target webdetail and provenance snapshots."""
 
         decision_phases: dict[tuple[int, int], set[str]] = {}
         for item in self.decisions:
@@ -332,6 +332,7 @@ class GlobalColorTrace:
         details: dict[tuple[int, int, str], dict[str, str]] = {}
         legacy_details: dict[tuple[int, int], dict[str, str]] = {}
         costs: dict[tuple[int, int, str], list[dict[str, str]]] = {}
+        provenance: dict[tuple[int, int, str], dict[str, list[dict[str, str]]]] = {}
         for item in self.decisions:
             if "proc" not in item.fields or "web" not in item.fields:
                 continue
@@ -348,6 +349,36 @@ class GlobalColorTrace:
                     legacy_details[key] = item.fields
             elif item.phase in {"p1cost", "p2cost"}:
                 costs.setdefault((*key, item.phase[:2]), []).append(item.fields)
+            elif item.phase == "provenance_web":
+                detail_phase = item.fields.get("phase")
+                snapshot = item.fields.get("snapshot")
+                if detail_phase in {"p1", "p2"} and snapshot in {
+                    "preselect",
+                    "postselect",
+                }:
+                    provenance.setdefault((*key, detail_phase), {}).setdefault(
+                        snapshot, []
+                    ).append(item.fields)
+
+        def unique_provenance(
+            entries: dict[str, list[dict[str, str]]] | None,
+        ) -> dict[str, str]:
+            """Return one consistent pre/post snapshot pair, never a guess."""
+
+            if entries is None or set(entries) != {"preselect", "postselect"}:
+                return {}
+            if any(len(entries[snapshot]) != 1 for snapshot in entries):
+                return {}
+            merged: dict[str, str] = {}
+            for snapshot in ("preselect", "postselect"):
+                for field_name, value in entries[snapshot][0].items():
+                    if field_name == "snapshot":
+                        continue
+                    existing = merged.get(field_name)
+                    if existing is not None and existing != value:
+                        return {}
+                    merged[field_name] = value
+            return merged
 
         joined: list[AllocatorWebDecision] = []
         for item in self.decisions:
@@ -364,6 +395,9 @@ class GlobalColorTrace:
             detail = details.get((*key, phase))
             if detail is None and decision_phases.get(key) == {phase}:
                 detail = legacy_details.get(key)
+            provenance_detail = unique_provenance(provenance.get((*key, phase)))
+            if provenance_detail:
+                detail = {**provenance_detail, **(detail or {})}
             joined_item = AllocatorWebDecision(
                 proc=item_proc,
                 web=item_web,

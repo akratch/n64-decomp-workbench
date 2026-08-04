@@ -46,6 +46,13 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
             f"allocator webs: {report['web_count']} semantic fingerprint(s), "
             f"{report['low_confidence']} low-confidence"
         )
+        print(
+            "source attribution: "
+            f"{report['source_attributed_webs']} source-attributed, "
+            f"{report['run_local_unattributed_webs']} run-local/unattributed"
+        )
+        if report["next_gate"]:
+            print(f"next gate: {report['next_gate']}")
         for item in report["webs"][: args.limit]:
             print(
                 f"{item['fingerprint']} confidence={item['confidence']} "

@@ -93,6 +93,30 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(len(items), 2)
         self.assertTrue(all(item.detail == {} for item in items))
 
+    def test_provenance_snapshots_join_only_when_unique_and_consistent(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=preselect "
+            "source_semantic=local:pending-flag semantic_reason=ir-local\n"
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=postselect "
+            "source_semantic=local:pending-flag semantic_reason=ir-local\n"
+            "[CDX] p2dec phase=p2 proc=2 web=62 bestcolor=2 decision=color\n"
+        )
+        detail = trace.allocator_webs(proc=2, web=62)[0].detail
+        self.assertEqual(detail["source_semantic"], "local:pending-flag")
+        self.assertEqual(detail["semantic_reason"], "ir-local")
+
+    def test_conflicting_or_ambiguous_provenance_is_withheld(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=preselect "
+            "source_semantic=local:first\n"
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=preselect "
+            "source_semantic=local:first\n"
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=postselect "
+            "source_semantic=local:second\n"
+            "[CDX] p2dec phase=p2 proc=2 web=62 bestcolor=2 decision=color\n"
+        )
+        self.assertEqual(trace.allocator_webs(proc=2, web=62)[0].detail, {})
+
     def test_a_decision_names_the_colors_a_force_cannot_take(self) -> None:
         """The mask decodes to the endpoints a CDX_FORCE probe would be declined for.
 

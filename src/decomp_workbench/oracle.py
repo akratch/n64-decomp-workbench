@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .allocator_analysis import compare_semantic_webs
+from .allocator_analysis import compare_semantic_webs, semantic_webs
 from .artifacts import DEFAULT_STREAM_LIMIT
 from .campaign import ParameterizedCandidate, run_parameterized_campaign
 from .globalcolor import (
@@ -97,14 +97,19 @@ def oracle_plan(
             raise ValueError(f"{phase} colors must be in the mask range c0..c63")
 
     decisions = {}
-    for web in trace.allocator_webs(proc=selected_proc):
-        key = (web.phase_tag, web.web)
+    for decision in trace.allocator_webs(proc=selected_proc):
+        key = (decision.phase_tag, decision.web)
         if key in decisions:
             raise ValueError(
-                f"trace repeats allocator decision {web.phase_tag}:w{web.web}; "
+                "trace repeats allocator decision "
+                f"{decision.phase_tag}:w{decision.web}; "
                 "use one invocation per oracle plan"
             )
-        decisions[key] = web
+        decisions[key] = decision
+    attributions = {
+        (web.decision.phase_tag, web.decision.web): web.source_attribution
+        for web in semantic_webs(trace, proc=selected_proc)
+    }
 
     forces: list[dict[str, Any]] = []
     coverage: dict[str, dict[str, Any]] = {}
@@ -113,6 +118,10 @@ def oracle_plan(
         phase_webs.sort(key=lambda item: item.web)
         count_before = len(forces)
         for web in phase_webs:
+            attribution = attributions.get(
+                (web.phase_tag, web.web),
+                {"classification": "run-local-unattributed"},
+            )
             for color in phase_colors[phase]:
                 if color in web.forbidden_colors:
                     continue
@@ -124,6 +133,7 @@ def oracle_plan(
                         "color": color,
                         "register": register_for_color(color),
                         "decision": web.fields.get("decision"),
+                        "source_attribution": attribution,
                         "source": {
                             key: web.detail[key]
                             for key in ("file", "line", "source", "expr", "listing")
@@ -140,6 +150,7 @@ def oracle_plan(
                         "color": None,
                         "register": None,
                         "decision": web.fields.get("decision"),
+                        "source_attribution": attribution,
                         "source": {
                             key: web.detail[key]
                             for key in ("file", "line", "source", "expr", "listing")
@@ -157,6 +168,23 @@ def oracle_plan(
             ),
         }
 
+    semantic = semantic_webs(trace, proc=selected_proc)
+    source_experiment_recommendations = [
+        {
+            "force_key": web.decision.force_key,
+            "source_semantic": web.source_attribution["source_semantic"],
+            "recommendation": (
+                "Use this direct source semantic handle to design a source "
+                "lifetime, priority, or coalescing experiment."
+            ),
+        }
+        for web in semantic
+        if web.source_attribution["classification"] == "source-attributed"
+    ]
+    unattributed_webs = sum(
+        web.source_attribution["classification"] == "run-local-unattributed"
+        for web in semantic
+    )
     warnings = []
     for phase in PHASES:
         if coverage[phase]["webs"] == 0:
@@ -173,6 +201,25 @@ def oracle_plan(
         "both_phases_reported": set(coverage) == set(PHASES),
         "forces": forces,
         "force_count": len(forces),
+        "source_attribution": {
+            "classification": (
+                "source-attributed"
+                if not unattributed_webs
+                else "mixed"
+                if source_experiment_recommendations
+                else "run-local-unattributed"
+            ),
+            "source_attributed_webs": len(source_experiment_recommendations),
+            "run_local_unattributed_webs": unattributed_webs,
+            "source_experiment_recommendations": source_experiment_recommendations,
+            "next_gate": (
+                None
+                if source_experiment_recommendations
+                else "Record a direct source_semantic for the allocator web; "
+                "web, color, owner, lineage, and line fields remain run-local "
+                "and do not support a source-experiment recommendation."
+            ),
+        },
         "warnings": warnings,
         "proof": (
             "Compiler-decision probes only. Forbidden colors are omitted; both "

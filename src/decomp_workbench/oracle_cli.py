@@ -81,6 +81,15 @@ def oracle_plan_command(args: argparse.Namespace) -> int:
             f"p2 {p2['webs']} web(s), {p2['forces']} force(s)"
         )
         print(f"total: {report['force_count']} diagnostic force build(s)")
+        attribution = report["source_attribution"]
+        print(
+            "source attribution: "
+            f"{attribution['classification']} "
+            f"({attribution['source_attributed_webs']} source-attributed, "
+            f"{attribution['run_local_unattributed_webs']} run-local web(s))"
+        )
+        if attribution["next_gate"]:
+            print(f"next gate: {attribution['next_gate']}")
         for warning in report["warnings"]:
             print(f"warning: {warning}")
         print(f"proof: {report['proof']}")

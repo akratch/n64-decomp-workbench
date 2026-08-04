@@ -47,6 +47,21 @@ decomp-workbench trace-source \
 semantic web fingerprints, so a harmless line-number edit cannot change web
 identity.
 
+This correlation is not source attribution. An allocator trace with web, color,
+owner, lineage, or line fields but no direct `source_semantic` is classified as
+**run-local/unattributed**. It can still support a bounded force experiment,
+but it must not recommend a source edit. The next gate is to capture a direct
+`source_semantic` handle for the web; only that evidence unlocks a
+source-lifetime, priority, or coalescing experiment. Explicit no-metadata
+sentinels such as `unavailable`, `unknown`, `none`, and `no-source-metadata`
+are not semantic handles.
+
+Instrumented traces may carry this field on paired `[CDX] provenance_web`
+records rather than the allocator decision. The workbench joins it only when
+exactly one `preselect` and one `postselect` record agree on every shared
+field for the same procedure, phase, and web. Missing, duplicated, or
+conflicting snapshots remain run-local/unattributed.
+
 For cross-variant decisions, use:
 
 ```sh
@@ -145,7 +160,8 @@ existing path.
   residual. It does not exonerate unrecorded colors, multi-web interactions,
   earlier passes, or source topology.
 
-The safe next action is always source-level: use the winning web’s correlated
-expression and interference causes to reshape a lifetime, priority, or
-coalescing relationship, then compile with the stock project toolchain and run
-the normal object/ROM checks.
+When a direct `source_semantic` is recorded, use it with the winning web’s
+interference causes to reshape a lifetime, priority, or coalescing
+relationship, then compile with the stock project toolchain and run the normal
+object/ROM checks. Otherwise stop at the attribution gate: the result is
+run-local causal evidence, not a source-edit recommendation.
