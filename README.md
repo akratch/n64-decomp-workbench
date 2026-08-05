@@ -97,6 +97,8 @@ Use it when:
 - your candidate is close, but the remaining mismatch is hard to classify;
 - you are compiling many source variants and need caching plus a durable ledger;
 - the instruction shape matches but register allocation does not;
+- a function already matches and you want to remove fake-match machinery
+  without losing exactness;
 - you need to test whether uopt, ugen, or as1 (IDO's optimizer, code
   generator, and final assembler pass) owns a difference.
 
@@ -126,6 +128,24 @@ decomp-workbench diagnose target.o candidate.o \
 `compare` and `view` remain composable primitives; `diagnose` loads each input
 once and renders both truths together. Add `--show-all` for every hunk or
 `--html report.html` for a self-contained handoff.
+
+After a function matches, inspect suspicious source constructs and compose a
+bounded cleanup set instead of hand-editing the accepted source in place:
+
+```sh
+decomp-workbench experiment inspect-source candidate.c
+decomp-workbench experiment compose cleanup.json cleanup-candidates --dry-run
+decomp-workbench experiment compose cleanup.json cleanup-candidates
+```
+
+The generated `experiment.json` feeds the normal campaign runner. Exact
+function output is still only the first gate; compare the containing objects
+for `.bss`, GP-table, symbol, relocation, or neighboring-code collateral:
+
+```sh
+decomp-workbench object collateral reference-tu.o candidate-tu.o \
+  --function function_name --fail-on-collateral
+```
 
 ![The same diagnosis as a self-contained HTML report: sticky verdict bar with
 an aligned-identity chip, register lanes with the divergent slot outlined,

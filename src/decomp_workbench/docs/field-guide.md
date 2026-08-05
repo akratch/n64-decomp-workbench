@@ -843,6 +843,63 @@ acceptance still requires the authentic compiler and the target frame.
 `verdict=frame-layout` from `view`/`diagnose`, and
 `playbook=stack-frame-recovery`.
 
+## After the function matches
+
+### 27. Minimize fake-match machinery without reopening exactness
+
+**Diff looks like:** there is no residual: raw instruction words and relocation
+targets are exact, but the accepted C still contains artificial statics, empty
+controls, cancelled arithmetic, dead assignments, or other scaffolding whose
+translation-unit effects and necessity are unknown.
+
+Exactness ends the binary search, not the source-quality review. First inventory
+the suspicious constructs without calling them dead:
+
+```sh
+decomp-workbench experiment inspect-source exact.c
+```
+
+Turn related declaration/use changes into named, exact-text transformations.
+Preserve one transformation per measured mechanism or object-basin
+representative, then generate only bounded singleton and cross-family
+combinations:
+
+```sh
+decomp-workbench experiment compose cleanup.json generated --dry-run
+decomp-workbench experiment compose cleanup.json generated
+decomp-workbench experiment validate generated/experiment.json
+```
+
+Run the generated candidates through the authentic compiler with
+`--no-stop-on-exact`. A cleanup candidate survives only if raw words,
+relocation targets, instruction count, and frame all remain exact. Then compare
+the full translation unit:
+
+```sh
+decomp-workbench object collateral reference-tu.o candidate-tu.o \
+  --function function_name --fail-on-collateral
+```
+
+This phase is allowed to prefer fewer artificial declarations, fewer empty
+controls, and less section/symbol collateral among binary-equivalent
+candidates. It is not allowed to call the shortest fake historically original.
+If two traces have different semantic fingerprints but `decision outcome:
+status=identical`, report carrier substitution: different hidden webs recreated
+the same ordered register endpoints.
+
+The SSSV `func_802963D0_6A7A80` cleanup is the model. The first exact source used
+three artificial statics and three empty controls. A later source kept only the
+cancelled static read and replaced two static carriers with duplicate
+`if (width == height) {}` controls at the same loop boundary. Stock IDO emitted
+the same exact function and allocator decision sequence; the full-TU `.bss`
+shrunk from `0x30` to `0x20`, while GP-linker metadata still exposed the one
+remaining static. The decisive experiment was a cross-family composition that
+both earlier single-family searches had left on disk.
+
+**Points here:** an exact function with measurable fake-match burden,
+source-distinct traces with an identical decision outcome, or a cleaner exact
+candidate that still needs translation-unit collateral and project verification.
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -875,6 +932,7 @@ valuable as any lever above.
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
 | `frame-layout` / `stack-frame-recovery` | 26 |
+| function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |
 

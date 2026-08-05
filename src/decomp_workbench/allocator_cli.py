@@ -121,6 +121,7 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.against:
         summary = report["decision_summary"]
+        outcome = report["outcome_schedule"]
         print(
             f"allocator semantic diff: {report['difference_count']} difference(s), "
             f"{len(report['ambiguous_fingerprints'])} ambiguous fingerprint(s)"
@@ -140,6 +141,28 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
             f"forbidden masks={summary['forbidden_mask_changes']}, "
             f"force overrides={len(summary['candidate_force_overrides'])}"
         )
+        print(
+            "decision outcome: "
+            f"status={outcome['status']} "
+            f"count={outcome['target_count']}->{outcome['candidate_count']} "
+            f"common-prefix={outcome['common_prefix']}"
+        )
+        phases = sorted(
+            set(outcome["target_phase_counts"]) | set(outcome["candidate_phase_counts"])
+        )
+        if phases:
+            phase_summary = ",".join(
+                f"{phase}:{outcome['target_phase_counts'].get(phase, 0)}"
+                f"->{outcome['candidate_phase_counts'].get(phase, 0)}"
+                for phase in phases
+            )
+            print(f"decision phases: {phase_summary}")
+        if outcome["identical"] and report["alignment_status"] != "aligned":
+            print(
+                "note: source-distinct web topology reached the same ordered "
+                "register endpoints; this is carrier substitution evidence, "
+                "not semantic-web identity"
+            )
         for item in report["differences"][: args.limit]:
             before = item["target"]
             after = item["candidate"]
@@ -174,6 +197,7 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
             )
         if report["next_gate"]:
             print(f"next gate: {report['next_gate']}")
+        print(f"outcome proof: {outcome['proof']}")
         print(f"proof: {report['proof']}")
     else:
         print(

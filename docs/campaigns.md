@@ -312,6 +312,41 @@ tree/order, statement split/merge, control-flow spelling, local reuse, literal
 type, and live-range boundary changes. Their effect is compiler- and
 function-specific.
 
+## Compose mechanisms, then minimize an exact source
+
+A successful mechanism on one source parent may look useless on another. Do
+not multiply every raw variant by every other raw variant. Preserve one
+representative source delta per object basin and compose those deltas in a
+bounded interaction set:
+
+```sh
+decomp-workbench experiment inspect-source exact.c
+decomp-workbench experiment compose composition.json generated --dry-run
+decomp-workbench experiment compose composition.json generated
+decomp-workbench experiment validate generated/experiment.json
+```
+
+The composition manifest uses exact `find`/`replace` edits, named families,
+optional `requires`/`conflicts`, and explicit `max_order`/`max_candidates`
+bounds. Generation refuses a non-empty output directory and rejects an edit
+whose expected occurrence count changed. It writes deterministic candidates
+and a normal `decomp-workbench-experiment-v1` sidecar; it does not compile or
+claim that the edits commute.
+
+See
+[`examples/experiments/carrier-substitution`](../examples/experiments/carrier-substitution/README.md)
+for a runnable, redistributable example. The important pair was previously
+missed in a real campaign because an erased boundary-control family and a
+cancelled hot-read family were searched on separate parents.
+
+When the baseline is already exact, run the generated set with
+`--no-stop-on-exact`: the objective is no longer “find the first zero,” but
+“find every zero with less fake-match burden.” Keep raw instruction words,
+relocation targets, frame, and project verification as hard gates. Use
+`object collateral` on the full translation unit before preferring a cleaner
+function source; function-local statics can change `.bss` or GP-linker metadata
+without changing one instruction in the selected function.
+
 ## Cache hygiene
 
 Objects are content-addressed under `--cache-dir`. Inspect before cleaning:

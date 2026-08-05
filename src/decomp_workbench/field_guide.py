@@ -182,6 +182,11 @@ LEVER_ACTIONS: dict[int, str] = {
         "with non-save frame bytes, then ablate, narrow, or reuse phantom "
         "homes only in the component that actually differs"
     ),
+    27: (
+        "after exactness, inventory suspicious constructs, compose bounded "
+        "cross-family substitutions, retain every exact candidate, and gate "
+        "the winner on translation-unit collateral plus project verification"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -205,6 +210,7 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
     "forced-color-oracle": (17, 18, 19),
     "stack-frame-recovery": (26,),
+    "post-match-cleanup": (27,),
     # No `view` verdict reaches this one: two disassemblies cannot tell you
     # that the *frontend* was different. It is here so the levers the field
     # guide's index names in prose are still one command away, and so the
@@ -321,6 +327,14 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "if narrower and register-qualified types plateau, reuse existing "
         "locals or split one source local into staggered webs at the same CFG "
         "boundaries instead of adding another stack home.",
+    ),
+    "post-match-cleanup": (
+        "start with decomp-workbench experiment inspect-source exact.c; its "
+        "findings are syntactic candidates, not declarations of dead code.",
+        "encode related deletions/substitutions as one mechanism each, then "
+        "use experiment compose with an explicit order and candidate cap.",
+        "compile with --no-stop-on-exact and finish with object collateral; "
+        "a function-only zero can still add BSS or linker metadata.",
     ),
     "relocation-only": (
         "prove the spellings are linked-address equivalent: "

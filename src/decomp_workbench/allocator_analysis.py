@@ -474,6 +474,126 @@ def _causes_for_colors(
     return [cause for cause in causes if cause["color"] in colors]
 
 
+def _decision_outcome_schedule(webs: list[SemanticWeb]) -> list[dict[str, Any]]:
+    """Return the allocator's observed endpoint sequence without claiming identity.
+
+    Semantic fingerprints answer whether two decisions describe the same
+    compiler-visible web.  This schedule answers a different question: whether
+    two possibly different web topologies reached the same ordered register
+    endpoints.  Keeping the views separate is essential for carrier
+    substitution experiments, where source-distinct hidden webs can recreate
+    an identical allocation cascade.
+    """
+
+    ordered = sorted(
+        webs,
+        key=lambda web: (
+            web.decision.proc,
+            web.decision.phase_tag,
+            web.decision.decision_trace_ordinal,
+            web.decision.web,
+        ),
+    )
+    return [
+        {
+            "proc": web.decision.proc,
+            "phase": web.decision.phase_tag,
+            "ordinal": web.decision.decision_trace_ordinal,
+            "decision": web.decision.fields.get("decision"),
+            "assigned_color": web.decision.assigned_color,
+            "assigned_register": web.decision.assigned_register,
+            "natural_color": web.decision.natural_color,
+            "natural_register": register_for_color(web.decision.natural_color),
+        }
+        for web in ordered
+    ]
+
+
+def _compare_decision_outcomes(
+    target_webs: list[SemanticWeb], candidate_webs: list[SemanticWeb]
+) -> dict[str, Any]:
+    target = _decision_outcome_schedule(target_webs)
+    candidate = _decision_outcome_schedule(candidate_webs)
+    comparable = min(len(target), len(candidate))
+    differences = []
+    common_prefix = 0
+    for index in range(comparable):
+        before = target[index]
+        after = candidate[index]
+        changed = [
+            field
+            for field in (
+                "proc",
+                "phase",
+                "ordinal",
+                "decision",
+                "assigned_color",
+                "natural_color",
+            )
+            if before[field] != after[field]
+        ]
+        if not changed and common_prefix == index:
+            common_prefix += 1
+        if changed:
+            differences.append(
+                {
+                    "index": index,
+                    "changed": changed,
+                    "target": before,
+                    "candidate": after,
+                }
+            )
+    for index in range(comparable, max(len(target), len(candidate))):
+        differences.append(
+            {
+                "index": index,
+                "changed": ["presence"],
+                "target": target[index] if index < len(target) else None,
+                "candidate": candidate[index] if index < len(candidate) else None,
+            }
+        )
+    incomplete_rows = sum(
+        item["assigned_color"] is None or item["natural_color"] is None
+        for item in target + candidate
+    )
+    if not target and not candidate:
+        status = "no-evidence"
+    elif len(target) != len(candidate):
+        status = "count-mismatch"
+    elif differences:
+        status = "different"
+    elif incomplete_rows:
+        status = "incomplete-evidence"
+    else:
+        status = "identical"
+    target_phase_counts = {
+        phase: sum(item["phase"] == phase for item in target)
+        for phase in sorted({item["phase"] for item in target})
+    }
+    candidate_phase_counts = {
+        phase: sum(item["phase"] == phase for item in candidate)
+        for phase in sorted({item["phase"] for item in candidate})
+    }
+    return {
+        "status": status,
+        "identical": status == "identical",
+        "target_count": len(target),
+        "candidate_count": len(candidate),
+        "common_prefix": common_prefix,
+        "target_phase_counts": target_phase_counts,
+        "candidate_phase_counts": candidate_phase_counts,
+        "difference_count": len(differences),
+        "incomplete_rows": incomplete_rows,
+        "differences": differences,
+        "target": target,
+        "candidate": candidate,
+        "proof": (
+            "Observed decision-order/register endpoint equivalence only. "
+            "It does not align semantic webs or prove equivalent source cause."
+        ),
+    }
+
+
 def compare_semantic_webs(
     target: GlobalColorTrace,
     candidate: GlobalColorTrace,
@@ -615,6 +735,7 @@ def compare_semantic_webs(
                 != row["candidate"]["assigned_color"]
             ],
         },
+        "outcome_schedule": _compare_decision_outcomes(target_webs, candidate_webs),
         "ambiguous_fingerprints": ambiguous,
         "target_webs": len(target_webs),
         "candidate_webs": len(candidate_webs),

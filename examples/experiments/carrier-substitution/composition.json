@@ -1,0 +1,34 @@
+{
+  "schema": "decomp-workbench-composition-v1",
+  "baseline": "baseline.c",
+  "max_order": 2,
+  "max_candidates": 16,
+  "transformations": [
+    {
+      "id": "existing-value-blockers",
+      "family": "carrier-substitution",
+      "description": "Replace two artificial static blockers with relational controls over existing live values.",
+      "edits": [
+        {
+          "find": "    static int blocker_a;\n    static int blocker_b;\n",
+          "replace": ""
+        },
+        {
+          "find": "    if (blocker_a) {}\n    if (blocker_b) {}\n",
+          "replace": "    if (width == height) {}\n    if (width == height) {}\n"
+        }
+      ]
+    },
+    {
+      "id": "remove-carrier-tail",
+      "family": "post-match-ablation",
+      "description": "Test whether the late carrier use remains necessary after substitution.",
+      "edits": [
+        {
+          "find": "    if (carrier) {}\n",
+          "replace": ""
+        }
+      ]
+    }
+  ]
+}

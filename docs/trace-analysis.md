@@ -158,6 +158,20 @@ later color site. `trace webs --against` reports actual-assignment changes,
 natural-choice cascades, forbidden-mask changes, and force overrides
 separately. A force must never be presented as the allocator's natural choice.
 
+The same report also prints a **decision outcome**. This compares the observed
+ordered `(procedure, phase, decision, color)` sequence without using semantic
+fingerprints. It can therefore say that source-distinct hidden webs reached the
+same complete register cascade even when semantic alignment is partial. Read
+the two claims independently:
+
+- semantic alignment answers whether the same compiler-visible webs changed;
+- outcome equivalence answers whether the ordered register endpoints agree.
+
+An identical outcome is carrier-substitution evidence, not source identity.
+The SSSV cleanup replaced two static-local webs with two relational-control
+webs: only 19 of 29 union fingerprints aligned, but all 20 phase-2 decision
+endpoints were identical and the emitted function was raw-object exact.
+
 For one controlled source perturbation, use the three-layer origin probe:
 
 ```sh

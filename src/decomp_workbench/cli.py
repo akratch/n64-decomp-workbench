@@ -45,6 +45,7 @@ from .cli_options import (
     add_explain_keys_argument,
     add_process_output_arguments,
 )
+from .collateral_cli import register_collateral_command
 from .compare import compare_instructions, compare_objects
 from .comparison_render import comparison_line as comparison_line
 from .comparison_render import (
@@ -1765,6 +1766,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     register_view_commands(commands)
     register_diagnose_commands(commands)
+    register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)
     register_handoff_command(commands)

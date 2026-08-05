@@ -196,6 +196,28 @@ one, positional words ranked two variants identically at 95 words when the
 aligned split (10 structural versus 8) picked the only one that composed with
 the next edit.
 
+## Check what an exact function changed around itself
+
+A selected function can be raw-word and relocation-target exact while its
+source adds static storage, changes GP linker metadata, or perturbs another
+function in the same translation unit. Compare the full objects separately:
+
+```sh
+decomp-workbench object collateral reference-tu.o candidate-tu.o \
+  --function function_name --fail-on-collateral
+```
+
+The report inventories section sizes—including zero-fill `.bss` that has no
+bytes for `objdump -s` to dump—section contents, relocations, and symbols.
+With `--function`, it reports selected-function exactness as an independent
+fact. `classification=outside-selected-function` means the function passed but
+the containing object did not. Debug, comment, and note sections are ignored by
+default; repeat `--ignore-section GLOB` to declare additional project-specific
+noise explicitly.
+
+This is a translation-unit collateral gate, not a replacement for the normal
+link/map/ROM verifier.
+
 `compare` and `compare-dumps` therefore also report the LCS-aligned residual,
 computed by the same analysis `view` renders — not a second aligner:
 

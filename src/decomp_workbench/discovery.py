@@ -50,6 +50,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("view", "full aligned mechanism evidence"),
         ("rank", "triage prebuilt candidate objects"),
         ("relocation-aliases", "prove linked-address-equivalent spellings"),
+        ("collateral", "expose whole-object changes outside an exact function"),
     ),
     "scratch": (
         ("check", "validate or site-faithfully compile a decomp.me export"),
@@ -68,6 +69,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "experiment": (
         ("validate", "check paths, parameter assignments, and region bounds"),
+        ("inspect-source", "inventory suspicious constructs before cleanup"),
+        ("compose", "generate bounded combinations of proven mechanisms"),
     ),
     "cache": (
         ("status", "inspect cache size and age"),
@@ -126,6 +129,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "view-dumps"): "view-dumps",
     ("object", "rank"): "rank",
     ("object", "relocation-aliases"): "relocation-aliases",
+    ("object", "collateral"): "object-collateral",
     ("scratch", "check"): "check-scratch",
     ("scratch", "bundle"): "bundle-scratch",
     ("scratch", "doctor"): "doctor",

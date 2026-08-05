@@ -215,6 +215,21 @@ class StackFrameRecoveryTests(unittest.TestCase):
         self.assertIn("allocation is exact", stdout.lower())
 
 
+class PostMatchCleanupTests(unittest.TestCase):
+    def test_playbook_reaches_the_shipped_cleanup_workflow(self) -> None:
+        self.assertEqual(field_guide.PLAYBOOK_LEVERS["post-match-cleanup"], (27,))
+        self.assertIn(27, field_guide.sections())
+        steps = "\n".join(field_guide.next_steps("post-match-cleanup"))
+        self.assertIn("experiment inspect-source", steps)
+        self.assertIn("experiment compose", steps)
+        self.assertIn("object collateral", steps)
+
+        status, stdout, _ = run_cli(["guide", "post-match-cleanup", "--pager", "never"])
+        self.assertEqual(status, 0)
+        self.assertIn("### 27.", stdout)
+        self.assertIn("carrier substitution", stdout)
+
+
 class LeverMappingTests(unittest.TestCase):
     def test_every_playbook_lever_has_a_one_line_action(self) -> None:
         for playbook, levers in field_guide.PLAYBOOK_LEVERS.items():

@@ -178,6 +178,70 @@ class AllocatorAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(report["alignment_coverage"], 2 / 3)
         self.assertEqual(report["alignment_status"], "partial")
 
+    def test_distinct_webs_can_have_an_identical_decision_outcome(self) -> None:
+        target = parse_globalcolor_trace(
+            "[CDX] webdetail phase=p2 proc=0 role=target web=10 type=3 "
+            "dtype=6 table=40 chain=0 bb=11\n"
+            "[CDX] p2dec phase=p2 proc=0 web=10 bestcolor=15 "
+            "decision=color\n"
+            "[CDX] webdetail phase=p2 proc=0 role=target web=20 type=3 "
+            "dtype=6 table=44 chain=0 bb=13\n"
+            "[CDX] p2dec phase=p2 proc=0 web=20 bestcolor=16 "
+            "decision=color\n"
+        )
+        candidate = parse_globalcolor_trace(
+            "[CDX] webdetail phase=p2 proc=0 role=target web=80 type=4 "
+            "dtype=6 table=140 chain=0 bb=11\n"
+            "[CDX] p2dec phase=p2 proc=0 web=80 bestcolor=15 "
+            "decision=color\n"
+            "[CDX] webdetail phase=p2 proc=0 role=target web=90 type=4 "
+            "dtype=6 table=144 chain=0 bb=13\n"
+            "[CDX] p2dec phase=p2 proc=0 web=90 bestcolor=16 "
+            "decision=color\n"
+        )
+
+        report = compare_semantic_webs(target, candidate, proc=0)
+
+        self.assertEqual(report["alignment_status"], "no-common-fingerprints")
+        self.assertEqual(report["outcome_schedule"]["status"], "identical")
+        self.assertEqual(report["outcome_schedule"]["common_prefix"], 2)
+        self.assertEqual(report["outcome_schedule"]["difference_count"], 0)
+        self.assertEqual(report["outcome_schedule"]["target_phase_counts"], {"p2": 2})
+        self.assertEqual(
+            report["outcome_schedule"]["candidate_phase_counts"], {"p2": 2}
+        )
+        self.assertIn(
+            "does not align semantic webs", report["outcome_schedule"]["proof"]
+        )
+
+    def test_missing_colors_cannot_claim_an_identical_outcome(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] webdetail phase=p2 proc=0 role=target web=10 type=3 "
+            "dtype=6 table=40 chain=0 bb=11\n"
+            "[CDX] p2dec phase=p2 proc=0 web=10 decision=color\n"
+        )
+
+        report = compare_semantic_webs(trace, trace, proc=0)
+
+        self.assertEqual(report["outcome_schedule"]["status"], "incomplete-evidence")
+        self.assertEqual(report["outcome_schedule"]["incomplete_rows"], 2)
+        self.assertFalse(report["outcome_schedule"]["identical"])
+
+    def test_decision_outcome_reports_first_divergence_and_count_changes(self) -> None:
+        candidate = parse_globalcolor_trace(
+            CANDIDATE + "[CDX] webdetail phase=p2 proc=2 role=target web=27 type=3 "
+            "dtype=6 table=99 chain=0 bb=4\n"
+            "[CDX] p2dec phase=p2 proc=2 web=27 bestcolor=3 decision=color\n"
+        )
+
+        report = compare_semantic_webs(
+            parse_globalcolor_trace(TARGET), candidate, proc=2
+        )["outcome_schedule"]
+
+        self.assertEqual(report["status"], "count-mismatch")
+        self.assertEqual(report["common_prefix"], 0)
+        self.assertEqual(report["difference_count"], 2)
+
     def test_ambiguous_fingerprints_prevent_an_aligned_claim(self) -> None:
         duplicate = (
             "[CDX] p2dec phase=p2 proc=2 web=99 bestcolor=1 "

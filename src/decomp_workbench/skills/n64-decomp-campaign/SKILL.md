@@ -102,6 +102,16 @@ when the mismatch is caused by IDO code generation or register allocation.
 8. Return to a readable, source-level explanation after a force probe or fake
    demonstrates causality.
 
+When an exact source still contains fake-match scaffolding, exactness starts a
+cleanup phase. Run `experiment inspect-source`, encode only measured mechanisms
+as exact-text transformations, and use `experiment compose` with an explicit
+order and candidate cap. Compile the bounded interaction set with
+`--no-stop-on-exact`; this is where independently useful families are tested
+together instead of being abandoned on different parent sources. If two traces
+have different semantic-web alignment but an identical decision-outcome
+schedule, report carrier substitution rather than pretending the web identities
+match.
+
 Use `trace-globalcolor --proc PROC --web WEB` only after the comparator has
 isolated an allocation residual. Use `trace-webs --against` to align variants
 by semantic provenance and `trace-source` to map a logical line through
@@ -142,10 +152,13 @@ a frontend question until pass-boundary evidence proves otherwise.
    `instruction-exact` alone can hide a scored relocation spelling.
 2. If local and browser results disagree, run `check-scratch` and reproduce the
    site's context/line reset before editing C.
-3. Run the project's normal build and whole-ROM or project-level verifier.
-4. Preserve the exact command, inputs, output hash, and commit that produced
+3. Compare exact candidates with `object collateral`. Fewer artificial locals
+   can reduce `.bss` while leaving relocation, symbol, or GP-linker collateral;
+   selected-function exactness does not settle the containing object.
+4. Run the project's normal build and whole-ROM or project-level verifier.
+5. Preserve the exact command, inputs, output hash, and commit that produced
    the final result.
-5. Before publishing a proof repository, run:
+6. Before publishing a proof repository, run:
    `decomp-workbench handoff audit PATH --dependency-root PROJECT`. Resolve
    every missing or untracked dependency; a file on the author's machine is
    not a reproducible handoff.

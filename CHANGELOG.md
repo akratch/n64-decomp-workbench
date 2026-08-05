@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Exactness now has a disciplined cleanup phase.** `experiment
+  inspect-source` inventories suspicious statics, empty controls, and cancelled
+  arithmetic without calling them dead. `experiment compose` applies bounded,
+  exact-text transformations across mechanism families, emits a validated
+  campaign sidecar, caps combinatorial growth, and prints the next command.
+
+- **Function matches no longer hide translation-unit collateral.** `object
+  collateral` compares all in-scope section sizes and contents, including
+  zero-fill `.bss`, plus relocation and symbol tables. An optional selected
+  function separates `outside-selected-function` changes from a general TU
+  mismatch; project link/ROM verification remains the final gate.
+
+- **Allocator trace comparison separates identity from outcome.** Paired web
+  reports now compare the ordered decision kind, natural color, and assigned
+  color independently of semantic-web fingerprints. Identical decisions with
+  partial semantic alignment are reported as carrier substitution, not false
+  identity. The SSSV case study, field-guide lever 27, packaged Agent Skill,
+  and redistributable composition example carry the complete workflow.
+
 - **Scratch acceptance now measures the zero-score boundary it claims.**
   `check-scratch` separates linked-function exactness, raw instruction-word
   identity, and relocation symbol/addend identity. Its JSON calls the result a

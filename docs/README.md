@@ -26,6 +26,7 @@ below them is reference you consult when you need it.
 | You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
 | You are about to conclude that no source form can reach your target | **[Case study: SSB64 unref_800036B4](../case-studies/ssb64-unref-800036B4.md)** |
 | A linked-function match still has a decomp.me score, or one visible register swap hides several allocator webs | **[Case study: SSSV func_802963D0](../case-studies/sssv-func-802963D0.md)** |
+| An exact source still contains suspicious fake-match scaffolding | **[Bounded carrier-substitution example](../examples/experiments/carrier-substitution/README.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 
 New here? [Start here](START_HERE.md) takes ten minutes, and every command in

@@ -418,6 +418,12 @@ Two things to be clear about, because they are the ones people get wrong:
   flight finish and are recorded; nothing you paid for is thrown away. Pass
   `--no-stop-on-exact` when you want the whole grid for a basin census.
 
+Once a function is exact, suspicious scaffolding deserves one bounded cleanup
+pass. `experiment inspect-source` inventories candidates without calling them
+dead; `experiment compose` combines measured mechanisms that may have been
+tested on different parent sources. Keep the exact candidates, then use
+`object collateral` before the project's normal link/ROM verification.
+
 The workbench creates a manifest and JSONL ledger by default under
 `.decomp-workbench/campaigns/`. Reopen it instead of reconstructing the run:
 
