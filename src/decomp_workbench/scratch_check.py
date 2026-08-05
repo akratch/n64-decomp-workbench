@@ -24,10 +24,6 @@ SITE_SOURCE_MARKER = '#line 1 "src.c"\n'
 SITE_CXX_SOURCE_MARKER = '#line 1 "src.cxx"\n'
 DECOMP_ME_SOURCE_SUFFIXES = (".c", ".c++", ".cc", ".cpp", ".cxx")
 
-#: How much of ctx.c's tail to show when it will glue onto code.c's first
-#: line. Long enough to recognize the statement; short enough for one line.
-CONTEXT_GLUE_TAIL = 40
-
 
 @dataclass(frozen=True)
 class ScratchPackage:
@@ -449,34 +445,21 @@ def scratch_score(metadata: dict[str, Any]) -> dict[str, float] | None:
 
 
 # ---------------------------------------------------------------------------
-# Pre-paste hardening: the two traps this repository was built to catch.
+# Pre-paste hardening for context/source interactions.
 #
-# decomp.me concatenates a scratch's context and code sections verbatim. A
-# ctx.c that does not end in a newline glues its last statement onto code.c's
-# first line, and a name declared in both sections fails to compile with no
-# hint that the culprit is duplication rather than the candidate's logic.
-# Both cost real human round-trips on the drawbitmap scratch before anyone
-# saw a diff; both are checked here before the reader pastes anything.
+# A name declared in both sections fails to compile with no hint that the
+# culprit is duplication rather than the candidate's logic. Older workbench
+# releases also warned about a missing final ctx.c newline, but decomp.me's
+# language-aware #line boundary supplies a separator. Real downloaded exports
+# with newline-less contexts confirm that code.c does not glue to the context.
 # ---------------------------------------------------------------------------
 
 
 def context_newline_warning(context: str) -> str | None:
-    """Report exactly what happens when ctx.c does not end in a newline.
+    """Deprecated compatibility hook; decomp.me's source boundary is safe."""
 
-    decomp.me pastes `ctx.c` and `code.c` back to back with no separator of
-    its own, so a missing trailing newline glues the first line of code onto
-    the context's last statement. Returns `None` when the context is empty or
-    already ends in a newline -- both are safe.
-    """
-
-    if not context or context.endswith("\n"):
-        return None
-    tail = context[-CONTEXT_GLUE_TAIL:]
-    return (
-        "context does not end in a newline; decomp.me concatenates ctx.c and "
-        f"code.c verbatim, so your code's first line will glue onto ...{tail!r}"
-        " -- start code.c with a blank line, or add a trailing newline to ctx.c"
-    )
+    _ = context
+    return None
 
 
 #: A backslash that only *looks* like a line splice: whitespace follows it, so

@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **Scratch acceptance now measures the zero-score boundary it claims.**
+  `check-scratch` separates linked-function exactness, raw instruction-word
+  identity, and relocation symbol/addend identity. Its JSON calls the result a
+  `decomp_me_score_proxy_exact`, not a site fact, and a direct-symbol versus
+  struct-member relocation can no longer pass the proxy merely because both
+  spellings link to the same address. The obsolete missing-final-newline
+  warning was also removed: decomp.me's language-aware source boundary already
+  supplies a safe separator.
+
+- **Allocator comparisons now expose uncertainty instead of manufacturing
+  alignment.** Coverage uses the union of unique fingerprints, ambiguous webs
+  prevent an `aligned` claim, and empty captures report `no-evidence` with a
+  nonzero command status. Natural and forced colors, interference producers,
+  unavailable-cost sentinels, formation chronology, decision order, and
+  source attribution remain separate facts.
+
+- **The forced-color oracle can test a measured interaction in one controlled
+  build.** `oracle force` accepts a validated comma-separated force set,
+  rejects duplicate phase/web controls, and records the baseline-to-forced
+  instruction delta as object-level role evidence. It does not promote that
+  evidence to source attribution or source reachability.
+
+- **Copy/coalescing traces have a conservative parser and a visible command.**
+  `trace copy-decisions` reports coalesce-versus-temporary outcomes and
+  directly bracketed pass transitions. Hash buckets, statement IDs, and bit
+  numbers remain explicitly run-local and collision-prone; comparison aligns
+  only by observed stack home and ordinal. The command is now present in group
+  help and shell completion.
+
+- **Frame recovery and campaign handoff retain the useful diagnostic state.**
+  Object reports distinguish observed physical save-slot bytes from the
+  remaining frame, route allocation-exact/wrong-frame results to a dedicated
+  playbook, compact large experiment grids, and visibly recover stale
+  experiment metadata from manifest/source provenance instead of silently
+  dropping it.
+
+- **The SSSV endgame is recorded with its corrections, not as folklore.** The
+  [case study](case-studies/sssv-func-802963D0.md) documents why one visible
+  register bijection required a multi-web lifetime composition, why allocator
+  formation/economics/decision order are distinct, and why a locally
+  linked-exact archive still scored 99.89% until its relocation target matched.
+  Source distributions now include the linked case-study directory instead of
+  shipping documentation with dead relative links.
+
 - **Public proof repositories now have a pre-push gate.** `handoff audit`
   checks relative Markdown and inline-code paths, absolute user paths, files
   present locally but absent from Git, and dependencies in another declared

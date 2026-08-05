@@ -44,6 +44,30 @@ CANDIDATE_DUMP = """\
    c: 00000000  nop
 """
 
+RELOCATION_TARGET_DUMP = """\
+00000000 <demo>:
+   0: 0c123456  jal 48d158 <callee>
+                        0: R_MIPS_26 callee
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+"""
+
+RELOCATION_CANDIDATE_DUMP = """\
+00000000 <demo>:
+   0: 0c000000  jal 0 <callee>
+                        0: R_MIPS_26 callee
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+"""
+
+RELOCATION_TARGET_NAME_MISMATCH_DUMP = """\
+00000000 <demo>:
+   0: 0c123456  jal 48d158 <other>
+                        0: R_MIPS_26 other
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+"""
+
 
 def write_export(root: Path, *, dumps: bool = True, objects: bool = False) -> None:
     """Write a small synthetic equivalent of a decomp.me download."""
@@ -103,6 +127,69 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertEqual(payload["comparison"]["verdict"], "schedule-mismatch")
         self.assertEqual(payload["comparison"]["aligned_schedule"], 2)
         self.assertEqual(payload["comparison"]["symbol"], "demo")
+
+    def test_relocation_normalized_match_is_not_a_zero_score_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "target.objdump").write_text(RELOCATION_TARGET_DUMP)
+            (root / "current.objdump").write_text(RELOCATION_CANDIDATE_DUMP)
+            status, stdout, stderr = self.run_cli(
+                ["check-scratch", str(root), "--json", "--fail-on-mismatch"]
+            )
+
+        payload = json.loads(stdout)
+        comparison = payload["comparison"]
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertTrue(comparison["exact"])
+        self.assertTrue(comparison["linked_function_exact"])
+        self.assertFalse(comparison["decomp_me_score_proxy_exact"])
+        self.assertFalse(comparison["raw_instruction_words_exact"])
+        self.assertTrue(comparison["relocation_targets_exact"])
+        self.assertFalse(comparison["accepted"])
+        self.assertEqual(
+            comparison["acceptance_basis"],
+            "raw-instruction-word-mismatch",
+        )
+
+    def test_relocation_target_mismatch_rejects_local_score_proxy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "target.objdump").write_text(RELOCATION_TARGET_DUMP)
+            (root / "current.objdump").write_text(RELOCATION_TARGET_NAME_MISMATCH_DUMP)
+            status, stdout, stderr = self.run_cli(
+                ["check-scratch", str(root), "--json", "--fail-on-mismatch"]
+            )
+
+        comparison = json.loads(stdout)["comparison"]
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertTrue(comparison["linked_function_exact"])
+        self.assertTrue(comparison["raw_instruction_words_exact"])
+        self.assertFalse(comparison["relocation_targets_exact"])
+        self.assertFalse(comparison["decomp_me_score_proxy_exact"])
+        self.assertEqual(comparison["acceptance_basis"], "relocation-target-mismatch")
+
+    def test_terminal_calls_out_relocation_normalized_score_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "target.objdump").write_text(RELOCATION_TARGET_DUMP)
+            (root / "current.objdump").write_text(RELOCATION_CANDIDATE_DUMP)
+            status, stdout, stderr = self.run_cli(
+                ["check-scratch", str(root), "--fail-on-mismatch"]
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertIn("decomp.me score proxy: FAIL", stdout)
+        self.assertIn("linked-function exact is not a 100% site score", stdout)
+        self.assertIn(
+            "Match both raw instruction words and relocation symbol/addend targets",
+            stdout,
+        )
 
     def test_site_source_composition_resets_editable_source_to_line_one(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -433,28 +520,16 @@ class ScratchCheckTests(unittest.TestCase):
 
 
 class ContextNewlineWarningTests(unittest.TestCase):
-    """decomp.me pastes ctx.c and code.c back to back with no separator."""
+    """decomp.me inserts a source boundary even when ctx.c lacks a newline."""
 
-    def test_a_missing_trailing_newline_names_exactly_what_will_glue(self) -> None:
-        warning = context_newline_warning("static int *prev_bmbuf = 0;")
-        self.assertIsNotNone(warning)
-        assert warning is not None
-        self.assertIn("prev_bmbuf = 0;", warning)
-        self.assertIn("decomp.me concatenates", warning)
-        self.assertIn("blank line", warning)
+    def test_a_missing_trailing_newline_is_safe(self) -> None:
+        self.assertIsNone(context_newline_warning("static int *prev_bmbuf = 0;"))
 
     def test_a_trailing_newline_is_silent(self) -> None:
         self.assertIsNone(context_newline_warning("static int *prev_bmbuf = 0;\n"))
 
     def test_empty_context_is_silent(self) -> None:
         self.assertIsNone(context_newline_warning(""))
-
-    def test_only_the_last_forty_characters_are_quoted(self) -> None:
-        context = "x" * 100
-        warning = context_newline_warning(context)
-        assert warning is not None
-        self.assertIn("x" * 40, warning)
-        self.assertNotIn("x" * 41, warning)
 
 
 class DuplicateFileScopeSymbolTests(unittest.TestCase):
@@ -555,7 +630,7 @@ class ScratchContextHardeningTests(unittest.TestCase):
         self.assertEqual(hardening["code_splices"], {"broken": [], "load_bearing": []})
         self.assertEqual(hardening["context_lint"]["findings"], [])
 
-    def test_the_drawbitmap_trap_is_caught_end_to_end(self) -> None:
+    def test_context_interactions_are_checked_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             write_export(root)
@@ -575,7 +650,7 @@ class ScratchContextHardeningTests(unittest.TestCase):
             package = load_scratch(root)
 
         hardening = scratch_context_hardening(package)
-        self.assertIsNotNone(hardening["context_newline_warning"])
+        self.assertIsNone(hardening["context_newline_warning"])
         self.assertEqual(len(hardening["duplicate_symbols"]), 1)
         self.assertEqual(hardening["duplicate_symbols"][0]["symbol"], "prev_bmbuf")
         findings = hardening["context_lint"]["findings"]
@@ -616,7 +691,9 @@ class CheckScratchHardeningIntegrationTests(unittest.TestCase):
             status = main(arguments)
         return status, stdout.getvalue(), stderr.getvalue()
 
-    def test_check_scratch_surfaces_both_traps_in_the_terminal_and_json(self) -> None:
+    def test_check_scratch_surfaces_context_conflicts_in_terminal_and_json(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             write_export(root)
@@ -640,7 +717,7 @@ class CheckScratchHardeningIntegrationTests(unittest.TestCase):
 
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("warning: context does not end in a newline", stdout)
+        self.assertNotIn("context does not end in a newline", stdout)
         self.assertIn("prev_bmbuf is defined in both ctx.c", stdout)
         self.assertIn("always-true-by-absence", stdout)
 
@@ -648,7 +725,7 @@ class CheckScratchHardeningIntegrationTests(unittest.TestCase):
         self.assertEqual(json_status, 0)
         hardening = payload["context_hardening"]
         self.assertTrue(hardening["applicable"])
-        self.assertIsNotNone(hardening["context_newline_warning"])
+        self.assertIsNone(hardening["context_newline_warning"])
         self.assertEqual(len(hardening["duplicate_symbols"]), 1)
         self.assertEqual(len(hardening["context_lint"]["findings"]), 1)
 

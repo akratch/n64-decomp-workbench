@@ -26,16 +26,31 @@ verdict=schedule-mismatch aligned_total=   2 ...
 aligned residual classes: aligned_schedule=2
 ```
 
-This screen deliberately keeps two answers separate:
+This screen deliberately keeps three answers separate:
 
 - **decomp.me display score** is useful provenance from `metadata.json`;
-- **workbench truth** comes from comparing `target.o` with `current.o`, or
+- **linked-function exactness** masks linker-controlled relocation fields;
+- **local score-proxy exactness** requires identical pre-link instruction words
+  and relocation symbol/addend targets, and comes from comparing `target.o`
+  with `current.o`, or
   redistributable `target.objdump` with `current.objdump`.
 
-The score never overrides object evidence. `--fail-on-mismatch` returns `1`
-unless an available comparison is exact; `--json` emits the metadata,
-evidence source, source-composition semantics, comparison, and next actions as
-one report.
+The saved browser score never overrides freshly measured object evidence. For
+a scratch, `--fail-on-mismatch` returns `1` unless every raw instruction word
+and known relocation entry agrees. This is deliberately stricter than
+`compare`: two symbol/addend spellings can be equivalent after linking while
+decomp.me still assigns a
+non-zero score to their different unlinked words. JSON exposes both
+`decomp_me_score_proxy_exact` and `linked_function_exact`, plus the component
+gates `raw_instruction_words_exact` and `relocation_targets_exact`. “Proxy” is
+intentional: only the site can report the site's result. The local report also
+includes metadata, evidence source, source-composition semantics, and next
+actions.
+
+When linked exactness passes but the score proxy fails, inspect the
+`relocation-controlled` diff site. Match the target's relocation symbol and
+addend spelling before claiming 100%; a struct member at `base+offset` and a
+direct symbol at that final address are not necessarily score-equivalent.
 
 ## Validate your environment and handoff
 
@@ -67,14 +82,17 @@ every recorded SHA-256, but such a pre-upload bundle has no object comparison
 yet.
 
 On every decomp.me export it additionally runs the pre-paste hardening
-checks, each of which encodes a failure that cost a real campaign round-trips:
-a `ctx.c` that does not end in a newline (the site glues `code.c` straight
-onto it), a file-scope symbol defined in both files (the redefinition error
-never names the context as the other half), a directive the context makes
-vacuously true, and line-splice hazards in `code.c` — an intact
+checks, each of which encodes a failure that cost real campaign round-trips:
+a file-scope symbol defined in both files (the redefinition error never names
+the context as the other half), a directive the context makes vacuously true,
+and line-splice hazards in `code.c` — an intact
 statement-level splice is load-bearing for line-number ties (field-guide
 lever 25) and is listed so you re-check it after pasting, while a backslash
 followed by trailing whitespace is not a splice at all and is a warning.
+
+A missing final newline in `ctx.c` is safe: decomp.me inserts the
+language-aware source boundary before `code.c`, and the workbench's composed
+source does the same. Older workbench releases warned about this incorrectly.
 
 ## Recompile exactly as the site sees the source
 

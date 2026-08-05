@@ -79,6 +79,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("summary", "summarize function and allocator trace events"),
         ("fifo", "replay ugen pool get/put state"),
         ("globalcolor", "inspect a focused allocator decision"),
+        ("origin-probe", "classify one controlled edit's allocator-web delta"),
+        ("copy-decisions", "show coalesced-versus-temporary copy decisions"),
         ("alias", "inspect base-provenance and alias-query traces"),
         ("scheduler", "inspect named ready-set decisions and tie-breaks"),
         ("webs", "align allocator webs by semantic provenance"),
@@ -108,7 +110,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),
         ("diff", "compare compiler decisions by semantic web provenance"),
-        ("force", "run one calibrated causal force plus its baseline"),
+        ("force", "run a calibrated causal force set plus its baseline"),
         ("sweep", "run the full measured force grid as a cached campaign"),
         ("status", "render the latest durable sweep without recompiling"),
         ("export", "write self-contained JSON or HTML oracle evidence"),
@@ -136,6 +138,8 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("trace", "summary"): "trace-summary",
     ("trace", "fifo"): "trace-fifo",
     ("trace", "globalcolor"): "trace-globalcolor",
+    ("trace", "origin-probe"): "trace-origin-probe",
+    ("trace", "copy-decisions"): "trace-copy-decisions",
     ("trace", "alias"): "trace-alias",
     ("trace", "scheduler"): "trace-scheduler",
     ("trace", "webs"): "trace-webs",
@@ -526,8 +530,19 @@ def register_discovery_commands(
     completion.set_defaults(handler=completion_command)
 
     for group in ("object", "scratch", "trace", "instrument", "pass", "toolchain"):
+        entries = COMMAND_MAP[group]
+        width = max(len(operation) for operation, _description in entries)
+        operation_help = "\n".join(
+            f"  {group} {operation.ljust(width)}  {description}"
+            for operation, description in entries
+        )
         parser = commands.add_parser(
             group,
             help=f"{group} journey commands; run without arguments for a map",
+            description=(
+                "Grouped spellings and existing flat commands are both supported."
+            ),
+            epilog=operation_help,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         parser.set_defaults(handler=group_help_command)

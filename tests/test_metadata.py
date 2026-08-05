@@ -28,6 +28,13 @@ class MetadataTests(unittest.TestCase):
         self.assertNotIn("Diddy Kong", readme)
         self.assertNotIn("case-studies", readme)
 
+    def test_source_distribution_includes_linked_case_studies(self) -> None:
+        manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+        self.assertIn("recursive-include case-studies *.md", manifest)
+        for path in (ROOT / "case-studies").glob("*.md"):
+            self.assertTrue(path.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

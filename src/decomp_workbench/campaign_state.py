@@ -335,12 +335,78 @@ def _compact_record(record: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recover_experiment_metadata(
+    manifest: Mapping[str, Any], records: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Join legacy ledger rows back to experiment metadata in the manifest.
+
+    Experiment manifests are copied into campaign manifests, including absolute
+    candidate paths and the prepared source cache keys.  Older or stale CLI
+    entry points could therefore leave ``experiment: null`` in the ledger even
+    though the durable campaign manifest still has enough information to make
+    the result interpretable.  Recover that relationship by cache key rather
+    than by the display path recorded in the ledger, which depends on the
+    directory from which the campaign was launched.
+    """
+
+    experiment = manifest.get("experiment")
+    sources = manifest.get("sources")
+    if not isinstance(experiment, dict) or not isinstance(sources, list):
+        return records, 0
+    candidates = experiment.get("candidates")
+    if not isinstance(candidates, list):
+        return records, 0
+    parameters_by_source = {
+        str(candidate["source"]): candidate.get("parameters", {})
+        for candidate in candidates
+        if isinstance(candidate, dict) and "source" in candidate
+    }
+    source_by_key = {
+        str(source["cache_key"]): str(source["path"])
+        for source in sources
+        if isinstance(source, dict) and source.get("cache_key") and source.get("path")
+    }
+    recovered = 0
+    enriched: list[dict[str, Any]] = []
+    for record in records:
+        if isinstance(record.get("experiment"), dict):
+            enriched.append(record)
+            continue
+        source = source_by_key.get(str(record.get("cache_key", "")))
+        provenance = record.get("provenance")
+        if source is None and isinstance(provenance, dict):
+            provenance_source = provenance.get("source")
+            if isinstance(provenance_source, str):
+                source = provenance_source
+        if source not in parameters_by_source:
+            enriched.append(record)
+            continue
+        restored = dict(record)
+        restored["experiment"] = {
+            "schema": experiment.get("schema"),
+            "family": experiment.get("family"),
+            "parameters": parameters_by_source[source],
+            "parameter_space": experiment.get("parameters", {}),
+            "baseline": experiment.get("baseline"),
+            "manifest": experiment.get("path"),
+        }
+        enriched.append(restored)
+        recovered += 1
+    return enriched, recovered
+
+
 def build_status(manifest_path: str | Path) -> dict[str, Any]:
     """Build the compact cockpit report from a manifest and its ledger."""
 
     path = resolve_manifest(manifest_path)
     manifest = load_manifest(path)
     records, warnings = read_ledger(manifest["ledger"])
+    records, recovered_metadata = _recover_experiment_metadata(manifest, records)
+    if recovered_metadata:
+        warnings.append(
+            f"recovered experiment metadata for {recovered_metadata} ledger "
+            "record(s) from the campaign manifest"
+        )
     successful = [
         record for record in records if isinstance(record.get("comparison"), dict)
     ]

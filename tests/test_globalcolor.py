@@ -42,6 +42,23 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(report.decisions_for(3, web=10), [])
         self.assertEqual(report.unparsed_diagnostic_lines, [])
 
+    def test_filters_pre_globalcolor_lineage_by_procedure_and_table(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] lineage_range proc=0 event=0 table=1004 chain=0 "
+            "type=4 dtype=6\n"
+            "[CDX] lineage_member proc=0 event=1 table=1004 chain=0 "
+            "bb=10 line=2 flags=0,0,0,0,0,0\n"
+            "[CDX] lineage_range proc=1 event=0 table=688 chain=0 "
+            "type=3 dtype=6\n"
+        )
+        selected = report.lineage_for(0, tables={1004})
+        self.assertEqual(
+            [item.phase for item in selected],
+            ["lineage_range", "lineage_member"],
+        )
+        self.assertEqual(report.lineage_for(0, tables={688}), [])
+        self.assertEqual(len(report.lineage_for()), 3)
+
     def test_accepts_nonfinite_compiler_cost(self) -> None:
         report = parse_globalcolor_trace(
             "CSAVE bitpos=1 kind=1 dtype=13 unk1C=1 "
@@ -55,6 +72,18 @@ class GlobalColorTests(unittest.TestCase):
         payload = report.as_dict()
         self.assertEqual(item.color_costs[0].as_dict()["cost"], "inf")
         json.dumps(payload, allow_nan=False)
+
+    def test_excludes_ido_unavailable_cost_sentinel(self) -> None:
+        report = parse_globalcolor_trace(
+            "CSAVE bitpos=1 kind=1 dtype=13 unk1C=1 adjsave=1 unk23=0\n"
+            "CUP bitpos=1 reg=12 cs=1 "
+            "cost=100000002004087734272.000000\n"
+            "CUP bitpos=1 reg=18 cs=2 cost=5.5\n"
+        )
+        item = report.live_ranges[1]
+        self.assertEqual([entry.register for entry in item.finite_costs], [12, 18])
+        self.assertEqual([entry.register for entry in item.eligible_costs], [18])
+        self.assertFalse(item.color_costs[0].as_dict()["eligible"])
 
     def test_joins_allocator_decision_with_web_detail(self) -> None:
         report = parse_globalcolor_trace(
@@ -105,7 +134,7 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(detail["source_semantic"], "local:pending-flag")
         self.assertEqual(detail["semantic_reason"], "ir-local")
 
-    def test_conflicting_or_ambiguous_provenance_is_withheld(self) -> None:
+    def test_ambiguous_provenance_is_withheld(self) -> None:
         trace = parse_globalcolor_trace(
             "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=preselect "
             "source_semantic=local:first\n"
@@ -116,6 +145,25 @@ class GlobalColorTests(unittest.TestCase):
             "[CDX] p2dec phase=p2 proc=2 web=62 bestcolor=2 decision=color\n"
         )
         self.assertEqual(trace.allocator_webs(proc=2, web=62)[0].detail, {})
+
+    def test_forced_assignment_preserves_owner_and_reports_actual_color(self) -> None:
+        trace = parse_globalcolor_trace(
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=preselect "
+            "selected_color=12 selected_reg=t5 owner_sym=62 owner_type=3\n"
+            "[CDX] p2dec proc=2 phase=p2 web=62 bestcolor=12 bestreg=t5 "
+            "decision=color forced=18\n"
+            "[CDX] p2color proc=2 phase=p2 web=62 color=18 reg=s4 forced=18\n"
+            "[CDX] provenance_web proc=2 phase=p2 web=62 snapshot=postselect "
+            "selected_color=18 selected_reg=s4 owner_sym=62 owner_type=3\n"
+        )
+        item = trace.allocator_webs(proc=2, web=62)[0]
+        self.assertEqual(item.natural_color, 12)
+        self.assertEqual(item.assigned_color, 18)
+        self.assertEqual(item.assigned_register, "s4")
+        self.assertEqual(item.detail["owner_sym"], "62")
+        self.assertEqual(item.detail["preselect_selected_color"], "12")
+        self.assertEqual(item.detail["postselect_selected_color"], "18")
+        self.assertEqual(item.as_dict()["natural_register"], "t5")
 
     def test_a_decision_names_the_colors_a_force_cannot_take(self) -> None:
         """The mask decodes to the endpoints a CDX_FORCE probe would be declined for.
@@ -132,6 +180,8 @@ class GlobalColorTests(unittest.TestCase):
         )
         item = report.allocator_webs(proc=11, web=300)[0]
         self.assertEqual(item.forbidden_colors, [1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertIsNone(item.natural_color)
+        self.assertIsNone(item.assigned_color)
         self.assertEqual(item.as_dict()["forbidden_colors"], [1, 2, 3, 4, 5, 6, 7, 8])
 
     def test_a_decision_without_a_mask_claims_nothing(self) -> None:
@@ -139,6 +189,69 @@ class GlobalColorTests(unittest.TestCase):
             "[CDX] p1dec proc=46 web=240 bestcolor=17 decision=color\n"
         )
         self.assertEqual(report.allocator_webs(proc=46)[0].forbidden_colors, [])
+
+    def test_desired_register_barrier_names_interfering_owner(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2dec phase=p2 proc=0 web=100 bestcolor=18 "
+            "forbidden0=0x00080000 decision=color\n"
+            "[CDX] intf phase=p2 proc=0 web=100 other=60 assigned=12\n"
+            "[CDX] webdetail phase=p2 proc=0 role=neighbor web=60 "
+            "dtype=6 type=4 table=1004\n"
+        )
+        barrier = report.allocator_webs(proc=0, web=100)[0].color_barrier(12)
+        self.assertEqual(barrier["status"], "desired-forbidden")
+        self.assertEqual(
+            barrier["blocking_neighbors"],
+            [
+                {
+                    "phase": "p2",
+                    "web": 60,
+                    "force_key": "p2:w60",
+                    "assigned_color": 12,
+                    "assigned_register": "t5",
+                    "detail": {
+                        "phase": "p2",
+                        "proc": "0",
+                        "role": "neighbor",
+                        "web": "60",
+                        "dtype": "6",
+                        "type": "4",
+                        "table": "1004",
+                    },
+                }
+            ],
+        )
+        self.assertIn("p2:w60", str(barrier["advice"]))
+
+    def test_desired_register_barrier_names_ineligible_sentinel(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2cost phase=p2 proc=3 web=0 color=12 reg=t5 "
+            "kind=caller cost=100000002004087734272.000000\n"
+            "[CDX] p2cost phase=p2 proc=3 web=0 color=14 reg=s0 "
+            "kind=callee cost=4.5\n"
+            "[CDX] p2dec phase=p2 proc=3 web=0 bestcolor=14 "
+            "forbidden0=0x00000000 decision=color\n"
+        )
+        barrier = report.allocator_webs(proc=3, web=0)[0].color_barrier(12)
+        self.assertEqual(barrier["status"], "desired-ineligible")
+        self.assertTrue(barrier["desired_ineligible"])
+        self.assertIsNone(barrier["cost_gap"])
+        self.assertIn("unavailable-cost sentinel", str(barrier["advice"]))
+
+    def test_barrier_recognizes_an_already_natural_color(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2cost phase=p2 proc=3 web=0 color=12 reg=t5 "
+            "kind=caller cost=4.5\n"
+            "[CDX] p2dec phase=p2 proc=3 web=0 bestcolor=12 "
+            "forbidden0=0x00000000 decision=color\n"
+        )
+
+        item = report.allocator_webs(proc=3, web=0)[0]
+        barrier = item.color_barrier(12)
+
+        self.assertEqual(barrier["status"], "already-natural")
+        self.assertIn("already", str(barrier["advice"]))
+        self.assertEqual(item.as_dict()["decision_trace_ordinal"], 1)
 
     def test_names_stable_callee_saved_colors_and_filters_webs(self) -> None:
         report = parse_globalcolor_trace(

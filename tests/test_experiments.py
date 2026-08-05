@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from decomp_workbench.campaign import region_score
+from decomp_workbench.campaign_cli import _compact_parameter_evidence
 from decomp_workbench.cli import main
 from decomp_workbench.compare import compare_instructions
 from decomp_workbench.experiments import (
@@ -23,6 +24,23 @@ from decomp_workbench.objdump import parse_disassembly
 
 
 class ExperimentTests(unittest.TestCase):
+    def test_campaign_cockpit_compacts_large_parameter_evidence(self) -> None:
+        tested = [{"shape": str(index)} for index in range(64)]
+        tested_text, declared_text = _compact_parameter_evidence(
+            {
+                "tested_parameters": tested,
+                "tested_parameter_sets": 375,
+                "declared_parameter_space": {
+                    "shape": [str(index) for index in range(25)],
+                    "type": ["int", "s16", "s32", "u16", "u32"],
+                },
+            }
+        )
+        self.assertIn("375 assignment(s)", tested_text)
+        self.assertIn("+372 more", tested_text)
+        self.assertNotIn("'shape': '63'", tested_text)
+        self.assertEqual(declared_text, "shape=25 choice(s), type=5 choice(s)")
+
     def test_manifest_resolves_sources_and_parameter_space(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -101,6 +119,40 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(report["declared_combinations"], 2)
         self.assertEqual(report["described_candidates"], 1)
         self.assertFalse(report["complete_grid"])
+
+    def test_validate_summary_omits_the_full_candidate_list(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "baseline.c").write_text("int baseline;\n", encoding="utf-8")
+            (root / "candidate.c").write_text("int candidate;\n", encoding="utf-8")
+            manifest = root / "experiment.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema": EXPERIMENT_SCHEMA,
+                        "family": "compact-validation",
+                        "baseline": "baseline.c",
+                        "parameters": {"shape": ["one"]},
+                        "candidates": [
+                            {
+                                "source": "candidate.c",
+                                "parameters": {"shape": "one"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    ["experiment", "validate", str(manifest), "--json-summary"]
+                )
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(status, 0)
+        self.assertNotIn("candidates", report)
+        self.assertEqual(report["described_candidates"], 1)
+        self.assertEqual(report["family"], "compact-validation")
 
     def test_selected_region_scores_inside_and_outside_separately(self) -> None:
         target = parse_disassembly(
@@ -229,6 +281,93 @@ class ExperimentTests(unittest.TestCase):
         )
         self.assertEqual(report["families"][0]["object_basins"], 1)
         self.assertTrue(report["best"]["region"]["exact"])
+
+    def test_status_recovers_missing_ledger_experiment_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            source = root / "variant.c"
+            baseline = root / "baseline.c"
+            target.write_bytes(b"target")
+            source.write_text("int variant;\n", encoding="utf-8")
+            baseline.write_text("int baseline;\n", encoding="utf-8")
+            compiler = root / "compile.py"
+            compiler.write_text(
+                "import pathlib, sys\n"
+                "pathlib.Path(sys.argv[2]).write_bytes(b'object')\n",
+                encoding="utf-8",
+            )
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            experiment = root / "experiment.json"
+            experiment.write_text(
+                json.dumps(
+                    {
+                        "schema": EXPERIMENT_SCHEMA,
+                        "family": "legacy-family",
+                        "baseline": "baseline.c",
+                        "parameters": {"shape": ["named"]},
+                        "candidates": [
+                            {
+                                "source": "variant.c",
+                                "parameters": {"shape": "named"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    [
+                        "campaign",
+                        str(target),
+                        str(source),
+                        "--compile-command",
+                        f"{sys.executable} {compiler} {{source}} {{output}}",
+                        "--objdump",
+                        str(objdump),
+                        "--symbol",
+                        "demo",
+                        "--cache-dir",
+                        str(root / "cache"),
+                        "--state-dir",
+                        str(root / "state"),
+                        "--experiment-manifest",
+                        str(experiment),
+                        "--json-summary",
+                    ]
+                )
+            self.assertEqual(status, 0)
+            manifest = Path(json.loads(stdout.getvalue())["manifest"])
+            manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+            ledger = Path(manifest_data["ledger"])
+            record = json.loads(ledger.read_text(encoding="utf-8"))
+            record["experiment"] = None
+            ledger.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            # Older runs could prepare with one spelling of an objdump symlink
+            # and execute with another, changing the cache key while retaining
+            # the absolute source path in provenance.
+            manifest_data["sources"][0]["cache_key"] = "stale-preparation-key"
+            manifest.write_text(json.dumps(manifest_data) + "\n", encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                status = main(["campaign", "status", str(manifest), "--json"])
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(report["families"][0]["family"], "legacy-family")
+        self.assertEqual(
+            report["families"][0]["tested_parameters"], [{"shape": "named"}]
+        )
+        self.assertIn("recovered experiment metadata", report["warnings"][0])
 
 
 if __name__ == "__main__":

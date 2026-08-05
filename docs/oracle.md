@@ -47,6 +47,11 @@ decomp-workbench trace-source \
 semantic web fingerprints, so a harmless line-number edit cannot change web
 identity.
 
+That identity rule does **not** make `#line` an output-neutral tag. IDO can use
+logical statement boundaries during late scheduling under `-Xg0`. Preserve
+the real composed input, and treat any added marker as a source perturbation
+that must pass the same named-symbol fidelity gate as other experiments.
+
 This correlation is not source attribution. An allocator trace with web, color,
 owner, lineage, or line fields but no direct `source_semantic` is classified as
 **run-local/unattributed**. It can still support a bounded force experiment,
@@ -57,10 +62,11 @@ sentinels such as `unavailable`, `unknown`, `none`, and `no-source-metadata`
 are not semantic handles.
 
 Instrumented traces may carry this field on paired `[CDX] provenance_web`
-records rather than the allocator decision. The workbench joins it only when
-exactly one `preselect` and one `postselect` record agree on every shared
-field for the same procedure, phase, and web. Missing, duplicated, or
-conflicting snapshots remain run-local/unattributed.
+records rather than the allocator decision. The workbench joins stable fields
+when exactly one `preselect` and one `postselect` record exist for the same
+procedure, phase, and web. Expected selection changes are retained under
+explicit `preselect_`/`postselect_` names instead of causing owner provenance
+to disappear. Missing or duplicated snapshots remain run-local/unattributed.
 
 For cross-variant decisions, use:
 
@@ -71,6 +77,10 @@ decomp-workbench oracle diff target.cdx candidate.cdx --proc 7
 The diff aligns webs by type, virtual home, formation chain, and block
 provenance. Numeric web IDs are displayed only as trace-local handles.
 Ambiguous fingerprints are withheld rather than paired by position.
+Check `alignment coverage` first: a partial or zero-coverage result means broad
+provenance churn, so presence-only rows are not semantic insertion/removal
+claims. Reduce the pair to one controlled edit with `trace-origin-probe` before
+using it to choose source work.
 
 ## 3. Calibrate the external toolchain
 
@@ -103,7 +113,7 @@ The manifest contains identities and hashes, never compiler contents. If any
 copied file changes later, `toolchain status` reports failed integrity and the
 ready claim disappears.
 
-## 4. Force one hypothesis or sweep the measured grid
+## 4. Force one hypothesis, test an interaction, or sweep the measured grid
 
 Both operations require the same source, target, wrapper, trace, and calibrated
 toolchain:
@@ -118,6 +128,24 @@ decomp-workbench oracle force candidate.c \
   --force p2:w55=c2
 ```
 
+When no single force closes the residual, test the smallest interaction that
+the single-force deltas justify by comma-separating distinct web controls:
+
+```sh
+decomp-workbench oracle force candidate.c \
+  --trace candidate.cdx \
+  --target target.o \
+  --toolchain .decomp-workbench/toolchains/ido53-cdx \
+  --compile-command './compile-one.sh {source} -o {output}' \
+  --symbol function_name \
+  --force p1:w9=c4,p1:w14=c2,p2:w55=c14
+```
+
+The command validates every component against the measured plan and rejects a
+duplicate phase/web assignment. It still performs exactly one forced build
+plus its unforced control; it does not silently expand into a combinatorial
+sweep.
+
 Replace `force` with `sweep` to run every planned cell. The engine:
 
 - compiles one unforced baseline and every validated force;
@@ -128,6 +156,12 @@ Replace `force` with `sweep` to run every planned cell. The engine:
 - retains forced objects and an append-only ledger by default;
 - does not duplicate ledger observations when an identical sweep is reopened;
 - reports `one-force-exact(p2:w55=c2)` only as causal evidence.
+
+Each forced row also contains `emitted_effect`: a direct baseline-to-forced
+object delta with the changed instruction text. This is the fastest way to see
+that a web controls, for example, a particular field load and its downstream
+uses. It is object-level role evidence, not producer-emitted
+`source_semantic`, and the report states that boundary explicitly.
 
 State lives under `.decomp-workbench/oracle/<symbol>-<identity>/`. The identity
 includes source/target hashes, wrapper and objdump identities, working
@@ -156,7 +190,7 @@ existing path.
   decision under this controlled build.
 - An exact forced row with a failed or already-exact baseline is shown but
   withheld from the causal signature.
-- No exact force means only that the measured one-force grid did not close the
+- No exact single force means only that the measured one-force grid did not close the
   residual. It does not exonerate unrecorded colors, multi-web interactions,
   earlier passes, or source topology.
 

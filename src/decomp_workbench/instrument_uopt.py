@@ -104,9 +104,12 @@ static int dkwb_cdx_log;
 static int dkwb_cdx_proc = -1;
 static int dkwb_cdx_detail_web = -1;
 static int dkwb_cdx_globalcolor_ordinal = -1;
+static int dkwb_cdx_lineage_ordinal = -1;
+static int dkwb_cdx_lineage_event;
 static int dkwb_cdx_proc_decisions;
 static char dkwb_cdx_proc_symbol[256];
 static char dkwb_cdx_force[16384];
+static char dkwb_cdx_lineage_tables[256];
 static FILE *dkwb_cdx_output;
 DKWB_CDX_COLOR_TABLE
 static const char *dkwb_cdx_register_name(int color) {
@@ -187,6 +190,12 @@ static void dkwb_cdx_init(void) {
     value = getenv("CDX_DETAIL_WEB");
     dkwb_cdx_detail_web =
         value && strcmp(value, "all") == 0 ? -2 : (value ? atoi(value) : -1);
+    value = getenv("CDX_LINEAGE_TABLES");
+    if (value) {
+        strncpy(dkwb_cdx_lineage_tables, value,
+            sizeof(dkwb_cdx_lineage_tables) - 1);
+        dkwb_cdx_lineage_tables[sizeof(dkwb_cdx_lineage_tables) - 1] = '\0';
+    }
     value = getenv("CDX_FORCE");
     if (value) {
         strncpy(dkwb_cdx_force, value, sizeof(dkwb_cdx_force) - 1);
@@ -232,6 +241,69 @@ static void dkwb_cdx_init(void) {
 }
 static int dkwb_cdx_active(int ordinal) {
     return dkwb_cdx_proc < 0 || ordinal == dkwb_cdx_proc;
+}
+static int dkwb_cdx_emulated_pointer(uint32_t value);
+static int dkwb_cdx_lineage_table_selected(int table) {
+    const char *cursor = dkwb_cdx_lineage_tables;
+    if (!*cursor) return 0;
+    if (strcmp(cursor, "all") == 0) return 1;
+    while (*cursor) {
+        char *end;
+        long value = strtol(cursor, &end, 10);
+        if (end != cursor && value == table) return 1;
+        if (*end != ',') return 0;
+        cursor = end + 1;
+    }
+    return 0;
+}
+static void dkwb_cdx_lineage_begin(void) {
+    dkwb_cdx_init();
+    dkwb_cdx_lineage_ordinal++;
+    dkwb_cdx_lineage_event = 0;
+}
+static void dkwb_cdx_log_lineage_range(
+        uint8_t *mem, uint32_t ichain, uint32_t liverange) {
+    uint32_t expr;
+    int table;
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_lineage_ordinal) ||
+            !dkwb_cdx_emulated_pointer(ichain) ||
+            !dkwb_cdx_emulated_pointer(liverange)) return;
+    table = (int)MEM_U16(ichain + 4);
+    if (!dkwb_cdx_lineage_table_selected(table)) return;
+    expr = MEM_U32(ichain + 8);
+    if (!dkwb_cdx_emulated_pointer(expr)) expr = 0;
+    fprintf(dkwb_cdx_output,
+        "[CDX] lineage_range proc=%d event=%d table=%d chain=%d "
+        "type=%d dtype=%d sym=%d exprtable=%d exprchain=%d\n",
+        dkwb_cdx_lineage_ordinal, dkwb_cdx_lineage_event++, table,
+        (int)MEM_U16(ichain + 6), (int)MEM_U8(ichain + 0),
+        (int)MEM_U8(ichain + 1), (int)MEM_U16(ichain + 2),
+        expr ? (int)MEM_U16(expr + 8) : -1,
+        expr ? (int)MEM_U32(expr + 12) : -1);
+}
+static void dkwb_cdx_log_lineage_member(
+        uint8_t *mem, uint32_t ichain, uint32_t graphnode,
+        uint32_t liveblock) {
+    int table;
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_lineage_ordinal) ||
+            !dkwb_cdx_emulated_pointer(ichain) ||
+            !dkwb_cdx_emulated_pointer(liveblock)) return;
+    table = (int)MEM_U16(ichain + 4);
+    if (!dkwb_cdx_lineage_table_selected(table)) return;
+    fprintf(dkwb_cdx_output,
+        "[CDX] lineage_member proc=%d event=%d table=%d chain=%d "
+        "type=%d dtype=%d sym=%d bb=%d line=%d "
+        "flags=%d,%d,%d,%d,%d,%d\n",
+        dkwb_cdx_lineage_ordinal, dkwb_cdx_lineage_event++, table,
+        (int)MEM_U16(ichain + 6), (int)MEM_U8(ichain + 0),
+        (int)MEM_U8(ichain + 1), (int)MEM_U16(ichain + 2),
+        dkwb_cdx_emulated_pointer(graphnode) ?
+            (int)MEM_U16(graphnode + 8) : -1,
+        dkwb_cdx_emulated_pointer(graphnode) ?
+            (int)MEM_U32(graphnode + 308) : -1,
+        (int)MEM_U8(liveblock + 18), (int)MEM_U8(liveblock + 19),
+        (int)MEM_U8(liveblock + 20), (int)MEM_U8(liveblock + 21),
+        (int)MEM_U8(liveblock + 22), (int)MEM_U8(liveblock + 23));
 }
 static int dkwb_cdx_emulated_pointer(uint32_t value) {
     return value >= 0x10000000U && value < 0x20000000U;
@@ -383,7 +455,7 @@ class UoptInstrumentationResult:
     source: str
     input_sha256: str
     profile: str = "ido-5.3-static-recomp-v12"
-    trace_points: int = 10
+    trace_points: int = 13
 
 
 def _replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -414,10 +486,47 @@ def instrument_uopt_globalcolor(
     header = HEADER.replace("DKWB_CDX_COLOR_TABLE\n", color_register_table())
     result = _replace_once(
         source,
+        "static void f_formlivbb(uint8_t *mem, uint32_t sp, uint32_t a0, "
+        "uint32_t a1, uint32_t a2) {\n",
+        "static void dkwb_cdx_lineage_begin(void);\n"
+        "static void dkwb_cdx_log_lineage_range(uint8_t *mem, "
+        "uint32_t ichain, uint32_t liverange);\n"
+        "static void dkwb_cdx_log_lineage_member(uint8_t *mem, "
+        "uint32_t ichain, uint32_t graphnode, uint32_t liveblock);\n\n"
+        "static void f_formlivbb(uint8_t *mem, uint32_t sp, uint32_t a0, "
+        "uint32_t a1, uint32_t a2) {\n",
+        "lineage declarations",
+    )
+    result = _replace_once(
+        result,
         "static void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {\n",
         header
         + "\nstatic void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {\n",
         "instrumentation header",
+    )
+    result = _replace_once(
+        result,
+        "MEM_U32(v0 + 52) = zero;\nMEM_U32(v0 + 56) = zero;\ngoto L464644;",
+        "MEM_U32(v0 + 52) = zero;\n"
+        "MEM_U32(v0 + 56) = zero;\n"
+        "dkwb_cdx_log_lineage_range(mem, s0, v0);\n"
+        "goto L464644;",
+        "lineage range creation",
+    )
+    result = _replace_once(
+        result,
+        "L4647b8:\n// bdead 1 ra = MEM_U32(sp + 36);",
+        "L4647b8:\n"
+        "dkwb_cdx_log_lineage_member(mem, s0, MEM_U32(sp + 92), "
+        "MEM_U32(s1 + 0));\n"
+        "// bdead 1 ra = MEM_U32(sp + 36);",
+        "lineage member creation",
+    )
+    result = _replace_once(
+        result,
+        "L468998:\n//makelivranges:",
+        "L468998:\ndkwb_cdx_lineage_begin();\n//makelivranges:",
+        "lineage procedure entry",
     )
     result = _replace_once(
         result,

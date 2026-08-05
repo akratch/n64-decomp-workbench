@@ -79,6 +79,24 @@ instead of scanning an entire procedure:
 decomp-workbench trace-globalcolor uopt.log --proc 46 --web 240
 ```
 
+Ask for the barrier to one desired physical register when the mismatch is a
+register residue:
+
+```sh
+decomp-workbench trace-globalcolor uopt.log \
+  --proc 46 --web 240 --desired-register s4
+```
+
+For an eligible endpoint, the report gives the measured cost gap to the
+natural color. For a forbidden endpoint, a trace captured with
+`CDX_DETAIL_WEB=240` also names each already-colored interfering web occupying
+that register. Without targeted neighbor detail, the report explicitly asks
+for that recapture. IDO's finite unavailable-cost sentinel (approximately
+`1e20`) is reported as `ineligible`, not as an enormous affinity penalty.
+These are three different source-search problems: reshape overlap for
+interference, change relative priority or affinity for a real cost gap, and
+inspect register-class/availability constraints for an ineligible endpoint.
+
 `--proc` and `--web` hide unrelated legacy live-range rows. `--web` requires
 `--proc`, and an explicit lookup exits nonzero when its allocator data is
 absent. A missing lookup lists the procedure or web IDs that were actually
@@ -96,6 +114,11 @@ Supported formats:
 - `[CDX]`: selection, split/color, and force-choice decisions from the
   profiled instrumentation.
 
+CDX-only captures report `legacy-live-ranges=not-captured(CSAVE/CUP absent)` in
+text and `legacy_live_range_capture: "not-captured"` in JSON. This means the
+older `CSAVE`/`CUP` producer was not enabled; it does not claim the procedure
+had zero live ranges. Allocator-web decisions remain available from CDX.
+
 The report computes `total_save` as `adjusted_save × weight`. Field names are
 descriptive handles for the pinned generated source, not stable IDO API names.
 Non-finite values become `"inf"`, `"-inf"`, or `"nan"` in JSON.
@@ -111,17 +134,63 @@ decomp-workbench trace-webs candidate.cdx --against variant.cdx --proc 7
 
 Fingerprints use allocator phase, dtype/type, virtual-home fields,
 table/expression formation chain, and block provenance. Numeric IDs are
-trace-local handles. A fingerprint that is not unique on either side is
+trace-local handles. The opaque, address-like `raw14` observation remains in
+the evidence payload but is excluded from both exact identity and coarse
+topology: calibrated captures show it changing when the same web is recreated
+in another compiler run. A fingerprint that is not unique on either side is
 reported as ambiguous and withheld rather than paired by position.
+
+Read `alignment coverage` before reading the difference count. A broad source
+topology change can renumber table, block, and formation provenance so severely
+that most fingerprints disappear on one side. In that case presence rows are
+fingerprint churn, not proof that each web was inserted or removed. The command
+prints `partial` or `no-common-fingerprints` and routes to `trace-origin-probe`
+on one controlled edit (or to producer-emitted `source_semantic`) before any
+web-by-web causal claim.
 
 When neighbor records are present, the diff joins a newly forbidden color to
 the already-colored neighbor that occupies it, naming the neighbor's semantic
 fingerprint and decoded register where known.
 
+Forced traces preserve two different facts: `natural` is the allocator's
+pre-force best color, while `assigned` is the color actually written by the
+later color site. `trace webs --against` reports actual-assignment changes,
+natural-choice cascades, forbidden-mask changes, and force overrides
+separately. A force must never be presented as the allocator's natural choice.
+
+For one controlled source perturbation, use the three-layer origin probe:
+
+```sh
+decomp-workbench trace origin-probe baseline.log variant.log \
+  --proc 0 --role texture-value --synthetic
+```
+
+It reports exact semantic identity, a detailed run-local formation multiset,
+and a deliberately coarse topology multiset. `isolated-removal`,
+`isolated-insertion`, and `isolated-replacement` are M0 calibration results,
+not source attribution. Formation fields can renumber between compiler runs;
+coarse signatures can collide. Both facts remain visible in the report rather
+than being resolved by position or register color.
+
+The report also shows an `allocation economics` layer. It groups webs by
+phase, save/occurrence totals, interference count, and decision kind. It
+deliberately excludes optional web-detail fields so traces from different
+instrumentation profiles remain comparable.
+This often survives wholesale ICHAIN renumbering and can reveal that a unique
+100-save role moved from `w62(t5)` to `w29(a2)`. It is controlled-differential
+evidence, not semantic identity: repeated economics signatures are reported as
+collisions and never paired by position. The text report separates real color
+or interference changes from trace-local web-number renumbering and prints
+only the former as transitions.
+
 `trace-stack-homes TRACE --proc N [--offset VALUE]` classifies only homes for
 which the producer recorded evidence: named source local, compiler temporary,
 outgoing argument home, or allocator spill. Virtual offsets and final offsets
-stay separate; a missing final layout is `null`, not inferred.
+stay separate; a missing final layout is `null`, not inferred. If an ordinary
+globalcolor trace contains allocator webs but no stack-home fields, the command
+reports `no-stack-home-evidence` and says explicitly that the current profile
+cannot answer the query. Opaque `raw10`/`raw14` words are not guessed to be
+offsets; a calibrated producer hook is required.
 
 ## Correlate logical lines to source and listings
 
@@ -145,6 +214,20 @@ Neither correlation nor allocator metadata is a source semantic. Without a
 direct trace `source_semantic`, `trace-webs` and `oracle plan` classify the web
 as run-local/unattributed. Capture that field before turning a force result into
 a source-experiment recommendation.
+
+Do not add `#line` solely to manufacture that attribution. IDO uses logical
+statement lines as scheduling input even under `-Xg0`; changing them can
+reorder instructions while leaving allocator webs unchanged. A marker that
+correlates a listing is not a producer-emitted `source_semantic`.
+
+When a final web snapshot is too coarse, the pinned globalcolor profile can
+also record `lineage_range` and `lineage_member` before coloring. Filter it by
+ICHAIN table identity with `trace-globalcolor --proc N --lineage-table T`.
+This answers whether two source forms created the same live-block membership;
+it does not turn table `T` into a source variable name. The lineage producer's
+procedure number is a separately counted `makelivranges` invocation ordinal;
+confirm paired lineage and globalcolor records before relying on that run-local
+join.
 
 ## Plan a causal allocator probe
 

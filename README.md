@@ -196,7 +196,12 @@ decomp-workbench check-scratch "/path/to/scratch.zip" \
 ```
 
 `check-scratch` prints the browser score as context, then reports the
-relocation-aware, LCS-aligned truth. With `--compile-command`, it composes
+raw-object score proxy and relocation-aware, LCS-aligned function truth as
+separate gates. `--fail-on-mismatch` requires raw instruction identity and
+matching relocation symbol/addend targets for a decomp.me export, so a
+linker-equivalent relocation spelling cannot masquerade as a 100% site result.
+This is a local proxy, not a claim about decomp.me's service. With
+`--compile-command`, it composes
 `ctx.c`, decomp.me's language-aware `src.c`/`src.cxx` line reset, and the
 candidate source before compiling, eliminating a subtle source-line mismatch
 that can change IDO's `-g3` schedule. The report keeps preset, canonical

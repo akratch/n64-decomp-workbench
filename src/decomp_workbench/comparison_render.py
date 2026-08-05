@@ -50,6 +50,40 @@ def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, s
     return False, "mismatch"
 
 
+def scratch_score_acceptance(item: Comparison) -> tuple[bool, str]:
+    """Return the raw-object acceptance used by a decomp.me scratch.
+
+    Normal comparison masks linker-controlled relocation fields, so two
+    objects can be function-exact while decomp.me still gives a non-zero
+    score. The local proxy requires every pre-link instruction word and
+    relocation symbol/addend target to agree.
+    """
+
+    if item.raw_word_mismatches:
+        return False, "raw-instruction-word-mismatch"
+    if item.relocation_target_mismatches:
+        return False, "relocation-target-mismatch"
+    if not item.exact:
+        return False, "linked-function-mismatch"
+    return True, "local-score-proxy-exact"
+
+
+def scratch_comparison_payload(item: Comparison) -> dict[str, object]:
+    """Render comparison evidence with both linked and scratch acceptance."""
+
+    score_exact, basis = scratch_score_acceptance(item)
+    payload = comparison_payload(item, cross_rom=False)
+    payload.update(
+        accepted=score_exact,
+        acceptance_basis=basis,
+        decomp_me_score_proxy_exact=score_exact,
+        linked_function_exact=item.exact,
+        raw_instruction_words_exact=item.raw_word_mismatches == 0,
+        relocation_targets_exact=item.relocation_target_mismatches == 0,
+    )
+    return payload
+
+
 def comparison_payload(
     item: Comparison,
     *,
@@ -83,6 +117,28 @@ def comparison_explanation_lines(
     """
 
     lines: list[str] = []
+    if (
+        item.target_frame_size is not None
+        and item.candidate_frame_size is not None
+        and item.target_frame_size != item.candidate_frame_size
+    ):
+        difference = abs(item.candidate_frame_size - item.target_frame_size)
+        lines.append(
+            "frame mismatch: "
+            f"target={item.target_frame_size} "
+            f"candidate={item.candidate_frame_size} "
+            f"({difference}-byte difference)"
+        )
+        target_layout = item.target_frame_layout
+        candidate_layout = item.candidate_frame_layout
+        if target_layout and candidate_layout:
+            lines.append(
+                "frame evidence: "
+                f"save-slots={target_layout['observed_save_bytes']}->"
+                f"{candidate_layout['observed_save_bytes']} bytes; "
+                f"non-save={target_layout['non_save_frame_bytes']}->"
+                f"{candidate_layout['non_save_frame_bytes']} bytes"
+            )
     aligned = ", ".join(
         f"{key}={getattr(item, key)}"
         for key in ALIGNED_CLASS_KEYS

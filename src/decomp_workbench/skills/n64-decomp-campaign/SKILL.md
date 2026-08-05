@@ -135,7 +135,11 @@ a frontend question until pass-boundary evidence proves otherwise.
 ## Validate in the right order
 
 1. Accept `instruction-words-identical` or `instruction-exact` only as
-   function-level object evidence.
+   function-level object evidence. If the deliverable is a zero decomp.me
+   score, additionally require `check-scratch` to report
+   `decomp_me_score_proxy_exact=true`, with both
+   `raw_instruction_words_exact=true` and `relocation_targets_exact=true`;
+   `instruction-exact` alone can hide a scored relocation spelling.
 2. If local and browser results disagree, run `check-scratch` and reproduce the
    site's context/line reset before editing C.
 3. Run the project's normal build and whole-ROM or project-level verifier.

@@ -15,9 +15,10 @@ from .globalcolor import (
     register_for_color,
 )
 
-FINGERPRINT_SCHEMA = "decomp-workbench-allocator-webs-v1"
-DIFF_SCHEMA = "decomp-workbench-allocator-web-diff-v1"
+FINGERPRINT_SCHEMA = "decomp-workbench-allocator-webs-v2"
+DIFF_SCHEMA = "decomp-workbench-allocator-web-diff-v2"
 STACK_SCHEMA = "decomp-workbench-stack-homes-v1"
+ORIGIN_PROBE_SCHEMA = "decomp-workbench-origin-probe-v1"
 
 PROVENANCE_FIELDS = (
     "dtype",
@@ -45,8 +46,54 @@ PROVENANCE_FIELDS = (
     "merge_lineage_scope",
     "semantic_reason",
 )
+# ``raw14`` is retained as trace evidence, but calibrated IDO captures show it
+# changing when the same formation web is recreated in another compiler run.
+# Treating that address-like word as identity turns allocator deltas into two
+# false presence changes.  Keep fingerprint inputs explicit so future opaque
+# observations cannot accidentally become identity merely by being displayed.
+FINGERPRINT_FIELDS = tuple(field for field in PROVENANCE_FIELDS if field != "raw14")
+FINGERPRINT_FIELDS += ("source_semantic",)
+FINGERPRINT_EXCLUDED_OBSERVATIONS = ("raw14",)
 SOURCE_FIELDS = ("file", "line", "source", "expr", "listing")
 SOURCE_SEMANTIC_FIELD = "source_semantic"
+
+# Deliberately excludes numeric web IDs, colors, source symbols/spans, merge IDs,
+# and table IDs.  These fields often renumber after a one-line source edit.  The
+# remaining fields describe the web's compiler-visible shape, but do not prove
+# source identity; collisions are therefore reported rather than guessed away.
+TOPOLOGY_FIELDS = (
+    "dtype",
+    "type",
+    "chain",
+    "exprchain",
+    "bb",
+    "defbb",
+    "usebbs",
+    "ancestry",
+    "owner_type",
+    "owner_dtype",
+    "primary_ichain_chain",
+    "expr_chain",
+    "ir_bb",
+    "merge_lineage_scope",
+)
+FORMATION_FIELDS = (
+    "dtype",
+    "type",
+    "table",
+    "chain",
+    "exprtable",
+    "exprchain",
+    "bb",
+)
+ECONOMIC_DECISION_FIELDS = (
+    "class",
+    "save",
+    "nocs",
+    "totalsave",
+    "numintf",
+    "decision",
+)
 _MISSING_SOURCE_SEMANTICS = {
     "",
     "-",
@@ -80,6 +127,7 @@ class SemanticWeb:
     provenance: dict[str, str]
     source: dict[str, str]
     source_attribution: dict[str, str]
+    formation: dict[str, Any]
     neighbors: tuple[int, ...]
 
     def as_dict(self) -> dict[str, Any]:
@@ -90,12 +138,21 @@ class SemanticWeb:
             "proc": self.decision.proc,
             "numeric_web": self.decision.web,
             "force_key": self.decision.force_key,
+            "decision_trace_ordinal": self.decision.decision_trace_ordinal,
+            "economics": {
+                key: self.decision.fields.get(key)
+                for key in ("save", "nocs", "totalsave")
+                if self.decision.fields.get(key) is not None
+            },
             "provenance": self.provenance,
             "source": self.source,
             "source_attribution": self.source_attribution,
+            "formation": self.formation,
             "neighbors": list(self.neighbors),
             "assigned_color": self.decision.assigned_color,
             "assigned_register": self.decision.assigned_register,
+            "natural_color": self.decision.natural_color,
+            "natural_register": register_for_color(self.decision.natural_color),
             "forbidden_colors": self.decision.forbidden_colors,
             "forbidden_registers": [
                 {
@@ -157,12 +214,93 @@ def _neighbor_map(trace: GlobalColorTrace) -> dict[tuple[int, str, int], set[int
             neighbor = optional_integer(item.fields.get(key))
             if neighbor is not None:
                 result[(proc, phase, web)].add(neighbor)
+        if item.phase == "forbidproducer":
+            producer = optional_integer(item.fields.get("producer_web"))
+            if producer is not None:
+                result[(proc, phase, web)].add(producer)
         packed = item.fields.get("neighbors", "")
         for value in packed.split(","):
             neighbor = optional_integer(value)
             if neighbor is not None:
                 result[(proc, phase, web)].add(neighbor)
     return result
+
+
+def _formation_map(
+    trace: GlobalColorTrace,
+) -> tuple[
+    dict[tuple[int, int, int], dict[str, Any]],
+    dict[tuple[int, int], dict[str, Any]],
+]:
+    """Join opt-in formation events to the ICHAIN identity used by webdetail.
+
+    Formation events precede run-local allocator web numbers.  Keeping this
+    evidence separate from semantic identity lets the UI expose the ordering
+    question without pretending that table IDs or event numbers are stable
+    across source variants.
+    """
+
+    grouped: dict[tuple[int, int, int], dict[str, Any]] = {}
+    range_events_by_proc: dict[int, list[int]] = defaultdict(list)
+    for item in trace.lineage_for():
+        fields = item.fields
+        proc = optional_integer(fields.get("proc"))
+        table = optional_integer(fields.get("table"))
+        chain = optional_integer(fields.get("chain"))
+        event = optional_integer(fields.get("event"))
+        if None in {proc, table, chain}:
+            continue
+        assert proc is not None and table is not None and chain is not None
+        key = (proc, table, chain)
+        sym = optional_integer(fields.get("sym"))
+        record = grouped.setdefault(
+            key,
+            {
+                "status": "captured",
+                "procedure_ordinal_basis": "makelivranges-invocation",
+                "table": table,
+                "chain": chain,
+                "sym": sym,
+                "range_event": None,
+                "first_member_event": None,
+                "first_member_bb": None,
+                "member_bbs": [],
+                "member_count": 0,
+            },
+        )
+        if item.phase == "lineage_range":
+            if event is not None:
+                record["range_event"] = event
+                range_events_by_proc[proc].append(event)
+            continue
+        bb = optional_integer(fields.get("bb"))
+        record["member_count"] += 1
+        if bb is not None and bb not in record["member_bbs"]:
+            record["member_bbs"].append(bb)
+        first_event = record["first_member_event"]
+        if event is not None and (first_event is None or event < first_event):
+            record["first_member_event"] = event
+            record["first_member_bb"] = bb
+
+    ranks = {
+        proc: {event: rank for rank, event in enumerate(sorted(set(events)), 1)}
+        for proc, events in range_events_by_proc.items()
+    }
+    for (proc, _table, _chain), record in grouped.items():
+        event = record["range_event"]
+        record["formation_rank"] = ranks.get(proc, {}).get(event)
+        record["member_bbs"].sort()
+    sym_groups: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for (proc, _table, _chain), record in grouped.items():
+        sym = record["sym"]
+        if sym is not None:
+            sym_groups[(proc, sym)].append(record)
+    # A trace-local sym is only a safe fallback when it names exactly one
+    # formation range in the procedure.  Ambiguous aliases are withheld.
+    by_sym = {
+        key: records[0] for key, records in sym_groups.items() if len(records) == 1
+    }
+    return grouped, by_sym
 
 
 def semantic_webs(
@@ -173,6 +311,7 @@ def semantic_webs(
     """Derive stable handles from the trace's semantic provenance."""
 
     neighbors = _neighbor_map(trace)
+    formations, formations_by_sym = _formation_map(trace)
     result = []
     for decision in trace.allocator_webs(proc=proc):
         provenance = {
@@ -186,14 +325,39 @@ def semantic_webs(
             if decision.detail.get(key) not in {None, ""}
         }
         attribution = source_attribution(decision.detail)
+        table = optional_integer(decision.detail.get("table"))
+        chain = optional_integer(decision.detail.get("chain"))
+        sym = optional_integer(decision.fields.get("sym"))
+        formation = (
+            formations.get((decision.proc, table, chain))
+            if table is not None and chain is not None
+            else None
+        )
+        if formation is None and sym is not None:
+            formation = formations_by_sym.get((decision.proc, sym))
+        if formation is None:
+            formation = {
+                "status": "not-captured",
+                "next_gate": (
+                    "Capture this procedure with CDX_LINEAGE_TABLES=all (or "
+                    "the web's ICHAIN table) to inspect formation order."
+                ),
+            }
+        identity_provenance = {
+            key: provenance[key] for key in FINGERPRINT_FIELDS if key in provenance
+        }
+        if attribution["classification"] == "source-attributed":
+            identity_provenance[SOURCE_SEMANTIC_FIELD] = attribution[
+                SOURCE_SEMANTIC_FIELD
+            ]
         identity = {
             "phase": decision.phase_tag,
-            "provenance": provenance,
+            "provenance": identity_provenance,
         }
         fingerprint = hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:20]
-        evidence = len(provenance)
+        evidence = len(identity_provenance)
         confidence = "high" if evidence >= 6 else "medium" if evidence >= 3 else "low"
         result.append(
             SemanticWeb(
@@ -203,6 +367,7 @@ def semantic_webs(
                 provenance=provenance,
                 source=source,
                 source_attribution=attribution,
+                formation=formation,
                 neighbors=tuple(
                     sorted(neighbors[(decision.proc, decision.phase_tag, decision.web)])
                 ),
@@ -224,17 +389,32 @@ def web_report(trace: GlobalColorTrace, *, proc: int | None = None) -> dict[str,
     attributed = sum(
         web.source_attribution["classification"] == "source-attributed" for web in webs
     )
+    formation_captured = sum(web.formation["status"] == "captured" for web in webs)
     return {
         "schema": FINGERPRINT_SCHEMA,
         "proof": (
             "Fingerprints align semantic provenance. Numeric web IDs are shown "
-            "only as trace-local handles and are never treated as stable."
+            "only as trace-local handles and are never treated as stable. "
+            "Opaque raw14 is retained as evidence but excluded from identity."
         ),
+        "fingerprint_fields": list(FINGERPRINT_FIELDS),
+        "fingerprint_excluded_observations": list(FINGERPRINT_EXCLUDED_OBSERVATIONS),
         "webs": [web.as_dict() for web in webs],
         "web_count": len(webs),
         "low_confidence": sum(web.confidence == "low" for web in webs),
         "source_attributed_webs": attributed,
         "run_local_unattributed_webs": len(webs) - attributed,
+        "formation_captured_webs": formation_captured,
+        "formation_order_guidance": (
+            "Formation rank is construction chronology, not coloring priority. "
+            "Economics reports save/nocs/totalsave at the decision. "
+            "Decision-trace ordinal is the observed p1dec/p2dec order. Compare "
+            "paired traces: these are separate observations, and no one scalar "
+            "proves the source cause."
+            if formation_captured
+            else "Decision-trace ordinal shows observed selection order. Capture "
+            "CDX_LINEAGE_TABLES separately to make construction chronology visible."
+        ),
         "next_gate": (
             None
             if attributed
@@ -286,6 +466,14 @@ def _forbidden_causes(
     return causes
 
 
+def _causes_for_colors(
+    causes: list[dict[str, Any]], colors: set[int]
+) -> list[dict[str, Any]]:
+    """Select blocker evidence for a directional forbidden-mask delta."""
+
+    return [cause for cause in causes if cause["color"] in colors]
+
+
 def compare_semantic_webs(
     target: GlobalColorTrace,
     candidate: GlobalColorTrace,
@@ -299,7 +487,57 @@ def compare_semantic_webs(
     target_index, target_ambiguous = _index_unique(target_webs)
     candidate_index, candidate_ambiguous = _index_unique(candidate_webs)
     ambiguous = sorted(target_ambiguous | candidate_ambiguous)
-    rows = []
+    common_fingerprints = sorted(set(target_index) & set(candidate_index))
+    comparable_denominator = len(set(target_index) | set(candidate_index))
+    alignment_coverage = (
+        len(common_fingerprints) / comparable_denominator
+        if comparable_denominator
+        else None
+    )
+    if not target_webs and not candidate_webs:
+        alignment_status = "no-evidence"
+        proof = (
+            "Neither trace contains allocator-web evidence for the selected "
+            "procedure. No alignment or equality claim is possible."
+        )
+        next_gate = (
+            "Verify the procedure filter and capture globalcolor decision "
+            "records before comparing allocator webs."
+        )
+    elif comparable_denominator and not common_fingerprints:
+        alignment_status = "no-common-fingerprints"
+        proof = (
+            "No semantic alignment was established: every unique fingerprint "
+            "changed presence. Treat this as fingerprint churn across a broad "
+            "source-topology change, not as N proven web insertions/removals. "
+            "Use trace-origin-probe on one controlled edit or capture producer "
+            "source_semantic/formation lineage before interpreting decisions."
+        )
+        next_gate = (
+            "Reduce the comparison to one controlled source edit with "
+            "trace-origin-probe, or add producer-emitted source_semantic; this "
+            "pair cannot support a web-by-web causal claim."
+        )
+    elif ambiguous or (alignment_coverage is not None and alignment_coverage < 1.0):
+        alignment_status = "partial"
+        proof = (
+            "Semantic fingerprints align only the reported common subset; "
+            "presence-only rows outside it may be provenance churn. Ambiguous "
+            "fingerprints are withheld rather than guessed."
+        )
+        next_gate = (
+            "Interpret decision deltas only for common fingerprints; calibrate "
+            "presence changes with trace-origin-probe before source advice."
+        )
+    else:
+        alignment_status = "aligned"
+        proof = (
+            "Semantic alignment, not numeric web-line diff. Ambiguous "
+            "fingerprints are withheld rather than guessed. Opaque raw14 is "
+            "retained as evidence but excluded from identity."
+        )
+        next_gate = None
+    rows: list[dict[str, Any]] = []
     for fingerprint in sorted(set(target_index) | set(candidate_index)):
         expected = target_index.get(fingerprint)
         actual = candidate_index.get(fingerprint)
@@ -309,36 +547,402 @@ def compare_semantic_webs(
         else:
             if expected.decision.assigned_color != actual.decision.assigned_color:
                 changed.append("assigned_color")
+            if expected.decision.natural_color != actual.decision.natural_color:
+                changed.append("natural_color")
             if expected.decision.forbidden_colors != actual.decision.forbidden_colors:
                 changed.append("forbidden_colors")
             if expected.source != actual.source:
                 changed.append("source_correlation")
         if changed:
+            target_causes = _forbidden_causes(expected, target_webs) if expected else []
+            candidate_causes = (
+                _forbidden_causes(actual, candidate_webs) if actual else []
+            )
+            target_colors = (
+                set(expected.decision.forbidden_colors) if expected else set()
+            )
+            candidate_colors = (
+                set(actual.decision.forbidden_colors) if actual else set()
+            )
             rows.append(
                 {
                     "fingerprint": fingerprint,
                     "changed": changed,
                     "target": expected.as_dict() if expected else None,
                     "candidate": actual.as_dict() if actual else None,
-                    "target_forbidden_causes": (
-                        _forbidden_causes(expected, target_webs) if expected else []
+                    "target_forbidden_causes": target_causes,
+                    "candidate_forbidden_causes": candidate_causes,
+                    "target_only_forbidden_causes": _causes_for_colors(
+                        target_causes, target_colors - candidate_colors
                     ),
-                    "candidate_forbidden_causes": (
-                        _forbidden_causes(actual, candidate_webs) if actual else []
+                    "candidate_only_forbidden_causes": _causes_for_colors(
+                        candidate_causes, candidate_colors - target_colors
                     ),
                 }
             )
     return {
         "schema": DIFF_SCHEMA,
-        "proof": (
-            "Semantic alignment, not numeric web-line diff. Ambiguous "
-            "fingerprints are withheld rather than guessed."
-        ),
+        "proof": proof,
+        "next_gate": next_gate,
+        "alignment_status": alignment_status,
+        "common_fingerprints": len(common_fingerprints),
+        "alignment_denominator": comparable_denominator,
+        "alignment_coverage": alignment_coverage,
+        "fingerprint_fields": list(FINGERPRINT_FIELDS),
+        "fingerprint_excluded_observations": list(FINGERPRINT_EXCLUDED_OBSERVATIONS),
         "differences": rows,
         "difference_count": len(rows),
+        "decision_summary": {
+            "actual_assignment_changes": sum(
+                "assigned_color" in row["changed"] for row in rows
+            ),
+            "natural_choice_changes": sum(
+                "natural_color" in row["changed"] for row in rows
+            ),
+            "forbidden_mask_changes": sum(
+                "forbidden_colors" in row["changed"] for row in rows
+            ),
+            "candidate_force_overrides": [
+                {
+                    "fingerprint": row["fingerprint"],
+                    "force_key": row["candidate"]["force_key"],
+                    "natural_register": row["candidate"]["natural_register"],
+                    "assigned_register": row["candidate"]["assigned_register"],
+                }
+                for row in rows
+                if row["candidate"] is not None
+                and row["candidate"]["natural_color"]
+                != row["candidate"]["assigned_color"]
+            ],
+        },
         "ambiguous_fingerprints": ambiguous,
         "target_webs": len(target_webs),
         "candidate_webs": len(candidate_webs),
+    }
+
+
+def _topology_key(web: SemanticWeb) -> str:
+    """Return a deliberately coarse, run-independent topology signature."""
+
+    shape = {
+        "phase": web.decision.phase_tag,
+        "shape": {
+            key: web.decision.detail[key]
+            for key in TOPOLOGY_FIELDS
+            if web.decision.detail.get(key) not in {None, ""}
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(shape, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _topology_groups(webs: list[SemanticWeb]) -> dict[str, list[SemanticWeb]]:
+    grouped: dict[str, list[SemanticWeb]] = defaultdict(list)
+    for web in webs:
+        grouped[_topology_key(web)].append(web)
+    return grouped
+
+
+def _formation_key(web: SemanticWeb) -> str:
+    """Return the detailed, run-local formation shape used for M0 probes."""
+
+    shape = {
+        "phase": web.decision.phase_tag,
+        "formation": {
+            key: web.decision.detail[key]
+            for key in FORMATION_FIELDS
+            if web.decision.detail.get(key) not in {None, ""}
+        },
+        "logical_line": web.source.get("line"),
+    }
+    return hashlib.sha256(
+        json.dumps(shape, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _formation_groups(webs: list[SemanticWeb]) -> dict[str, list[SemanticWeb]]:
+    grouped: dict[str, list[SemanticWeb]] = defaultdict(list)
+    for web in webs:
+        grouped[_formation_key(web)].append(web)
+    return grouped
+
+
+def _economic_key(web: SemanticWeb) -> str:
+    """Return a controlled-differential allocator-economics signature.
+
+    Decision-phase and save/cost dimensions often survive wholesale ICHAIN
+    renumbering and instrumentation-profile changes. They are not identities:
+    several unrelated webs can have the same economics. The origin probe
+    therefore exposes collisions and aligns only signatures unique on both
+    sides.
+    """
+
+    shape = {
+        "phase": web.decision.phase_tag,
+        "decision": {
+            key: web.decision.fields[key]
+            for key in ECONOMIC_DECISION_FIELDS
+            if web.decision.fields.get(key) not in {None, ""}
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(shape, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _economic_groups(webs: list[SemanticWeb]) -> dict[str, list[SemanticWeb]]:
+    grouped: dict[str, list[SemanticWeb]] = defaultdict(list)
+    for web in webs:
+        grouped[_economic_key(web)].append(web)
+    return grouped
+
+
+def _economic_transitions(
+    baseline_groups: dict[str, list[SemanticWeb]],
+    variant_groups: dict[str, list[SemanticWeb]],
+) -> list[dict[str, Any]]:
+    """Describe changed unique economics signatures without claiming identity."""
+
+    rows: list[dict[str, Any]] = []
+    for key in sorted(set(baseline_groups) & set(variant_groups)):
+        before = baseline_groups[key]
+        after = variant_groups[key]
+        if len(before) != 1 or len(after) != 1:
+            continue
+        baseline_web = before[0]
+        variant_web = after[0]
+        changed = []
+        if baseline_web.decision.web != variant_web.decision.web:
+            changed.append("trace_local_web")
+        if baseline_web.decision.natural_color != variant_web.decision.natural_color:
+            changed.append("natural_color")
+        if baseline_web.decision.assigned_color != variant_web.decision.assigned_color:
+            changed.append("assigned_color")
+        if (
+            baseline_web.decision.forbidden_colors
+            != variant_web.decision.forbidden_colors
+        ):
+            changed.append("forbidden_colors")
+        if changed:
+            rows.append(
+                {
+                    "economics_fingerprint": key,
+                    "changed": changed,
+                    "baseline": {
+                        "trace_local_web": baseline_web.decision.web,
+                        "natural_color": baseline_web.decision.natural_color,
+                        "natural_register": register_for_color(
+                            baseline_web.decision.natural_color
+                        ),
+                        "assigned_color": baseline_web.decision.assigned_color,
+                        "assigned_register": baseline_web.decision.assigned_register,
+                    },
+                    "variant": {
+                        "trace_local_web": variant_web.decision.web,
+                        "natural_color": variant_web.decision.natural_color,
+                        "natural_register": register_for_color(
+                            variant_web.decision.natural_color
+                        ),
+                        "assigned_color": variant_web.decision.assigned_color,
+                        "assigned_register": variant_web.decision.assigned_register,
+                    },
+                }
+            )
+    return rows
+
+
+def _multiset_delta(
+    baseline_groups: dict[str, list[SemanticWeb]],
+    variant_groups: dict[str, list[SemanticWeb]],
+    *,
+    fingerprint_label: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    removed: list[dict[str, Any]] = []
+    added: list[dict[str, Any]] = []
+    collision_keys: list[str] = []
+    for key in sorted(set(baseline_groups) | set(variant_groups)):
+        before = baseline_groups.get(key, [])
+        after = variant_groups.get(key, [])
+        if len(before) > 1 or len(after) > 1:
+            collision_keys.append(key)
+        delta = len(after) - len(before)
+        row = {
+            fingerprint_label: key,
+            "baseline_count": len(before),
+            "variant_count": len(after),
+        }
+        if delta < 0:
+            removed.extend([row] * -delta)
+        elif delta > 0:
+            added.extend([row] * delta)
+    return removed, added, collision_keys
+
+
+def origin_probe_report(
+    baseline: GlobalColorTrace,
+    variant: GlobalColorTrace,
+    *,
+    role: str,
+    proc: int | None = None,
+    source_semantic: str | None = None,
+    synthetic: bool = False,
+) -> dict[str, Any]:
+    """Classify one controlled source perturbation without inventing identity.
+
+    Exact semantic fingerprints remain the primary evidence.  A second,
+    deliberately coarse topology multiset answers the narrower calibration
+    question: did the edit add/remove one compiler-visible web shape?  It is
+    not source attribution, and collisions or color cascades make the result
+    ambiguous by construction.
+    """
+
+    baseline_webs = semantic_webs(baseline, proc=proc)
+    variant_webs = semantic_webs(variant, proc=proc)
+    has_evidence = bool(baseline_webs or variant_webs)
+    exact = compare_semantic_webs(baseline, variant, proc=proc)
+    baseline_formation = _formation_groups(baseline_webs)
+    variant_formation = _formation_groups(variant_webs)
+    baseline_economics = _economic_groups(baseline_webs)
+    variant_economics = _economic_groups(variant_webs)
+    baseline_groups = _topology_groups(baseline_webs)
+    variant_groups = _topology_groups(variant_webs)
+    formation_removed, formation_added, formation_collisions = _multiset_delta(
+        baseline_formation,
+        variant_formation,
+        fingerprint_label="formation_fingerprint",
+    )
+    topology_removed, topology_added, topology_collisions = _multiset_delta(
+        baseline_groups,
+        variant_groups,
+        fingerprint_label="topology_fingerprint",
+    )
+    economics_removed, economics_added, economics_collisions = _multiset_delta(
+        baseline_economics,
+        variant_economics,
+        fingerprint_label="economics_fingerprint",
+    )
+    economics_transitions = _economic_transitions(baseline_economics, variant_economics)
+    allocation_economics_transitions = [
+        row
+        for row in economics_transitions
+        if any(change != "trace_local_web" for change in row["changed"])
+    ]
+    economics_renumber_only = len(economics_transitions) - len(
+        allocation_economics_transitions
+    )
+
+    presence_rows = [
+        row for row in exact["differences"] if "presence" in row["changed"]
+    ]
+    common_change_rows = [
+        row for row in exact["differences"] if "presence" not in row["changed"]
+    ]
+    color_cascade = sum(
+        "assigned_color" in row["changed"] for row in common_change_rows
+    )
+    removed_count = len(formation_removed)
+    added_count = len(formation_added)
+    ambiguous = bool(formation_collisions or exact["ambiguous_fingerprints"])
+
+    if not has_evidence:
+        classification = "no-evidence"
+    elif not exact["difference_count"]:
+        classification = "no-effect"
+    elif not removed_count and not added_count:
+        classification = (
+            "allocation-cascade-only" if color_cascade else "provenance-only"
+        )
+    elif ambiguous or color_cascade:
+        classification = "ambiguous"
+    elif removed_count == 1 and added_count == 0:
+        classification = "isolated-removal"
+    elif removed_count == 0 and added_count == 1:
+        classification = "isolated-insertion"
+    elif removed_count == 1 and added_count == 1:
+        classification = "isolated-replacement"
+    else:
+        classification = "ambiguous"
+
+    attributed = sum(
+        web.source_attribution["classification"] == "source-attributed"
+        for web in baseline_webs + variant_webs
+    )
+    cascade_warning = (
+        "The controlled edit recolored existing webs without changing their "
+        "formation multiset. Re-compare the compiled object: a forced color is "
+        "diagnostic evidence, not a source solution, and collateral recolors "
+        "can regress lanes that were already correct."
+        if color_cascade
+        else None
+    )
+    if not has_evidence:
+        next_gate = (
+            "Verify the procedure filter and capture globalcolor decision "
+            "records in both runs before classifying the probe."
+        )
+    elif cascade_warning:
+        next_gate = (
+            "Re-compare the compiled object, then inspect every collateral "
+            "recolor before translating the forced decision into source."
+        )
+    elif attributed == 0:
+        next_gate = (
+            "Treat this only as an M0 role anchor; record producer-emitted "
+            "source_semantic or ICHAIN creation lineage before source advice."
+        )
+    else:
+        next_gate = "Inspect the producer-attributed exact diff before source advice."
+
+    return {
+        "schema": ORIGIN_PROBE_SCHEMA,
+        "role": role,
+        "source_semantic_label": source_semantic,
+        "evidence_status": "ready" if has_evidence else "no-allocator-web-evidence",
+        "classification": classification,
+        "claim_scope": (
+            "synthetic-calibration" if synthetic else "controlled-differential"
+        ),
+        "proof": (
+            "Exact fingerprints are primary. Run-local formation shapes may "
+            "calibrate one controlled M0 edit but do not survive arbitrary "
+            "compiler renumbering. Coarse topology exposes collisions and never "
+            "proves that a web came from the named source role."
+        ),
+        "counts": {
+            "baseline_webs": len(baseline_webs),
+            "variant_webs": len(variant_webs),
+            "exact_differences": exact["difference_count"],
+            "exact_presence_differences": len(presence_rows),
+            "common_web_color_changes": color_cascade,
+            "formation_removed": removed_count,
+            "formation_added": added_count,
+            "formation_collisions": len(formation_collisions),
+            "topology_removed": len(topology_removed),
+            "topology_added": len(topology_added),
+            "topology_collisions": len(topology_collisions),
+            "economics_removed": len(economics_removed),
+            "economics_added": len(economics_added),
+            "economics_collisions": len(economics_collisions),
+            "unique_economics_transitions": len(economics_transitions),
+            "allocation_economics_transitions": len(allocation_economics_transitions),
+            "economics_renumber_only": economics_renumber_only,
+            "producer_source_attributed_webs": attributed,
+        },
+        "formation_removed": formation_removed,
+        "formation_added": formation_added,
+        "formation_collision_fingerprints": formation_collisions,
+        "topology_removed": topology_removed,
+        "topology_added": topology_added,
+        "topology_collision_fingerprints": topology_collisions,
+        "economics_removed": economics_removed,
+        "economics_added": economics_added,
+        "economics_collision_fingerprints": economics_collisions,
+        "unique_economics_transitions": economics_transitions,
+        "allocation_economics_transitions": allocation_economics_transitions,
+        "cascade_warning": cascade_warning,
+        "exact_diff": exact,
+        "next_gate": next_gate,
     }
 
 
@@ -388,11 +992,8 @@ def stack_home_report(
 ) -> dict[str, Any]:
     """Report stack-home ownership, optionally centered on a final offset."""
 
-    homes = [
-        home
-        for web in semantic_webs(trace, proc=proc)
-        if (home := classify_stack_home(web)) is not None
-    ]
+    webs = semantic_webs(trace, proc=proc)
+    homes = [home for web in webs if (home := classify_stack_home(web)) is not None]
     selected = (
         [
             home
@@ -405,6 +1006,30 @@ def stack_home_report(
     counts: dict[str, int] = defaultdict(int)
     for home in homes:
         counts[str(home["kind"])] += 1
+    if not homes and webs:
+        capture_status = "no-stack-home-evidence"
+        next_gate = (
+            f"The trace contains {len(webs)} allocator web(s), but none carry "
+            "producer-emitted virtual_offset/final_offset evidence. The current "
+            "globalcolor profile cannot answer this query; add a calibrated "
+            "producer hook before recapturing. raw10/raw14 are opaque in this "
+            "profile and are not inferred as frame offsets."
+        )
+    elif not homes:
+        capture_status = "no-allocator-web-evidence"
+        next_gate = (
+            "No allocator webs were parsed for this procedure. Check --proc and "
+            "capture a detailed globalcolor trace before querying stack homes."
+        )
+    elif offset is not None and not selected:
+        capture_status = "offset-not-found"
+        next_gate = (
+            "Stack-home evidence exists, but no recorded virtual or final offset "
+            f"equals {offset}."
+        )
+    else:
+        capture_status = "ready"
+        next_gate = None
     return {
         "schema": STACK_SCHEMA,
         "proof": (
@@ -412,8 +1037,11 @@ def stack_home_report(
             "the producer explicitly recorded final frame layout."
         ),
         "homes": selected,
+        "allocator_web_count": len(webs),
         "home_count": len(homes),
         "selected_count": len(selected),
         "kinds": dict(sorted(counts.items())),
         "offset": offset,
+        "capture_status": capture_status,
+        "next_gate": next_gate,
     }

@@ -22,6 +22,39 @@ from .campaign_state import (
 from .experiments import EXPERIMENT_SCHEMA, RegionConstraint
 
 
+def _compact_parameter_evidence(family: dict[str, Any]) -> tuple[str, str]:
+    """Keep the cockpit readable when a real grid has hundreds of cells."""
+
+    tested = family.get("tested_parameters", [])
+    tested_count = int(family.get("tested_parameter_sets", len(tested)))
+    if tested_count <= 6:
+        tested_text = str(tested)
+    else:
+        sample = tested[:3]
+        tested_text = (
+            f"{tested_count} assignment(s); sample={sample} "
+            f"(+{tested_count - len(sample)} more; use --json for all "
+            "retained evidence)"
+        )
+
+    declared = family.get("declared_parameter_space", {})
+    declared_text = str(declared)
+    choice_count = (
+        sum(len(choices) for choices in declared.values() if isinstance(choices, list))
+        if isinstance(declared, dict)
+        else 0
+    )
+    if (len(declared_text) > 240 or choice_count > 12) and isinstance(declared, dict):
+        parts = []
+        for name, choices in declared.items():
+            if isinstance(choices, list):
+                parts.append(f"{name}={len(choices)} choice(s)")
+            else:
+                parts.append(f"{name}={choices}")
+        declared_text = ", ".join(parts)
+    return tested_text, declared_text
+
+
 def _print_status(report: dict[str, Any]) -> None:
     print(
         f"campaign: {report['status']} — {report['recorded_candidates']}/"
@@ -85,8 +118,9 @@ def _print_status(report: dict[str, Any]) -> None:
                 f"{family['object_basins']} basin(s), "
                 f"best={best.get('aligned_total')} [{state}]"
             )
-            print(f"    tested: {family['tested_parameters']}")
-            print(f"    declared: {family['declared_parameter_space']}")
+            tested, declared = _compact_parameter_evidence(family)
+            print(f"    tested: {tested}")
+            print(f"    declared: {declared}")
     if report.get("hypothesis"):
         print(f"hypothesis: {report['hypothesis']}")
     print(f"manifest: {report['manifest']}")

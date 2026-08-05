@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -193,6 +194,15 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(report["minimum_forces_to_exact"], 1)
         self.assertEqual(report["signature"], "one-force-exact(p2:w55=c2)")
         self.assertIn("never an acceptable source match", report["proof"])
+        exact_row = next(
+            row for row in report["results"] if row["force"] == "p2:w55=c2"
+        )
+        self.assertTrue(exact_row["emitted_effect"]["available"])
+        self.assertEqual(exact_row["emitted_effect"]["changed_site_count"], 1)
+        self.assertIn(
+            "not source_semantic",
+            exact_row["emitted_effect"]["proof_boundary"],
+        )
         self.assertTrue(all(row["cached"] for row in cached_report["results"]))
         self.assertTrue(cached_report["baseline"]["cached"])
         self.assertEqual(len(ledger_records), 3)
@@ -264,6 +274,123 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(report["exact_forces"], [])
         self.assertIsNone(report["signature"])
         self.assertIn("not causal", report["warnings"][0])
+
+    def test_exact_force_set_reports_its_actual_cardinality(self) -> None:
+        target = Instruction(0, "03e00008", "jr $ra")
+        mismatch = Instruction(0, "00001021", "move $v0,$zero")
+        baseline_comparison = compare_instructions(
+            [target],
+            [mismatch],
+            target_name="target",
+            candidate_name="baseline",
+            symbol=None,
+        )
+        exact_comparison = compare_instructions(
+            [target],
+            [target],
+            target_name="target",
+            candidate_name="forced",
+            symbol=None,
+        )
+        components = [
+            {"force": "p1:w9=c2", "phase": "p1", "web": 9, "color": 2},
+            {"force": "p2:w55=c1", "phase": "p2", "web": 55, "color": 1},
+        ]
+        baseline = CompileResult(
+            source="candidate.c",
+            command=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+            object_path=None,
+            comparison=baseline_comparison,
+            experiment={"baseline": True, "force": None},
+        )
+        forced = CompileResult(
+            source="candidate.c",
+            command=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+            object_path=None,
+            comparison=exact_comparison,
+            experiment={
+                "baseline": False,
+                "force": "p1:w9=c2,p2:w55=c1",
+                "phase": "combined",
+                "components": components,
+            },
+        )
+        plan = {
+            "schema": "decomp-workbench-oracle-plan-v1",
+            "procedure": 7,
+            "coverage": {},
+            "forces": [
+                {
+                    "force": "p1:w9=c2,p2:w55=c1",
+                    "phase": "combined",
+                    "web": None,
+                    "color": None,
+                    "register": "v1,v0",
+                    "components": components,
+                }
+            ],
+        }
+        with mock.patch(
+            "decomp_workbench.oracle.run_parameterized_campaign",
+            return_value=[baseline, forced],
+        ):
+            report = run_oracle_campaign(
+                plan,
+                source="candidate.c",
+                target="target.o",
+                template="compiler {source} {output}",
+                environment={},
+                cache_dir="cache",
+            )
+
+        self.assertEqual(report["minimum_forces_to_exact"], 2)
+        self.assertEqual(report["signature"], "force-set-exact(p1:w9=c2,p2:w55=c1)")
+
+    def test_force_cli_accepts_a_validated_multi_web_interaction(self) -> None:
+        arguments = argparse.Namespace(
+            trace="trace.log",
+            proc=None,
+            colors_p1=None,
+            colors_p2=None,
+            no_split=False,
+            force="p1:w9=c2,p2:w55=c1",
+        )
+        with mock.patch(
+            "decomp_workbench.oracle_cli._load",
+            return_value=parse_globalcolor_trace(TRACE),
+        ):
+            from decomp_workbench.oracle_cli import _plan_for_compile
+
+            selected = _plan_for_compile(arguments)
+        self.assertEqual(selected["force_count"], 1)
+        row = selected["forces"][0]
+        self.assertEqual(row["phase"], "combined")
+        self.assertEqual(len(row["components"]), 2)
+        self.assertEqual(row["force"], "p1:w9=c2,p2:w55=c1")
+
+    def test_force_cli_rejects_duplicate_phase_web_in_interaction(self) -> None:
+        arguments = argparse.Namespace(
+            trace="trace.log",
+            proc=None,
+            colors_p1=None,
+            colors_p2=None,
+            no_split=False,
+            force="p1:w9=c2,p1:w9=s",
+        )
+        with mock.patch(
+            "decomp_workbench.oracle_cli._load",
+            return_value=parse_globalcolor_trace(TRACE),
+        ):
+            from decomp_workbench.oracle_cli import _plan_for_compile
+
+            with self.assertRaisesRegex(ValueError, "same phase/web"):
+                _plan_for_compile(arguments)
 
     def test_persisted_status_and_exclusive_html_export_need_no_toolchain(
         self,

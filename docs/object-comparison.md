@@ -99,6 +99,12 @@ verdict chosen by volume sends the next experiment to the wrong layer.
 | `allocation-mismatch` | Opcode shape agrees, registers differ | Live ranges, declaration order, allocator traces |
 | `operand-mismatch` | Remaining immediate or offset differences | Inspect the localized sites |
 
+When registers differ and the stack adjustments also disagree, the report keeps the
+`allocation-mismatch` family but prints the frame delta before the residual and
+names frame recovery as a separate acceptance gate. A lower normalized
+register score never hides a wrong frame; inspect callee-save use, spills, and
+source-local stack homes before treating that candidate as progress.
+
 Three of these classes exist because volume-based naming misdirected real
 campaigns:
 
@@ -169,6 +175,7 @@ in `--explain-keys`.
 | `candidate_fp_register_uses` | Histogram of FP operands | Promotion/allocation comparison |
 | `verdict` | Product-level classification of the evidence | Decide whether to edit source, trace allocation, or verify the link |
 | `raw_difference_breakdown` | Why literal words differ | Separate instruction bits from relocation-controlled words |
+| `relocation_target_mismatches` | Positional relocation symbol/addend differences | Explain why a linked-function match can still fail the local scratch-score proxy |
 | `diff_sites` | Every differing site with its class | Read the residual without the verdict filtering it |
 | `diff_site_classes` | Count of differing sites per class | See the mechanism mix at a glance |
 | `structural_exact` | Opcode, normalized shape, registers, frame, and count agree | Cross-ROM/compiler-lineage evidence only |
@@ -288,6 +295,12 @@ in relocation kinds and prevents `exact=true`. The relocation-aware word
 metric remains useful when comparing an extracted/link-resolved target and an
 unlinked candidate, but the report does not silently call unequal relocation
 layouts exact.
+
+`relocation_target_mismatches` separately compares kind plus symbol/addend
+targets. It does not change generic linked-function exactness because two
+spellings may resolve to the same linked address. `check-scratch` requires it
+to be zero, together with raw instruction identity, for its local zero-score
+proxy.
 
 ### Linked-address aliases
 

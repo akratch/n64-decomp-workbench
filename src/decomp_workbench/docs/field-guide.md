@@ -485,6 +485,10 @@ consistent register substitution downstream that unifies the two sides.
 
 ### 17. K&R implicit-int return type
 
+**Gate:** use this only when the residue contains an actual `move`/copy-shaped
+site. A pure register bijection with no copy site is not evidence for this
+lever; skip to lever 19.
+
 ```c
 /* before */  void objprint(struct Obj *o) { ... }
 /* after  */  objprint(struct Obj *o) { ... }      /* K&R implicit int */
@@ -501,6 +505,10 @@ a negative result that was never actually tested.
 
 ### 18. CSE multiplicity
 
+**Gate:** use this only when the residue contains an actual `move`/copy-shaped
+site and the source visibly repeats the same expression. Do not infer
+"twice-referenced" from a register appearing at several assembly sites.
+
 ```c
 /* before */  a = f(p->q); b = g(p->q);        /* p->q referenced twice */
 /* after  */  t = p->q; a = f(t); b = g(t);    /* single occurrence */
@@ -514,6 +522,25 @@ to try when lever 17 does not move it (`objprint`, layer 2).
 Be aware that these two can be mutually exclusive — on `objprint` the two
 levers each fixed one half of the residual and no source form did both. When you
 hit that, you are at the boundary of source search.
+
+With an instrumented uopt, run `trace-copy-decisions` before building a source
+grid. The command reads every available snapshot and reports the first observed
+`COALESCE -> TEMPCOPY` transition. A transition directly bracketed by
+`pre-makelivranges` and `post-makelivranges` names `makelivranges` as the owning
+pass; a `pre-reemit` snapshot alone only locates the final symptom.
+
+Do not turn trace hash occupancy into a source claim. `rhs_hash_bucket` and its
+reported occupancy are collision-prone table observations. They do not prove
+that the RHS expression occurs twice in C. Lever 18 still requires a visibly
+repeated source expression. Likewise, a basic-block formation witness is
+correlated evidence, not proof that clearing that set will suppress one web
+without changing the rest of liveness.
+
+When spelling, declaration, and initializer grids plateau, run them through
+`campaign --show-basins`. If hundreds of variants collapse to a handful of
+identical object basins, stop permuting that frontend family and report the
+equivalence classes. The basin count is the result; the raw variant count is
+not progress.
 
 ---
 
@@ -531,6 +558,33 @@ canonicalize away or explode into unrelated changes. On `func_80053B24` the
 high-priority web (save 833) took `$s1` and the deferred one (save 0.67) got
 `$s2` by elimination; forcing only the high-priority web let the swap cascade
 naturally.
+
+Keep three observations separate: formation rank is construction chronology,
+`save`/`nocs`/`totalsave` are measured economics, and decision-trace ordinal is
+the observed `p1dec`/`p2dec` selection sequence. None is interchangeable with
+the others or sufficient source-cause proof by itself.
+
+This distinction mattered in the recorded SSSV
+[`func_802963D0_6A7A80`](https://github.com/akratch/n64-decomp-workbench/blob/main/case-studies/sssv-func-802963D0.md)
+campaign. A
+cancelled hot use formed a hidden web before the visible pointer and gave it
+`totalsave=101`; a side-effecting bridge formed it later and raised it to
+`2990`, yet reached the same downstream allocation while emitting unwanted
+instructions. A separate late instrumentation-only cost overwrite did *not*
+reorder anything because the allocator's list had already been established. A
+useful priority probe must act before list/queue construction, or compare
+natural paired builds; a late field overwrite cannot prove that the metric is
+irrelevant.
+
+That one-web example is not a cardinality rule. A one-bijection assembly diff
+is one *visible downstream outcome*; it does not prove one source web or one
+source edit. In that campaign, the same-looking residue required
+three optimizer-erased webs at two nested-loop boundaries to occupy `t5`, `s1`,
+and `s2` before the real pointer was colored. Pairwise and same-boundary dead
+locals all failed. Use forbidden-color producer evidence to measure the
+smallest causal set; if it is several webs, search their lifetime topology as a
+composition rather than forcing only the first one and declaring source search
+over.
 
 **What to do instead:** if your project has an instrumented static-recomp IDO,
 go straight to a forced-color probe rather than more variants. If it does not,
@@ -741,11 +795,53 @@ score-regressing corpse of one — is a warning.
 **See also:** lever 21 bisects whitespace for the same reason under accom
 lineage; lever 23 is the same variable one stage earlier, at macro expansion.
 The full campaign is
-[Case study: SSB64 `unref_800036B4`](../case-studies/ssb64-unref-800036B4.md).
+[Case study: SSB64 `unref_800036B4`](https://github.com/akratch/n64-decomp-workbench/blob/main/case-studies/ssb64-unref-800036B4.md).
 
 **Points here:** `verdict=schedule-mismatch` with identical allocation,
 `playbook=line-assignment-probe`, and any campaign whose line-number sweep found
 a plateau it cannot reach with one statement per line.
+
+## When allocation is exact but the frame is not
+
+### 26. Recover stack homes without losing the live-range topology
+
+**Diff looks like:** `verdict=frame-layout` / `playbook=stack-frame-recovery`:
+the instruction count, opcodes, and register lanes are identical, while only
+the negative prologue and positive epilogue `addiu sp,sp` immediates differ.
+
+This state is valuable but it is not a match. It proves the source has recreated
+the allocator decisions and isolates the remaining problem to source-local stack
+homes or frame layout. Do not follow a generic constant-audit recipe: the frame
+immediate is compiler-derived, not a literal to change in C.
+
+Before generating variants, read the `frame evidence` line from `object compare`
+or `object diagnose`. It separates observed callee-save slots from the remaining
+frame bytes. If save bytes differ, investigate the colored/saved register set.
+If save bytes agree and only non-save bytes differ, do not search callee-save
+permutations: investigate ABI padding, outgoing arguments, spills, or local/temp
+homes. “Non-save” is an evidence boundary, not a synonym for source locals.
+
+Start with an ablation table. Remove one suspect local at a time and record two
+axes for every build: normalized instruction residue and frame size. Then try
+narrow scalar types and `register` once each. If those plateau, preserve the
+same definition/use boundaries while replacing a phantom local with an existing
+value, reusing one local across disjoint webs, or splitting one source local into
+multiple webs. The objective is to keep the allocator's interference graph while
+removing a distinct stack home.
+
+If every existing local can be marked `register` without changing the residual
+or frame, stop trying to “cancel” the extra frame against those locals. That is
+evidence that the winning phantom/temporary itself owns the extra frame quantum;
+the next source shape must recreate its web without a distinct automatic home.
+
+Keep allocation-exact/wrong-frame candidates on the Pareto frontier. Discarding
+them because they fail the frame gate throws away the best diagnostic state;
+accepting them because normalized distance is zero is equally wrong. Final
+acceptance still requires the authentic compiler and the target frame.
+
+**Points here:** `verdict=frame-layout-mismatch` from `compare`,
+`verdict=frame-layout` from `view`/`diagnose`, and
+`playbook=stack-frame-recovery`.
 
 ## Dead families — do not spend variants here
 
@@ -778,6 +874,7 @@ valuable as any lever above.
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
+| `frame-layout` / `stack-frame-recovery` | 26 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |
 

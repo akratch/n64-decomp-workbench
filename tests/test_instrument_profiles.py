@@ -1,5 +1,8 @@
 """Tests for composing guarded uopt instrumentation profiles."""
 
+# The C fixture deliberately preserves decompiler-generated one-line signatures.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import unittest
@@ -20,6 +23,21 @@ static void f_base_in_reg(void) {
 t0 = a3 + t6;
 v0 = MEM_U32(t0 + 0);
 // fdead 400083eb MEM_U32(sp + 44) = s6;
+}
+static void f_formlivbb(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2) {
+uint32_t zero = 0;
+uint32_t v0 = 0, s0 = a0, s1 = a2;
+MEM_U32(sp + 92) = a1;
+MEM_U32(v0 + 52) = zero;
+MEM_U32(v0 + 56) = zero;
+goto L464644;
+L464644:
+L4647b8:
+// bdead 1 ra = MEM_U32(sp + 36);
+}
+static void f_makelivranges(uint8_t *mem, uint32_t sp) {
+L468998:
+//makelivranges:
 }
 static void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {
 }
@@ -63,7 +81,7 @@ class InstrumentProfilesTests(unittest.TestCase):
             allow_unverified_source=True,
         )
         self.assertEqual(result.profiles, ("alias", "globalcolor"))
-        self.assertEqual(result.trace_points, 12)
+        self.assertEqual(result.trace_points, 15)
         self.assertIn(ALIAS_MARKER, result.source)
         self.assertIn(GLOBALCOLOR_MARKER, result.source)
 

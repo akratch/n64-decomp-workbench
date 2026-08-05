@@ -89,6 +89,7 @@ decomp-workbench instrument-uopt-globalcolor \
 | `CDX_PROC=name` | Refused with an explanation; emits the `procindex` table so the ordinal can be chosen |
 | `CDX_DETAIL_WEB=N` | Emit IR metadata, interference neighbors, and every evaluated color cost for web `N` |
 | `CDX_DETAIL_WEB=all` | Emit IR metadata and every evaluated color cost for all allocator decisions, without neighbor expansion |
+| `CDX_LINEAGE_TABLES=688,1004` | Emit live-range creation and member records for these pre-globalcolor ICHAIN table IDs (`all` is accepted for small inputs) |
 | `CDX_OUT=FILE` | Write diagnostics to a file instead of stderr |
 | `CDX_FORCE=p1:w9=c30` | Force phase-one web 9 to color 30 for the selected procedure |
 | `CDX_FORCE=p2:w55=c2` | Force phase-two web 55 to color 2 for the selected procedure |
@@ -183,6 +184,31 @@ this prevents an experimental choice from being applied to the same web number
 in unrelated procedures. Here `wN` is the allocator bit position printed as
 `web=N`; `sym` is reported separately and is not the force key.
 
+#### Trace live-range formation before coloring
+
+`webdetail` is a final allocator snapshot. To see how the represented live
+range was formed, enable `CDX_LINEAGE_TABLES` together with `CDX_LOG=1` and a
+numeric `CDX_PROC`. The profile emits `lineage_range` when `formlivbb` creates
+the range and `lineage_member` for each live-block member, including the ICHAIN
+table/chain identity, block number, line, and six retained membership flags.
+Its `proc` is a run-local `makelivranges` invocation ordinal, counted
+independently from the later globalcolor hook. The pinned profile expects those
+calls to be one-to-one; confirm that the selected capture contains both lineage
+and allocator decisions before treating their ordinal join as evidence.
+
+Inspect one or more table identities without mixing procedure invocations:
+
+```sh
+decomp-workbench trace-globalcolor TRACE.log \
+  --proc 0 --lineage-table 688 --lineage-table 1004
+```
+
+When `--web` has a joined `webdetail.table`, the command automatically includes
+matching lineage records. Table/chain identities are earlier and usually more
+stable than run-local web numbers, but they are still compiler IR identities.
+They do not recover a C identifier or satisfy `source_semantic`; use controlled
+one-operation source probes for that attribution boundary.
+
 #### A forbidden color is declined, not fatal
 
 A web's interference mask forbids some colors outright. Forcing one of those
@@ -259,6 +285,36 @@ Every profile command validates the SHA and every source anchor. It refuses a
 different file by default. `--allow-unverified-source` exists for profile
 development, not routine use; review the resulting diff and run all fidelity
 gates.
+
+### Copy/coalescing decision traces
+
+Research producers may emit `CDXW ... COPYDEC` snapshots around live-range
+formation and coloring. Analyze a final snapshot with:
+
+```sh
+decomp-workbench trace-copy-decisions baseline.trace
+decomp-workbench trace-copy-decisions baseline.trace \
+  --against variant.trace --proc 0
+```
+
+The report treats `rhsformed=1 -> TEMPCOPY` and
+`rhsformed!=1 -> COALESCE` as direct producer observations. It aligns two
+final snapshots by the LHS virtual stack home and assignment ordinal, then
+shows formation, color, and outcome changes. That alignment is a controlled
+differential hypothesis, not source attribution; always compare the emitted
+objects too.
+
+`rhstable` and `rhschain` are exposed as `rhs_hash_bucket` and
+`rhs_hash_chain`. They are collision-prone hash-table observations. Earlier
+research notes incorrectly described a shared bucket as expression identity
+and its population as CSE multiplicity; distinct expressions have been
+observed in the same bucket. Numeric statement and bit IDs are run-local for
+the same reason. The analyzer warns about both limitations instead of turning
+them into source advice.
+
+The parser is supported, but the current copy-trace producer remains a
+hash-pinned research profile until its generator and full fidelity matrix are
+promoted alongside the existing uopt profiles.
 
 ### Scheduler-selection traces
 

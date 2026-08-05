@@ -28,6 +28,11 @@ STACK_OFFSET_RE = re.compile(r"(-?(?:0x[0-9a-fA-F]+|\d+))\(\$?sp\)")
 FRAME_RE = re.compile(
     r"(?:addiu|daddiu)\s+\$?sp\s*,\s*\$?sp\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))"
 )
+SAVE_SLOT_RE = re.compile(
+    r"^(?P<opcode>sw|sd|sdc1)\s+"
+    r"\$?(?P<register>s[0-8]|fp|ra|gp|f(?:20|22|24|26|28|30))\s*,\s*"
+    r"(?P<offset>-?(?:0x[0-9a-fA-F]+|\d+))\(\$?sp\)"
+)
 
 # Bits supplied or adjusted by the linker for relocations commonly emitted in
 # MIPS code sections. Unknown relocation kinds are deliberately *not* masked:
@@ -119,6 +124,60 @@ def frame_size(disassembly: str) -> int | None:
     return int(match.group(1), 0) if match else None
 
 
+def frame_save_layout(instructions: list[Instruction]) -> dict[str, object]:
+    """Partition a frame into observed save slots and everything else.
+
+    This is deliberately an assembly observation, not a claim that the
+    remainder is all source-local storage.  ABI padding, outgoing arguments,
+    spills, and compiler temporaries can all occupy non-save bytes.
+    """
+
+    adjustment = frame_size("\n".join(item.assembly for item in instructions))
+    slots: dict[int, tuple[int, set[str]]] = {}
+    for instruction in instructions:
+        match = SAVE_SLOT_RE.match(instruction.assembly.strip())
+        if match is None:
+            continue
+        opcode = match.group("opcode")
+        register = match.group("register")
+        offset = int(match.group("offset"), 0)
+        size = 4 if opcode == "sw" else 8
+        previous_size, registers = slots.setdefault(offset, (size, set()))
+        slots[offset] = (max(previous_size, size), registers)
+        registers.add(register)
+    rendered: list[dict[str, object]] = []
+    occupied_bytes: set[int] = set()
+    for offset, (size, slot_registers) in sorted(slots.items()):
+        rendered_registers = sorted(slot_registers)
+        occupied_bytes.update(range(offset, offset + size))
+        rendered_slot: dict[str, object] = {
+            "offset": offset,
+            "bytes": size,
+            "registers": rendered_registers,
+        }
+        if len(rendered_registers) == 1:
+            rendered_slot["register"] = rendered_registers[0]
+        rendered.append(rendered_slot)
+    save_bytes = len(occupied_bytes)
+    frame_bytes = None if adjustment is None else abs(adjustment)
+    exceeds_frame = frame_bytes is not None and save_bytes > frame_bytes
+    non_save = (
+        None if frame_bytes is None or exceeds_frame else frame_bytes - save_bytes
+    )
+    return {
+        "frame_adjustment": adjustment,
+        "observed_save_slots": rendered,
+        "observed_save_slot_count": len(rendered),
+        "observed_save_bytes": save_bytes,
+        "non_save_frame_bytes": non_save,
+        "save_bytes_exceed_frame": exceeds_frame,
+        "claim_boundary": (
+            "Non-save bytes are not automatically source locals; they may "
+            "include ABI padding, outgoing arguments, spills, or temporaries."
+        ),
+    }
+
+
 def stack_offsets(instructions: list[Instruction]) -> dict[int, int]:
     """Count stack-relative operands in an instruction sequence."""
 
@@ -196,6 +255,14 @@ def relocation_signature(instruction: Instruction) -> tuple[str, ...]:
     """Return relocation kinds without symbols or addends."""
 
     return tuple(item.kind for item in instruction.relocations)
+
+
+def relocation_target_signature(
+    instruction: Instruction,
+) -> tuple[tuple[str, str | None], ...]:
+    """Return relocation kinds together with their object-level targets."""
+
+    return tuple((item.kind, item.symbol) for item in instruction.relocations)
 
 
 # Integer and floating-point operations whose two source operands are
@@ -534,6 +601,8 @@ def comparison_guidance(
     site_classes: dict[str, int],
     instruction_multiset_equal: bool,
     aligned_counts: dict[str, int],
+    target_frame_size: int | None = None,
+    candidate_frame_size: int | None = None,
 ) -> tuple[str, list[str]]:
     """Return a concise verdict, the next action, and the field-guide on-ramp.
 
@@ -556,6 +625,8 @@ def comparison_guidance(
         site_classes=site_classes,
         instruction_multiset_equal=instruction_multiset_equal,
         aligned_counts=aligned_counts,
+        target_frame_size=target_frame_size,
+        candidate_frame_size=candidate_frame_size,
     )
     playbook = VERDICT_PLAYBOOKS.get(verdict)
     if playbook is not None:
@@ -581,6 +652,8 @@ def _comparison_guidance(
     site_classes: dict[str, int],
     instruction_multiset_equal: bool,
     aligned_counts: dict[str, int],
+    target_frame_size: int | None = None,
+    candidate_frame_size: int | None = None,
 ) -> tuple[str, list[str]]:
     """Return a concise verdict and the next useful user action."""
 
@@ -592,7 +665,10 @@ def _comparison_guidance(
                 [
                     "Instruction-exact: raw differences are linker-controlled "
                     f"relocation fields ({controlled} word(s)). "
-                    "No source change is indicated.",
+                    "No source change is indicated for a linked-project match.",
+                    "This is not raw-object exact: decomp.me can still assign a "
+                    "non-zero score for the relocation addend or symbol shape. "
+                    "Use check-scratch when a 100% site score is the goal.",
                     "Run the project's normal link or ROM verification "
                     "for the final proof.",
                 ],
@@ -632,6 +708,48 @@ def _comparison_guidance(
         for name, count in site_classes.items()
         if count and name != "relocation-controlled"
     }
+    frame_mismatch = (
+        target_frame_size is not None
+        and candidate_frame_size is not None
+        and target_frame_size != candidate_frame_size
+    )
+    # A compiler-sized frame appears twice in an otherwise identical function:
+    # the negative prologue adjustment and the positive epilogue adjustment.
+    # Calling that pair a generic constant mismatch sent users to flags and
+    # literals even when every opcode and register lane already matched.  Keep
+    # this deliberately narrow; a third immediate means there is more than a
+    # frame-size pair and belongs to the ordinary constant audit.
+    if (
+        frame_mismatch
+        and aligned_counts.get("aligned_constant") == 2
+        and not any(
+            aligned_counts.get(name)
+            for name in (
+                "aligned_structural",
+                "aligned_schedule",
+                "aligned_register",
+                "aligned_commutative",
+            )
+        )
+        and raw_difference_breakdown.get("instruction_bits") == 2
+        and not opcode_mismatches
+        and not instruction_delta
+        and not register_mismatches
+    ):
+        return (
+            "frame-layout-mismatch",
+            [
+                "Register allocation, opcode schedule, and instruction count "
+                "agree; only the symmetric stack adjustment differs "
+                f"(target {target_frame_size}, candidate {candidate_frame_size}).",
+                "Treat this as a stack-home/layout problem, not a literal "
+                "audit: preserve the successful live-range topology while "
+                "shrinking, reusing, or eliminating source-local homes.",
+                "Ablate one local at a time and record both normalized residue "
+                "and frame size; allocation-exact with the wrong frame is a "
+                "useful intermediate, not acceptance.",
+            ],
+        )
     if classes == {"constant"}:
         return (
             "constant-mismatch",
@@ -709,11 +827,34 @@ def _comparison_guidance(
             ],
         )
     if register_mismatches:
+        frame_mismatch = (
+            target_frame_size is not None
+            and candidate_frame_size is not None
+            and target_frame_size != candidate_frame_size
+        )
+        allocation_lead = (
+            "Opcode schedule matches, but the stack frame differs "
+            f"(target {target_frame_size}, candidate {candidate_frame_size}) "
+            "alongside the register-allocation residue."
+            if frame_mismatch
+            else "Opcode shape matches but register allocation differs."
+        )
+        frame_gate = (
+            [
+                "Treat frame recovery as a separate acceptance gate: inspect "
+                "callee-save usage, spills, and source-local stack homes. A "
+                "smaller normalized register score cannot compensate for a "
+                "wrong frame."
+            ]
+            if frame_mismatch
+            else []
+        )
         return (
             "allocation-mismatch",
             [
                 *mixed_site_callouts(site_classes),
-                "Opcode shape matches but register allocation differs.",
+                allocation_lead,
+                *frame_gate,
                 # `compare` reports exactness; it cannot tell a temp-FIFO
                 # phase from a pool position, and sending the reader to a
                 # trace first inverted the documented order of work on the
@@ -806,15 +947,22 @@ def compare_instructions(
         [relocation_signature(item) for item in target],
         [relocation_signature(item) for item in candidate],
     )
+    relocation_target_mismatches = positional_mismatches(
+        [relocation_target_signature(item) for item in target],
+        [relocation_target_signature(item) for item in candidate],
+    )
     candidate_payload = "".join(raw_candidate_words).encode("ascii")
+    target_frame = frame_size("\n".join(item.assembly for item in target))
+    candidate_frame = frame_size("\n".join(item.assembly for item in candidate))
+    target_frame_layout = frame_save_layout(target)
+    candidate_frame_layout = frame_save_layout(candidate)
     structural_exact = (
         len(target) == len(candidate)
         and sequence_distance(target_normalized, candidate_normalized) == 0
         and positional_mismatches(target_opcodes, candidate_opcodes) == 0
         and register_count == 0
         and fp_count == 0
-        and frame_size("\n".join(item.assembly for item in target))
-        == frame_size("\n".join(item.assembly for item in candidate))
+        and target_frame == candidate_frame
     )
     aligned, aligned_sites = aligned_residual_analysis(target, candidate)
     breakdown = raw_difference_breakdown(
@@ -840,7 +988,23 @@ def compare_instructions(
             == collections.Counter(candidate_normalized)
         ),
         aligned_counts=aligned,
+        target_frame_size=target_frame,
+        candidate_frame_size=candidate_frame,
     )
+    if target_frame != candidate_frame:
+        target_save_bytes = target_frame_layout["observed_save_bytes"]
+        candidate_save_bytes = candidate_frame_layout["observed_save_bytes"]
+        target_non_save = target_frame_layout["non_save_frame_bytes"]
+        candidate_non_save = candidate_frame_layout["non_save_frame_bytes"]
+        if target_save_bytes == candidate_save_bytes:
+            guidance.insert(
+                min(2, len(guidance)),
+                "Observed save slots account for the same "
+                f"{target_save_bytes} byte(s) on both sides; non-save frame "
+                f"bytes differ ({target_non_save} -> {candidate_non_save}). "
+                "Search ABI padding, outgoing arguments, spills, or local/temp "
+                "homes rather than the saved-register set.",
+            )
     return Comparison(
         candidate=candidate_name,
         target=target_name,
@@ -857,6 +1021,7 @@ def compare_instructions(
         aligned_constant=aligned["aligned_constant"],
         aligned_commutative=aligned["aligned_commutative"],
         relocation_metadata_mismatches=relocation_mismatches,
+        relocation_target_mismatches=relocation_target_mismatches,
         unknown_relocations=unknown_relocations,
         opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
         normalized_distance=sequence_distance(target_normalized, candidate_normalized),
@@ -864,8 +1029,8 @@ def compare_instructions(
         fp_register_mismatches=fp_count,
         register_mismatch_ranges=mismatch_ranges(register_bad),
         fp_mismatch_ranges=mismatch_ranges(fp_bad),
-        target_frame_size=frame_size("\n".join(item.assembly for item in target)),
-        candidate_frame_size=frame_size("\n".join(item.assembly for item in candidate)),
+        target_frame_size=target_frame,
+        candidate_frame_size=candidate_frame,
         candidate_fp_register_uses=fp_uses(candidate),
         candidate_stack_offsets=stack_offsets(candidate),
         candidate_sha1=hashlib.sha1(
@@ -882,6 +1047,8 @@ def compare_instructions(
         diff_site_classes=site_classes,
         aligned_diff_sites=aligned_sites,
         warnings=list(warnings),
+        target_frame_layout=target_frame_layout,
+        candidate_frame_layout=candidate_frame_layout,
     )
 
 

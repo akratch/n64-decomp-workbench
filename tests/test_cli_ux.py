@@ -66,6 +66,122 @@ class CliUxTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("--web requires --proc", stderr)
 
+    def test_lineage_table_requires_procedure(self) -> None:
+        status, _, stderr = self.run_cli(
+            ["trace-globalcolor", "unused.log", "--lineage-table", "1004"]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("--lineage-table requires --proc", stderr)
+
+    def test_trace_globalcolor_renders_formation_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] lineage_range proc=0 event=0 table=1004 chain=0 "
+                "type=4 dtype=6\n"
+                "[CDX] lineage_member proc=0 event=1 table=1004 chain=0 "
+                "bb=10 line=2 flags=0,0,0,0,0,0\n"
+                "[CDX] lineage_range proc=0 event=2 table=688 chain=0 "
+                "type=3 dtype=6\n",
+                encoding="utf-8",
+            )
+            status, stdout, stderr = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "0",
+                    "--lineage-table",
+                    "1004",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("lineage range: proc=0 event=0 table=1004", stdout)
+        self.assertIn("lineage member: proc=0 event=1 table=1004", stdout)
+        self.assertNotIn("table=688", stdout)
+        self.assertIn("lineage=2", stdout)
+        self.assertIn("allocator-webs=0 decisions=0", stdout)
+
+    def test_origin_probe_help_states_its_non_attribution_scope(self) -> None:
+        parser = build_parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        commands = subparsers.choices
+        help_text = " ".join(commands["trace-origin-probe"].format_help().split())
+        self.assertIn("controlled perturbation", help_text)
+        self.assertIn("does not claim source attribution", help_text)
+
+    def test_trace_group_help_lists_copy_decisions(self) -> None:
+        parser = build_parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+
+        help_text = subparsers.choices["trace"].format_help()
+
+        self.assertIn("trace copy-decisions", help_text)
+        self.assertIn("coalesced-versus-temporary", help_text)
+
+    def test_trace_comparisons_succeed_when_evidence_is_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            trace = root / "trace.log"
+            trace.write_text(
+                "[CDX] p2dec phase=p2 proc=0 web=1 bestcolor=12 decision=color\n",
+                encoding="utf-8",
+            )
+            status, _, stderr = self.run_cli(
+                ["trace-webs", str(trace), "--against", str(trace), "--proc", "0"]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+
+    def test_copy_diff_succeeds_when_only_candidate_has_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline = root / "baseline.log"
+            candidate = root / "candidate.log"
+            baseline.write_text("", encoding="utf-8")
+            candidate.write_text(
+                "CDXW 000001 p0 d2 COPYDEC tag=pre-reemit stmt=1 lhs=2 "
+                "rhs=3 rhsop=00 rhstable=0 rhschain=0 occ=0/0 rhsformed=1 "
+                "bbwit=0 lhscolor=1 rhscolor=2 lhsframe=fffffff0 -> TEMPCOPY\n",
+                encoding="utf-8",
+            )
+            status, _, stderr = self.run_cli(
+                [
+                    "trace-copy-decisions",
+                    str(baseline),
+                    "--against",
+                    str(candidate),
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+
+    def test_empty_origin_probe_is_not_a_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline = root / "baseline.log"
+            variant = root / "variant.log"
+            baseline.write_text("", encoding="utf-8")
+            variant.write_text("", encoding="utf-8")
+            status, stdout, stderr = self.run_cli(
+                ["trace-origin-probe", str(baseline), str(variant), "--role", "empty"]
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertIn("classification=no-evidence", stdout)
+
     def test_missing_web_lists_available_webs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             trace = Path(temp) / "globalcolor.log"
@@ -100,6 +216,21 @@ class CliUxTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(stdout, "")
         self.assertIn("available procedure(s): 3", stderr)
+
+    def test_cdx_only_trace_does_not_claim_zero_live_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] p2dec phase=p2 proc=0 web=9 bestcolor=12 decision=color\n",
+                encoding="utf-8",
+            )
+            status, stdout, stderr = self.run_cli(
+                ["trace-globalcolor", str(trace), "--proc", "0", "--web", "9"]
+            )
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("legacy-live-ranges=not-captured", stdout)
+        self.assertNotIn("live-ranges=0/0", stdout)
 
     def test_cross_rom_json_states_its_acceptance_basis(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -398,9 +529,95 @@ class CliUxTests(unittest.TestCase):
             )
         self.assertEqual(status, 0)
         self.assertIn("force_key=p2:w55", stdout)
-        self.assertIn("register=v1", stdout)
+        self.assertIn("natural=c2(v1) assigned=c2(v1)", stdout)
         self.assertIn("c2(v1):1.0", stdout)
         self.assertIn("selected c2 (v1)", stdout)
+
+    def test_trace_globalcolor_explains_desired_register_barrier(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] p2cost phase=p2 proc=0 web=62 color=12 reg=t5 "
+                "kind=caller cost=0.0 best_before=0.0\n"
+                "[CDX] p2cost phase=p2 proc=0 web=62 color=18 reg=s4 "
+                "kind=callee cost=5.5 best_before=0.0\n"
+                "[CDX] p2dec phase=p2 proc=0 web=62 class=1 save=100 "
+                "nocs=1 totalsave=100 bestcost=0 bestcolor=12 bestreg=t5 "
+                "forbidden0=0x7ff00000 decision=color\n",
+                encoding="utf-8",
+            )
+            status, stdout, _ = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "0",
+                    "--web",
+                    "62",
+                    "--desired-register",
+                    "s4",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("desired=c18(s4) cost=5.5", stdout)
+        self.assertIn("natural=c12(t5) cost=0.0 gap=5.5", stdout)
+        self.assertIn("make the natural color unavailable", stdout)
+        self.assertIn("a force tests the endpoint only", stdout)
+
+    def test_trace_globalcolor_names_forbidden_register_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] p2dec phase=p2 proc=0 web=100 bestcolor=18 "
+                "forbidden0=0x00080000 decision=color\n"
+                "[CDX] intf phase=p2 proc=0 web=100 other=60 assigned=12\n"
+                "[CDX] webdetail phase=p2 proc=0 role=neighbor web=60 "
+                "dtype=6 type=4 table=1004\n",
+                encoding="utf-8",
+            )
+            status, stdout, _ = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "0",
+                    "--web",
+                    "100",
+                    "--desired-register",
+                    "t5",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("blocker: p2:w60 assigned=c12(t5)", stdout)
+        self.assertIn("dtype=6 type=4 table=1004", stdout)
+
+    def test_trace_globalcolor_reports_ineligible_cost(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] p2cost phase=p2 proc=3 web=0 color=12 reg=t5 "
+                "kind=caller cost=100000002004087734272.000000\n"
+                "[CDX] p2cost phase=p2 proc=3 web=0 color=14 reg=s0 "
+                "kind=callee cost=4.5\n"
+                "[CDX] p2dec phase=p2 proc=3 web=0 bestcolor=14 "
+                "forbidden0=0x00000000 decision=color\n",
+                encoding="utf-8",
+            )
+            status, stdout, _ = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "3",
+                    "--web",
+                    "0",
+                    "--desired-register",
+                    "t5",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("gap=None forbidden=no ineligible=yes", stdout)
+        self.assertIn("unavailable-cost sentinel", stdout)
 
     def test_campaign_reports_what_stopping_early_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

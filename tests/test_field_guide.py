@@ -17,6 +17,7 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 from mips_asm import assemble
@@ -151,6 +152,69 @@ class PreprocessorAuditLeverTests(unittest.TestCase):
                 self.assertIn("lever 24:", text)
 
 
+class StackFrameRecoveryTests(unittest.TestCase):
+    """Lever 26: allocator-exact output must not route to literal search."""
+
+    TARGET: ClassVar[list[str]] = [
+        "addiu sp,sp,-40",
+        "sw ra,36(sp)",
+        "lw ra,36(sp)",
+        "addiu sp,sp,40",
+        "jr ra",
+        "nop",
+    ]
+    CANDIDATE: ClassVar[list[str]] = [
+        "addiu sp,sp,-56",
+        "sw ra,36(sp)",
+        "lw ra,36(sp)",
+        "addiu sp,sp,56",
+        "jr ra",
+        "nop",
+    ]
+
+    def test_compare_names_the_frame_pair_instead_of_a_literal(self) -> None:
+        result = compare_instructions(
+            instructions(self.TARGET),
+            instructions(self.CANDIDATE),
+            target_name="target",
+            candidate_name="candidate",
+            symbol=SYMBOL,
+        )
+        self.assertEqual(result.verdict, "frame-layout-mismatch")
+        guidance = "\n".join(result.guidance)
+        self.assertIn("stack-home/layout", guidance)
+        self.assertNotIn("flag, enum", guidance)
+        self.assertIn("lever 26:", guidance)
+
+    def test_view_routes_to_stack_frame_recovery(self) -> None:
+        view = build_view(
+            instructions(self.TARGET),
+            instructions(self.CANDIDATE),
+            target_name="target",
+            candidate_name="candidate",
+            symbol=SYMBOL,
+        )
+        self.assertEqual(view.verdict, "frame-layout")
+        self.assertEqual(view.playbook, "stack-frame-recovery")
+        guidance = "\n".join(view.guidance)
+        self.assertIn("allocator-winning live ranges", guidance)
+        self.assertIn("lever 26:", guidance)
+
+    def test_playbook_and_shipped_section_are_reachable(self) -> None:
+        self.assertEqual(field_guide.PLAYBOOK_LEVERS["stack-frame-recovery"], (26,))
+        self.assertEqual(
+            field_guide.VERDICT_PLAYBOOKS["frame-layout-mismatch"],
+            "stack-frame-recovery",
+        )
+        self.assertIn(26, field_guide.sections())
+        status, stdout, _ = run_cli(
+            ["guide", "stack-frame-recovery", "--pager", "never"]
+        )
+        self.assertEqual(status, 0)
+        self.assertIn("### 26.", stdout)
+        self.assertIn("allocation is exact", stdout.lower())
+
+
 class LeverMappingTests(unittest.TestCase):
     def test_every_playbook_lever_has_a_one_line_action(self) -> None:
         for playbook, levers in field_guide.PLAYBOOK_LEVERS.items():
@@ -177,6 +241,7 @@ class LeverMappingTests(unittest.TestCase):
         self.assertIn("lever 17:", text)
         self.assertIn("lever 18:", text)
         self.assertIn("lever 19:", text)
+        self.assertIn("decision-trace order", text)
         self.assertIn("decomp-workbench guide forced-color-oracle", text)
         self.assertIn("have an instrumented toolchain?", text)
         self.assertIn("don't have one?", text)

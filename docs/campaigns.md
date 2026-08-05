@@ -56,6 +56,17 @@ or identity prefix.
   a family is still moving or has collapsed;
 - the active `note`/hypothesis and interrupted-ledger warnings.
 
+Large parameter grids stay compact in the terminal: `status` prints the tested
+assignment count plus a three-row sample and summarizes oversized declared
+spaces as per-parameter choice counts. `status --json` retains the bounded
+machine-readable assignment evidence.
+
+If a legacy or stale invocation wrote `experiment: null` into ledger rows but
+the campaign manifest still contains the experiment and prepared sources,
+`status` reconstructs the family and assignments from source provenance. It
+adds a warning with the recovered row count; it never silently presents the
+reconstructed join as native ledger metadata.
+
 `resume` re-hashes the target and every remaining source, resolves the current
 wrapper and objdump, checks cwd/environment/toolchain identity, and refuses a
 changed envelope. It runs only cache keys absent from the ledger. A campaign
@@ -74,6 +85,10 @@ Keep source generation external, but make its hypothesis machine-readable:
 decomp-workbench experiment validate \
   examples/experiments/statement-grouping/experiment.json
 ```
+
+Use `--json-summary` for automation that needs validation counts and the proof
+boundary without embedding every candidate path. Plain `--json` retains the
+full resolved candidate list.
 
 The `decomp-workbench-experiment-v1` manifest records:
 
@@ -245,7 +260,11 @@ Two consequences worth stating plainly:
 
 - **`words=` is still the oracle.** A match is `exact=true` with `words=0`;
   `aligned_total=0` alone is not a match, because relocation-controlled and
-  displacement rows are outside the residual by design.
+  displacement rows are outside the residual by design. For a decomp.me score
+  target, use `check-scratch` and require both
+  `raw_instruction_words_exact=true` and `relocation_targets_exact=true`;
+  linked-equivalent relocation spellings can still carry a non-zero site
+  score.
 - **Ranking moved, verdicts did not.** The `verdict=` taxonomy is unchanged, so
   a saved ledger from an earlier release compares to a new one on every field
   except result order.

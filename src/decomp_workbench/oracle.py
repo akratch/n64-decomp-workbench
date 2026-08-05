@@ -10,6 +10,7 @@ from typing import Any
 from .allocator_analysis import compare_semantic_webs, semantic_webs
 from .artifacts import DEFAULT_STREAM_LIMIT
 from .campaign import ParameterizedCandidate, run_parameterized_campaign
+from .compare import compare_objects
 from .globalcolor import (
     GlobalColorTrace,
     optional_integer,
@@ -20,6 +21,7 @@ from .model import CompileResult
 PLAN_SCHEMA = "decomp-workbench-oracle-plan-v1"
 DIFF_SCHEMA = "decomp-workbench-oracle-diff-v1"
 SWEEP_SCHEMA = "decomp-workbench-oracle-sweep-v1"
+EFFECT_SCHEMA = "decomp-workbench-oracle-emitted-effect-v1"
 PHASES = ("p1", "p2")
 
 
@@ -273,6 +275,7 @@ def _compact_result(result: CompileResult) -> dict[str, Any]:
         "web": metadata.get("web"),
         "color": metadata.get("color"),
         "register": metadata.get("register"),
+        "components": metadata.get("components"),
         "baseline": bool(metadata.get("baseline")),
         "returncode": result.returncode,
         "cached": result.cached,
@@ -281,6 +284,97 @@ def _compact_result(result: CompileResult) -> dict[str, Any]:
         "object": result.object_path,
         "comparison": compact_comparison,
         "failure": result.stderr[-2048:] if comparison is None else None,
+    }
+
+
+def _emitted_force_effect(
+    baseline: CompileResult,
+    forced: CompileResult,
+    *,
+    objdump: str | None,
+    symbol: str | None,
+    section: str,
+) -> dict[str, Any]:
+    """Describe what one force changed in emitted code.
+
+    This is deliberately object-level attribution.  A changed field load often
+    makes a web's role obvious to a human, but the report does not promote that
+    observation into producer-emitted ``source_semantic`` evidence.
+    """
+
+    if baseline.object_path is None or forced.object_path is None:
+        return {
+            "schema": EFFECT_SCHEMA,
+            "available": False,
+            "reason": "baseline or forced object was not retained",
+        }
+    baseline_path = Path(baseline.object_path)
+    forced_path = Path(forced.object_path)
+    if not baseline_path.is_file() or not forced_path.is_file():
+        return {
+            "schema": EFFECT_SCHEMA,
+            "available": False,
+            "reason": "baseline or forced object is unavailable",
+        }
+    try:
+        comparison = compare_objects(
+            baseline_path,
+            forced_path,
+            objdump=objdump,
+            symbol=symbol,
+            section=section,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        return {
+            "schema": EFFECT_SCHEMA,
+            "available": False,
+            "reason": str(error),
+        }
+
+    all_sites = comparison.diff_sites
+    sites = [
+        {
+            "index": row.get("index"),
+            "class": row.get("class"),
+            "baseline": row.get("target"),
+            "forced": row.get("candidate"),
+        }
+        for row in all_sites
+        if row.get("class") != "relocation-controlled"
+    ]
+    relocation_sites = sum(
+        row.get("class") == "relocation-controlled" for row in all_sites
+    )
+    register_only = bool(sites) and all(row["class"] == "register" for row in sites)
+    if not sites and not relocation_sites and comparison.raw_word_mismatches == 0:
+        classification = "no-emitted-effect"
+    elif not sites and relocation_sites:
+        classification = "relocation-only-effect"
+    elif (
+        register_only
+        and comparison.instruction_delta == 0
+        and comparison.opcode_mismatches == 0
+    ):
+        classification = "instruction-neutral-register-effect"
+    else:
+        classification = "emitted-code-effect"
+    return {
+        "schema": EFFECT_SCHEMA,
+        "available": True,
+        "classification": classification,
+        "changed_site_count": len(sites),
+        "relocation_controlled_site_count": relocation_sites,
+        "changed_sites": sites,
+        "raw_word_mismatches": comparison.raw_word_mismatches,
+        "relocation_target_mismatches": comparison.relocation_target_mismatches,
+        "instruction_delta": comparison.instruction_delta,
+        "opcode_mismatches": comparison.opcode_mismatches,
+        "aligned_total": comparison.aligned_total,
+        "proof_boundary": (
+            "Controlled baseline-to-force object delta. Instruction text can "
+            "identify a likely value role, but this is not source_semantic and "
+            "forced output is never an acceptable source match."
+        ),
     }
 
 
@@ -363,7 +457,26 @@ def run_oracle_campaign(
         stream_limit=stream_limit,
         artifact_dir=artifact_dir,
     )
-    compact = [_compact_result(result) for result in results]
+    baseline_result = next(
+        (
+            result
+            for result in results
+            if isinstance(result.experiment, dict) and result.experiment.get("baseline")
+        ),
+        None,
+    )
+    compact = []
+    for result in results:
+        row = _compact_result(result)
+        if not row["baseline"] and baseline_result is not None:
+            row["emitted_effect"] = _emitted_force_effect(
+                baseline_result,
+                result,
+                objdump=objdump,
+                symbol=symbol,
+                section=section,
+            )
+        compact.append(row)
     baseline = next((row for row in compact if row["baseline"]), None)
     forced = [row for row in compact if not row["baseline"]]
     forced.sort(
@@ -390,14 +503,43 @@ def run_oracle_campaign(
     baseline_exact = bool(
         isinstance(baseline_comparison, dict) and baseline_comparison.get("exact")
     )
-    exact_forces = observed_exact_forces if control_valid and not baseline_exact else []
-    signature = (
-        f"one-force-exact({exact_forces[0]})"
-        if len(exact_forces) == 1
-        else f"one-force-exact({len(exact_forces)} alternatives)"
-        if exact_forces
-        else None
+    exact_rows = (
+        [
+            row
+            for row in forced
+            if isinstance(row["comparison"], dict) and row["comparison"]["exact"]
+        ]
+        if control_valid and not baseline_exact
+        else []
     )
+    exact_forces = [str(row["force"]) for row in exact_rows]
+    force_widths = [
+        len(row["components"])
+        if isinstance(row.get("components"), list) and row["components"]
+        else 1
+        for row in exact_rows
+    ]
+    minimum_forces = min(force_widths, default=None)
+    if not exact_forces:
+        signature = None
+    elif minimum_forces == 1:
+        signature = (
+            f"one-force-exact({exact_forces[0]})"
+            if len(exact_forces) == 1
+            else f"one-force-exact({len(exact_forces)} alternatives)"
+        )
+    else:
+        minimum_rows = [
+            force
+            for force, width in zip(exact_forces, force_widths, strict=True)
+            if width == minimum_forces
+        ]
+        signature = (
+            f"force-set-exact({minimum_rows[0]})"
+            if len(minimum_rows) == 1
+            else f"force-set-exact({minimum_forces} controls; "
+            f"{len(minimum_rows)} alternatives)"
+        )
     return {
         "schema": SWEEP_SCHEMA,
         "evidence": "diagnostic-oracle",
@@ -411,7 +553,7 @@ def run_oracle_campaign(
         "baseline_exact": baseline_exact,
         "observed_exact_forces": observed_exact_forces,
         "exact_forces": exact_forces,
-        "minimum_forces_to_exact": 1 if exact_forces else None,
+        "minimum_forces_to_exact": minimum_forces,
         "signature": signature,
         "ledger": str(Path(ledger).expanduser().resolve()) if ledger else None,
         "objects": (

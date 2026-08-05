@@ -19,7 +19,24 @@ from decomp_workbench.instrument_uopt import (
     parse_force_specification,
 )
 
-SOURCE = """\
+SOURCE = (
+    "static void f_formlivbb(uint8_t *mem, uint32_t sp, uint32_t a0, "
+    "uint32_t a1, uint32_t a2) {\n"
+    """\
+uint32_t zero = 0;
+uint32_t v0 = 0, s0 = a0, s1 = a2;
+MEM_U32(sp + 92) = a1;
+MEM_U32(v0 + 52) = zero;
+MEM_U32(v0 + 56) = zero;
+goto L464644;
+L464644:
+L4647b8:
+// bdead 1 ra = MEM_U32(sp + 36);
+}
+static void f_makelivranges(uint8_t *mem, uint32_t sp) {
+L468998:
+//makelivranges:
+}
 static void f_compute_save(uint8_t *mem, uint32_t sp, uint32_t a0) {
 }
 static void f_globalcolor(uint8_t *mem, uint32_t sp) {
@@ -52,6 +69,7 @@ L4727d4:
 t8 = MEM_U32(sp + 220);
 }
 """
+)
 
 
 # The emulated-memory accessors and a driver, so the injected header can be
@@ -75,6 +93,9 @@ int main(void) {
     (void)dkwb_cdx_lookup(0, "p2", 9);
     (void)dkwb_cdx_force_color(0, "p1", "dec", 9, 0, 0);
     (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
+    dkwb_cdx_lineage_begin();
+    dkwb_cdx_log_lineage_range(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_lineage_member(dkwb_test_memory, 0, 0, 0);
     dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
@@ -98,6 +119,9 @@ int main(int argc, char **argv) {
     (void)dkwb_cdx_active(0);
     (void)dkwb_cdx_lookup(0, "p2", 9);
     (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
+    dkwb_cdx_lineage_begin();
+    dkwb_cdx_log_lineage_range(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_lineage_member(dkwb_test_memory, 0, 0, 0);
     dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
@@ -189,6 +213,10 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn('"p2", (int)MEM_U32(sp + 272)', result.source)
         self.assertIn("dkwb_cdx_emulated_pointer", result.source)
         self.assertIn("CDX_DETAIL_WEB", result.source)
+        self.assertIn("CDX_LINEAGE_TABLES", result.source)
+        self.assertIn("[CDX] lineage_range", result.source)
+        self.assertIn("[CDX] lineage_member", result.source)
+        self.assertEqual(result.trace_points, 13)
         self.assertIn('strcmp(value, "all")', result.source)
         self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)
         self.assertIn("available0=0x%08x available1=0x%08x", result.source)

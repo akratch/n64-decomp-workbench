@@ -48,7 +48,8 @@ from .cli_options import (
 from .compare import compare_instructions, compare_objects
 from .comparison_render import comparison_line as comparison_line
 from .comparison_render import (
-    comparison_payload,
+    scratch_comparison_payload,
+    scratch_score_acceptance,
 )
 from .context_lint_cli import register_context_commands
 from .diagnose_cli import register_diagnose_commands
@@ -66,6 +67,8 @@ from .experiments import load_experiment, validate_campaign_sources
 from .fidelity_cli import register_fidelity_command
 from .fingerprint_cli import register_fingerprint_commands
 from .globalcolor import (
+    COLOR_REGISTERS,
+    color_for_register,
     optional_integer,
     parse_globalcolor_trace,
     register_for_color,
@@ -436,6 +439,13 @@ def _scratch_next_actions(
     evidence: str,
 ) -> list[str]:
     if comparison is not None and comparison.exact:
+        score_exact, _basis = scratch_score_acceptance(comparison)
+        if not score_exact:
+            return [
+                "The function is relocation-normalized exact, but the local "
+                "decomp.me score proxy still fails. Match both raw instruction "
+                "words and relocation symbol/addend targets before claiming 100%.",
+            ]
         return [
             "Run the project's normal link/ROM and collateral verification; "
             "function exactness is not whole-project proof."
@@ -521,9 +531,7 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         },
         "context_hardening": hardening,
         "comparison": (
-            comparison_payload(comparison, cross_rom=False)
-            if comparison is not None
-            else None
+            scratch_comparison_payload(comparison) if comparison is not None else None
         ),
         "view": (
             view.as_dict(report_regs=args.report_regs) if view is not None else None
@@ -559,8 +567,6 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         if package.checksums_valid:
             print("integrity: PASS (all workbench bundle checksums)")
         if hardening["applicable"]:
-            if hardening["context_newline_warning"]:
-                print(f"warning: {hardening['context_newline_warning']}")
             for duplicate in hardening["duplicate_symbols"]:
                 print(
                     f"warning: {duplicate['symbol']} is defined in both ctx.c "
@@ -617,6 +623,28 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             print("comparison: unavailable")
         else:
             print(comparison_line(comparison))
+            score_exact, _ = scratch_score_acceptance(comparison)
+            if score_exact:
+                print(
+                    "decomp.me score proxy: PASS "
+                    "(raw instruction words and relocation targets agree)"
+                )
+            elif comparison.exact:
+                reasons = []
+                if comparison.raw_word_mismatches:
+                    reasons.append(
+                        f"{comparison.raw_word_mismatches} raw word(s) differ"
+                    )
+                if comparison.relocation_target_mismatches:
+                    reasons.append(
+                        f"{comparison.relocation_target_mismatches} relocation "
+                        "target(s) differ"
+                    )
+                print(
+                    "decomp.me score proxy: FAIL ("
+                    + "; ".join(reasons)
+                    + "; linked-function exact is not a 100% site score)"
+                )
             if view is None:
                 print_comparison_explanation(comparison, cross_rom=False)
             if args.show_diff:
@@ -639,10 +667,12 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         # A comparison already rendered its own guidance above. The action
         # list remains in JSON as the machine-readable equivalent, while the
         # terminal gets only genuinely additional handoff steps.
-        if comparison is None:
+        if comparison is None or (
+            comparison.exact and not scratch_score_acceptance(comparison)[0]
+        ):
             for action in actions:
                 print(f"next: {action}")
-    mismatch = comparison is None or not comparison.exact
+    mismatch = comparison is None or not scratch_score_acceptance(comparison)[0]
     return 1 if args.fail_on_mismatch and mismatch else 0
 
 
@@ -1346,6 +1376,14 @@ def decoded_color(cost: dict[str, str]) -> str:
     return f"({register})" if register else ""
 
 
+def allocator_color_label(color: int | None) -> str:
+    """Render a selected color without producing user-facing ``cNone``."""
+
+    if color is None:
+        return "-"
+    return f"c{color}({register_for_color(color) or '-'})"
+
+
 def parse_register_list(value: str | None) -> list[int] | None:
     if value is None:
         return None
@@ -1405,6 +1443,30 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.lineage_table and args.proc is None:
+        print(
+            "error: --lineage-table requires --proc so formation records are "
+            "not mixed across procedures",
+            file=sys.stderr,
+        )
+        return 2
+    desired_color = None
+    if args.desired_register is not None:
+        if args.web is None or args.proc is None:
+            print(
+                "error: --desired-register requires --proc and --web",
+                file=sys.stderr,
+            )
+            return 2
+        desired_color = color_for_register(args.desired_register)
+        if desired_color is None:
+            known = ", ".join(sorted(set(COLOR_REGISTERS.values())))
+            print(
+                f"error: unknown allocator register {args.desired_register!r}; "
+                f"known registers: {known}",
+                file=sys.stderr,
+            )
+            return 2
     try:
         report = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
@@ -1413,10 +1475,26 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
     selected = (
         [] if args.proc is not None else report.ranked(dtype=args.dtype, limit=args.top)
     )
-    allocator_webs = report.allocator_webs(
-        proc=args.proc, web=args.web, dtype=args.dtype, limit=args.top
+    lineage_only = bool(args.lineage_table) and args.web is None and args.dtype is None
+    allocator_webs = (
+        []
+        if lineage_only
+        else report.allocator_webs(
+            proc=args.proc, web=args.web, dtype=args.dtype, limit=args.top
+        )
     )
-    decisions = report.decisions_for(args.proc, web=args.web)
+    decisions = [] if lineage_only else report.decisions_for(args.proc, web=args.web)
+    lineage_tables = set(args.lineage_table)
+    if args.web is not None:
+        lineage_tables.update(
+            table
+            for item in allocator_webs
+            if (table := optional_integer(item.detail.get("table"))) is not None
+        )
+    lineage = report.lineage_for(
+        args.proc,
+        tables=lineage_tables or None,
+    )
     lookup_error = None
     if args.web is not None and not allocator_webs:
         same_web = report.allocator_webs(proc=args.proc, web=args.web)
@@ -1442,7 +1520,7 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         lookup_error = (
             f"no allocator decision matched proc={args.proc} web={args.web};{suffix}"
         )
-    elif args.proc is not None and not allocator_webs and not decisions:
+    elif args.proc is not None and not allocator_webs and not decisions and not lineage:
         available_procedures = sorted({item.proc for item in report.allocator_webs()})
         suffix = (
             " available procedure(s): "
@@ -1457,13 +1535,23 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
                 {
                     "error": lookup_error,
                     "filters": {
+                        "desired_register": args.desired_register,
                         "dtype": args.dtype,
                         "proc": args.proc,
                         "top": args.top,
                         "web": args.web,
                     },
+                    "legacy_live_range_capture": (
+                        "present" if report.live_ranges else "not-captured"
+                    ),
                     "live_ranges": [item.as_dict() for item in selected],
                     "allocator_webs": [item.as_dict() for item in allocator_webs],
+                    "lineage": [item.as_dict() for item in lineage],
+                    "color_barriers": [
+                        item.color_barrier(desired_color)
+                        for item in allocator_webs
+                        if desired_color is not None
+                    ],
                     "decisions": [item.as_dict() for item in decisions],
                     "unparsed_diagnostic_lines": (report.unparsed_diagnostic_lines),
                 },
@@ -1476,7 +1564,7 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             print(f"error: {lookup_error}", file=sys.stderr)
             return 1
         for item in selected:
-            costs = sorted(item.finite_costs, key=lambda entry: entry.cost)
+            costs = sorted(item.eligible_costs, key=lambda entry: entry.cost)
             best = f"r{costs[0].register}:{costs[0].cost:g}" if costs else "-"
             print(
                 f"bitpos={item.bitpos:5d} dtype={item.dtype:2d} "
@@ -1486,6 +1574,8 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             )
         for allocator_item in allocator_webs:
             detail = allocator_item.detail
+            natural_label = allocator_color_label(allocator_item.natural_color)
+            assigned_label = allocator_color_label(allocator_item.assigned_color)
             cost_text = ",".join(
                 f"c{cost.get('color', '?')}{decoded_color(cost)}:"
                 f"{cost.get('cost', '?')}"
@@ -1498,22 +1588,84 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
                 f"dtype={detail.get('dtype', '?')} "
                 f"save={allocator_item.fields.get('save', '?')} "
                 f"nocs={allocator_item.fields.get('nocs', '?')} "
-                f"bestcolor={allocator_item.fields.get('bestcolor', '?')} "
-                f"register={allocator_item.assigned_register or '-'} "
+                f"natural={natural_label} "
+                f"assigned={assigned_label} "
+                f"force={allocator_item.fields.get('forced', '-2')} "
                 f"decision={allocator_item.fields.get('decision', '?')} "
                 f"bb={detail.get('bb', '?')} line={detail.get('line', '?')} "
                 f"costs={cost_text or '-'}\n"
                 f"  {allocator_item.explanation}"
             )
+            if desired_color is not None:
+                barrier = allocator_item.color_barrier(desired_color)
+                barrier_natural = allocator_color_label(
+                    cast(int | None, barrier["natural_color"])
+                )
+                print(
+                    "  barrier: "
+                    f"desired=c{barrier['desired_color']}"
+                    f"({barrier['desired_register'] or '-'}) "
+                    f"cost={barrier['desired_cost']} "
+                    f"natural={barrier_natural} "
+                    f"cost={barrier['natural_cost']} "
+                    f"gap={barrier['cost_gap']} "
+                    f"forbidden={'yes' if barrier['desired_forbidden'] else 'no'} "
+                    f"ineligible={'yes' if barrier['desired_ineligible'] else 'no'}"
+                )
+                print(f"    {barrier['advice']}")
+                blocking_neighbors = cast(
+                    list[dict[str, object]], barrier["blocking_neighbors"]
+                )
+                for blocker in blocking_neighbors:
+                    blocker_detail = cast(dict[str, object], blocker["detail"])
+                    print(
+                        "    blocker: "
+                        f"{blocker['force_key']} "
+                        f"assigned=c{blocker['assigned_color']}"
+                        f"({blocker['assigned_register'] or '-'}) "
+                        f"dtype={blocker_detail.get('dtype', '?')} "
+                        f"type={blocker_detail.get('type', '?')} "
+                        f"table={blocker_detail.get('table', '?')}"
+                    )
+                print(f"    {barrier['claim_boundary']}")
+        for lineage_item in lineage:
+            fields = lineage_item.fields
+            if lineage_item.phase == "lineage_range":
+                print(
+                    "lineage range: "
+                    f"proc={fields.get('proc', '?')} "
+                    f"event={fields.get('event', '?')} "
+                    f"table={fields.get('table', '?')} "
+                    f"chain={fields.get('chain', '?')} "
+                    f"type={fields.get('type', '?')} "
+                    f"dtype={fields.get('dtype', '?')}"
+                )
+            else:
+                print(
+                    "lineage member: "
+                    f"proc={fields.get('proc', '?')} "
+                    f"event={fields.get('event', '?')} "
+                    f"table={fields.get('table', '?')} "
+                    f"chain={fields.get('chain', '?')} "
+                    f"bb={fields.get('bb', '?')} "
+                    f"line={fields.get('line', '?')} "
+                    f"flags={fields.get('flags', '?')}"
+                )
+        if report.live_ranges:
+            live_range_status = (
+                f"legacy-live-ranges={len(selected)}/{len(report.live_ranges)}"
+            )
+        else:
+            live_range_status = "legacy-live-ranges=not-captured(CSAVE/CUP absent)"
         print(
-            f"live-ranges={len(selected)}/{len(report.live_ranges)} "
-            f"allocator-webs={len(allocator_webs)} "
+            f"{live_range_status} allocator-webs={len(allocator_webs)} "
             f"decisions={len(decisions)} "
+            f"lineage={len(lineage)} "
             f"unparsed={len(report.unparsed_diagnostic_lines)}"
         )
     if lookup_error:
         return 1
-    return 0 if selected or allocator_webs or decisions else 1
+    return 0 if selected or allocator_webs or decisions or lineage else 1
 
 
 def parse_listing_edit(value: str, position: str) -> ListingEdit:
@@ -1788,9 +1940,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--proc", type=int, help="include only CDX decisions from this procedure"
     )
     color_parser.add_argument(
+        "--desired-register",
+        help=(
+            "measure the cost/interference barrier to this register; requires "
+            "--proc and --web"
+        ),
+    )
+    color_parser.add_argument(
         "--web",
         type=int,
         help="inspect one allocator web; pair with --proc for an unambiguous lookup",
+    )
+    color_parser.add_argument(
+        "--lineage-table",
+        type=int,
+        action="append",
+        default=[],
+        help=(
+            "show pre-globalcolor formation for this ICHAIN table; repeat for "
+            "more tables and pair with --proc"
+        ),
     )
     color_parser.add_argument("--dtype", type=int, help="include only this data type")
     color_parser.add_argument(

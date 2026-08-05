@@ -26,20 +26,23 @@ decomp-workbench diagnose-dumps \
 ```
 
 ```text
-next: all register differences form one bijection (f0->f1): report it as a single decision, not N sites.
-      callee-saved tie-breaks resist source search; prefer a forced color probe on an instrumented toolchain over more variants.
+next: all visible register differences form one bijection (f0->f1): report one downstream allocation outcome, not N sites.
+      one visible bijection does NOT prove one source web or one source edit: inspect the desired color's interference producers; a staggered ladder of invisible blockers can cause the outcome.
+      callee-saved tie-breaks resist blind source search; use a forced color probe to measure the smallest causal web set before choosing more variants.
       field guide levers for playbook=forced-color-oracle:
-        lever 17: drop `void` for a K&R implicit-int return type on the declaration AND the definition; one variant, one coalescing copy
-        lever 18: give a twice-referenced expression a named intermediate so the coalesced copy lands on the other value
-        lever 19: the callee-saved tie-break is a uopt priority decision: force only the high-priority web and let the swap cascade
+        lever 17: only when the residue contains a move/copy: drop `void` for a K&R implicit-int return type on the declaration AND the definition; one variant
+        lever 18: only when the residue contains a move/copy: give a genuinely repeated expression a named intermediate so the coalesced copy lands on the other value
+        lever 19: the callee-saved tie-break is a uopt ordering decision: force the smallest measured causal web set (often one, sometimes a staggered blocker ladder), inspect every cascade, and compare paired formation, save/totalsave, and decision-trace order; no one scalar is priority proof
       read them: decomp-workbench guide forced-color-oracle
       have an instrumented toolchain? docs/compiler-instrumentation.md, then decomp-workbench diagnose ... --emit-force-spec force.json and decomp-workbench oracle plan TRACE.log to build the two-phase grid.
-      don't have one? try levers 17 and 18 first (one variant each): they resolve a large share of single-bijection register residues cheaply, and lever 19 says a clean negative here is a legitimate stopping point - record it, bundle the scratch, take the next function.
+      don't have one? first inspect the residue for an actual move/copy site. If one exists, levers 17 and 18 are one variant each. If the residue is only a register bijection with no copy-shaped site, skip both and go directly to lever 19; a clean forced-color cascade is a legitimate stopping point - record it, bundle the scratch, take the next function.
 ```
 
 The two-branch line matters more than it looks. "Prefer a forced color probe on
 an instrumented toolchain" was true and unusable for the many readers who do not
-have one, and it never said what they should do instead.
+have one, and it never said what they should do instead. The copy-site gate is
+equally important: a repeated register in disassembly is not a
+"twice-referenced expression" in source.
 
 ## Topics
 

@@ -132,16 +132,21 @@ LEVER_ACTIONS: dict[int, str] = {
         "for a genuinely free FIFO rotation"
     ),
     17: (
-        "drop `void` for a K&R implicit-int return type on the declaration "
-        "AND the definition; one variant, one coalescing copy"
+        "only when the residue contains a move/copy: drop `void` for a K&R "
+        "implicit-int return type on the declaration AND the definition; "
+        "one variant"
     ),
     18: (
-        "give a twice-referenced expression a named intermediate so the "
-        "coalesced copy lands on the other value"
+        "only when the residue contains a move/copy: give a genuinely "
+        "repeated expression a named intermediate so the coalesced copy "
+        "lands on the other value; trace-copy-decisions names the first "
+        "changing pass, but hash occupancy does not prove source repetition"
     ),
     19: (
-        "the callee-saved tie-break is a uopt priority decision: force only "
-        "the high-priority web and let the swap cascade"
+        "the callee-saved tie-break is a uopt ordering decision: force the "
+        "smallest measured causal web set (often one, sometimes a staggered "
+        "blocker ladder), inspect every cascade, and compare paired formation, "
+        "save/totalsave, and decision-trace order; no one scalar is priority proof"
     ),
     20: (
         "before concluding 'hand-patched object', fingerprint the other "
@@ -171,6 +176,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "physical line) to give that statement a line number from inside the "
         "block, and pair it with a legal statement hoist"
     ),
+    26: (
+        "when registers/opcodes are exact but the frame is not, preserve the "
+        "winning live-range topology; first compare observed save-slot bytes "
+        "with non-save frame bytes, then ablate, narrow, or reuse phantom "
+        "homes only in the component that actually differs"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -193,6 +204,7 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     "temp-fifo-phase": (14, 15, 16),
     "pool-position": (7, 8, 9, 10, 11, 12, 13),
     "forced-color-oracle": (17, 18, 19),
+    "stack-frame-recovery": (26,),
     # No `view` verdict reaches this one: two disassemblies cannot tell you
     # that the *frontend* was different. It is here so the levers the field
     # guide's index names in prose are still one command away, and so the
@@ -211,6 +223,7 @@ VERDICT_PLAYBOOKS: dict[str, str] = {
     "allocation": "pool-position",
     "commutative-order": "ast-shape",
     "constant": "constant-audit",
+    "frame-layout": "stack-frame-recovery",
     "phase-shift": "temp-fifo-phase",
     "register-permutation": "forced-color-oracle",
     "schedule": "g0-schedule-probe",
@@ -219,6 +232,7 @@ VERDICT_PLAYBOOKS: dict[str, str] = {
     # exact comparison
     "allocation-mismatch": "pool-position",
     "constant-mismatch": "constant-audit",
+    "frame-layout-mismatch": "stack-frame-recovery",
     "operand-mismatch": "constant-audit",
     "relocation-layout-mismatch": "relocation-only",
     "schedule-mismatch": "g0-schedule-probe",
@@ -289,10 +303,24 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "have an instrumented toolchain? docs/compiler-instrumentation.md, "
         "then decomp-workbench diagnose ... --emit-force-spec force.json and "
         "decomp-workbench oracle plan TRACE.log to build the two-phase grid.",
-        "don't have one? try levers 17 and 18 first (one variant each): they "
-        "resolve a large share of single-bijection register residues cheaply, "
-        "and lever 19 says a clean negative here is a legitimate stopping "
-        "point - record it, bundle the scratch, take the next function.",
+        "a one-bijection assembly residue is one downstream outcome, not proof "
+        "of one source web; use forbidden-color producers to count the blockers.",
+        "don't have one? first inspect the residue for an actual move/copy "
+        "site. If one exists, levers 17 and 18 are one variant each. If the "
+        "residue is only a register bijection with no copy-shaped site, skip "
+        "both and go directly to lever 19; a clean forced-color cascade is a "
+        "legitimate stopping point - record it, bundle the scratch, take the "
+        "next function.",
+        "when source variants plateau, use campaign --show-basins; hundreds "
+        "of spellings collapsing to a few objects is a negative result, not "
+        "a reason to keep permuting declarations.",
+    ),
+    "stack-frame-recovery": (
+        "compare the allocator-exact candidate against one-local ablations; "
+        "keep both normalized residue and candidate_frame_size in the ledger.",
+        "if narrower and register-qualified types plateau, reuse existing "
+        "locals or split one source local into staggered webs at the same CFG "
+        "boundaries instead of adding another stack home.",
     ),
     "relocation-only": (
         "prove the spellings are linked-address equivalent: "

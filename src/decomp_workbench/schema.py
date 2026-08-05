@@ -178,6 +178,12 @@ METRICS: tuple[Metric, ...] = (
         "positional relocation-kind differences; prevents an exact verdict",
     ),
     Metric(
+        "relocation_targets",
+        "relocation_target_mismatches",
+        "positional relocation symbol/addend differences; required by the "
+        "local decomp.me score proxy but not by linked-function exactness",
+    ),
+    Metric(
         "unknown_relocations",
         "unknown_relocations",
         "relocation kinds without a precise field mask; prevents an exact "
@@ -187,6 +193,16 @@ METRICS: tuple[Metric, ...] = (
         "target_frame",
         "target_frame_size",
         "first addiu sp,sp,N adjustment in the target",
+    ),
+    Metric(
+        "target_frame_layout",
+        "target_frame_layout",
+        "observed target save slots and the remaining non-save frame bytes",
+    ),
+    Metric(
+        "candidate_frame_layout",
+        "candidate_frame_layout",
+        "observed candidate save slots and the remaining non-save frame bytes",
     ),
     Metric(
         "sha256",
@@ -439,8 +455,30 @@ COMMAND_METRICS: tuple[Metric, ...] = (
     Metric(
         "acceptance_basis",
         "acceptance_basis",
-        "function-exact, cross-rom-structural, or mismatch: why the command "
-        "accepted or rejected the comparison",
+        "function-exact, cross-rom-structural, or the local scratch-score "
+        "proxy result: why the command accepted or rejected the comparison",
+    ),
+    Metric(
+        "decomp_me_score_proxy_exact",
+        "decomp_me_score_proxy_exact",
+        "whether pre-link instruction words, relocation targets, and known "
+        "relocation layout agree; a local proxy, not a site result",
+    ),
+    Metric(
+        "raw_instruction_words_exact",
+        "raw_instruction_words_exact",
+        "whether every compared pre-link instruction word agrees",
+    ),
+    Metric(
+        "relocation_targets_exact",
+        "relocation_targets_exact",
+        "whether relocation kind and symbol/addend targets agree positionally",
+    ),
+    Metric(
+        "linked_function_exact",
+        "linked_function_exact",
+        "whether relocation-normalized function instructions and known "
+        "relocation layout agree",
     ),
     Metric(
         "census",

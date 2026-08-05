@@ -131,6 +131,12 @@ decomp-workbench oracle force candidate.c \
   --force p2:w55=c2
 ```
 
+If controlled single-force deltas identify an interaction, pass the distinct
+web controls together (for example
+`--force p1:w9=c4,p1:w14=c2,p2:w55=c14`). The persisted row includes the
+baseline-to-forced changed instructions under `emitted_effect`; those are
+object-level role clues, not source attribution.
+
 Planning reports both allocator phases and measured endpoints. Force/sweep
 requires a ready, intact real-copy toolchain and persists its evidence for
 `oracle status/export`. An exact forced build is a source-level hypothesis,

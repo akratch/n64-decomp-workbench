@@ -28,8 +28,13 @@ def experiment_validate_command(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    if args.json:
-        print(json.dumps(report, indent=2, sort_keys=True))
+    if args.json or args.json_summary:
+        payload = report
+        if args.json_summary:
+            payload = {
+                key: value for key, value in report.items() if key != "candidates"
+            }
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(f"experiment: {report['family']} ({report['path']})")
         print(
@@ -56,7 +61,13 @@ def register_experiment_commands(
         help="validate paths, assignments, grid size, and selected region",
     )
     validate.add_argument("manifest")
-    validate.add_argument("--json", action="store_true", help="emit JSON")
+    output = validate.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="emit JSON")
+    output.add_argument(
+        "--json-summary",
+        action="store_true",
+        help="emit compact JSON without the full candidate list",
+    )
     validate.set_defaults(
         handler=experiment_validate_command,
         report_command="experiment-validate",

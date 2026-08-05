@@ -31,6 +31,16 @@ def register_for_color(color: int | None) -> str | None:
     return None if color is None else COLOR_REGISTERS.get(color)
 
 
+def color_for_register(register: str) -> int | None:
+    """Return the pinned allocator color for one physical register name."""
+
+    normalized = register.removeprefix("$").lower()
+    return next(
+        (color for color, name in COLOR_REGISTERS.items() if name == normalized),
+        None,
+    )
+
+
 #: Highest color the two forbidden/available mask words can describe.
 MAX_MASK_COLOR = 63
 
@@ -86,6 +96,11 @@ CUP_RE = re.compile(
 CDX_RE = re.compile(r"^\[CDX\]\s+(?P<phase>\S+)\s+(?P<fields>.*)$")
 FIELD_RE = re.compile(r"([A-Za-z0-9_]+)=([^\s]+)")
 
+# IDO initializes an unavailable color cost to a finite float near 1e20. It
+# is not an ordinary expensive choice: treating it as one produces absurd
+# affinity gaps and can send a source search toward an impossible endpoint.
+IDO_INELIGIBLE_COST_FLOOR = 1.0e19
+
 
 def optional_integer(value: str | None) -> int | None:
     """Parse one optional trace integer without trusting diagnostic text."""
@@ -98,6 +113,12 @@ def optional_integer(value: str | None) -> int | None:
         return None
 
 
+def is_ineligible_allocator_cost(value: float) -> bool:
+    """Return whether an IDO color cost is the unavailable-color sentinel."""
+
+    return math.isfinite(value) and value >= IDO_INELIGIBLE_COST_FLOOR
+
+
 @dataclass(frozen=True)
 class ColorCost:
     """The measured cost of assigning one color/register."""
@@ -106,11 +127,16 @@ class ColorCost:
     color_class: int
     cost: float
 
+    @property
+    def eligible(self) -> bool:
+        return math.isfinite(self.cost) and not is_ineligible_allocator_cost(self.cost)
+
     def as_dict(self) -> dict[str, object]:
         return {
             "register": self.register,
             "color_class": self.color_class,
             "cost": serialize_float(self.cost),
+            "eligible": self.eligible,
         }
 
 
@@ -136,6 +162,12 @@ class LiveRange:
     def finite_costs(self) -> list[ColorCost]:
         return [item for item in self.color_costs if math.isfinite(item.cost)]
 
+    @property
+    def eligible_costs(self) -> list[ColorCost]:
+        """Return real cost endpoints, excluding IDO's finite sentinel."""
+
+        return [item for item in self.color_costs if item.eligible]
+
     def as_dict(self) -> dict[str, object]:
         return {
             "bitpos": self.bitpos,
@@ -147,6 +179,7 @@ class LiveRange:
             "color_costs": [item.as_dict() for item in self.color_costs],
             "total_save": serialize_float(self.total_save),
             "finite_color_costs": [item.as_dict() for item in self.finite_costs],
+            "eligible_color_costs": [item.as_dict() for item in self.eligible_costs],
         }
 
 
@@ -172,6 +205,8 @@ class AllocatorWebDecision:
     fields: dict[str, str]
     detail: dict[str, str]
     color_costs: list[dict[str, str]]
+    interference: list[dict[str, object]]
+    decision_trace_ordinal: int
 
     @property
     def dtype(self) -> int | None:
@@ -187,12 +222,26 @@ class AllocatorWebDecision:
 
     @property
     def assigned_color(self) -> int | None:
-        """Return the selected color when this decision allocated one."""
+        """Return the color the pass actually assigned.
 
-        value = self.fields.get("bestcolor")
+        ``bestcolor`` is the allocator's natural choice at the decision site.
+        A diagnostic force can override it at the later ``p1color``/``p2color``
+        site, whose joined value is recorded as ``actualcolor``.  Falling back
+        keeps older traces useful without misreporting forced controls.
+        """
+
+        value = self.fields.get("actualcolor", self.fields.get("bestcolor"))
         if value is None:
             return None
-        return optional_integer(value)
+        color = optional_integer(value)
+        return color if color is not None and color >= 0 else None
+
+    @property
+    def natural_color(self) -> int | None:
+        """Return the allocator's pre-force best color, when recorded."""
+
+        color = optional_integer(self.fields.get("bestcolor"))
+        return color if color is not None and color >= 0 else None
 
     @property
     def phase_tag(self) -> str:
@@ -249,6 +298,144 @@ class AllocatorWebDecision:
         target = f"c{color}" + (f" ({register})" if register else "")
         return f"{decision}: selected {target}"
 
+    def color_barrier(self, desired_color: int) -> dict[str, object]:
+        """Measure the source-level barrier between natural and desired colors.
+
+        This does not prescribe a source edit. It states the allocator fact a
+        legal edit must change: interference eligibility or relative measured
+        cost. Missing cost records stay explicit rather than becoming zero.
+        """
+
+        costs: dict[int, float] = {}
+        for record in self.color_costs:
+            color = optional_integer(record.get("color"))
+            if color is None:
+                continue
+            try:
+                costs[color] = float(record["cost"])
+            except (KeyError, ValueError):
+                continue
+        natural_color = self.natural_color
+        natural_cost = costs.get(natural_color) if natural_color is not None else None
+        desired_cost = costs.get(desired_color)
+        desired_forbidden = desired_color in self.forbidden_colors
+        desired_ineligible = desired_cost is not None and is_ineligible_allocator_cost(
+            desired_cost
+        )
+        gap = (
+            desired_cost - natural_cost
+            if (
+                desired_cost is not None
+                and natural_cost is not None
+                and not desired_ineligible
+                and not is_ineligible_allocator_cost(natural_cost)
+            )
+            else None
+        )
+        desired_register = register_for_color(desired_color)
+        natural_register = register_for_color(natural_color)
+        blocking_neighbors: list[dict[str, object]] = []
+        for edge in self.interference:
+            assigned = optional_integer(str(edge.get("assigned", "")))
+            if assigned != desired_color:
+                continue
+            neighbor_web = optional_integer(str(edge.get("other", "")))
+            neighbor_detail = edge.get("neighbor_detail")
+            blocking_neighbors.append(
+                {
+                    "phase": self.phase_tag,
+                    "web": neighbor_web,
+                    "force_key": (
+                        f"{self.phase_tag}:w{neighbor_web}"
+                        if neighbor_web is not None
+                        else None
+                    ),
+                    "assigned_color": assigned,
+                    "assigned_register": register_for_color(assigned),
+                    "detail": (
+                        neighbor_detail if isinstance(neighbor_detail, dict) else {}
+                    ),
+                }
+            )
+        if desired_color == natural_color:
+            status = "already-natural"
+            advice = (
+                "the desired color is already the allocator's natural choice; "
+                "inspect any later force override or downstream recoloring "
+                "instead of searching for a cost or tie-break source edit"
+            )
+        elif desired_forbidden:
+            status = "desired-forbidden"
+            if blocking_neighbors:
+                blockers = ", ".join(
+                    str(item["force_key"] or "unknown web")
+                    for item in blocking_neighbors
+                )
+                advice = (
+                    "the desired color is occupied by an interfering web "
+                    f"({blockers}); reshape that overlap or create a legal "
+                    "coalescing/reuse edge before testing relative cost"
+                )
+            else:
+                advice = (
+                    "the desired color is ruled out by interference; recapture "
+                    f"with CDX_DETAIL_WEB={self.web} to name the blocking web"
+                )
+        elif desired_ineligible:
+            status = "desired-ineligible"
+            advice = (
+                "the desired color has IDO's unavailable-cost sentinel, not a "
+                "large affinity penalty; inspect the register-class/availability "
+                "constraints before attempting a cost or tie-break source edit"
+            )
+        elif gap is None:
+            status = "cost-unmeasured"
+            advice = (
+                "the trace does not contain both costs; capture p1cost/p2cost "
+                "records before choosing a source lever"
+            )
+        elif gap > 0:
+            status = "natural-cheaper"
+            advice = (
+                "make the natural color unavailable or improve the desired "
+                f"color's relative cost/affinity by more than {gap:g}"
+            )
+        elif gap == 0:
+            status = "tie-break"
+            advice = (
+                "both colors have equal measured cost; investigate traversal, "
+                "coalescing, and tie-break order"
+            )
+        else:
+            status = "desired-cheaper-but-unselected"
+            advice = (
+                "the desired color is cheaper in the captured costs; inspect "
+                "eligibility and whether this cost record precedes selection"
+            )
+        return {
+            "status": status,
+            "natural_color": natural_color,
+            "natural_register": natural_register,
+            "natural_cost": (
+                serialize_float(natural_cost) if natural_cost is not None else None
+            ),
+            "desired_color": desired_color,
+            "desired_register": desired_register,
+            "desired_cost": (
+                serialize_float(desired_cost) if desired_cost is not None else None
+            ),
+            "desired_forbidden": desired_forbidden,
+            "desired_ineligible": desired_ineligible,
+            "blocking_neighbors": blocking_neighbors,
+            "interference_recorded": bool(self.interference),
+            "cost_gap": serialize_float(gap) if gap is not None else None,
+            "advice": advice,
+            "claim_boundary": (
+                "a force tests the endpoint only; stock-compiler acceptance "
+                "still requires a source-caused allocator decision"
+            ),
+        }
+
     def as_dict(self) -> dict[str, object]:
         return {
             "proc": self.proc,
@@ -259,8 +446,12 @@ class AllocatorWebDecision:
             "fields": self.fields,
             "detail": self.detail,
             "color_costs": self.color_costs,
+            "interference": self.interference,
+            "decision_trace_ordinal": self.decision_trace_ordinal,
             "assigned_color": self.assigned_color,
             "assigned_register": self.assigned_register,
+            "natural_color": self.natural_color,
+            "natural_register": register_for_color(self.natural_color),
             "forbidden_colors": self.forbidden_colors,
             "explanation": self.explanation,
         }
@@ -307,6 +498,32 @@ class GlobalColorTrace:
             selected.append(item)
         return selected
 
+    def lineage_for(
+        self,
+        proc: int | None = None,
+        *,
+        tables: set[int] | None = None,
+    ) -> list[ColorDecision]:
+        """Return opt-in live-range formation records.
+
+        These records are keyed by the ICHAIN table/chain identity that exists
+        before globalcolor assigns a run-local web number.  They deliberately
+        remain structural evidence rather than source-semantic attribution.
+        """
+
+        selected: list[ColorDecision] = []
+        for item in self.decisions:
+            if item.phase not in {"lineage_range", "lineage_member"}:
+                continue
+            item_proc = optional_integer(item.fields.get("proc"))
+            item_table = optional_integer(item.fields.get("table"))
+            if proc is not None and item_proc != proc:
+                continue
+            if tables is not None and item_table not in tables:
+                continue
+            selected.append(item)
+        return selected
+
     def allocator_webs(
         self,
         *,
@@ -332,7 +549,10 @@ class GlobalColorTrace:
         details: dict[tuple[int, int, str], dict[str, str]] = {}
         legacy_details: dict[tuple[int, int], dict[str, str]] = {}
         costs: dict[tuple[int, int, str], list[dict[str, str]]] = {}
+        interference: dict[tuple[int, int, str], list[dict[str, str]]] = {}
+        neighbor_details: dict[tuple[int, int, str], list[dict[str, str]]] = {}
         provenance: dict[tuple[int, int, str], dict[str, list[dict[str, str]]]] = {}
+        allocations: dict[tuple[int, int, str], list[dict[str, str]]] = {}
         for item in self.decisions:
             if "proc" not in item.fields or "web" not in item.fields:
                 continue
@@ -347,6 +567,18 @@ class GlobalColorTrace:
                     details[(*key, detail_phase)] = item.fields
                 else:
                     legacy_details[key] = item.fields
+            elif item.phase == "webdetail" and item.fields.get("role") == "neighbor":
+                detail_phase = item.fields.get("phase")
+                if detail_phase in {"p1", "p2"}:
+                    neighbor_details.setdefault((*key, detail_phase), []).append(
+                        item.fields
+                    )
+            elif item.phase == "intf":
+                detail_phase = item.fields.get("phase")
+                if detail_phase in {"p1", "p2"}:
+                    interference.setdefault((*key, detail_phase), []).append(
+                        item.fields
+                    )
             elif item.phase in {"p1cost", "p2cost"}:
                 costs.setdefault((*key, item.phase[:2]), []).append(item.fields)
             elif item.phase == "provenance_web":
@@ -359,28 +591,43 @@ class GlobalColorTrace:
                     provenance.setdefault((*key, detail_phase), {}).setdefault(
                         snapshot, []
                     ).append(item.fields)
+            elif item.phase in {"p1color", "p2color"}:
+                allocations.setdefault((*key, item.phase[:2]), []).append(item.fields)
 
         def unique_provenance(
             entries: dict[str, list[dict[str, str]]] | None,
         ) -> dict[str, str]:
-            """Return one consistent pre/post snapshot pair, never a guess."""
+            """Join one pre/post pair while retaining stable provenance.
+
+            Selection fields are expected to differ when a force overrides the
+            natural choice.  Withholding the entire record in that case loses
+            the very owner identity needed to interpret the control, so changed
+            fields are preserved under explicit snapshot-qualified names.
+            """
 
             if entries is None or set(entries) != {"preselect", "postselect"}:
                 return {}
             if any(len(entries[snapshot]) != 1 for snapshot in entries):
                 return {}
+            before = entries["preselect"][0]
+            after = entries["postselect"][0]
             merged: dict[str, str] = {}
-            for snapshot in ("preselect", "postselect"):
-                for field_name, value in entries[snapshot][0].items():
-                    if field_name == "snapshot":
-                        continue
-                    existing = merged.get(field_name)
-                    if existing is not None and existing != value:
-                        return {}
-                    merged[field_name] = value
+            for field_name in sorted(set(before) | set(after)):
+                if field_name == "snapshot":
+                    continue
+                pre_value = before.get(field_name)
+                post_value = after.get(field_name)
+                if pre_value == post_value and pre_value is not None:
+                    merged[field_name] = pre_value
+                else:
+                    if pre_value is not None:
+                        merged[f"preselect_{field_name}"] = pre_value
+                    if post_value is not None:
+                        merged[f"postselect_{field_name}"] = post_value
             return merged
 
         joined: list[AllocatorWebDecision] = []
+        decision_trace_counts: dict[tuple[int, str], int] = {}
         for item in self.decisions:
             if item.phase not in {"p1dec", "p2dec"}:
                 continue
@@ -392,19 +639,49 @@ class GlobalColorTrace:
                 continue
             key = (item_proc, item_web)
             phase = item.fields.get("phase") or item.phase[:2]
+            ordinal_key = (item_proc, phase)
+            decision_trace_counts[ordinal_key] = (
+                decision_trace_counts.get(ordinal_key, 0) + 1
+            )
             detail = details.get((*key, phase))
             if detail is None and decision_phases.get(key) == {phase}:
                 detail = legacy_details.get(key)
             provenance_detail = unique_provenance(provenance.get((*key, phase)))
             if provenance_detail:
                 detail = {**provenance_detail, **(detail or {})}
+            decision_fields = dict(item.fields)
+            allocation_rows = allocations.get((*key, phase), [])
+            if len(allocation_rows) == 1:
+                actual_color = allocation_rows[0].get("color")
+                actual_register = allocation_rows[0].get("reg")
+                if actual_color is not None:
+                    decision_fields["actualcolor"] = actual_color
+                if actual_register is not None:
+                    decision_fields["actualreg"] = actual_register
+            joined_interference: list[dict[str, object]] = []
+            for edge in interference.get((*key, phase), []):
+                joined_edge: dict[str, object] = dict(edge)
+                other = optional_integer(edge.get("other"))
+                candidates = (
+                    neighbor_details.get((item_proc, other, phase), [])
+                    if other is not None
+                    else []
+                )
+                unique_candidates = {
+                    tuple(sorted(candidate.items())) for candidate in candidates
+                }
+                if len(unique_candidates) == 1:
+                    joined_edge["neighbor_detail"] = dict(unique_candidates.pop())
+                joined_interference.append(joined_edge)
             joined_item = AllocatorWebDecision(
                 proc=item_proc,
                 web=item_web,
                 phase=item.phase,
-                fields=item.fields,
+                fields=decision_fields,
                 detail=detail or {},
                 color_costs=costs.get((item_proc, item_web, item.phase[:2]), []),
+                interference=joined_interference,
+                decision_trace_ordinal=decision_trace_counts[ordinal_key],
             )
             if proc is not None and item_proc != proc:
                 continue

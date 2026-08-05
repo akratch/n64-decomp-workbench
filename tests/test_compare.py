@@ -13,6 +13,7 @@ from decomp_workbench.compare import (
     aligned_residual,
     commutative_swap,
     compare_instructions,
+    frame_save_layout,
     mismatch_ranges,
     normalize_instruction,
 )
@@ -79,6 +80,46 @@ MIXED_CANDIDATE = """
 
 
 class CompareTests(unittest.TestCase):
+    def test_frame_layout_separates_observed_saves_from_remainder(self) -> None:
+        instructions = parse_disassembly(
+            """
+   0: 27bdffd8  addiu $sp,$sp,-40
+   4: afb00008  sw $s0,8($sp)
+   8: afb1000c  sw $s1,12($sp)
+   c: afb20010  sw $s2,16($sp)
+  10: afb30014  sw $s3,20($sp)
+  14: afb40018  sw $s4,24($sp)
+  18: afb5001c  sw $s5,28($sp)
+  1c: afb60020  sw $s6,32($sp)
+  20: afb70024  sw $s7,36($sp)
+"""
+        )
+
+        layout = frame_save_layout(instructions)
+
+        self.assertEqual(layout["observed_save_slot_count"], 8)
+        self.assertEqual(layout["observed_save_bytes"], 32)
+        self.assertEqual(layout["non_save_frame_bytes"], 8)
+
+    def test_frame_save_layout_counts_one_physical_slot_once(self) -> None:
+        instructions = parse_disassembly(
+            """
+   0: 27bdffe0  addiu $sp,$sp,-32
+   4: afb00010  sw $s0,16($sp)
+   8: afb10010  sw $s1,16($sp)
+"""
+        )
+
+        layout = frame_save_layout(instructions)
+
+        self.assertEqual(layout["observed_save_slot_count"], 1)
+        self.assertEqual(layout["observed_save_bytes"], 4)
+        self.assertEqual(layout["non_save_frame_bytes"], 28)
+        self.assertEqual(
+            layout["observed_save_slots"],
+            [{"offset": 16, "bytes": 4, "registers": ["s0", "s1"]}],
+        )
+
     def test_explicit_objdump_never_silently_falls_back(self) -> None:
         with self.assertRaisesRegex(FileNotFoundError, "explicit objdump"):
             discover_objdump("/definitely/missing/mips-objdump")
@@ -355,6 +396,27 @@ class CompareTests(unittest.TestCase):
         self.assertFalse(result.exact)
         self.assertEqual(result.verdict, "relocation-layout-mismatch")
 
+    def test_relocation_target_identity_is_a_separate_metric(self) -> None:
+        target = parse_disassembly(
+            "  0: 0c000000 jal 0 <callee>\n  0: R_MIPS_26 callee+0x4\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 0c000000 jal 0 <other>\n  0: R_MIPS_26 other+0x4\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        self.assertTrue(result.exact)
+        self.assertEqual(result.raw_word_mismatches, 0)
+        self.assertEqual(result.relocation_metadata_mismatches, 0)
+        self.assertEqual(result.relocation_target_mismatches, 1)
+
     def test_raw_identity_is_scoped_to_instruction_words(self) -> None:
         instructions = parse_disassembly(TARGET)
         result = compare_instructions(
@@ -556,6 +618,16 @@ class CompareTests(unittest.TestCase):
         )
         self.assertEqual(result.verdict, "allocation-mismatch")
         self.assertTrue(result.guidance[0].startswith("Opcode shape matches"))
+
+    def test_register_verdict_names_a_wrong_frame_as_an_independent_gate(self) -> None:
+        result = self.compare_text(
+            "   0: 27bdffd8  addiu $sp,$sp,-40\n   4: 012a4021  addu $t0,$t1,$t2\n",
+            "   0: 27bdffb8  addiu $sp,$sp,-72\n   4: 012a5821  addu $t3,$t1,$t2\n",
+        )
+        self.assertEqual(result.verdict, "allocation-mismatch")
+        self.assertIn("target -40, candidate -72", result.guidance[0])
+        self.assertIn("separate acceptance gate", result.guidance[1])
+        self.assertIn("cannot compensate", result.guidance[1])
 
     def test_allocation_guidance_sends_the_reader_to_view_before_a_trace(self) -> None:
         """Trace last is the doctrine everywhere else; this verdict said first.

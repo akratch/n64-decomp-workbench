@@ -55,6 +55,7 @@ class Comparison:
     aligned_constant: int
     aligned_commutative: int
     relocation_metadata_mismatches: int
+    relocation_target_mismatches: int
     unknown_relocations: list[str]
     opcode_mismatches: int
     normalized_distance: int
@@ -83,6 +84,8 @@ class Comparison:
     #: correct answer to the wrong question, so renderers print them ahead of
     #: the verdict line rather than beside the evidence.
     warnings: list[str] = field(default_factory=list)
+    target_frame_layout: dict[str, Any] = field(default_factory=dict)
+    candidate_frame_layout: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.

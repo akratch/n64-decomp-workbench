@@ -967,6 +967,51 @@ def _verdict(
     return f"mixed({composition})", playbook
 
 
+def _frame_layout_only(
+    rows: Sequence[AlignedRow],
+    target_frame_size: int | None,
+    candidate_frame_size: int | None,
+) -> bool:
+    """Recognize the symmetric prologue/epilogue frame-size pair.
+
+    This is intentionally stricter than "two constants plus a different frame":
+    both differing instructions must be ``addiu sp,sp`` and their immediates
+    must be exactly the extracted negative/positive frame sizes.  Any other
+    constant remains a constant audit.
+    """
+
+    if (
+        target_frame_size is None
+        or candidate_frame_size is None
+        or target_frame_size == candidate_frame_size
+    ):
+        return False
+    differing = [
+        row
+        for row in rows
+        if row.classification not in {MATCH, RELOCATION, DISPLACEMENT}
+    ]
+    if len(differing) != 2 or any(row.classification != CONSTANT for row in differing):
+        return False
+
+    pattern = re.compile(
+        r"^addiu\s+\$?sp,\$?sp,(-?(?:0x[0-9a-f]+|\d+))$", re.IGNORECASE
+    )
+
+    def immediate(text: str | None) -> int | None:
+        if text is None:
+            return None
+        match = pattern.match(text.replace("\t", " ").strip())
+        return int(match.group(1), 0) if match else None
+
+    pairs = [(immediate(row.target), immediate(row.candidate)) for row in differing]
+    expected = {
+        (target_frame_size, candidate_frame_size),
+        (-target_frame_size, -candidate_frame_size),
+    }
+    return set(pairs) == expected
+
+
 def _primary_class(counts: dict[str, int]) -> str | None:
     for name in MIXED_PRECEDENCE:
         if counts.get(name):
@@ -998,6 +1043,15 @@ def _guidance(
         lines.append(
             "mixed residual: fix constants first (they cascade), structure "
             "second, register classes last."
+        )
+    if verdict == "frame-layout":
+        return (
+            "allocation and opcode schedule are exact; only the entry/exit "
+            "stack adjustment differs.",
+            "preserve the allocator-winning live ranges and recover the frame "
+            "separately by shrinking, reusing, or eliminating local stack homes.",
+            "ablate locals one at a time and retain a two-axis Pareto set "
+            "(normalized residue, frame size); do not audit unrelated literals.",
         )
     primary = _primary_class(counts)
     if primary is None:
@@ -1089,10 +1143,14 @@ def _guidance(
         mapping = ", ".join(f"{web.target}->{web.candidate}" for web in webs)
         lines.extend(
             [
-                f"all register differences form one bijection ({mapping}): report "
-                "it as a single decision, not N sites.",
-                "callee-saved tie-breaks resist source search; prefer a forced "
-                "color probe on an instrumented toolchain over more variants.",
+                f"all visible register differences form one bijection ({mapping}): "
+                "report one downstream allocation outcome, not N sites.",
+                "one visible bijection does NOT prove one source web or one source "
+                "edit: inspect the desired color's interference producers; a "
+                "staggered ladder of invisible blockers can cause the outcome.",
+                "callee-saved tie-breaks resist blind source search; use a forced "
+                "color probe to measure the smallest causal web set before choosing "
+                "more variants.",
             ]
         )
     else:
@@ -1449,7 +1507,11 @@ def build_view(
     webs = _build_webs(rows)
     hunks = _hunks(rows)
     prefix_exact = _prefix_exact(rows)
+    target_frame = frame_size(_joined(target))
+    candidate_frame = frame_size(_joined(candidate))
     verdict, playbook = _verdict(counts, lanes, webs)
+    if _frame_layout_only(rows, target_frame, candidate_frame):
+        verdict, playbook = "frame-layout", "stack-frame-recovery"
     return MechanismView(
         symbol=symbol,
         target=target_name,
@@ -1457,8 +1519,8 @@ def build_view(
         register_profile=register_profile,
         target_instructions=len(target),
         candidate_instructions=len(candidate),
-        target_frame_size=frame_size(_joined(target)),
-        candidate_frame_size=frame_size(_joined(candidate)),
+        target_frame_size=target_frame,
+        candidate_frame_size=candidate_frame,
         counts=counts,
         verdict=verdict,
         playbook=playbook,

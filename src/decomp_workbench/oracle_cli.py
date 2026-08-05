@@ -252,17 +252,39 @@ def _plan_for_compile(args: argparse.Namespace) -> dict[str, Any]:
     )
     if getattr(args, "force", None):
         entries = parse_force_specification(args.force)
-        if len(entries) != 1:
-            raise ValueError("oracle force accepts exactly one phase-qualified force")
-        selected = [row for row in plan["forces"] if row["force"] == args.force]
-        if not selected:
-            raise ValueError(
-                f"{args.force} is absent from the measured plan; it may be "
-                "forbidden or outside the selected color set"
-            )
+        seen: set[tuple[str, int]] = set()
+        selected = []
+        for entry in entries:
+            key = (entry.phase, entry.web)
+            if key in seen:
+                raise ValueError(
+                    "oracle force cannot assign the same phase/web more than once: "
+                    f"{entry.phase}:w{entry.web}"
+                )
+            seen.add(key)
+            atom = str(entry)
+            match = next((row for row in plan["forces"] if row["force"] == atom), None)
+            if match is None:
+                raise ValueError(
+                    f"{atom} is absent from the measured plan; it may be "
+                    "forbidden or outside the selected color set"
+                )
+            selected.append(match)
+        combined = {
+            "force": ",".join(str(entry) for entry in entries),
+            "phase": selected[0]["phase"] if len(selected) == 1 else "combined",
+            "web": selected[0]["web"] if len(selected) == 1 else None,
+            "color": selected[0]["color"] if len(selected) == 1 else None,
+            "register": (
+                selected[0]["register"]
+                if len(selected) == 1
+                else ",".join(str(row.get("register") or "split") for row in selected)
+            ),
+            "components": selected,
+        }
         plan = {
             **plan,
-            "forces": selected,
+            "forces": [combined],
             "force_count": 1,
             "restriction": args.force,
         }
@@ -299,6 +321,24 @@ def _render_sweep(report: dict[str, Any], *, limit: int) -> None:
                 f"aligned={comparison['aligned_total']} "
                 f"register={comparison['aligned_register']}{note}"
             )
+            effect = row.get("emitted_effect")
+            if isinstance(effect, dict) and effect.get("available"):
+                print(
+                    "  emitted effect: "
+                    f"{effect.get('classification')} "
+                    f"({effect.get('changed_site_count', 0)} site(s))"
+                )
+                sites = effect.get("changed_sites", [])
+                if isinstance(sites, list):
+                    for site in sites[:6]:
+                        if not isinstance(site, dict):
+                            continue
+                        print(
+                            f"    [{site.get('index')}] {site.get('baseline')} "
+                            f"-> {site.get('forced')}"
+                        )
+                    if len(sites) > 6:
+                        print(f"    ... {len(sites) - 6} more changed site(s)")
         else:
             print(f"{row['force']} FAILED returncode={row['returncode']}")
     if len(report["results"]) > limit:
@@ -570,13 +610,16 @@ def register_oracle_commands(
 
     force = operations.add_parser(
         "force",
-        help="run one measured causal force plus its unforced baseline",
+        help="run one measured force set plus its unforced baseline",
     )
     _add_compile_arguments(force)
     force.add_argument(
         "--force",
         required=True,
-        help="one phase-qualified control such as p2:w55=c2",
+        help=(
+            "one or more comma-separated controls, such as "
+            "p1:w9=c4,p2:w55=c2; each phase/web may appear once"
+        ),
     )
     force.set_defaults(handler=oracle_sweep_command, report_command="oracle-sweep")
 
