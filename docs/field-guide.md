@@ -456,6 +456,11 @@ if (&slot);        /* the alias: later reads are loads, never web members */
 **Direction matters:** alias the *memory* half. Aliasing the register half
 destroys the callee-saved candidacy you were trying to win.
 
+**It is free on locals, not on parameters.** A parameter's alias forces its
+incoming argument home to be written, costing one to two instructions — so the
+obvious move of aliasing an uncolored parameter is usually not available. Check
+the instruction count, not just the register lanes.
+
 **Where you put the mark is a tuning axis — sweep it.** The alias is
 whole-scope in the sense that matters for legality (the variable is out of the
 contest for its whole range), but its *placement* is worth real words. On
