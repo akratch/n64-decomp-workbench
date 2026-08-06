@@ -174,7 +174,7 @@ is a good campaign.
 
 - [Start here](START_HERE.md) — the ten-minute tour of the screen this page
   acts on.
-- [Field guide](field-guide.md) — all 22 levers, with the measured effect of
+- [Field guide](field-guide.md) — every lever, with the measured effect of
   each.
 - [The `guide` command](guide-command.md) — those levers, in the terminal.
 - [Aligned mechanism view](view.md) — every option on the screen above.

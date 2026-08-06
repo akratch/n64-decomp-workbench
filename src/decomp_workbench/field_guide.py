@@ -72,8 +72,9 @@ LEVER_ACTIONS: dict[int, str] = {
         "target assembly, then re-derive every fake fitted to the old value"
     ),
     2: (
-        "`a | b` and `b | a` canonicalize identically; `x |= b` is a distinct "
-        "AST and flips the emitted operand order"
+        "`a | b` and `b | a` canonicalize identically under cfe and `x |= b` "
+        "is a distinct AST that flips the emitted order; under accom lineage "
+        "`a + b` emits reversed operands, so commuting the source is free"
     ),
     3: (
         "rebuild the same candidate with -g0 and compare again; a collapse "
@@ -180,7 +181,8 @@ LEVER_ACTIONS: dict[int, str] = {
         "when registers/opcodes are exact but the frame is not, preserve the "
         "winning live-range topology; first compare observed save-slot bytes "
         "with non-save frame bytes, then ablate, narrow, or reuse phantom "
-        "homes only in the component that actually differs"
+        "homes only in the component that actually differs -- and move temp "
+        "offsets with a split local (a pad slot), not by deleting one"
     ),
     27: (
         "after exactness, inventory suspicious constructs, compose bounded "
@@ -191,7 +193,8 @@ LEVER_ACTIONS: dict[int, str] = {
         "when the callee-saved register is taken rather than underpriced, stop "
         "reweighting and alias the memory half of the pair (`if (&local);`): "
         "zero instructions, the local leaves web candidacy, and the slot frees "
-        "-- check candidate_frame_size on every variant"
+        "-- sweep the mark's placement innermost-first (140/131/106 words on "
+        "one function) and check candidate_frame_size on every variant"
     ),
 }
 
@@ -277,14 +280,26 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "already building -g0, so the probe has nothing to collapse? that is "
         "lever 23: statement line boundaries constrain uopt/ugen at -g0 too. "
         "decomp-workbench diagnose ... --candidate-listing LISTING.s measures "
-        "it before you spend a build.",
+        "it before you spend a build, and decomp-workbench probe-lines proves "
+        "ownership with one token-identical variant plus a control.",
     ),
+    # The two `acpp` branches lead, per this playbook's own convention: the
+    # reader without the tool must not be told about the tool first. The probe
+    # follows because it measures what those two branches act on, and `--tie`
+    # follows the probe because it is the question a positive probe raises.
     "line-assignment-probe": (
         "no acpp in your toolchain? reflow the divergent statements onto their "
         "own source lines - token-identical, newlines only - and rebuild; same "
         "experiment, coarser dial.",
         "have IDO's acpp? acpp <defines> file.c > file.i && cc -c <flags> "
         "file.i, then diagnose again against the new listing.",
+        "measure it instead of guessing: decomp-workbench probe-lines UNIT.i "
+        "--compile-command '... {input} -o {output}' --target-object TARGET.o "
+        "compiles that reflow and a mandatory control, and scores both against "
+        "the target.",
+        "already know line assignment owns it, and need to know WHICH line a "
+        "statement wants? probe-lines ... --tie STATEMENT=LINE (repeatable) "
+        "scores that one reassignment toward and away from the target.",
         "swept the line numbers and the one you need is unreachable one "
         "statement per line? that is lever 25: cfe numbers by LOGICAL line, so "
         "splicing a block onto the next statement (trailing `\\`) ties them to "
@@ -306,6 +321,11 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "don't have an instrumented toolchain? levers 7-13 are all "
         "source-only and are the first move; read lever 9 before building any "
         "search - it is a dial, not a permutation.",
+        "reweighted everything and the value still loses the register? the "
+        "register may be TAKEN rather than underpriced - a `decision=split` "
+        "with `regsleft` exhausted, or a `force_declined` on a callee-saved "
+        "color. That is lever 28: alias the memory half (`if (&local);`) so "
+        "the local leaves web candidacy and frees the slot.",
         "have one, and those levers are spent? "
         "docs/compiler-instrumentation.md, then "
         "decomp-workbench instrument-uopt-globalcolor and "
@@ -406,6 +426,13 @@ AMBIGUOUS_ONRAMPS: tuple[str, ...] = (
     "have one? it is still the last step: docs/compiler-instrumentation.md, "
     "then decomp-workbench instrument-uopt-globalcolor and "
     "decomp-workbench trace-globalcolor TRACE.log --proc N.",
+    # Gated on trace evidence, not on the verdict: this block deliberately
+    # does not choose a family, and this line does not either - it names a
+    # symptom the reader either sees in a trace or does not.
+    "the trace shows your web `decision=split` with `regsleft` exhausted, or "
+    "a `force_declined` on a callee-saved color? then the register is taken, "
+    "not underpriced, and no reweighting lever can win it: decomp-workbench "
+    "guide 28.",
 )
 
 #: What `compare` must say before any of the three, because `compare` sees

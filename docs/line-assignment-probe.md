@@ -24,6 +24,7 @@ and can stop suspecting it.
 - [6. The acpp recipe](#6-the-acpp-recipe)
 - [7. The drawbitmap numbers](#7-the-drawbitmap-numbers)
 - [8. Known approximations](#8-known-approximations)
+- [9. The `--tie` variant: from verdict to fix](#9-the---tie-variant-from-verdict-to-fix)
 
 ---
 
@@ -76,7 +77,9 @@ when the function you care about is `static` and IDO stripped (or never
 emitted) its symbol-table entry.
 
 The command compiles three variants - `baseline`, `split-statements`, and
-`global-shift` - and prints something like:
+`global-shift` (a fourth, `tie`, appears when you pass
+[`--tie`](#9-the---tie-variant-from-verdict-to-fix)) - and prints something
+like:
 
 ```text
 input: unit.i
@@ -89,8 +92,15 @@ split-statements vs baseline: 115 word(s) differ
 global-shift vs baseline:     0 word(s) differ
 verdict: line-sensitive
 LINE-SENSITIVE: statement line assignment participates in scheduling. next: field-guide lever 23 (preprocessor line assignment) — try acpp preprocessing: acpp <defines> file.c > file.i && cc -c <flags> file.i
+next: retarget one statement: re-run with --tie STATEMENT=LINE ...
+next: add --target-object/--target-bytes so the tie is scored ...
 run directory: .decomp-workbench/probe-lines/probe-lines-a1b2c3
 ```
+
+The `next:` lines are the routing, and they change with the result: an
+unscored probe is told to score itself, a scored tie is told whether that
+assignment was the one, and a `NOT line-sensitive` verdict is sent back to
+`decomp-workbench guide g0-schedule-probe` rather than left at a dead end.
 
 Every variant's source, object, and full compiler streams are retained under
 the printed run directory - on success and on failure, per
@@ -99,7 +109,11 @@ silently delete evidence a reader might need). `--split-threshold` (default
 400 characters) controls which physical lines are reflowed; `--shift-lines`
 (default 20) controls how many blank lines the control inserts. Pass `--json`
 for the same report as one schema-tagged document
-(`decomp-workbench-line-probe-v1`).
+(`decomp-workbench-line-probe-v1`): `split_word_diff`, `shift_word_diff`,
+`verdict`, `message`, `next_steps`, `target`, and - when `--tie` was used -
+the `ties` that defined the experiment and the `tie_word_diff` it produced.
+The report records every knob it was run with, so a run is reproducible from
+its own JSON.
 
 ## 3. The three verdicts
 
@@ -263,7 +277,7 @@ scope, not a C parser:
   statement line is short and is left untouched even if it holds more than
   one `;`.
 
-## The `--tie` variant: from verdict to fix
+## 9. The `--tie` variant: from verdict to fix
 
 `--tie STATEMENT=LINE` (repeatable) compiles a fourth variant that wraps the
 statement on 1-based input line `STATEMENT` in a `#line LINE` / restore pair,
@@ -272,6 +286,10 @@ reassigning only that one statement's recorded line number. Where
 asks the follow-up that closes campaigns: *"which line does this statement
 need?"* — typically the line of the statement the scheduler must not separate
 it from (the target order's neighbor).
+
+A `LINE-SENSITIVE` verdict routes here on its own: the report's `next:` lines
+name the flag, and once a tie is scored they say whether that assignment was
+the one.
 
 Worked example (ssb64 `func_ovl8_80379070`, accom-hybrid rig): three m4-arm
 defs each scheduled one slot early; tying each def's line to its store-`if`
@@ -284,10 +302,33 @@ decomp-workbench probe-lines unit.tu.c \
   --tie 83=88 --tie 178=183 --tie 273=278
 ```
 
+Both numbers address the **original** input, so several ties compose without
+any arithmetic on your side: `--tie 178=183` means the same thing whether or
+not `--tie 83=88` is also present. The statement number must name a real,
+non-blank line that is not itself a preprocessing directive — those carry no
+statement for `cfe` to number, and the probe refuses them rather than
+compiling a variant that changed nothing. The assigned number is deliberately
+unbounded: the line a statement *needs* may sit past the end of the file.
+
+Score it. `--tie` on its own reports how many words moved, which is not the
+same question as whether they moved the right way; with `--target-object` (or
+`--target-bytes`) the report adds the tie's toward/away/unchanged counts
+alongside the other variants, and that ratio is the result worth acting on.
+
+Two caveats, both about what a physical line is:
+
+- The `#line` pair is inserted *between* physical lines, so a tie whose
+  statement spans several lines retargets the first line and leaves the rest
+  where they were. Tie the line the statement starts on, and check the
+  variant source the run directory retained.
+- `--tie` composes with `--split-threshold` only indirectly: the tie variant
+  is generated from the untouched baseline, not from the reflow. To tie a
+  statement the reflow created, run the reflow first and probe its output.
+
 The tie is a probe, not necessarily the published source: once it confirms
 the mechanism, hunt the natural spelling that carries the same line
 assignment (for-increment-clause placement and lever 25 splices are the two
-recorded families).
+recorded families). `decomp-workbench guide 25` is that page.
 
 See also:
 

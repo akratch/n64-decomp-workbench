@@ -282,21 +282,57 @@ class AllocatorWebDecision:
         return decode_forbidden_colors(first, second)
 
     @property
+    def registers_left(self) -> int | None:
+        """Return the allocator's remaining register budget, when recorded.
+
+        ``regsleft`` is what separates "this web was underpriced" from "there
+        was nothing left to give it": the first is a cost problem every
+        reweighting lever addresses, the second is a legality problem none of
+        them can.
+        """
+
+        return optional_integer(self.fields.get("regsleft"))
+
+    @property
+    def contested_allocation(self) -> bool:
+        """Return whether this web lost because the registers were all taken.
+
+        Machine-detectable form of field-guide lever 28's "Points here": a web
+        that was split (p1) or denied a color (p2) at the moment the allocator
+        had no registers left did not lose on price. Reweighting it cannot
+        win; removing a competing web from candidacy can.
+        """
+
+        return (
+            self.fields.get("decision") in {"split", "no-color"}
+            and self.registers_left == 0
+        )
+
+    #: The one-line routing a contested allocation owes its reader.
+    CONTEST_ADVICE = (
+        "regsleft=0 at this decision: the register was taken, not "
+        "underpriced, so no cost lever can win it -- field-guide lever 28 "
+        "(decomp-workbench guide 28) frees a slot by taking a local out of "
+        "web candidacy"
+    )
+
+    @property
     def explanation(self) -> str:
         """Human-scale explanation suitable for a focused web inspection."""
 
         decision = self.fields.get("decision", "unknown")
+        contest = f"; {self.CONTEST_ADVICE}" if self.contested_allocation else ""
         if decision == "split":
             return (
                 "split: this web was divided instead of receiving one "
-                "allocation; inspect its live range and interference edges"
+                "allocation; inspect its live range and interference edges" + contest
             )
         color = self.assigned_color
         if color is None:
-            return f"{decision}: no selected color was recorded"
+            return f"{decision}: no selected color was recorded{contest}"
         register = self.assigned_register
         target = f"c{color}" + (f" ({register})" if register else "")
-        return f"{decision}: selected {target}"
+        return f"{decision}: selected {target}{contest}"
 
     def color_barrier(self, desired_color: int) -> dict[str, object]:
         """Measure the source-level barrier between natural and desired colors.
@@ -374,7 +410,10 @@ class AllocatorWebDecision:
                 advice = (
                     "the desired color is occupied by an interfering web "
                     f"({blockers}); reshape that overlap or create a legal "
-                    "coalescing/reuse edge before testing relative cost"
+                    "coalescing/reuse edge before testing relative cost. The "
+                    "register is taken, not underpriced: field-guide lever 28 "
+                    "(decomp-workbench guide 28) removes a competing local "
+                    "from web candidacy outright rather than reweighting it"
                 )
             else:
                 advice = (

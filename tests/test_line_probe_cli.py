@@ -233,10 +233,6 @@ class ProbeLinesEndToEndCliTests(unittest.TestCase):
             self.assertIn("full stderr:", stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TieArgumentTest(unittest.TestCase):
     def test_tie_is_repeatable_and_parsed(self) -> None:
         from decomp_workbench.line_probe_cli import _parse_ties
@@ -249,3 +245,123 @@ class TieArgumentTest(unittest.TestCase):
         for bad in ("83", "83=", "=88", "a=b", "83:88"):
             with self.assertRaises(ValueError):
                 _parse_ties([bad])
+
+
+class TieHelpAndReportTests(unittest.TestCase):
+    """`--tie` is only usable if `--help` and the report both admit it exists."""
+
+    def test_help_names_the_tie_flag_and_its_variant(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), self.assertRaises(SystemExit):
+            main(["probe-lines", "--help"])
+        text = " ".join(stdout.getvalue().split())
+        for expected in ("--tie STATEMENT=LINE", "tie - wrap each"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, text)
+
+    def test_report_prints_the_ties_and_the_next_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            status, stdout, _ = run_cli(
+                [
+                    "probe-lines",
+                    str(source),
+                    "--compile-command",
+                    compile_template(script, "sensitive"),
+                    "--split-threshold",
+                    "10",
+                    "--work-dir",
+                    str(root / "state"),
+                    "--compile-cwd",
+                    str(root),
+                    "--tie",
+                    "2=1",
+                ]
+            )
+            self.assertEqual(status, 0)
+            self.assertIn("ties: 2->1", stdout)
+            self.assertIn("tie vs baseline:", stdout)
+            self.assertIn("next: ", stdout)
+
+    def test_a_line_sensitive_run_routes_to_tie_in_the_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            status, stdout, _ = run_cli(
+                [
+                    "probe-lines",
+                    str(source),
+                    "--compile-command",
+                    compile_template(script, "sensitive"),
+                    "--split-threshold",
+                    "10",
+                    "--work-dir",
+                    str(root / "state"),
+                    "--compile-cwd",
+                    str(root),
+                ]
+            )
+            self.assertEqual(status, 0)
+            self.assertIn("--tie STATEMENT=LINE", stdout)
+
+    def test_a_rejected_tie_is_an_error_not_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            status, _stdout, stderr = run_cli(
+                [
+                    "probe-lines",
+                    str(source),
+                    "--compile-command",
+                    compile_template(script, "sensitive"),
+                    "--work-dir",
+                    str(root / "state"),
+                    "--compile-cwd",
+                    str(root),
+                    "--tie",
+                    "9000=1",
+                ]
+            )
+            self.assertEqual(status, 2)
+            self.assertTrue(stderr.startswith("error: "))
+            self.assertNotIn("Traceback", stderr)
+
+    def test_the_json_report_carries_the_ties_and_routing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            status, stdout, _ = run_cli(
+                [
+                    "probe-lines",
+                    str(source),
+                    "--compile-command",
+                    compile_template(script, "sensitive"),
+                    "--split-threshold",
+                    "10",
+                    "--work-dir",
+                    str(root / "state"),
+                    "--compile-cwd",
+                    str(root),
+                    "--tie",
+                    "2=1",
+                    "--json",
+                ]
+            )
+            self.assertEqual(status, 0)
+            report = json.loads(stdout)
+            self.assertEqual(report["ties"], [[2, 1]])
+            self.assertIn("tie", report["variants"])
+            self.assertTrue(report["next_steps"])
+
+
+if __name__ == "__main__":
+    unittest.main()

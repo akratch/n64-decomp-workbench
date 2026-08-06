@@ -96,7 +96,14 @@ def register_scratch_commands(
         action="store_true",
         help="include the aligned mechanism view from the same loaded evidence",
     )
-    add_view_render_arguments(check, default_max_hunks=1)
+    add_view_render_arguments(
+        check,
+        default_max_hunks=1,
+        show_all_help=(
+            "with --view, render every hunk and the complete register lanes "
+            "(overrides --max-hunks/--lane-window)"
+        ),
+    )
     check.add_argument(
         "--fail-on-mismatch",
         action="store_true",

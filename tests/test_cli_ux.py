@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest import mock
 
 from decomp_workbench.cli import build_parser, main
@@ -737,10 +738,6 @@ class CliUxTests(unittest.TestCase):
                 self.assertIn("whole section positionally", selector.help)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ViewShowAllFlagTest(unittest.TestCase):
     """`view --show-all` must exist: the field guide advertises it."""
 
@@ -751,7 +748,9 @@ class ViewShowAllFlagTest(unittest.TestCase):
             for action in parser._actions
             if isinstance(action, argparse._SubParsersAction)
         )
-        return subparsers.choices[name]
+        # `choices` is untyped on the private action, and CI runs mypy over
+        # the tests as well as the sources.
+        return cast(argparse.ArgumentParser, subparsers.choices[name])
 
     def test_view_accepts_show_all(self) -> None:
         arguments = self._command("view").parse_args(
@@ -776,3 +775,31 @@ class ViewShowAllFlagTest(unittest.TestCase):
             ["export.zip", "--show-all"]
         )
         self.assertTrue(arguments.show_all)
+
+    def test_each_command_help_states_what_its_own_show_all_does(self) -> None:
+        """One declaration, three renderers: the help has to be true locally.
+
+        `diagnose` also drops its differing-site filter and `check-scratch`
+        renders nothing at all without `--view`, so a single shared sentence
+        would under-describe one command and over-promise on another.
+        """
+
+        def show_all_help(name: str) -> str:
+            action = next(
+                item
+                for item in self._command(name)._actions
+                if "--show-all" in item.option_strings
+            )
+            return " ".join((action.help or "").split())
+
+        self.assertIn("differing sites", show_all_help("diagnose"))
+        self.assertIn("with --view", show_all_help("check-scratch"))
+        for name in ("view", "view-dumps"):
+            with self.subTest(command=name):
+                help_text = show_all_help(name)
+                self.assertIn("every hunk", help_text)
+                self.assertNotIn("--view", help_text)
+
+
+if __name__ == "__main__":
+    unittest.main()

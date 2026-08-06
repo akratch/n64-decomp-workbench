@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **A line-owned schedule verdict now routes to the command that fixes it.**
+  `probe-lines --tie STATEMENT=LINE` (repeatable) compiles a fourth
+  token-identical variant that reassigns one statement's line number via a
+  `#line` pair and scores it toward/away against the target. Found live on the
+  ssb64 80379070 campaign, where three one-slot-early defs were each cured by
+  tying their line to the store-head's line (4 sites toward, 0 away, in a
+  single probe run). The probe no longer stops at proving ownership: every
+  verdict now prints `next:` routing — an unscored probe is told to score
+  itself, a scored tie is told whether that assignment was the one, and a
+  negative result is sent to `guide g0-schedule-probe` instead of a dead end.
+  The `line-assignment-probe` playbook's on-ramp names `probe-lines` and
+  `--tie` for the first time, so a `schedule` verdict reaches the flag without
+  a second command. The tie is refused when it names a blank line or a
+  preprocessing directive (neither carries a statement to reassign) or the
+  same statement twice, and the report records the `ties` it ran with plus its
+  `next_steps`, so a run is reproducible from its own JSON.
+
 - **Field guide lever 28: alias a local to take it out of the allocation
   contest.** Every other allocator lever adjusts what a web *costs*; `if (&x);`
   changes what the compiler is *allowed* to do — an aliased local's post-call
@@ -11,23 +28,33 @@
   registers: no reweighting could seat the tenth, and aliasing the one that
   belonged in memory reproduced the ROM's callee-saved map exactly. Ships with
   its companion construct (two source variables over one home), the direction
-  rule (alias the memory half), and measured boundaries (whole-scope mark; does
-  not compose with identity-arithmetic anti-folding; frame counts homes, not
-  locals).
+  rule (alias the memory half), and its measured boundaries: the mark's
+  *placement* is a tuning axis worth real words (140 head / 131 `j`-loop / 106
+  innermost on `func_ovl8_803787C0`, all at zero instructions — sweep
+  innermost-first and score it), it does not compose with identity-arithmetic
+  anti-folding, and frame size counts homes rather than locals. The symptom is
+  machine-detectable, so it is now surfaced rather than only documented:
+  `trace-globalcolor` annotates a `split`/`no-color` decision whose `regsleft`
+  is exhausted, and a `desired-forbidden` color barrier says the register is
+  taken rather than underpriced.
 
-- **`probe-lines --tie STATEMENT=LINE` turns a line-owned schedule verdict
-  into a fix.** A repeatable flag compiles a fourth token-identical variant
-  that reassigns one statement's line number via a `#line` pair and scores it
-  toward/away against the target. Found live on the ssb64 80379070 campaign,
-  where three one-slot-early defs were each cured by tying their line to the
-  store-head's line (4 sites toward, 0 away, in a single probe run).
+- **Two more measurements from the same campaign.** Lever 2 records that accom
+  lineage emits `a + b` with its operands reversed relative to source order, so
+  a swapped-operand `addu` hunk under a non-cfe frontend is a free source fix
+  rather than an allocation problem. Lever 26 records the pad slot: splitting an
+  existing local to hold a vacated stack slot moves compiler-temp offsets while
+  keeping the frame exact, where deleting a dead local moves the same offsets
+  and drops the frame.
 
 - **`view` and `view-dumps` accept `--show-all`.** The field guide and the
   `diagnose` footer have always advertised `view TARGET.o CANDIDATE.o
   --show-all`, but only `diagnose` and `check-scratch` defined the flag; on
   `view` it was an argparse error. The flag now lives with the other aligned-
   view presentation controls, so every command that renders hunks accepts the
-  same spelling (`diagnose`/`check-scratch` keep theirs, now shared).
+  same spelling. One declaration serves three renderers that do slightly
+  different things with it, so each command's help text states what its own
+  `--show-all` does: `diagnose` also drops its differing-site filter, and
+  `check-scratch` renders nothing without `--view`.
 
 - **Exactness now has a disciplined cleanup phase.** `experiment
   inspect-source` inventories suspicious statics, empty controls, and cancelled

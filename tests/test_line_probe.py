@@ -21,9 +21,11 @@ from decomp_workbench.line_probe import (
     classify_verdict,
     extract_text_window,
     global_shift,
+    next_steps,
     run_line_probe,
     score_against_target,
     split_statement_lines,
+    tie_statement_lines,
     word_diff_positions,
 )
 
@@ -502,10 +504,6 @@ class RunLineProbeTests(unittest.TestCase):
                 )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TieStatementLinesTest(unittest.TestCase):
     """--tie N=M reassigns one statement's line number via a #line pair."""
 
@@ -545,3 +543,135 @@ class TieStatementLinesTest(unittest.TestCase):
         self.assertIn("#line 4", variants["tie"])
         variants_without = generate_variants(self.SOURCE)
         self.assertNotIn("tie", variants_without)
+
+
+class TieValidationTest(unittest.TestCase):
+    """A tie names a statement; the probe refuses inputs that name none.
+
+    Each rejection here is a variant that would have compiled successfully and
+    reported an honest-looking zero: the run costs a build and teaches the
+    reader that the mechanism does not apply, which is exactly the false
+    negative this probe exists to prevent.
+    """
+
+    SOURCE = "int a;\n\n#line 40\nint c;\n"
+
+    def test_duplicate_statement_line_names_both_assignments(self) -> None:
+        with self.assertRaises(LineProbeError) as caught:
+            tie_statement_lines(self.SOURCE, [(1, 5), (1, 6)])
+        message = str(caught.exception)
+        self.assertIn("statement line 1 twice", message)
+        self.assertIn("5", message)
+        self.assertIn("6", message)
+
+    def test_a_blank_line_carries_no_statement(self) -> None:
+        with self.assertRaisesRegex(LineProbeError, "blank"):
+            tie_statement_lines(self.SOURCE, [(2, 9)])
+
+    def test_a_preprocessing_directive_carries_no_statement(self) -> None:
+        with self.assertRaisesRegex(LineProbeError, "preprocessing directive"):
+            tie_statement_lines(self.SOURCE, [(3, 9)])
+
+    def test_an_assigned_line_past_the_end_of_the_file_is_allowed(self) -> None:
+        """The number a statement needs is not bounded by the file's length."""
+
+        tied = tie_statement_lines(self.SOURCE, [(4, 900)])
+        self.assertIn("#line 900\n", tied)
+
+    def test_an_assigned_line_below_one_is_rejected(self) -> None:
+        with self.assertRaisesRegex(LineProbeError, "assigned line number"):
+            tie_statement_lines(self.SOURCE, [(4, 0)])
+
+
+class NextStepsTests(unittest.TestCase):
+    """The verdict names the mechanism; these name the next command."""
+
+    def test_a_line_sensitive_verdict_without_ties_routes_to_tie(self) -> None:
+        steps = "\n".join(next_steps(VERDICT_LINE_SENSITIVE))
+        self.assertIn("--tie STATEMENT=LINE", steps)
+        self.assertIn("--target-object", steps)
+
+    def test_an_already_scored_run_is_not_told_to_pass_target_again(self) -> None:
+        steps = next_steps(
+            VERDICT_LINE_SENSITIVE,
+            target={"baseline": {"toward": 0, "away": 0}},
+        )
+        self.assertEqual(len(steps), 1)
+        self.assertIn("--tie STATEMENT=LINE", steps[0])
+
+    def test_an_unscored_tie_is_told_to_score_itself(self) -> None:
+        steps = "\n".join(next_steps(VERDICT_LINE_SENSITIVE, ties=[(3, 5)]))
+        self.assertIn("nothing scored it", steps)
+
+    def test_a_winning_tie_routes_to_the_natural_spelling(self) -> None:
+        steps = "\n".join(
+            next_steps(
+                VERDICT_LINE_SENSITIVE,
+                ties=[(3, 5)],
+                target={"tie": {"toward": 4, "away": 0}},
+            )
+        )
+        self.assertIn("4 site(s) toward", steps)
+        self.assertIn("guide 25", steps)
+
+    def test_a_losing_tie_says_so_and_scopes_the_negative(self) -> None:
+        steps = "\n".join(
+            next_steps(
+                VERDICT_LINE_SENSITIVE,
+                ties=[(3, 5)],
+                target={"tie": {"toward": 1, "away": 6}},
+            )
+        )
+        self.assertIn("not the one", steps)
+        self.assertIn("scoped", steps)
+
+    def test_a_negative_result_still_routes_somewhere(self) -> None:
+        steps = "\n".join(next_steps(VERDICT_NOT_LINE_SENSITIVE))
+        self.assertIn("guide g0-schedule-probe", steps)
+
+    def test_a_failed_control_routes_nowhere(self) -> None:
+        """Nothing downstream of a broken control is earned."""
+
+        self.assertEqual(next_steps(VERDICT_NONDETERMINISTIC), ())
+
+
+class TieReportTests(unittest.TestCase):
+    def test_the_report_records_the_ties_that_defined_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            report = run_line_probe(
+                source,
+                compile_template=compile_template(script, "sensitive"),
+                split_threshold=10,
+                work_dir=root / "state",
+                compile_cwd=root,
+                ties=[(2, 1)],
+            )
+            self.assertEqual(report["ties"], [[2, 1]])
+            self.assertIsNotNone(report["tie_word_diff"])
+            self.assertIn("tie", report["variants"])
+            self.assertTrue(report["next_steps"])
+
+    def test_a_run_without_ties_records_none_and_three_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "unit.i"
+            source.write_text(SOURCE, encoding="utf-8")
+            script = write_compiler(root)
+            report = run_line_probe(
+                source,
+                compile_template=compile_template(script, "sensitive"),
+                split_threshold=10,
+                work_dir=root / "state",
+                compile_cwd=root,
+            )
+            self.assertEqual(report["ties"], [])
+            self.assertIsNone(report["tie_word_diff"])
+            self.assertNotIn("tie", report["variants"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -68,6 +68,19 @@ The Hartley finish showed that removing a fake can repair a distant coherent
 register swap. A fake local is never neutral merely because its generated
 instructions appear harmless nearby.
 
+Distinguish *underpriced* from *taken* before spending another reweighting
+variant. Every priority lever — dead webs, extra reads, chain splits — changes
+what a web costs; none of them help when the register is simply held and there
+is nothing left to allocate. The machine-readable symptom is a `globalcolor`
+decision of `split` (p1) or `no-color` (p2) with `regsleft=0`, or a
+`force_declined` naming a callee-saved color;
+`decomp-workbench trace-globalcolor TRACE.log --proc N` annotates it. The
+answer is a legality change rather than a cost change: `if (&local);` emits
+nothing and takes that local out of web candidacy entirely, freeing the
+register its web was holding (field-guide lever 28, `decomp-workbench guide
+28`). Alias the memory half of a register/memory pair, never the register
+half, and check `candidate_frame_size` on every variant.
+
 ## Step back from a false local optimum
 
 The Aquas finish showed that a manually forced loop can match a local region

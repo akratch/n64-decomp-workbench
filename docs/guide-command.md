@@ -84,7 +84,7 @@ exits non-zero.
 
 ## See also
 
-- [Field guide](field-guide.md) — the 22 levers themselves.
+- [Field guide](field-guide.md) — the levers themselves.
 - [Start here](START_HERE.md) — the loop the footer sits inside.
 - [Compiler instrumentation](compiler-instrumentation.md) — the "have an
   instrumented toolchain?" branch.

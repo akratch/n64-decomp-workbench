@@ -93,6 +93,21 @@ interpreting the result. See [Trace analysis](trace-analysis.md).
 
 ## Late scheduling mismatch
 
+First decide which layer owns the order. If the instruction multiset and the
+allocator lanes already agree, ask whether statement *line assignment* owns it
+before you ask which compiler build did — that question costs one
+token-identical variant plus a control:
+
+```sh
+decomp-workbench probe-lines unit.i \
+  --compile-command '/ido/cc -c -O2 -mips2 {input} -o {output}' \
+  --function drawBitmap --target-object target.o
+```
+
+A `LINE-SENSITIVE` verdict routes onward to `--tie STATEMENT=LINE`, which
+scores one statement's reassigned line number toward and away from the target.
+See [Line-assignment probe](line-assignment-probe.md).
+
 If the retained ugen listing is right but the final schedule is not, replay the
 downstream passes:
 

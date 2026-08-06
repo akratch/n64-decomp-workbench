@@ -14,8 +14,11 @@ they are about the *frontend* being a variable rather than about the C you
 write under one — so they carry their own provenance. Lever 23 is the same
 kind of finding one stage earlier: the *preprocessor* as a variable, and lever
 25 is its natural-source counterpart — line numbers as a dial you can turn
-without a directive. The C snippets are illustrative shapes, not copy-paste
-patches: the *form* is the lever, the identifiers are yours.
+without a directive. Levers 26-28 come from campaigns that ended past the
+usual finish line: recovering a stack frame whose allocation was already
+exact, cleaning up after a match, and winning a register that was *taken*
+rather than underpriced. The C snippets are illustrative shapes, not
+copy-paste patches: the *form* is the lever, the identifiers are yours.
 
 **Read the order as priority.** Levers 1-4 cost one variant each and can erase
 a hundred words. Do not touch the register sections until the instruction count
@@ -82,7 +85,18 @@ allocation. IDO 5.3 canonicalizes source-level swaps of a plain binary
 expression to byte-identical objects, but compound assignment is a distinct
 tree and emits the other order. Proven on `texDPTextureSimple`.
 
-**Points here:** `verdict=commutative-order`, `playbook=ast-shape`. Do not
+**Not every frontend canonicalizes.** Under accom lineage, `a + b` emits its
+operands in the *reverse* of source order: `(src_row_start + k)` produced
+`addu ?,v0,t3` where the ROM has `addu s4,t3,v0`, and commuting the source
+expression fixed it. uopt normalizes the *value*, not the emitted operand
+order, so a swapped-operand `addu`/`or` hunk under a non-cfe frontend is a
+free, instruction-neutral source fix rather than an allocation problem —
+try it before spending a variant on lifetimes. Under IDO 5.3's own cfe the
+paragraph above still holds; check which frontend you are on
+([lever 20](#20-frontend-lineage-check)) before generalizing either way.
+
+**Points here:** `verdict=commutative-order`, `playbook=ast-shape`, and any
+small register/operand hunk whose two sides hold the same two operands. Do not
 capture an allocator trace for this class — the allocator is not involved.
 
 ### 3. The `-g0` diagnostic
@@ -242,7 +256,10 @@ different slot, which almost always means the *set* or the *priority* of webs
 differs — not that one register was picked wrongly.
 
 Three things move a pool assignment: adding a web, removing a web, and changing
-a web's priority. That is the whole surface.
+a web's priority. That is the whole surface. Levers 7-13 work it by price;
+lever 28 removes a web by *legality* instead, which is what is left when the
+register you want is held rather than mispriced — including in the
+callee-saved contest the same coloring pass decides.
 
 ### 7. Dead-web positioning
 
@@ -439,9 +456,16 @@ if (&slot);        /* the alias: later reads are loads, never web members */
 **Direction matters:** alias the *memory* half. Aliasing the register half
 destroys the callee-saved candidacy you were trying to win.
 
-**Measured boundaries.** The alias mark is whole-scope, not positional — placing
-it after a variable's last use still aliases the whole range, so it cannot free
-an early region while constraining a late one. It does **not** compose with
+**Where you put the mark is a tuning axis — sweep it.** The alias is
+whole-scope in the sense that matters for legality (the variable is out of the
+contest for its whole range), but its *placement* is worth real words. On
+`func_ovl8_803787C0`, the same two marks scored 140 words at the function head,
+131 in the `j` loop, and **106** in the innermost loop — every one of them
+emitting zero instructions. Sweep innermost-first, and score rather than assume:
+at one earlier site a late mark cost 4 instructions, which is a fact about that
+site and not a rule. Treat "the mark is positionally inert" as falsified.
+
+**Measured boundaries.** It does **not** compose with
 identity-arithmetic anti-folding (lever: `(E) + 0`): that already splits the
 value into its own u-code temp, leaving the alias nothing to remove, and the two
 together are byte-identical to `+ 0` alone. Adding a single local that colors is
@@ -451,6 +475,13 @@ not — check `candidate_frame_size` on every variant.
 **Points here:** `playbook=pool-position` with a one-position lane shift, a
 `decision=split` on the web you want colored, or a `force_declined` naming a
 callee-saved color with `regsleft` exhausted.
+
+`decomp-workbench trace-globalcolor TRACE.log --proc N` names that symptom for
+you: a web whose decision line carries `regsleft=0` is annotated with this
+lever, and `--desired-color` says so again when the color you asked for is held
+by an interfering web.
+
+---
 
 ## The temp-FIFO lane (ugen)
 
@@ -883,6 +914,16 @@ value, reusing one local across disjoint webs, or splitting one source local int
 multiple webs. The objective is to keep the allocator's interference graph while
 removing a distinct stack home.
 
+**The pad slot: move temp offsets without paying frame for them.** When the
+residue is compiler temps landing at the wrong stack offsets, deleting a dead
+local realigns them — and drops the frame, which you were trying to keep.
+Splitting an existing local so one of its halves holds the vacated slot moves
+the same offsets while keeping the frame exact. It is the frame-neutral form of
+the same edit, and it is the companion construct to
+[lever 28](#28-alias-a-local-to-take-it-out-of-the-allocation-contest): one
+takes a local out of the register contest, the other keeps a home occupied
+without adding one.
+
 If every existing local can be marked `register` without changing the residual
 or frame, stop trying to “cancel” the extra frame against those locals. That is
 evidence that the winning phantom/temporary itself owns the extra frame quantum;
@@ -954,7 +995,6 @@ both earlier single-family searches had left on disk.
 source-distinct traces with an identical decision outcome, or a cleaner exact
 candidate that still needs translation-unit collateral and project verification.
 
-
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -984,7 +1024,7 @@ valuable as any lever above.
 | `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 25, 4 |
 | `structure` / `structure-buckets` | 1, 4, 24, 5, 6 |
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
-| `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
+| `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13, then 28 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
 | `frame-layout` / `stack-frame-recovery` | 26 |
 | target register is *taken*, not underpriced / `pool-position` | 7-13, then 28 |

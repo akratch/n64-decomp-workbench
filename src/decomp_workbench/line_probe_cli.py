@@ -31,12 +31,17 @@ DESCRIPTION = (
     "scheduling: baseline (untouched), split-statements (a token-identical "
     "reflow - a newline after each ';' on an overlong line), and "
     "global-shift (a control: blank lines prepended, never expected to "
-    "move the object). The input is " + PREPROCESSED_INPUT_HELP + "."
+    "move the object). --tie adds a fourth variant that reassigns one "
+    "statement's line number, which is the follow-up question: not 'does "
+    "line assignment own this?' but 'which line does this statement need?'. "
+    "The input is " + PREPROCESSED_INPUT_HELP + "."
 )
 
 EPILOG = (
     "Variants: "
-    + "; ".join(f"{name} - {VARIANT_DESCRIPTIONS[name]}" for name in VARIANT_NAMES)
+    + "; ".join(
+        f"{name} - {VARIANT_DESCRIPTIONS[name]}" for name in (*VARIANT_NAMES, "tie")
+    )
     + ". Verdicts: LINE-SENSITIVE (split moved the object, shift did not - "
     "see field-guide lever 23, preprocessor line assignment); "
     "NOT line-sensitive (neither moved); NONDETERMINISTIC (shift moved - "
@@ -95,6 +100,12 @@ def _print_report(report: dict[str, Any]) -> None:
         f"split-threshold: {report['split_threshold']} char(s)   "
         f"shift-lines: {report['shift_lines']}"
     )
+    ties = report.get("ties") or []
+    if ties:
+        print(
+            "ties: "
+            + ", ".join(f"{statement}->{assigned}" for statement, assigned in ties)
+        )
     for name in report["variants"]:
         variant = report["variants"][name]
         print(
@@ -123,6 +134,11 @@ def _print_report(report: dict[str, Any]) -> None:
                 f"compared position(s); {score['mismatched_vs_target']} "
                 "still differ)"
             )
+    # The verdict names the mechanism; these name the next command. They are
+    # printed after the target scores because the tie's routing depends on
+    # them.
+    for step in report.get("next_steps") or ():
+        print(f"next: {step}")
     print(f"run directory: {report['run_directory']}")
 
 

@@ -501,5 +501,70 @@ class NextStepsRenderingTests(unittest.TestCase):
                 self.assertTrue(field_guide.next_steps(playbook))
 
 
+class AllocationContestLeverTests(unittest.TestCase):
+    """Lever 28: the reader must reach it from the footer, not only the index.
+
+    `pool-position` is an *ambiguous* playbook, so its footer prints the
+    three-family block rather than a lever list. A lever only reachable through
+    `guide pool-position` is a lever the campaign that needs it never sees,
+    which is the exact failure this module exists to prevent.
+    """
+
+    def test_lever_28_is_shipped_and_reachable_by_number(self) -> None:
+        shipped = field_guide.sections()
+        self.assertIn(28, shipped)
+        self.assertIn("allocation contest", shipped[28].title)
+        status, stdout, _ = run_cli(["guide", "28", "--pager", "never"])
+        self.assertEqual(status, 0)
+        self.assertIn("### 28.", stdout)
+        self.assertIn("if (&", stdout)
+
+    def test_lever_28_joins_the_pool_family_and_its_page(self) -> None:
+        self.assertIn(28, field_guide.PLAYBOOK_LEVERS["pool-position"])
+        status, stdout, _ = run_cli(["guide", "pool-position", "--pager", "never"])
+        self.assertEqual(status, 0)
+        self.assertIn("### 28.", stdout)
+
+    def test_the_ambiguous_allocation_footer_names_the_symptom(self) -> None:
+        """The footer an allocation verdict actually prints must reach 28."""
+
+        steps = "\n".join(field_guide.next_steps("pool-position"))
+        self.assertIn("regsleft", steps)
+        self.assertIn("guide 28", steps)
+
+    def test_the_pool_playbook_page_distinguishes_taken_from_underpriced(
+        self,
+    ) -> None:
+        steps = "\n".join(field_guide.PLAYBOOK_ONRAMPS["pool-position"])
+        self.assertIn("TAKEN", steps)
+        self.assertIn("lever 28", steps)
+
+    def test_the_placement_boundary_is_the_measured_one(self) -> None:
+        """A falsified boundary must not survive in the crown jewel.
+
+        The shipped text claimed the alias mark was positionally inert. A
+        ~1900-variant sweep measured 140/131/106 words for the same marks at
+        three placements, so the guide now says to sweep it.
+        """
+
+        body = "\n".join(field_guide.sections()[28].lines)
+        self.assertIn("106", body)
+        self.assertNotIn("whole-scope, not positional", body)
+        self.assertIn("sweep", body.lower())
+
+
+class LineAssignmentRoutingTests(unittest.TestCase):
+    """The probe that answers this playbook's question must be named in it."""
+
+    def test_the_playbook_names_the_command_and_the_tie_flag(self) -> None:
+        steps = "\n".join(field_guide.next_steps("line-assignment-probe"))
+        self.assertIn("decomp-workbench probe-lines", steps)
+        self.assertIn("--tie STATEMENT=LINE", steps)
+
+    def test_the_g0_playbook_also_names_the_probe(self) -> None:
+        steps = "\n".join(field_guide.next_steps("g0-schedule-probe"))
+        self.assertIn("probe-lines", steps)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -287,6 +287,7 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Which source/listing line owns a traced web? | `trace-source` | Marker-aware correlation with ambiguity preserved |
 | Can a measured allocator choice close the residual? | `oracle plan/force/sweep` | Calibrated causal evidence, persistent status and export |
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
+| Does statement line assignment own this schedule, and which line does a statement need? | `probe-lines`, `probe-lines --tie` | Token-identical variants plus a control, scored toward and away from the target |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
 | Will this proof repository work from a fresh clone? | `handoff audit` | Missing paths, absolute paths, and untracked local dependencies |
@@ -334,6 +335,7 @@ The three narrative pages first, then the focused guides:
 - [Trace analysis][trace-analysis]
 - [Compiler instrumentation][compiler-instrumentation]
 - [Pass replay][pass-replay]
+- [Line-assignment probe][line-assignment-probe] — does statement line assignment own the schedule
 - [Tooling roadmap from live campaigns][tooling-roadmap]
 - [Elite product review and scoped backlog][elite-product-review]
 - [Castlevania 64 worked examples][cv64-examples]
@@ -396,6 +398,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/object-comparison.md
 [final-function-campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/final-function-campaigns.md
 [pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md
+[line-assignment-probe]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/line-assignment-probe.md
 [principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
 [scratch-bundles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/scratch-bundles.md
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md

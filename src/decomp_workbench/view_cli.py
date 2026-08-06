@@ -816,10 +816,20 @@ def _add_shared_arguments(
     add_census_argument(parser)
 
 
+#: What `--show-all` does everywhere it is declared.
+#:
+#: One declaration, three renderers: `view`/`view-dumps` have only the aligned
+#: view to widen, `diagnose` also drops its differing-site filter, and
+#: `check-scratch` renders nothing at all without `--view`. The flag is the
+#: same flag; the help text has to be true of the command printing it.
+SHOW_ALL_HELP = "render every hunk and the full lanes (overrides the two above)"
+
+
 def add_view_render_arguments(
     parser: argparse.ArgumentParser,
     *,
     default_max_hunks: int = 20,
+    show_all_help: str = SHOW_ALL_HELP,
 ) -> None:
     """Add the aligned-view presentation controls to another command."""
 
@@ -854,7 +864,7 @@ def add_view_render_arguments(
     parser.add_argument(
         "--show-all",
         action="store_true",
-        help="render every hunk and the full lanes (overrides the two above)",
+        help=show_all_help,
     )
     parser.add_argument(
         "--register-profile",

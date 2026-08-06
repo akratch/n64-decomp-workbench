@@ -127,6 +127,17 @@ the target order; it does not prove the source shape is original. A freer
 scheduler can rescue a wrong topology. Compare topology and line tags before
 capturing the smallest possible as1 ready-set trace.
 
+When `-g0` has nothing left to collapse, `decomp-workbench probe-lines UNIT.i
+--compile-command '... {input} -o {output}' --target-object TARGET.o` decides
+whether statement line assignment owns the order: a token-identical reflow
+plus a mandatory blank-line control, so a `NONDETERMINISTIC` result invalidates
+the run instead of being read as a finding. A `LINE-SENSITIVE` verdict earns
+the follow-up question, and `--tie STATEMENT=LINE` (repeatable) answers it —
+one statement's line number reassigned via a `#line` pair, scored toward and
+away from the target. A tie is a probe, not a publishable spelling: once it
+confirms the mechanism, find the natural layout that carries the same
+assignment (field-guide lever 25).
+
 Read [references/campaign-hygiene.md](references/campaign-hygiene.md) when
 creating candidates, scratch artifacts, commits, or a public progress repo.
 Read [references/frontend-lineage.md](references/frontend-lineage.md) when a

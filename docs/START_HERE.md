@@ -188,7 +188,9 @@ Three of these are traps worth naming now:
   scheduling barriers even at `-g0`, which only strips `.loc` records from
   the object. The workbench's line-assignment probe (`decomp-workbench probe-lines`; and, where available, a
   re-preprocess with an external K&R-lineage preprocessor such as IDO's
-  `acpp`) can confirm this in one comparison. See the [SSB64 `drawbitmap`
+  `acpp`) can confirm this in one comparison, and `probe-lines --tie
+  STATEMENT=LINE` answers the follow-up — which line that statement needs.
+  See the [SSB64 `drawbitmap`
   case study](../case-studies/ssb64-drawbitmap.md), where months' worth of
   compiler-version archaeology across five toolchain generations turned out
   to be exactly this.
@@ -369,7 +371,7 @@ The mapping is direct:
 | `ast-shape` | [Commutative operand order](field-guide.md#2-commutative-operand-order) |
 | `g0-schedule-probe` | [The `-g0` diagnostic](field-guide.md#3-the--g0-diagnostic) |
 | `temp-fifo-phase` | [Temp-FIFO phase](field-guide.md#the-temp-fifo-lane-ugen) |
-| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) — one of three unresolved allocation families; read `view`'s footer for which |
+| `pool-position` | [Coloring pool position](field-guide.md#the-coloring-pool-uopt) — one of three unresolved allocation families; read `view`'s footer for which. If the register is *taken* rather than underpriced, that is [lever 28](field-guide.md#28-alias-a-local-to-take-it-out-of-the-allocation-contest) |
 | `forced-color-oracle` | [Callee-saved tie-breaks](field-guide.md#19-callee-saved-tie-breaks-and-the-forced-color-oracle) |
 | `structure-buckets` | [Structure first](field-guide.md#working-a-structure-mismatch) |
 
@@ -563,6 +565,7 @@ rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 | you want every `view` option and the JSON schema | [Aligned mechanism view](view.md) |
 | you want every `compare` option and verdict rule | [Object comparison](object-comparison.md) |
 | you are running variant sweeps in bulk | [Candidate campaigns](campaigns.md) |
+| a `schedule` residue survived `-g0` and every compiler you own | [Line-assignment probe](line-assignment-probe.md) |
 | ordinary source levers are exhausted and you have a calibrated trace | [Allocator oracle](oracle.md) |
 | you consume reports from automation | [JSON contracts](json-contracts.md) |
 | a command failed or printed nothing usable | [Troubleshooting](troubleshooting.md) |

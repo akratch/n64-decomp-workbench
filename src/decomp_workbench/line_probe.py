@@ -256,23 +256,45 @@ def tie_statement_lines(text: str, ties: Sequence[tuple[int, int]]) -> str:
     debug line number changes and every later statement keeps its original
     number. Both numbers refer to the ORIGINAL text, which is what makes
     several ties compose without arithmetic on the caller's side.
+
+    The assigned number is deliberately *not* bounded by the input's length: a
+    tie names the number a statement must carry, and that number may sit past
+    the end of the file (or on a line the reflow never occupies). The statement
+    number is bounded, because it addresses a physical line that must exist,
+    must not be blank, and must not itself be a preprocessing directive - none
+    of those carry a statement for `cfe` to number.
     """
 
     lines = text.splitlines(keepends=True)
+    seen: dict[int, int] = {}
     for statement_line, assigned_line in ties:
-        for label, value in (
-            ("statement", statement_line),
-            ("assigned", assigned_line),
-        ):
-            if value < 1 or (label == "statement" and value > len(lines)):
-                raise LineProbeError(
-                    f"--tie {statement_line}={assigned_line}: {label} line "
-                    f"{value} is outside the 1..{len(lines)} input range"
-                )
+        if assigned_line < 1:
+            raise LineProbeError(
+                f"--tie {statement_line}={assigned_line}: the assigned line "
+                "number must be 1 or greater"
+            )
+        if statement_line < 1 or statement_line > len(lines):
+            raise LineProbeError(
+                f"--tie {statement_line}={assigned_line}: statement line "
+                f"{statement_line} is outside the 1..{len(lines)} input range"
+            )
+        if statement_line in seen:
+            raise LineProbeError(
+                f"--tie lists statement line {statement_line} twice "
+                f"(={seen[statement_line]} and ={assigned_line}); one "
+                "statement can only be tied to one line number"
+            )
+        seen[statement_line] = assigned_line
+        stripped = lines[statement_line - 1].strip()
+        if not stripped or stripped.startswith("#"):
+            what = "blank" if not stripped else "a preprocessing directive"
+            raise LineProbeError(
+                f"--tie {statement_line}={assigned_line}: input line "
+                f"{statement_line} is {what}, so it carries no statement to "
+                "reassign; tie the line the statement starts on"
+            )
     out: list[str] = []
-    by_line = {statement: assigned for statement, assigned in ties}
-    if len(by_line) != len(ties):
-        raise LineProbeError("--tie lists the same statement line twice")
+    by_line = seen
     for index, line in enumerate(lines, start=1):
         assigned = by_line.get(index)
         if assigned is None:
@@ -791,6 +813,70 @@ def classify_verdict(
     )
 
 
+def next_steps(
+    verdict: str,
+    *,
+    ties: Sequence[tuple[int, int]] = (),
+    target: dict[str, dict[str, int]] | None = None,
+) -> tuple[str, ...]:
+    """Return the routing lines a verdict owes its reader.
+
+    The verdict names a mechanism; these name the next command. A probe that
+    proves line assignment owns the residue and then stops has answered the
+    question the reader asked and none of the question they have next, which
+    is *which* line each statement needs - and that is exactly what `--tie`
+    measures.
+    """
+
+    if verdict == VERDICT_NONDETERMINISTIC:
+        # Nothing downstream is earned until the control passes; routing a
+        # reader onward here would be routing them onto untrustworthy numbers.
+        return ()
+    if verdict == VERDICT_NOT_LINE_SENSITIVE:
+        return (
+            "this rules preprocessor line assignment out for this input only; "
+            "stay on the compiler/flags branch: decomp-workbench guide "
+            "g0-schedule-probe",
+        )
+    if not ties:
+        steps = [
+            "retarget one statement: re-run with --tie STATEMENT=LINE (e.g. "
+            "--tie 83=88, repeatable) to compile a token-identical fourth "
+            "variant that gives just that statement the line number you think "
+            "it needs - usually its target-order neighbor's."
+        ]
+        if target is None:
+            # Only worth saying to a reader who has not already scored this
+            # run; telling them to pass a flag they passed is noise.
+            steps.append(
+                "add --target-object/--target-bytes so the tie is scored "
+                "toward and away from the target; a word diff against "
+                "baseline says it moved, not that it moved the right way."
+            )
+        return tuple(steps)
+    score = (target or {}).get("tie")
+    if score is None:
+        return (
+            "the tie compiled, but nothing scored it: add --target-object or "
+            "--target-bytes to see whether it moved toward the target.",
+        )
+    toward, away = score["toward"], score["away"]
+    if toward > away:
+        return (
+            f"the tie moved {toward} site(s) toward the target and {away} "
+            "away: line assignment owns those statements. Now hunt the "
+            "natural spelling that carries the same assignment - "
+            "decomp-workbench guide 25 (logical-line splices) - because a "
+            "#line pair is a probe, not a publishable decompilation.",
+        )
+    return (
+        f"the tie moved {toward} site(s) toward the target and {away} away: "
+        "this assignment is not the one. Try another line for the same "
+        "statement, or another statement; the plateau you measure is scoped "
+        "to the statement order you swept.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -939,6 +1025,10 @@ def run_line_probe(
         "function": function,
         "split_threshold": split_threshold,
         "shift_lines": shift_lines,
+        # The ties are part of the experiment's definition, exactly as
+        # `split_threshold` and `shift_lines` are: a report that cannot say
+        # which statements it retargeted cannot be re-run from its own record.
+        "ties": [[statement, assigned] for statement, assigned in (ties or ())],
         "run_directory": str(run_dir),
         "variants": variant_payloads,
         "split_word_diff": split_diff,
@@ -946,5 +1036,6 @@ def run_line_probe(
         "tie_word_diff": tie_diff,
         "verdict": verdict,
         "message": message,
+        "next_steps": list(next_steps(verdict, ties=ties or (), target=target_report)),
         "target": target_report,
     }

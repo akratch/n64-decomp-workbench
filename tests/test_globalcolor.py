@@ -308,5 +308,55 @@ class GlobalColorTests(unittest.TestCase):
         self.assertEqual(report.allocator_webs(proc=3), [])
 
 
+class ContestedAllocationTests(unittest.TestCase):
+    """`regsleft=0` separates "underpriced" from "taken", and only one of
+    those has a cost lever."""
+
+    def test_a_split_with_no_registers_left_names_lever_28(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec phase=p1 proc=1 web=5 bestcolor=17 regsleft=0 decision=split\n"
+        )
+        item = report.allocator_webs(proc=1, web=5)[0]
+        self.assertTrue(item.contested_allocation)
+        self.assertEqual(item.registers_left, 0)
+        self.assertIn("taken, not", item.explanation)
+        self.assertIn("lever 28", item.explanation)
+
+    def test_a_split_with_registers_left_is_an_ordinary_split(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec phase=p1 proc=1 web=5 bestcolor=17 regsleft=3 decision=split\n"
+        )
+        item = report.allocator_webs(proc=1, web=5)[0]
+        self.assertFalse(item.contested_allocation)
+        self.assertNotIn("lever 28", item.explanation)
+
+    def test_an_unrecorded_budget_claims_nothing(self) -> None:
+        """A trace without `regsleft` must not be read as `regsleft=0`."""
+
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec phase=p1 proc=1 web=5 bestcolor=17 decision=split\n"
+        )
+        item = report.allocator_webs(proc=1, web=5)[0]
+        self.assertIsNone(item.registers_left)
+        self.assertFalse(item.contested_allocation)
+
+    def test_a_phase_two_denial_counts_as_contested(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2dec phase=p2 proc=1 web=5 bestcolor=17 regsleft=0 "
+            "decision=no-color\n"
+        )
+        self.assertTrue(report.allocator_webs(proc=1, web=5)[0].contested_allocation)
+
+    def test_a_forbidden_desired_color_routes_to_lever_28(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p2dec phase=p2 proc=0 web=100 bestcolor=18 "
+            "forbidden0=0x00080000 decision=color\n"
+            "[CDX] intf phase=p2 proc=0 web=100 other=60 assigned=12\n"
+        )
+        barrier = report.allocator_webs(proc=0, web=100)[0].color_barrier(12)
+        self.assertEqual(barrier["status"], "desired-forbidden")
+        self.assertIn("lever 28", str(barrier["advice"]))
+
+
 if __name__ == "__main__":
     unittest.main()

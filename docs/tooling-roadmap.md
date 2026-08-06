@@ -48,6 +48,51 @@ ROMs, target objects, and proprietary compiler files.
 - The portable Agent Skill ships in package artifacts and has a safe,
   idempotent installer for Codex and Claude Code.
 
+## Open, observed 2026-08-06
+
+These came out of the `--tie` and lever-28 integration pass. Each is a design
+question rather than a missing line of code, which is why it is filed here
+instead of shipped.
+
+### A tie is scored but does not reach the verdict
+
+`probe-lines` classifies from the reflow and its control only. A `tie` variant
+that moves the object toward the target is reported in the target block and in
+the `next:` routing, but the verdict vocabulary
+(`line-sensitive`/`not-line-sensitive`/`nondeterministic`) has no way to say
+"this reassignment is the one". Adding a fourth verdict changes a published
+schema's value set and would have to answer what a *partially* correct tie is
+called, which the current evidence does not settle. Until then the toward/away
+counts are the result and the verdict is only about ownership.
+
+### Tie sweeps are manual
+
+The natural next tool after `--tie` is a sweep: one statement, several
+candidate line numbers, ranked by toward/away. `campaign` already owns
+variant sweeps with caching and a durable ledger, but its unit is a compiled
+source variant, not a probe run, and `probe-lines` has neither `--census`
+predicates nor a ledger. Either `probe-lines` grows a bounded `--tie-sweep`
+with its own state, or the probe becomes expressible as a campaign mechanism.
+Doing both would give the same experiment two homes.
+
+### Lever 28's placement axis has no tool
+
+Placement of an alias mark is now a measured tuning axis (140/131/106 words on
+`func_ovl8_803787C0` at head/`j`-loop/innermost). That is a scoped, ordered
+search over source positions with a zero-instruction invariant to check — the
+same shape as `experiment compose`'s bounded substitutions, but positional. A
+mechanism that emits the placement ladder and asserts the instruction-neutral
+invariant would turn a hand sweep into a recorded one.
+
+### `pool-position` cannot route a lever from the footer
+
+`pool-position` is an ambiguous playbook: its footer deliberately names three
+families and picks none, so a lever list never prints there. Lever 28 is
+reachable only through evidence-gated prose in the neutral block or through
+`guide`. The real fix is a verdict that separates the three allocation
+families, which needs lane evidence `view` does not currently produce, not
+another sentence in the footer.
+
 ## Original proposals (now implemented unless noted)
 
 ### Original-pass differential adapter

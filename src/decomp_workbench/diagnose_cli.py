@@ -263,7 +263,15 @@ def _add_shared_arguments(
         )
     add_candidate_listing_argument(parser)
     parser.add_argument("--json", action="store_true", help="emit JSON")
-    add_view_render_arguments(parser, default_max_hunks=1)
+    add_view_render_arguments(
+        parser,
+        default_max_hunks=1,
+        show_all_help=(
+            "render every hunk, the full lanes, and the literal differing "
+            "sites (overrides --max-hunks/--lane-window and implies "
+            "--show-diff)"
+        ),
+    )
     add_view_output_arguments(parser)
     parser.add_argument(
         "--show-diff",
