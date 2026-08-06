@@ -398,6 +398,60 @@ color cannot delete a web; source can.
 
 ---
 
+### 28. Alias a local to take it out of the allocation contest
+
+**Diff looks like:** `playbook=pool-position` where the pool lane is shifted by
+exactly one position and every save-raising lever is already exhausted — the
+value you need in a callee-saved register loses because *another* web is holding
+the slot, and the trace shows your candidate web `split` with `regsleft` at zero
+and every callee-saved color forbidden by the time it is considered.
+
+```c
+/* zero instructions emitted; the local can no longer form a web at all */
+if (&frame_local);
+```
+
+**Why:** every other lever in this guide adjusts what a web *costs*. This one
+changes what the compiler is *allowed* to do. Once a local's address is taken,
+its reads after a call must come from memory — a callee could have written it —
+so those reads can never join a register web, and the store into it becomes
+mandatory rather than a copy the optimizer may propagate away. The variable
+leaves the coloring contest entirely, freeing the register its web was
+occupying for whoever comes next.
+
+That is the move when the target register is not *underpriced* but *taken*: on
+a tiled-blit function whose ROM packed ten callee-saved values into nine
+registers, no amount of reweighting could seat the tenth. Aliasing the one that
+belonged in memory reproduced the ROM's callee-saved map exactly.
+
+**Its companion construct — two source variables over one home.** The shape this
+lever usually completes is a value that lives in a register early and in memory
+later:
+
+```c
+tmp = <expr>;      /* colored: definition plus one early use */
+slot = tmp;        /* the mandatory store */
+if (&slot);        /* the alias: later reads are loads, never web members */
+/* ... calls ... */
+/* later uses read `slot`, not `tmp` */
+```
+
+**Direction matters:** alias the *memory* half. Aliasing the register half
+destroys the callee-saved candidacy you were trying to win.
+
+**Measured boundaries.** The alias mark is whole-scope, not positional — placing
+it after a variable's last use still aliases the whole range, so it cannot free
+an early region while constraining a late one. It does **not** compose with
+identity-arithmetic anti-folding (lever: `(E) + 0`): that already splits the
+value into its own u-code temp, leaving the alias nothing to remove, and the two
+together are byte-identical to `+ 0` alone. Adding a single local that colors is
+frame-free (frame size counts stack *homes*, not locals); several at once are
+not — check `candidate_frame_size` on every variant.
+
+**Points here:** `playbook=pool-position` with a one-position lane shift, a
+`decision=split` on the web you want colored, or a `force_declined` naming a
+callee-saved color with `regsleft` exhausted.
+
 ## The temp-FIFO lane (ugen)
 
 The temp rotation is `t6 t7 t8 t9`, extending to `s8` and further under
@@ -900,6 +954,7 @@ both earlier single-family searches had left on disk.
 source-distinct traces with an identical decision outcome, or a cleaner exact
 candidate that still needs translation-unit collateral and project verification.
 
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
@@ -932,6 +987,7 @@ valuable as any lever above.
 | `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
 | `frame-layout` / `stack-frame-recovery` | 26 |
+| target register is *taken*, not underpriced / `pool-position` | 7-13, then 28 |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |

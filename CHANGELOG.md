@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Field guide lever 28: alias a local to take it out of the allocation
+  contest.** Every other allocator lever adjusts what a web *costs*; `if (&x);`
+  changes what the compiler is *allowed* to do — an aliased local's post-call
+  reads can never join a register web, so the variable leaves the coloring
+  contest and frees the register it was holding, at zero instructions. Found on
+  an SSB64 blit function whose ROM packed ten callee-saved values into nine
+  registers: no reweighting could seat the tenth, and aliasing the one that
+  belonged in memory reproduced the ROM's callee-saved map exactly. Ships with
+  its companion construct (two source variables over one home), the direction
+  rule (alias the memory half), and measured boundaries (whole-scope mark; does
+  not compose with identity-arithmetic anti-folding; frame counts homes, not
+  locals).
+
 - **`probe-lines --tie STATEMENT=LINE` turns a line-owned schedule verdict
   into a fix.** A repeatable flag compiles a fourth token-identical variant
   that reassigns one statement's line number via a `#line` pair and scores it

@@ -187,6 +187,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "cross-family substitutions, retain every exact candidate, and gate "
         "the winner on translation-unit collateral plus project verification"
     ),
+    28: (
+        "when the callee-saved register is taken rather than underpriced, stop "
+        "reweighting and alias the memory half of the pair (`if (&local);`): "
+        "zero instructions, the local leaves web candidacy, and the slot frees "
+        "-- check candidate_frame_size on every variant"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -207,7 +213,7 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     "line-assignment-probe": (23, 25, 4),
     "structure-buckets": (1, 4, 24, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
-    "pool-position": (7, 8, 9, 10, 11, 12, 13),
+    "pool-position": (7, 8, 9, 10, 11, 12, 13, 28),
     "forced-color-oracle": (17, 18, 19),
     "stack-frame-recovery": (26,),
     "post-match-cleanup": (27,),
