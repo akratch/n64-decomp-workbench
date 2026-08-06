@@ -235,3 +235,17 @@ class ProbeLinesEndToEndCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TieArgumentTest(unittest.TestCase):
+    def test_tie_is_repeatable_and_parsed(self) -> None:
+        from decomp_workbench.line_probe_cli import _parse_ties
+
+        self.assertEqual(_parse_ties(["83=88", "178=183"]), [(83, 88), (178, 183)])
+
+    def test_tie_rejects_malformed_entries(self) -> None:
+        from decomp_workbench.line_probe_cli import _parse_ties
+
+        for bad in ("83", "83=", "=88", "a=b", "83:88"):
+            with self.assertRaises(ValueError):
+                _parse_ties([bad])

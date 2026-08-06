@@ -504,3 +504,44 @@ class RunLineProbeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TieStatementLinesTest(unittest.TestCase):
+    """--tie N=M reassigns one statement's line number via a #line pair."""
+
+    SOURCE = "int a;\nint b;\nint c;\nint d;\n"
+
+    def test_single_tie_wraps_statement_in_line_directives(self) -> None:
+        from decomp_workbench.line_probe import tie_statement_lines
+
+        tied = tie_statement_lines(self.SOURCE, [(2, 4)])
+        self.assertEqual(
+            tied,
+            "int a;\n#line 4\nint b;\n#line 3\nint c;\nint d;\n",
+        )
+
+    def test_multiple_ties_use_original_numbering(self) -> None:
+        from decomp_workbench.line_probe import tie_statement_lines
+
+        tied = tie_statement_lines(self.SOURCE, [(1, 3), (3, 1)])
+        self.assertEqual(
+            tied,
+            "#line 3\nint a;\n#line 2\nint b;\n#line 1\nint c;\n#line 4\nint d;\n",
+        )
+
+    def test_tie_line_out_of_range_is_rejected(self) -> None:
+        from decomp_workbench.line_probe import LineProbeError, tie_statement_lines
+
+        with self.assertRaises(LineProbeError):
+            tie_statement_lines(self.SOURCE, [(9, 1)])
+        with self.assertRaises(LineProbeError):
+            tie_statement_lines(self.SOURCE, [(0, 2)])
+
+    def test_tie_variant_joins_generate_variants(self) -> None:
+        from decomp_workbench.line_probe import generate_variants
+
+        variants = generate_variants(self.SOURCE, ties=[(2, 4)])
+        self.assertIn("tie", variants)
+        self.assertIn("#line 4", variants["tie"])
+        variants_without = generate_variants(self.SOURCE)
+        self.assertNotIn("tie", variants_without)

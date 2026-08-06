@@ -263,6 +263,32 @@ scope, not a C parser:
   statement line is short and is left untouched even if it holds more than
   one `;`.
 
+## The `--tie` variant: from verdict to fix
+
+`--tie STATEMENT=LINE` (repeatable) compiles a fourth variant that wraps the
+statement on 1-based input line `STATEMENT` in a `#line LINE` / restore pair,
+reassigning only that one statement's recorded line number. Where
+`split-statements` asks *"does line assignment own this residue?"*, `--tie`
+asks the follow-up that closes campaigns: *"which line does this statement
+need?"* — typically the line of the statement the scheduler must not separate
+it from (the target order's neighbor).
+
+Worked example (ssb64 `func_ovl8_80379070`, accom-hybrid rig): three m4-arm
+defs each scheduled one slot early; tying each def's line to its store-`if`
+head's line moved 4 sites toward the target and 0 away in one probe run:
+
+```sh
+decomp-workbench probe-lines unit.tu.c \
+  --compile-command 'accom-hybrid.sh {input} {output}' \
+  --symbol func_ovl8_80379070 --target-object baseline.o \
+  --tie 83=88 --tie 178=183 --tie 273=278
+```
+
+The tie is a probe, not necessarily the published source: once it confirms
+the mechanism, hunt the natural spelling that carries the same line
+assignment (for-increment-clause placement and lever 25 splices are the two
+recorded families).
+
 See also:
 
 - [Field guide lever 3](field-guide.md#3-the--g0-diagnostic) - the `-g0`

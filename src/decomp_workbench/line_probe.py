@@ -36,6 +36,7 @@ import itertools
 import struct
 import tempfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,11 @@ VARIANT_DESCRIPTIONS: dict[str, str] = {
     "global-shift": (
         "insert --shift-lines blank lines at the top (control: must never "
         "change the compiled object)"
+    ),
+    "tie": (
+        "wrap each --tie STATEMENT=LINE statement in a '#line LINE' / "
+        "restore pair, reassigning only that statement's line number - "
+        "token-identical"
     ),
 }
 
@@ -241,19 +247,62 @@ def split_statement_lines(
     return "".join(out_lines)
 
 
+def tie_statement_lines(text: str, ties: Sequence[tuple[int, int]]) -> str:
+    """Reassign each tied statement's line number via a ``#line`` pair.
+
+    Each ``(statement_line, assigned_line)`` pair wraps the 1-based
+    ``statement_line`` of the original text in ``#line assigned_line`` and a
+    restoring ``#line statement_line + 1``, so only that one statement's
+    debug line number changes and every later statement keeps its original
+    number. Both numbers refer to the ORIGINAL text, which is what makes
+    several ties compose without arithmetic on the caller's side.
+    """
+
+    lines = text.splitlines(keepends=True)
+    for statement_line, assigned_line in ties:
+        for label, value in (
+            ("statement", statement_line),
+            ("assigned", assigned_line),
+        ):
+            if value < 1 or (label == "statement" and value > len(lines)):
+                raise LineProbeError(
+                    f"--tie {statement_line}={assigned_line}: {label} line "
+                    f"{value} is outside the 1..{len(lines)} input range"
+                )
+    out: list[str] = []
+    by_line = {statement: assigned for statement, assigned in ties}
+    if len(by_line) != len(ties):
+        raise LineProbeError("--tie lists the same statement line twice")
+    for index, line in enumerate(lines, start=1):
+        assigned = by_line.get(index)
+        if assigned is None:
+            out.append(line)
+            continue
+        if not line.endswith("\n"):
+            line += "\n"
+        out.append(f"#line {assigned}\n")
+        out.append(line)
+        out.append(f"#line {index + 1}\n")
+    return "".join(out)
+
+
 def generate_variants(
     text: str,
     *,
     split_threshold: int = DEFAULT_SPLIT_THRESHOLD,
     shift_lines: int = DEFAULT_SHIFT_LINES,
+    ties: Sequence[tuple[int, int]] | None = None,
 ) -> dict[str, str]:
-    """Return the three deterministic variant source texts, baseline first."""
+    """Return the deterministic variant source texts, baseline first."""
 
-    return {
+    variants = {
         "baseline": text,
         "split-statements": split_statement_lines(text, threshold=split_threshold),
         "global-shift": global_shift(text, blank_lines=shift_lines),
     }
+    if ties:
+        variants["tie"] = tie_statement_lines(text, ties)
+    return variants
 
 
 # ---------------------------------------------------------------------------
@@ -781,8 +830,9 @@ def run_line_probe(
     target_bytes: str | Path | None = None,
     target_offset: int = 0,
     target_object: str | Path | None = None,
+    ties: Sequence[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
-    """Compile the three variants and report the line-sensitivity verdict."""
+    """Compile the deterministic variants and report the verdict."""
 
     if target_bytes is not None and target_object is not None:
         raise LineProbeError(
@@ -814,11 +864,12 @@ def run_line_probe(
     run_dir = Path(tempfile.mkdtemp(prefix="probe-lines-", dir=root))
 
     variant_sources = generate_variants(
-        text, split_threshold=split_threshold, shift_lines=shift_lines
+        text, split_threshold=split_threshold, shift_lines=shift_lines, ties=ties
     )
+    active_names = tuple(variant_sources)
 
     compiled: dict[str, VariantCompile] = {}
-    for name in VARIANT_NAMES:
+    for name in active_names:
         result = compile_variant(
             name,
             variant_sources[name],
@@ -857,6 +908,11 @@ def run_line_probe(
 
     split_diff = word_diff_positions(baseline_words, split_words)
     shift_diff = word_diff_positions(baseline_words, shift_words)
+    tie_diff = (
+        word_diff_positions(baseline_words, windows["tie"].words)
+        if "tie" in windows
+        else None
+    )
     verdict, message = classify_verdict(split_diff, shift_diff, shift_lines=shift_lines)
 
     target_report: dict[str, dict[str, int]] | None = None
@@ -871,11 +927,11 @@ def run_line_probe(
             name: score_against_target(
                 windows[name].words, baseline_words, target_words
             )
-            for name in VARIANT_NAMES
+            for name in active_names
         }
 
     variant_payloads = {
-        name: _variant_payload(compiled[name], windows[name]) for name in VARIANT_NAMES
+        name: _variant_payload(compiled[name], windows[name]) for name in active_names
     }
     return {
         "schema": LINE_PROBE_SCHEMA,
@@ -887,6 +943,7 @@ def run_line_probe(
         "variants": variant_payloads,
         "split_word_diff": split_diff,
         "shift_word_diff": shift_diff,
+        "tie_word_diff": tie_diff,
         "verdict": verdict,
         "message": message,
         "target": target_report,

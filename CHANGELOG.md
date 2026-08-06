@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`probe-lines --tie STATEMENT=LINE` turns a line-owned schedule verdict
+  into a fix.** A repeatable flag compiles a fourth token-identical variant
+  that reassigns one statement's line number via a `#line` pair and scores it
+  toward/away against the target. Found live on the ssb64 80379070 campaign,
+  where three one-slot-early defs were each cured by tying their line to the
+  store-head's line (4 sites toward, 0 away, in a single probe run).
+
 - **`view` and `view-dumps` accept `--show-all`.** The field guide and the
   `diagnose` footer have always advertised `view TARGET.o CANDIDATE.o
   --show-all`, but only `diagnose` and `check-scratch` defined the flag; on
