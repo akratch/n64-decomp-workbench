@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`view` and `view-dumps` accept `--show-all`.** The field guide and the
+  `diagnose` footer have always advertised `view TARGET.o CANDIDATE.o
+  --show-all`, but only `diagnose` and `check-scratch` defined the flag; on
+  `view` it was an argparse error. The flag now lives with the other aligned-
+  view presentation controls, so every command that renders hunks accepts the
+  same spelling (`diagnose`/`check-scratch` keep theirs, now shared).
+
 - **Exactness now has a disciplined cleanup phase.** `experiment
   inspect-source` inventories suspicious statics, empty controls, and cancelled
   arithmetic without calling them dead. `experiment compose` applies bounded,

@@ -98,11 +98,6 @@ def register_scratch_commands(
     )
     add_view_render_arguments(check, default_max_hunks=1)
     check.add_argument(
-        "--show-all",
-        action="store_true",
-        help="with --view, render every hunk and complete register lanes",
-    )
-    check.add_argument(
         "--fail-on-mismatch",
         action="store_true",
         help="return exit 1 unless an available comparison is exact",

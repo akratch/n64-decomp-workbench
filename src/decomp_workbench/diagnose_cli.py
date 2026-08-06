@@ -266,11 +266,6 @@ def _add_shared_arguments(
     add_view_render_arguments(parser, default_max_hunks=1)
     add_view_output_arguments(parser)
     parser.add_argument(
-        "--show-all",
-        action="store_true",
-        help="render every hunk, full lanes, and literal differing sites",
-    )
-    parser.add_argument(
         "--show-diff",
         action="store_true",
         help="print every positional differing site as well as the aligned hunk",

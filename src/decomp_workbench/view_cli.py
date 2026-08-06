@@ -664,8 +664,12 @@ def _emit(
         lines = render_view(
             view,
             context=args.context,
-            max_hunks=args.max_hunks,
-            lane_window=args.lane_window,
+            max_hunks=0 if args.show_all else args.max_hunks,
+            lane_window=(
+                max(view.target_instructions, view.candidate_instructions)
+                if args.show_all
+                else args.lane_window
+            ),
             report_regs=args.report_regs,
             painter=painter,
             width=args.width,
@@ -846,6 +850,11 @@ def add_view_render_arguments(
         type=int,
         default=32,
         help="lane slots to render around a divergence (default: 32)",
+    )
+    parser.add_argument(
+        "--show-all",
+        action="store_true",
+        help="render every hunk and the full lanes (overrides the two above)",
     )
     parser.add_argument(
         "--register-profile",

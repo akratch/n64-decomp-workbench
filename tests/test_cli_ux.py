@@ -739,3 +739,40 @@ class CliUxTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ViewShowAllFlagTest(unittest.TestCase):
+    """`view --show-all` must exist: the field guide advertises it."""
+
+    def _command(self, name: str) -> argparse.ArgumentParser:
+        parser = build_parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        return subparsers.choices[name]
+
+    def test_view_accepts_show_all(self) -> None:
+        arguments = self._command("view").parse_args(
+            ["target.o", "candidate.o", "--show-all"]
+        )
+        self.assertTrue(arguments.show_all)
+
+    def test_view_dumps_accepts_show_all(self) -> None:
+        arguments = self._command("view-dumps").parse_args(
+            ["target.objdump", "candidate.objdump", "--show-all"]
+        )
+        self.assertTrue(arguments.show_all)
+
+    def test_diagnose_still_accepts_show_all(self) -> None:
+        arguments = self._command("diagnose").parse_args(
+            ["target.o", "candidate.o", "--show-all"]
+        )
+        self.assertTrue(arguments.show_all)
+
+    def test_check_scratch_still_accepts_show_all(self) -> None:
+        arguments = self._command("check-scratch").parse_args(
+            ["export.zip", "--show-all"]
+        )
+        self.assertTrue(arguments.show_all)
