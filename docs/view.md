@@ -266,6 +266,13 @@ coloring-priority one. The temp tables are stored in ugen free-list *ring*
 order rather than register-number order, so a phase rotation is a contiguous run
 of the table.
 
+The float ring is four registers wide even though ugen initializes `ffree` with
+six. `f16`/`f18` are withdrawn before the first allocation and never handed out
+— an instrumented procedure allocated `f4`–`f10` 1460 times out of 1460 — and
+uopt colors them (c28/c29), so they sit in `fp-pool`. Widening `fp-temp` to the
+six-entry initializer makes an `f12`→`f16` difference read as a closed temp-ring
+site when it is a coloring change.
+
 `unverified` carries the pre-probe table (`pool = v0 v1 a0-a3 t0-t5`,
 `temp = t6-t9 s8`, no float split). It has never been measured against a named
 release and is deliberately what a compiler with no probe of its own still

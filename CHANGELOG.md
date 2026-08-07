@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **The IDO 5.3 float temp ring is documented as four wide, because that is
+  what ugen hands out.** The register tables already placed `f16`/`f18` in
+  `fp-pool`, but every sentence around them called the pair "ambiguous" and
+  said ugen's float free list "extends onto them under pressure". It does not.
+  ugen initializes `ffree` with six entries — `f4 f6 f8 f10 f16 f18`, from
+  `nf1 = 4` plus `nf2 = 2` — then withdraws `f16`/`f18` before the first
+  allocation and never hands them out; an instrumented procedure allocated
+  `f4`–`f10` 1460 times out of 1460, and uopt colors the pair as c28/c29. A
+  campaign that read the initializer as the ring widened its own float-site
+  metric onto two uopt colors, so every `f12`→`f16` coloring change counted as
+  a closed temp site: about fifteen builds and one adoption path spent on
+  phantom closures. The claim is now stated as the measurement in the field
+  guide, `view --register-profile` help (`register_profile_evidence`),
+  `docs/view.md`, the `temp-fifo-phase` on-ramp, and the agent-facing
+  late-stage patterns reference, with the advice to assert a float ring's width
+  rather than derive it from the initializer. No classification changed.
+  Regression tests: `tests/test_register_eras.py` locks the four-wide
+  `fp-temp`, the evidence string, and an `f12`-versus-`f16` row landing in
+  `fp-pool` on both sides.
+
 - **`audit-handoff` says which directory a relative root was resolved
   against.** A campaign read `handoff root is not a directory:
   .../bundle/bundle` from `audit-handoff bundle/` as the command appending the

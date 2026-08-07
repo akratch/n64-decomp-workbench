@@ -26,6 +26,7 @@ from pathlib import Path
 from mips_asm import assemble
 
 from decomp_workbench.field_guide import next_steps
+from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.view import (
     DEFAULT_REGISTER_PROFILE,
@@ -43,14 +44,24 @@ PROLOGUE = ["addiu sp,sp,-32", "sw ra,28(sp)", "sw s0,24(sp)", "move s0,a0"]
 EPILOGUE = ["lw ra,28(sp)", "lw s0,24(sp)", "jr ra", "addiu sp,sp,32"]
 
 
-def view_of(
-    lines: list[str], *, profile: str = DEFAULT_REGISTER_PROFILE
-) -> MechanismView:
+def _instructions(lines: list[str]) -> list[Instruction]:
     body = [*PROLOGUE, *lines, *EPILOGUE]
-    instructions = parse_disassembly(assemble(body, symbol="demo"), symbol="demo")
+    return parse_disassembly(assemble(body, symbol="demo"), symbol="demo")
+
+
+def view_of(
+    lines: list[str],
+    candidate_lines: list[str] | None = None,
+    *,
+    profile: str = DEFAULT_REGISTER_PROFILE,
+) -> MechanismView:
+    instructions = _instructions(lines)
+    candidate = (
+        instructions if candidate_lines is None else _instructions(candidate_lines)
+    )
     return build_view(
         instructions,
-        instructions,
+        candidate,
         target_name="t",
         candidate_name="c",
         symbol="demo",
@@ -61,6 +72,13 @@ def view_of(
 def lane_of(view: MechanismView, register: str) -> str | None:
     for lane in view.lanes:
         if register in lane.target:
+            return lane.classification
+    return None
+
+
+def candidate_lane_of(view: MechanismView, register: str) -> str | None:
+    for lane in view.lanes:
+        if register in lane.candidate:
             return lane.classification
     return None
 
@@ -86,10 +104,35 @@ class VerifiedEraTests(unittest.TestCase):
             self.assertIn(register, profile["fp-temp"])
         for register in ("f0", "f2", "f12", "f20", "f24"):
             self.assertIn(register, profile["fp-pool"])
-        # The one genuinely ambiguous pair: uopt colors them and ugen's float
-        # free list also extends onto them under pressure.
+        # Not the ambiguous pair they look like. ugen initializes `ffree` with
+        # six entries, withdraws f16/f18 before the first allocation, and never
+        # hands them out (1460/1460 float allocations measured in f4-f10); uopt
+        # colors them as c28/c29. A tool that reads the six-entry initializer
+        # as the ring reports an `f12` -> `f16` coloring change as a closed
+        # temp-ring site, which cost one campaign stage ~15 builds.
         self.assertIn("f16", profile["fp-pool"])
         self.assertIn("f18", profile["fp-pool"])
+        self.assertNotIn("f16", profile["fp-temp"])
+        self.assertNotIn("f18", profile["fp-temp"])
+        self.assertEqual(len(profile["fp-temp"]), 4)
+
+    def test_f16_is_read_as_a_coloring_change_not_a_closed_temp_site(self) -> None:
+        """The phantom closure, as the lanes actually report it.
+
+        `f12` on one side against `f16` on the other is one uopt color against
+        another. Both must land in `fp-pool`, so the difference is attributed
+        to coloring; a six-wide float ring would put `f16` in `fp-temp` and the
+        same row would read as a temp-ring event.
+        """
+
+        view = view_of(["lwc1 f12,16(s0)"], ["lwc1 f16,16(s0)"])
+        self.assertEqual(lane_of(view, "f12"), "fp-pool")
+        self.assertEqual(candidate_lane_of(view, "f16"), "fp-pool")
+
+    def test_the_profile_evidence_states_the_measured_float_ring(self) -> None:
+        evidence = REGISTER_PROFILE_EVIDENCE["ido53"]
+        self.assertIn("f16/f18", evidence)
+        self.assertIn("withdrawn", evidence)
 
     def test_temp_tables_are_in_ugen_ring_order(self) -> None:
         """A rotation is a contiguous run of the table, so order is load-bearing.

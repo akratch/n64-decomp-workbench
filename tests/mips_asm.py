@@ -46,6 +46,14 @@ REGISTERS: dict[str, int] = {
     "ra": 31,
 }
 
+#: Coprocessor-1 registers, for the float-lane fixtures. Kept in their own
+#: table so an integer-format instruction can never silently encode `f12` as
+#: `t4`: a fixture that misencodes is a fixture that validates nothing.
+FLOAT_REGISTERS: dict[str, int] = {f"f{number}": number for number in range(32)}
+
+# primary opcodes for the coprocessor-1 load/store forms the fixtures use
+FLOAT_MEMORY: dict[str, int] = {"lwc1": 0x31, "swc1": 0x39}
+
 # funct codes for the special-format instructions the fixtures use
 SPECIAL: dict[str, int] = {
     "sll": 0x00,
@@ -103,6 +111,13 @@ def _register(name: str) -> int:
         raise AssemblyError(f"unknown register {name!r}") from None
 
 
+def _float_register(name: str) -> int:
+    try:
+        return FLOAT_REGISTERS[name]
+    except KeyError:
+        raise AssemblyError(f"unknown float register {name!r}") from None
+
+
 def _immediate(text: str) -> int:
     return int(text, 0) & 0xFFFF
 
@@ -116,6 +131,16 @@ def _encode(mnemonic: str, operands: list[str], index: int) -> int:
         return (_register(operands[1]) << 21) | (_register(operands[0]) << 11) | 0x21
     if mnemonic == "li":
         return (0x09 << 26) | (_register(operands[0]) << 16) | _immediate(operands[1])
+    if mnemonic in FLOAT_MEMORY:
+        memory = MEMORY_RE.match(operands[1])
+        if memory is None:
+            raise AssemblyError(f"{mnemonic} needs an offset(base) operand")
+        return (
+            (FLOAT_MEMORY[mnemonic] << 26)
+            | (_register(memory.group(2)) << 21)
+            | (_float_register(operands[0]) << 16)
+            | _immediate(memory.group(1))
+        )
     if mnemonic in SPECIAL:
         funct = SPECIAL[mnemonic]
         if mnemonic in {"sll", "srl", "sra"}:
@@ -189,7 +214,8 @@ def _display(mnemonic: str, operands: list[str], index: int, symbol: str) -> str
         if memory:
             rendered.append(f"{memory.group(1)}(${memory.group(2)})")
             continue
-        rendered.append(f"${operand}" if operand in REGISTERS else operand)
+        prefixed = operand in REGISTERS or operand in FLOAT_REGISTERS
+        rendered.append(f"${operand}" if prefixed else operand)
     return f"{mnemonic} " + ",".join(rendered)
 
 

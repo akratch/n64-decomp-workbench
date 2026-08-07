@@ -327,6 +327,11 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "5.3 -O2 -mips2 (probed) t0-t9 and f4/f6/f8/f10 are ALWAYS ugen "
         "temps and never uopt colors; other releases are unverified. "
         "decomp-workbench guide temp-fifo-phase carries the table.",
+        "the float ring is FOUR wide. ugen's ffree initializer also lists "
+        "f16/f18, but both are withdrawn before the first allocation and "
+        "never handed out (1460/1460 measured in f4-f10); they are uopt "
+        "colors. A float-site metric that counts them as temps reports "
+        "closures that are really coloring changes.",
         "have one, and those levers are spent? decomp-workbench trace-fifo "
         "TRACE.log replays the pool get/put schedule.",
     ),

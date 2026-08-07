@@ -65,7 +65,11 @@ When opcode shape stabilizes but registers differ:
    uopt colors. Any other release is unverified — `view --register-profile
    unverified` is the pre-probe table and a lane it produces is a hypothesis.
    `view --json` reports `register_profile` and `register_profile_evidence` so
-   the claim travels with its provenance.
+   the claim travels with its provenance. The float ring is four wide:
+   ugen's `ffree` initializer also lists `f16`/`f18`, but both are withdrawn
+   before the first allocation and never handed out, and they are uopt colors.
+   A float-site script that quotes the initializer counts `f12`→`f16` as a
+   closed temp site when it is a coloring change.
 1. Localize the mismatch range.
 2. Capture the narrowest relevant `globalcolor`/UGEN trace.
 3. Inspect one procedure and web at a time.

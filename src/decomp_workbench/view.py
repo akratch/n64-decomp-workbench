@@ -118,9 +118,20 @@ UNVERIFIED_CLASSES: dict[str, tuple[str, ...]] = {
 #:
 #: The temp tables are in *ring order*, not register-number order, because
 #: ugen's free list is a least-recently-freed FIFO seeded ``t6 t7 t8 t9 t0 ..
-#: t5`` (int) and ``f4 f6 f8 f10`` (float, extending to ``f16``/``f18`` under
-#: pressure).  A rotation through the ring is therefore a contiguous run of the
-#: table, which is what `_rotation_cycle` requires.
+#: t5`` (int) and ``f4 f6 f8 f10`` (float).  A rotation through the ring is
+#: therefore a contiguous run of the table, which is what `_rotation_cycle`
+#: requires.
+#:
+#: The float ring is **four wide**, and that is a measurement, not a
+#: simplification.  ugen initializes ``ffree`` with six entries -- ``f4 f6 f8
+#: f10 f16 f18`` -- but withdraws ``f16``/``f18`` before the first allocation,
+#: and an instrumented trace of a whole procedure shows 1460 of 1460 float
+#: allocations landing in ``f4``-``f10``.  ``f16``/``f18`` are uopt colors
+#: (c28/c29) and belong in ``fp-pool``.  Reading the six-entry initializer as
+#: the ring instead widens ``fp-temp`` onto two registers uopt owns, and a
+#: ``f12 -> f16`` difference then reports as a temp-ring closure that is really
+#: a coloring change: that misreading cost one campaign stage about fifteen
+#: builds and an adoption path that had to be withdrawn.
 IDO53_CLASSES: dict[str, tuple[str, ...]] = {
     "pool": (
         "v0",
@@ -156,7 +167,9 @@ REGISTER_PROFILE_EVIDENCE: dict[str, str] = {
     "ido53": (
         "IDO 5.3 -O2 -mips2, probed (nine forced-color experiments) and "
         "confirmed against instrumented ugen; temp tables are in ugen "
-        "free-list ring order"
+        "free-list ring order, and the float ring is the four registers ugen "
+        "actually hands out (f16/f18 are initialized into ffree, withdrawn "
+        "before the first allocation, and are uopt colors)"
     ),
     "unverified": (
         "pre-probe table, not measured against any single release; the "

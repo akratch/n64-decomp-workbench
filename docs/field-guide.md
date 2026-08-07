@@ -271,9 +271,21 @@ both:
 * **`t0`–`t9` are never uopt colors under 5.3.** They are always ugen
   block-local temps. A `t`-register difference is a temp-ring question, never a
   coloring-priority one, and the levers are 14–16 rather than 7–13.
-* **`f4/f6/f8/f10` are never uopt colors either.** `f16`/`f18` are the one
-  ambiguous pair: uopt colors them, and ugen's float free list also extends
-  onto them under pressure.
+* **`f4/f6/f8/f10` are never uopt colors either.** They are the whole float
+  ring: it is four wide, not six.
+
+`f16`/`f18` look like the ambiguous pair and are not one, which is worth its own
+paragraph because reading them as temps cost a campaign stage about fifteen
+builds and an adoption path that had to be withdrawn. ugen initializes `ffree`
+with six entries — `f4 f6 f8 f10 f16 f18`, from `nf1 = 4` plus `nf2 = 2` — so a
+reader who quotes the initializer gets a six-wide ring. The trace says
+otherwise: `f16`/`f18` are **withdrawn before the first float allocation and
+never handed out**, and one instrumented procedure allocated `f4`–`f10` 1460
+times out of 1460. They are uopt colors (c28/c29) and belong to `fp-pool`.
+Widening `fp-temp` onto them makes an `f12`→`f16` difference report as a closed
+temp-ring site when it is a coloring change — a phantom closure. If a float-site
+script of your own carries the ring, assert the width rather than deriving it
+from the initializer.
 
 The int color map has a hole at c13 and the float colors occupy c24–c32, which
 is why a forced-color probe on 5.3 must not assume a dense index space.
@@ -545,7 +557,10 @@ binary that rebuilds a campaign object byte-identically to the stock toolchain:
   **least-recently-freed round robin**, not an LRU or a preference order.
 * `f_init_regs` runs **once per procedure**, so the phase does not carry across
   functions. It seeds the int ring `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` and the
-  float ring `f4 f6 f8 f10`, extending to `f16 f18` under pressure.
+  float ring `f4 f6 f8 f10`. The float initializer lists `f16 f18` as well,
+  but both are withdrawn before the first allocation and never handed out
+  (1460 of 1460 float allocations measured in `f4`–`f10`), so the effective
+  ring is four wide and `f16`/`f18` are uopt colors.
 * Consequently **the register at a site is a pure function of the alloc/free
   event sequence that preceded it** — nothing else. No liveness heuristic, no
   ucode-temp-index mapping. A value that uopt colors is *not* a ugen temp; a
