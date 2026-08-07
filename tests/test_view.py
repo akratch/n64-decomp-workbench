@@ -528,7 +528,12 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(view.verdict, "schedule")
         self.assertEqual(view.counts["schedule"], 2)
         self.assertEqual(view.counts["structural"], 0)
-        self.assertEqual(view.counts["relocation"], 1)
+        # One symbol name on both sides, two different addends: the resolved
+        # datum differs, so this is a pool-layout row rather than a
+        # linker-controlled one. Either way it must not open or extend the
+        # reordering run, which is what this fixture is really about.
+        self.assertEqual(view.counts["relocation"], 0)
+        self.assertEqual(view.counts["pool_layout"], 1)
         guidance = " ".join(view.guidance)
         self.assertIn("does not prove source correctness", guidance)
 
@@ -579,7 +584,12 @@ class ClassificationTests(unittest.TestCase):
             },
         )
         self.assertEqual(view.verdict, "words-identical")
-        self.assertEqual(view.counts["relocation"], 2)
+        # The pair resolves: `jtbl_8009AE9C+0` and `.rodata+172` are one datum
+        # reached through two anchorings, so both rows are `pool`, not
+        # `relocation`, and neither is reported as a difference.
+        self.assertEqual(view.counts["pool"], 2)
+        self.assertEqual(view.counts["pool_layout"], 0)
+        self.assertEqual(view.counts["relocation"], 0)
         self.assertEqual(view.counts["schedule"], 0)
         self.assertEqual(view.counts["constant"], 0)
 

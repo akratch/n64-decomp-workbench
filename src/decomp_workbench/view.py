@@ -44,6 +44,13 @@ from .compare import (
     relocation_field_mask,
 )
 from .field_guide import next_steps
+from .literal_pool import (
+    PoolAccess,
+    PoolComparison,
+    comparable,
+    compare_pool_accesses,
+    pool_accesses,
+)
 from .model import Instruction
 from .schema import VIEW_METRICS_BY_KEY
 
@@ -206,6 +213,16 @@ REGISTER = "register"
 CONSTANT = "constant"
 COMMUTATIVE = "commutative"
 RELOCATION = "relocation"
+#: The same literal-pool slot, anchored differently.  A target that names one
+#: external symbol per literal and a candidate that emits one dense anonymous
+#: pool print every shared slot as a different ``(symbol, addend)`` pair; the
+#: words differ, the datum read does not, and no source change controls the
+#: difference.  See :mod:`decomp_workbench.literal_pool`.
+POOL = "pool"
+#: A literal-pool access the two objects do *not* agree on: a different
+#: resolved offset, a different access width, or an anchor correspondence that
+#: is not one-to-one.  This is the real question the phantom rows used to bury.
+POOL_LAYOUT = "pool_layout"
 
 #: Classes in report order.  ``match`` is deliberately first: the header leads
 #: with how much already agrees.
@@ -218,7 +235,16 @@ CLASS_ORDER: tuple[str, ...] = (
     CONSTANT,
     COMMUTATIVE,
     RELOCATION,
+    POOL,
+    POOL_LAYOUT,
 )
+
+#: Classes whose rows a pool resolution may relabel.  Both are "the aligned
+#: words differ only in a field the linker fills": ``relocation`` when the two
+#: sides printed the same operand text, ``constant`` when the printed pool
+#: offset itself differed.  Nothing else is eligible, so a row that also moved
+#: a register can never be absorbed into a pool verdict.
+POOL_RELABEL_FROM: frozenset[str] = frozenset({RELOCATION, CONSTANT})
 
 #: Precedence for composite verdicts.  Constants cascade, so they are fixed
 #: first; register classes are last because they are usually downstream.
@@ -273,10 +299,12 @@ class AlignedRow:
 
         A displacement row differs in bytes but not in anything a source change
         controls, so it is counted and annotated in context without opening a
-        hunk of its own.
+        hunk of its own.  A ``pool`` row is the same shape of fact one level
+        further out: the two objects read the same pool slot through different
+        anchors, which is a property of the two symbol tables.
         """
 
-        return self.classification not in {MATCH, DISPLACEMENT}
+        return self.classification not in {MATCH, DISPLACEMENT, POOL}
 
 
 @dataclass(frozen=True)
@@ -381,6 +409,9 @@ class MechanismView:
     #: code. Rendered ahead of everything else by the commands that own the
     #: screen; carried here so `--json` consumers see them too.
     warnings: tuple[str, ...] = ()
+    #: How the literal-pool accesses were resolved, and what they said.
+    #: ``None`` when neither object relocates a data reference.
+    pool: PoolComparison | None = None
 
     @property
     def aligned_rows(self) -> int:
@@ -442,6 +473,14 @@ class MechanismView:
         }
         for name in CLASS_ORDER:
             payload[name] = self.counts.get(name, 0)
+        payload["pool_resolution"] = (
+            self.pool.resolution if self.pool is not None else None
+        )
+        payload["pool_slots"] = (
+            [self.pool.target_slots, self.pool.candidate_slots]
+            if self.pool is not None
+            else None
+        )
         if report_regs:
             payload["register_report"] = self.register_report()
         return payload
@@ -955,7 +994,7 @@ def _prefix_exact(rows: Sequence[AlignedRow]) -> int | None:
     """Return the first aligned row whose instruction words differ."""
 
     for row in rows:
-        if row.classification in {MATCH, RELOCATION, DISPLACEMENT}:
+        if row.classification in {MATCH, RELOCATION, DISPLACEMENT, POOL}:
             continue
         return row.index
     return None
@@ -988,7 +1027,11 @@ def _verdict(
 ) -> tuple[str, str]:
     present = [name for name in MIXED_PRECEDENCE if counts.get(name)]
     if not present:
-        if counts.get(RELOCATION) or counts.get(DISPLACEMENT):
+        if counts.get(POOL_LAYOUT):
+            # The pool question, once the anchoring phantoms are out of the
+            # way: the two objects read genuinely different literal slots.
+            return "pool-layout", "constant-audit"
+        if counts.get(RELOCATION) or counts.get(DISPLACEMENT) or counts.get(POOL):
             return "words-identical", "relocation-only"
         return "exact", "done"
     if present == [REGISTER]:
@@ -1032,7 +1075,7 @@ def _frame_layout_only(
     differing = [
         row
         for row in rows
-        if row.classification not in {MATCH, RELOCATION, DISPLACEMENT}
+        if row.classification not in {MATCH, RELOCATION, DISPLACEMENT, POOL}
     ]
     if len(differing) != 2 or any(row.classification != CONSTANT for row in differing):
         return False
@@ -1059,6 +1102,8 @@ def _primary_class(counts: dict[str, int]) -> str | None:
     for name in MIXED_PRECEDENCE:
         if counts.get(name):
             return name
+    if counts.get(POOL_LAYOUT):
+        return POOL_LAYOUT
     return RELOCATION if counts.get(RELOCATION) else None
 
 
@@ -1102,6 +1147,15 @@ def _guidance(
             "aligned instructions and relocation layout are identical for this "
             "function.",
             "run the project's normal collateral and full-output verification.",
+        )
+    if primary == POOL_LAYOUT:
+        return (
+            f"{counts[POOL_LAYOUT]} literal-pool access(es) resolve to a "
+            "different slot, width, or anchor correspondence; the remaining "
+            "pool sites agree and are not reported.",
+            "this is a literal question, not an allocation one: audit the "
+            "constants and their order, and check whether the candidate emits "
+            "a slot the target does not (or shares one it does not share).",
         )
     if primary == RELOCATION:
         return (
@@ -1296,16 +1350,17 @@ def _hunks(rows: Sequence[AlignedRow]) -> tuple[Hunk, ...]:
 def _runs(labels: Sequence[str]) -> list[tuple[int, int]]:
     """Return inclusive ranges of consecutive rows that need reporting.
 
-    ``match``, ``displacement``, and ``relocation`` rows do not start a run:
-    none is a source difference. Letting an alignment-controlled branch offset
-    open a run would scatter one insertion across every branch that spans it;
-    letting a relocated row open one would relabel linker metadata as schedule.
+    ``match``, ``displacement``, ``relocation`` and the two pool classes do not
+    start a run: none is a source difference of the kind a run describes.
+    Letting an alignment-controlled branch offset open a run would scatter one
+    insertion across every branch that spans it; letting a relocated or
+    pool-anchored row open one would relabel linker metadata as schedule.
     """
 
     runs: list[tuple[int, int]] = []
     start: int | None = None
     for index, label in enumerate(labels):
-        if label in {MATCH, DISPLACEMENT, RELOCATION}:
+        if label in {MATCH, DISPLACEMENT, RELOCATION, POOL, POOL_LAYOUT}:
             if start is not None:
                 runs.append((start, index - 1))
                 start = None
@@ -1361,6 +1416,72 @@ def _relabel_reorderings(
         if left and left == right:
             for index in range(start, end + 1):
                 labels[index] = SCHEDULE
+
+
+def _pool_operand_only(target_text: str, candidate_text: str) -> bool:
+    """Return whether two aligned rows differ in nothing but their immediates.
+
+    The pool resolution may only speak for the operand it resolved.  Masking
+    every immediate and requiring the rest of the text to be identical keeps a
+    row that also moved a register, or changed an opcode, out of the pool
+    verdict entirely -- it stays whatever the classifier called it.
+    """
+
+    return IMMEDIATE_RE.sub("@imm", target_text) == IMMEDIATE_RE.sub(
+        "@imm", candidate_text
+    )
+
+
+def _relabel_pool_rows(
+    labels: list[str],
+    skeleton: Sequence[tuple[str, int | None, int | None]],
+    target: Sequence[Instruction],
+    candidate: Sequence[Instruction],
+    target_text: Sequence[str],
+    candidate_text: Sequence[str],
+) -> PoolComparison | None:
+    """Re-class relocated literal accesses by the slot they resolve to.
+
+    Whether a literal is reached through one named symbol per datum or through
+    one section symbol plus an addend is a property of the two symbol tables,
+    not of the code, and it is decided before either object is written.  The
+    rows it produces used to be counted as `relocation` evidence -- 88 of them
+    on one recorded pair whose pool accesses agree at every site.
+
+    Rows whose slots correspond become `pool` and stop being reported; rows
+    whose slots do not become `pool_layout`, which is the question those 88
+    rows were burying.
+    """
+
+    target_pool = pool_accesses(target)
+    candidate_pool = pool_accesses(candidate)
+    if not target_pool or not candidate_pool:
+        return None
+    pairs: list[tuple[int, PoolAccess, PoolAccess]] = []
+    eligible: list[int] = []
+    for row, (_, target_index, candidate_index) in enumerate(skeleton):
+        if target_index is None or candidate_index is None:
+            continue
+        left = target_pool.get(target_index)
+        right = candidate_pool.get(candidate_index)
+        if left is None or right is None or not comparable(left, right):
+            continue
+        pairs.append((row, left, right))
+        if labels[row] in POOL_RELABEL_FROM and _pool_operand_only(
+            target_text[target_index], candidate_text[candidate_index]
+        ):
+            eligible.append(row)
+    comparison = compare_pool_accesses(
+        pairs,
+        target_accesses=target_pool,
+        candidate_accesses=candidate_pool,
+    )
+    for row in eligible:
+        if row in comparison.agreeing:
+            labels[row] = POOL
+        elif row in comparison.differing:
+            labels[row] = POOL_LAYOUT
+    return comparison
 
 
 def _schedule_identity(instruction: Instruction, normalized: str) -> str:
@@ -1500,6 +1621,9 @@ def build_view(
         target_schedule_keys,
         candidate_schedule_keys,
     )
+    pool = _relabel_pool_rows(
+        labels, skeleton, target, candidate, target_text, candidate_text
+    )
 
     rows: list[AlignedRow] = []
     counts: dict[str, int] = {name: 0 for name in CLASS_ORDER}
@@ -1580,6 +1704,7 @@ def build_view(
         webs=webs,
         guidance=_guidance(verdict, counts, lanes, webs, hunks) + next_steps(playbook),
         warnings=tuple(warnings),
+        pool=pool,
     )
 
 

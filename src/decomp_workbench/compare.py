@@ -16,6 +16,7 @@ from .field_guide import (
     VERDICT_PLAYBOOKS,
     next_steps,
 )
+from .literal_pool import PoolReport
 from .model import Comparison, Instruction, display_path
 from .objdump import cross_function_warning, dump_object, symbol_labels
 
@@ -365,8 +366,13 @@ def alignment_caution(
 
 def aligned_residual_analysis(
     target: Sequence[Instruction], candidate: Sequence[Instruction]
-) -> tuple[dict[str, int], dict[str, int], list[dict[str, object]]]:
-    """Return LCS-aligned counts, alignment gaps, and residual sites.
+) -> tuple[
+    dict[str, int],
+    dict[str, int],
+    list[dict[str, object]],
+    PoolReport | None,
+]:
+    """Return LCS-aligned counts, gaps, residual sites, and the pool reading.
 
     Positional counting misranked candidates in six recorded campaigns: one
     inserted instruction shifts every later position, so a candidate that is one
@@ -378,11 +384,15 @@ def aligned_residual_analysis(
     counts: a row the aligner filled on one side only is a position the two
     objects do not share, and every such row is a reason not to read this
     candidate's aligned total against another candidate's.
+
+    The fourth element is the literal-pool reading, which says how the two
+    objects' pool accesses were resolved and how many slots each references.
+    See :mod:`decomp_workbench.literal_pool`.
     """
 
     # ``view`` is built on top of this module, so the import is deferred rather
     # than inverting the layering for one call.
-    from .view import RESIDUAL_CLASSES, build_view
+    from .view import POOL, POOL_LAYOUT, RESIDUAL_CLASSES, build_view
 
     if not target or not candidate:
         # There is nothing to align against, so every instruction the other side
@@ -406,7 +416,7 @@ def aligned_residual_analysis(
             }
             for index in range(max(len(target), len(candidate)))
         ]
-        return counts, gaps, sites
+        return counts, gaps, sites, None
     view = build_view(
         target,
         candidate,
@@ -437,7 +447,18 @@ def aligned_residual_analysis(
         for row in view.rows
         if row.reported
     ]
-    return counts, gaps, sites
+    pool = (
+        None
+        if view.pool is None
+        else PoolReport(
+            resolution=view.pool.resolution,
+            matches=view.counts.get(POOL, 0),
+            layout_mismatches=view.counts.get(POOL_LAYOUT, 0),
+            target_slots=view.pool.target_slots,
+            candidate_slots=view.pool.candidate_slots,
+        )
+    )
+    return counts, gaps, sites, pool
 
 
 def aligned_residual(
@@ -445,7 +466,7 @@ def aligned_residual(
 ) -> dict[str, int]:
     """Return the LCS-aligned residual counts, keyed for the report."""
 
-    counts, _, _ = aligned_residual_analysis(target, candidate)
+    counts, _, _, _ = aligned_residual_analysis(target, candidate)
     return counts
 
 
@@ -1019,7 +1040,9 @@ def compare_instructions(
         and fp_count == 0
         and target_frame == candidate_frame
     )
-    aligned, aligned_gaps, aligned_sites = aligned_residual_analysis(target, candidate)
+    aligned, aligned_gaps, aligned_sites, pool = aligned_residual_analysis(
+        target, candidate
+    )
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
@@ -1115,6 +1138,11 @@ def compare_instructions(
         aligned_gaps=sum(aligned_gaps.values()),
         alignment_comparable=caution is None,
         alignment_caution=caution,
+        pool_resolution=pool.resolution if pool is not None else None,
+        pool_matches=pool.matches if pool is not None else 0,
+        pool_layout_mismatches=pool.layout_mismatches if pool is not None else 0,
+        target_pool_slots=pool.target_slots if pool is not None else 0,
+        candidate_pool_slots=pool.candidate_slots if pool is not None else 0,
     )
 
 

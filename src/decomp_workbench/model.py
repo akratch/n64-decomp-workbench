@@ -97,6 +97,22 @@ class Comparison:
     alignment_comparable: bool = True
     #: The one-line caution printed when it may not be, or ``None``.
     alignment_caution: str | None = None
+    #: How the two objects' literal-pool accesses were resolved before
+    #: classing: ``absolute`` (both anchor on section symbols, so the byte
+    #: offset inside the section is comparable), ``anchor-correspondence`` (one
+    #: side names each literal, so only the one-to-one correspondence of
+    #: anchors is checkable), ``unresolved``, or ``None`` when neither object
+    #: relocates a data reference. See ``decomp_workbench.literal_pool``.
+    pool_resolution: str | None = None
+    #: Aligned rows reading the same pool slot through differently named
+    #: anchors. They are not reported as differences: the anchoring is a
+    #: property of the two symbol tables, decided before either object exists.
+    pool_matches: int = 0
+    #: Aligned rows whose pool accesses resolve to genuinely different slots.
+    pool_layout_mismatches: int = 0
+    #: Distinct literal-pool slots each object references.
+    target_pool_slots: int = 0
+    candidate_pool_slots: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.

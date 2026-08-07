@@ -151,6 +151,8 @@ core counts, and adds `commutative` and `relocation` when they are non-zero.
 | `match` | identical instruction words and relocation layout |
 | `displacement` | same aligned branch destination, different encoded offset |
 | `relocation` | differs only in linker-controlled relocation fields |
+| `pool` | reads the same literal-pool slot through a differently named anchor |
+| `pool_layout` | literal-pool accesses that resolve to different slots or widths |
 | `constant` | same opcode and registers, different immediate |
 | `commutative` | same opcode and operand multiset, commutative pair swapped |
 | `register` | same opcode, different register operands |
@@ -164,12 +166,33 @@ annotated where it happens, and left out of the prefix signature. Letting it
 open hunks would scatter one insertion across the whole function, which is the
 phantom cascade this command exists to remove.
 
+`pool` is the same idea one level out. Whether a literal is reached through one
+named external symbol per datum (`lui at,%hi(D_80052AA8)`) or through one dense
+anonymous section symbol plus an addend (`lui at,%hi(.rodata)` /
+`lwc1 $f0,8(at)`) is a property of the two *symbol tables*, decided before
+either object was written. Both spellings resolve to a slot and the rows are
+compared on the slot, so a matching pool disappears instead of filling the
+`relocation` class — 88 rows on one recorded pair. A site whose slot, access
+width, or anchor correspondence genuinely differs becomes `pool_layout`, which
+is reported and gets its own verdict.
+
+The resolution is reported as `pool_resolution`, because the two tiers answer
+different questions. `absolute` means both sides anchor on a section symbol, so
+the byte offset inside the section was compared directly. `anchor-correspondence`
+means at least one side names each literal with an external symbol whose address
+the object does not carry; what was checked there is that the two objects' slots
+are in one-to-one correspondence at a constant displacement per anchor pair.
+Neither tier claims the two pools hold the same *bytes* — a target with no
+`.rodata` section of its own cannot support that claim, and it stays with the
+project's link or ROM check.
+
 The verdict names the cheapest mechanism that explains the whole residual.
 
 | Verdict | When | Playbook |
 |---|---|---|
 | `exact` | nothing differs | `done` |
-| `words-identical` | only relocation-controlled fields differ | `relocation-only` |
+| `words-identical` | only relocation-controlled or pool-anchoring fields differ | `relocation-only` |
+| `pool-layout` | literal-pool accesses resolve to different slots | `constant-audit` |
 | `constant` | only immediates differ | `constant-audit` |
 | `commutative-order` | only commutative swaps | `ast-shape` |
 | `schedule` | only reorderings | `g0-schedule-probe` |
@@ -286,7 +309,8 @@ agent dialect and no human dialect.
 | `symbol`, `target`, `candidate` | inputs |
 | `target_instructions`, `candidate_instructions`, `aligned_rows` | sizes |
 | `target_frame_size`, `candidate_frame_size` | stack frame adjustments |
-| `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation` | aligned row counts |
+| `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation`, `pool`, `pool_layout` | aligned row counts |
+| `pool_resolution`, `pool_slots` | how literal-pool accesses were resolved, and the slot count each object references |
 | `verdict`, `playbook`, `signature`, `prefix_exact` | diagnosis |
 | `hunks` | `hunk`, `class`, `rows`, `target`, `candidate`, `target_bytes`, `candidate_bytes`, `classes` |
 | `lanes` | `class`, `target`, `candidate`, `rows`, `slot`, `aligned_row`, `rotation` |

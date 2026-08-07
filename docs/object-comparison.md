@@ -228,9 +228,18 @@ computed by the same analysis `view` renders — not a second aligner:
   `aligned_constant`, `aligned_commutative` — the residual split by mechanism.
 
 Aligned rows classed `match`, `displacement` (an encoded branch offset that
-moved because something was inserted between here and there), and `relocation`
-(a linker-supplied field) are not in the total: none of them is a difference a
-source change owns.
+moved because something was inserted between here and there), `relocation`
+(a linker-supplied field), and `pool` (the same literal-pool slot reached
+through a differently named anchor) are not in the total: none of them is a
+difference a source change owns. `pool_layout` — a literal-pool access that
+resolves to a different slot — is reported as its own class and verdict but is
+also outside the total, because the difference lives in the data section rather
+than in the compared function.
+
+`pool_resolution`, `pool_matches`, `pool_layout_mismatches`,
+`target_pool_slots`, and `candidate_pool_slots` report that reading beside the
+counts. See [view.md](view.md) for the two resolution tiers and what each one
+does and does not claim.
 
 Alongside them, `gaps=` (with its `aligned_insertions`/`aligned_deletions`
 split) reports the alignment's own edit operations. `aligned_total ==

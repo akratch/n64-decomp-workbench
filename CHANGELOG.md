@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Literal-pool accesses are compared by the slot they resolve to, not by the
+  symbol that names it.** A decomp target and its candidate rarely anchor
+  read-only data the same way: on the recorded `object_interaction` campaign
+  the target names one external symbol per literal (`D_80052AA8`, addend 0)
+  where the candidate emits one dense anonymous `.rodata` symbol with the slot
+  in the addend. Every shared slot therefore rendered as a different
+  `(symbol, addend)` pair, and 88 rows — 59 `lui at,0x0` against `lui at,0x0`
+  and 29 `lwc1 $fN,0(at)` against `lwc1 $fN,K(at)` — were reported as
+  relocation evidence against a pair whose pool accesses agree at every site,
+  costing that campaign a work item with nothing to fix. `view` now resolves
+  each relocated data reference and classes the row on the resolution: `pool`
+  when the two sides read the same slot at the same width (not reported, like
+  `displacement`), and the new `pool_layout` class and verdict when they do
+  not. `--json` gained `pool`, `pool_layout`, `pool_resolution` and
+  `pool_slots` on the view, and `pool_resolution`, `pool_matches`,
+  `pool_layout_mismatches`, `target_pool_slots` and `candidate_pool_slots` on
+  a comparison. Nothing was renamed or removed, and `aligned_total` is
+  unchanged: on that campaign pair the 88 rows leave `aligned_diff_sites`
+  (1953 → 1865) while the residual stays at 1865. Two resolution tiers are
+  reported by name, because they answer different questions: `absolute` (both
+  sides anchor on a section symbol, so byte offsets are compared directly) and
+  `anchor-correspondence` (one side names each literal, so what is checked is a
+  one-to-one slot correspondence at a constant displacement per anchor pair).
+  Neither claims the two pools hold the same bytes.
+
+  *Behaviour change to know:* a site where both objects name the **same**
+  symbol with **different** addends used to be `relocation` and is now
+  `pool_layout` — the addend is the source's choice, not the linker's, so it
+  was never linker-controlled. A `lui` with no load under it in the compared
+  window is still `relocation`: nothing in view says which slot it reaches.
+
 - **Aligned row counts now say when they are not comparable across
   candidates.** `aligned_total` is computed against a per-candidate LCS
   alignment, so a candidate that forced the aligner to insert gaps is measured

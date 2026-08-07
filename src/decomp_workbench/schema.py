@@ -213,6 +213,33 @@ METRICS: tuple[Metric, ...] = (
         "across candidates, or null",
     ),
     Metric(
+        "pool_resolution",
+        "pool_resolution",
+        "how literal-pool accesses were resolved before classing: absolute, "
+        "anchor-correspondence, unresolved, or null",
+    ),
+    Metric(
+        "pool_matches",
+        "pool_matches",
+        "aligned rows reading the same pool slot through a differently named "
+        "anchor; not counted as differences",
+    ),
+    Metric(
+        "pool_layout_mismatches",
+        "pool_layout_mismatches",
+        "aligned rows whose pool accesses resolve to different slots or widths",
+    ),
+    Metric(
+        "target_pool_slots",
+        "target_pool_slots",
+        "distinct literal-pool slots the target references",
+    ),
+    Metric(
+        "candidate_pool_slots",
+        "candidate_pool_slots",
+        "distinct literal-pool slots the candidate references",
+    ),
+    Metric(
         "relocs",
         "relocation_metadata_mismatches",
         "positional relocation-kind differences; prevents an exact verdict",
@@ -431,6 +458,28 @@ VIEW_METRICS: tuple[Metric, ...] = (
         "relocation",
         "relocation",
         "aligned rows differing only in linker-controlled fields",
+    ),
+    Metric(
+        "pool",
+        "pool",
+        "aligned rows reading the same literal-pool slot through a "
+        "differently named anchor",
+    ),
+    Metric(
+        "pool_layout",
+        "pool_layout",
+        "aligned rows whose literal-pool accesses resolve to different slots",
+    ),
+    Metric(
+        "pool_resolution",
+        "pool_resolution",
+        "how literal-pool accesses were resolved: absolute, "
+        "anchor-correspondence, or unresolved",
+    ),
+    Metric(
+        "pool_slots",
+        "pool_slots",
+        "distinct literal-pool slots each object references",
     ),
     Metric("verdict", "verdict", "cheapest mechanism that explains the residual"),
     Metric("playbook", "playbook", "named lever family for the verdict"),
