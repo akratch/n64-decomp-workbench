@@ -110,6 +110,24 @@ when the mismatch is caused by IDO code generation or register allocation.
 8. Return to a readable, source-level explanation after a force probe or fake
    demonstrates causality.
 
+**A mutation-sweep winner is never adopted on its score.** An automated
+source-mutation sweep proposes edits by shape, not by meaning, so a variant
+that compiles and scores better may not be the same program. One recorded
+sweep grouped a local's occurrences by line proximity and renamed a whole
+group; a group holding only reads became a read of an uninitialised variable,
+and the top-scoring row deleted a live first store. Before adopting any
+winner from any generated set:
+
+- run `decomp-workbench experiment review-mutation BASELINE.c VARIANT.c`, which
+  prints the diff and flags a use that no earlier line writes to plus a
+  removed write to a value still read;
+- read that diff and justify **every** changed line as a C transformation,
+  independently of what it scored. A clean report is not a validity claim —
+  the check is textual, builds no control-flow graph, and says so.
+
+An unjustified line is a reason to drop the variant, not a reason to keep
+searching around it.
+
 When an exact source still contains fake-match scaffolding, exactness starts a
 cleanup phase. Run `experiment inspect-source`, encode only measured mechanisms
 as exact-text transformations, and use `experiment compose` with an explicit

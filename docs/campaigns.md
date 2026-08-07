@@ -357,6 +357,34 @@ relocation targets, frame, and project verification as hard gates. Use
 function source; function-local statics can change `.bss` or GP-linker metadata
 without changing one instruction in the selected function.
 
+## Reviewing a generated winner
+
+A generator proposes edits by shape, not by meaning. Nothing downstream asks
+whether a variant is still the same program: the comparator answers "are these
+the same object", and a variant that reads an uninitialised local compiles and
+scores like any other. One recorded sweep renamed a local's occurrences in
+line-proximity groups and produced both failures — a group of pure reads
+rehosted onto a never-written local, and a top-scoring row that deleted a live
+first store.
+
+So a sweep winner is reviewed before it is adopted, never after:
+
+```sh
+decomp-workbench experiment review-mutation baseline.c winner.c
+```
+
+It prints the diff and flags a use that no earlier line writes to
+(`read-before-definition` or `definition-removed`, error, exit 1) and a removed
+write to a value that is still read (`write-removed`, warning; make it fatal
+with `--fail-on-warning`). Only identifiers the file declares are considered,
+and only shapes the mutation *introduced* — a baseline that already reads a
+local above its write is the existing code, not this variant's doing.
+
+The command is a review surface, not a proof. It does not parse, type, or
+execute C and builds no control-flow graph, so a clean report means the two
+named shapes were absent, not that the variant is valid. Read the diff and
+justify every changed line.
+
 ## Cache hygiene
 
 Objects are content-addressed under `--cache-dir`. Inspect before cleaning:

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **`experiment review-mutation` gates a sweep winner on its diff, not its
+  score.** An automated source-mutation sweep proposes edits by shape, and
+  nothing downstream asks whether a variant is still the same program — the
+  comparator answers "are these the same object". One recorded sweep grouped a
+  local's occurrences by line proximity and renamed a whole group, producing
+  two winners that compiled, scored better than their baseline, and were not
+  valid C transformations: a group of pure reads rehosted onto a never-written
+  local, and a top row that deleted a live first store. The new command prints
+  the baseline-to-variant diff and flags a use that no earlier line writes to
+  (`read-before-definition`/`definition-removed`, error, exit 1) and a removed
+  write to a value still read (`write-removed`, warning; `--fail-on-warning`
+  makes it fatal). Only identifiers the file declares are considered, and only
+  shapes the mutation *introduced* — a baseline that already reads a local
+  above its write is existing code. The report never claims validity: it does
+  not parse, type, or execute C and builds no control-flow graph, and `proof`
+  says so. The adoption rule is now stated as a hard rule in the campaign
+  Agent Skill and the field guide (*A sweep winner is a hypothesis, not an
+  edit*), and in `docs/campaigns.md`. New schema
+  `decomp-workbench-mutation-review-v1`; regression tests
+  `tests/test_mutation_review.py`, including both recorded failures and the
+  cases that must stay silent.
+
 - **`compare` explains a `raw` that exceeds `words`.** The summary line has
   always printed both counts and never said why they differ, and the answer is
   a floor rather than outstanding work: `words` excludes a word whose only

@@ -70,6 +70,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "experiment": (
         ("validate", "check paths, parameter assignments, and region bounds"),
         ("inspect-source", "inventory suspicious constructs before cleanup"),
+        ("review-mutation", "diff a sweep winner before adopting it"),
         ("compose", "generate bounded combinations of proven mechanisms"),
     ),
     "cache": (

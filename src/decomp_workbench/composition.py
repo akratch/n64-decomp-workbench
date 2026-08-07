@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import collections
+import difflib
 import hashlib
 import itertools
 import json
@@ -396,5 +398,369 @@ def inspect_source(path: str | Path) -> dict[str, Any]:
             "Group declarations with their uses, encode deletion/substitution "
             "mechanisms in a composition manifest, then compile every candidate "
             "against exact binary and collateral gates."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Mutation review: the gate between "scores well" and "is the same program".
+#
+# An automated source-mutation sweep proposes edits by shape, not by meaning.
+# A recorded sweep grouped one local's occurrences by line proximity and
+# renamed a whole group; a group holding only *reads* -- the definitions were
+# 130 lines earlier -- became a read of an uninitialized variable. It compiled,
+# it scored better than its baseline, and it was not the same program. The
+# winner was adopted before anyone diffed it.
+#
+# What follows is a text analysis, and its limits are part of its output: it
+# does not parse or execute C, so it can never certify a variant. It surfaces
+# the diff a reviewer owes the winner, and it names the two shapes that
+# produced the recorded failure. Everything else is the reviewer's job, and the
+# report says so.
+# ---------------------------------------------------------------------------
+
+MUTATION_REVIEW_SCHEMA = "decomp-workbench-mutation-review-v1"
+
+#: C identifiers that are not struct or union member selections: `sp4A0`
+#: matches, the `count` of `header->count` does not. A member name is owned by
+#: a type, so it can never be the local whose definition went missing.
+_IDENTIFIER_RE = re.compile(r"(?<![\w.])(?<!->)[A-Za-z_]\w*")
+
+#: Words that are never a local whose definition could go missing.
+_REVIEW_KEYWORDS = frozenset(
+    """
+    auto break case char const continue default do double else enum extern
+    float for goto if inline int long register restrict return short signed
+    sizeof static struct switch typedef union unsigned void volatile while
+    NULL
+    """.split()
+)
+
+#: `name =` but not `name ==`, and the compound assignments. A write to the
+#: identifier, as far as text can tell.
+_ASSIGN_TEMPLATE = r"(?<![\w.>])%s\s*(?:\[[^\];]*\])?\s*(?:=(?!=)|[-+*/%%&|^]=|<<=|>>=)"
+
+#: `&name`, `name++`, `--name`: not a plain read, so not evidence of a missing
+#: definition. Treated as "may define" rather than "defines".
+_MAY_DEFINE_TEMPLATE = r"(?:&\s*%s\b|\+\+\s*%s\b|%s\s*\+\+|--\s*%s\b|%s\s*--)"
+
+#: A declaration of the identifier: a type, then the name, then `;` or `=` or
+#: `,`. Used only to find where a local is introduced, never to type it.
+_DECLARE_TEMPLATE = (
+    r"^\s*(?:[A-Za-z_]\w*\s*[\w*\s]*?)\b%s\s*(?:\[[^\]]*\])?\s*(?:[;,=](?!=))"
+)
+
+
+def _identifiers(line: str) -> collections.Counter[str]:
+    return collections.Counter(
+        name
+        for name in _IDENTIFIER_RE.findall(line)
+        if name not in _REVIEW_KEYWORDS and not name.isdigit()
+    )
+
+
+def _defines(line: str, name: str) -> bool:
+    """Whether `line` writes `name`, as far as the text can say."""
+
+    quoted = re.escape(name)
+    if re.search(_ASSIGN_TEMPLATE % quoted, line):
+        return True
+    if re.search(_MAY_DEFINE_TEMPLATE % ((quoted,) * 5), line):
+        return True
+    return bool(re.search(_DECLARE_TEMPLATE % quoted, line))
+
+
+def _declares_without_initializer(line: str, name: str) -> bool:
+    quoted = re.escape(name)
+    if not re.search(_DECLARE_TEMPLATE % quoted, line):
+        return False
+    return not re.search(_ASSIGN_TEMPLATE % quoted, line)
+
+
+def _declaration_line(lines: list[str], name: str) -> int | None:
+    """Where `name` is declared, or `None` if this file never declares it.
+
+    Everything below is restricted to identifiers this file declares. A call to
+    an external function and a read of a project global are both identifiers
+    with no visible write, and neither is the failure being looked for; asking
+    for a declaration first is what keeps the report about locals.
+    """
+
+    quoted = re.escape(name)
+    pattern = re.compile(_DECLARE_TEMPLATE % quoted)
+    for number, line in enumerate(lines, 1):
+        if pattern.search(line):
+            return number
+    return None
+
+
+def _definition_lines(lines: list[str], name: str) -> list[int]:
+    return [
+        number
+        for number, line in enumerate(lines, 1)
+        if not _declares_without_initializer(line, name) and _defines(line, name)
+    ]
+
+
+def _first_definition(lines: list[str], name: str) -> int | None:
+    written = _definition_lines(lines, name)
+    return written[0] if written else None
+
+
+def _first_use(lines: list[str], name: str) -> int | None:
+    """The first line that uses `name` as a value.
+
+    A bare declaration is skipped: `f32 var_f12_5;` mentions the identifier
+    without reading it, and counting it as the first use makes every local
+    whose declaration precedes its first store look like a read of an
+    uninitialized variable -- which is the exact finding this module exists to
+    report, so a false one would make the whole report worthless.
+    """
+
+    for number, line in enumerate(lines, 1):
+        if name not in _identifiers(line):
+            continue
+        if _declares_without_initializer(line, name):
+            continue
+        return number
+    return None
+
+
+def _review_finding(
+    code: str,
+    severity: str,
+    identifier: str,
+    line: int | None,
+    message: str,
+    action: str,
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "severity": severity,
+        "identifier": identifier,
+        "line": line,
+        "message": message,
+        "action": action,
+        "claim": "textual-candidate-only",
+    }
+
+
+def _changed_lines(
+    base_lines: list[str], variant_lines: list[str]
+) -> tuple[list[str], list[str]]:
+    """Return the removed and added lines of the two files' line diff."""
+
+    matcher = difflib.SequenceMatcher(None, base_lines, variant_lines, autojunk=False)
+    removed: list[str] = []
+    added: list[str] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        removed.extend(base_lines[i1:i2])
+        added.extend(variant_lines[j1:j2])
+    return removed, added
+
+
+def review_mutation(
+    baseline: str | Path,
+    variant: str | Path,
+    *,
+    context: int = 3,
+) -> dict[str, Any]:
+    """Surface a mutation's diff and the two shapes that invalidate one.
+
+    The report is the diff plus findings. It never says a variant is valid --
+    no text analysis can -- and it says so in `proof`.
+    """
+
+    if context < 0:
+        raise ValueError("context must not be negative")
+    baseline_path = Path(baseline).expanduser().resolve()
+    variant_path = Path(variant).expanduser().resolve()
+    baseline_text = _read_source(baseline_path)
+    variant_text = _read_source(variant_path)
+    base_lines = baseline_text.splitlines()
+    variant_lines = variant_text.splitlines()
+
+    diff = list(
+        difflib.unified_diff(
+            base_lines,
+            variant_lines,
+            fromfile=str(baseline_path),
+            tofile=str(variant_path),
+            lineterm="",
+            n=context,
+        )
+    )
+    removed, added = _changed_lines(base_lines, variant_lines)
+    before = collections.Counter[str]()
+    after = collections.Counter[str]()
+    for line in removed:
+        before.update(_identifiers(line))
+    for line in added:
+        after.update(_identifiers(line))
+
+    findings: list[dict[str, Any]] = []
+
+    # The one check, stated as a regression rather than as a property.
+    #
+    # An identifier whose first *use* precedes its first *write* is the shape
+    # both recorded failures take: a renamed group holding only reads becomes a
+    # read of an uninitialized local, and a deleted store leaves the surviving
+    # reads with nothing reaching them. Reporting the property outright would
+    # flood the output, because plenty of correct code reads a local textually
+    # above the branch that writes it. What is reportable is that the mutation
+    # *introduced* the shape: the baseline is checked the same way, and a pair
+    # that was already like this is the reviewer's existing code, not this
+    # mutation's doing.
+    for name in sorted(set(before) | set(after)):
+        if _declaration_line(variant_lines, name) is None:
+            continue
+        variant_use = _first_use(variant_lines, name)
+        if variant_use is None:
+            continue
+        variant_definition = _first_definition(variant_lines, name)
+        if variant_definition is not None and variant_definition <= variant_use:
+            continue
+        base_use = _first_use(base_lines, name)
+        base_definition = _first_definition(base_lines, name)
+        if base_use is not None and (
+            base_definition is None or base_definition > base_use
+        ):
+            continue
+        introduced = after.get(name, 0) > before.get(name, 0)
+        where = (
+            f" (the first write is line {variant_definition})"
+            if variant_definition is not None
+            else ", and the variant never writes to it"
+        )
+        was = (
+            "the baseline wrote it before using it"
+            if base_use is not None
+            else "the baseline never used it"
+        )
+        findings.append(
+            _review_finding(
+                "read-before-definition" if introduced else "definition-removed",
+                "error",
+                name,
+                variant_use,
+                (
+                    "the mutation "
+                    + ("introduces" if introduced else "leaves")
+                    + f" a use of {name!r} at line {variant_use} that no "
+                    f"earlier line writes to{where}; {was}"
+                ),
+                (
+                    "start the renamed group at a definition, restore the "
+                    "removed write, or drop the variant: a read that reaches "
+                    "no definition compiles and scores without being the same "
+                    "program"
+                ),
+            )
+        )
+
+    # A write that left, where text cannot say whether it was live.
+    #
+    # The recorded sweep's top-scoring winner renamed a local's *first* store
+    # and left a later conditional store and two reads in place. Textually the
+    # remaining store still precedes the reads, so the check above is silent
+    # and correct to be silent: whether a path reaches those reads without
+    # passing the surviving store is a control-flow question, and this module
+    # does not build a control-flow graph. What it can say is that the mutation
+    # deleted a write to a value that is still read, which is the fact the
+    # reviewer of that winner needed and did not have.
+    reported = {str(item["identifier"]) for item in findings}
+    for name in sorted(set(before) | set(after)):
+        if name in reported or _declaration_line(variant_lines, name) is None:
+            continue
+        if _first_use(variant_lines, name) is None:
+            continue
+        base_writes = _definition_lines(base_lines, name)
+        variant_writes = _definition_lines(variant_lines, name)
+        if len(variant_writes) >= len(base_writes):
+            continue
+        findings.append(
+            _review_finding(
+                "write-removed",
+                "warning",
+                name,
+                variant_writes[0] if variant_writes else None,
+                (
+                    f"the mutation removes {len(base_writes) - len(variant_writes)} "
+                    f"of {len(base_writes)} write(s) to {name!r}, which is still "
+                    "read; whether a path now reaches a read without passing a "
+                    "write is a control-flow question this check cannot answer"
+                ),
+                (
+                    "confirm by hand that every surviving read is dominated by "
+                    "a surviving write before adopting"
+                ),
+            )
+        )
+
+    # A mutation that touches more than the identifiers it claims. Not an
+    # error; a reason to read the diff rather than the summary.
+    if len(added) > len(removed):
+        findings.append(
+            _review_finding(
+                "statement-count-changed",
+                "warning",
+                "",
+                None,
+                (
+                    f"the mutation adds {len(added) - len(removed)} more "
+                    "line(s) than it removes, so it is not a pure substitution"
+                ),
+                "justify the added statements line by line before adopting",
+            )
+        )
+    elif len(removed) > len(added):
+        findings.append(
+            _review_finding(
+                "statement-count-changed",
+                "warning",
+                "",
+                None,
+                (
+                    f"the mutation removes {len(removed) - len(added)} more "
+                    "line(s) than it adds, so it is not a pure substitution"
+                ),
+                "justify the removed statements line by line before adopting",
+            )
+        )
+
+    errors = sum(1 for item in findings if item["severity"] == "error")
+    warnings = len(findings) - errors
+    return {
+        "schema": MUTATION_REVIEW_SCHEMA,
+        "baseline": str(baseline_path),
+        "variant": str(variant_path),
+        "baseline_sha256": hashlib.sha256(baseline_text.encode()).hexdigest(),
+        "variant_sha256": hashlib.sha256(variant_text.encode()).hexdigest(),
+        "changed_lines_removed": len(removed),
+        "changed_lines_added": len(added),
+        "identifiers_introduced": sorted(
+            name for name in after if after[name] > before.get(name, 0)
+        ),
+        "identifiers_withdrawn": sorted(
+            name for name in before if before[name] > after.get(name, 0)
+        ),
+        "errors": errors,
+        "warnings": warnings,
+        "finding_count": len(findings),
+        "findings": findings,
+        "diff": diff,
+        "reviewed": not findings,
+        "proof": (
+            "Textual review only. This does not parse, type, or execute C, so "
+            "it cannot certify that a variant is the same program: a clean "
+            "report means the two named shapes were not found, not that the "
+            "mutation is valid."
+        ),
+        "next_gate": (
+            "Read the printed diff and justify every changed line before "
+            "adopting the variant, then re-run the exact binary, frame, and "
+            "translation-unit collateral gates on it."
         ),
     }

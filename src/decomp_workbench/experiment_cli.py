@@ -7,7 +7,12 @@ import json
 import sys
 from typing import Any
 
-from .composition import compose_sources, inspect_source, load_composition
+from .composition import (
+    compose_sources,
+    inspect_source,
+    load_composition,
+    review_mutation,
+)
 from .experiments import expected_parameter_combinations, load_experiment
 
 
@@ -106,6 +111,40 @@ def experiment_inspect_source_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def experiment_review_mutation_command(args: argparse.Namespace) -> int:
+    try:
+        report = review_mutation(args.baseline, args.variant, context=args.context)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        state = "UNREVIEWED" if report["findings"] else "NO KNOWN INVALID SHAPE"
+        print(
+            f"mutation review: {state} ({report['errors']} error(s), "
+            f"{report['warnings']} warning(s))"
+        )
+        print(
+            f"changed lines: -{report['changed_lines_removed']} "
+            f"+{report['changed_lines_added']}"
+        )
+        for finding in report["findings"]:
+            location = f":{finding['line']}" if finding["line"] is not None else ""
+            print(
+                f"{str(finding['severity']).upper()} {finding['code']}"
+                f"{location}: {finding['message']}"
+            )
+            print(f"  do: {finding['action']}")
+        if not args.no_diff:
+            for line in report["diff"]:
+                print(line)
+        print(f"proof: {report['proof']}")
+        print(f"next gate: {report['next_gate']}")
+    failed = bool(report["errors"]) or (args.fail_on_warning and report["warnings"])
+    return 1 if failed else 0
+
+
 def register_experiment_commands(
     commands: argparse._SubParsersAction[Any],
 ) -> None:
@@ -139,6 +178,41 @@ def register_experiment_commands(
     inspect.set_defaults(
         handler=experiment_inspect_source_command,
         report_command="experiment-inspect-source",
+    )
+    review = operations.add_parser(
+        "review-mutation",
+        help="diff a sweep winner and name the shapes that invalidate one",
+        description=(
+            "Print the baseline-to-variant diff a mutation-sweep winner must "
+            "be justified against, and flag the two shapes that made a "
+            "recorded sweep emit variants that compiled, scored, and were not "
+            "the same program: a read that reaches no definition, and a "
+            "removed write whose value is still read. Textual review only -- a "
+            "clean report is not a validity claim."
+        ),
+    )
+    review.add_argument("baseline", help="source the sweep mutated")
+    review.add_argument("variant", help="candidate the sweep produced")
+    review.add_argument(
+        "--context",
+        type=int,
+        default=3,
+        help="diff context lines (default: 3)",
+    )
+    review.add_argument(
+        "--no-diff",
+        action="store_true",
+        help="print findings only; the diff is the review surface, so prefer it",
+    )
+    review.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="return exit 1 for a warning as well as an error",
+    )
+    review.add_argument("--json", action="store_true", help="emit JSON")
+    review.set_defaults(
+        handler=experiment_review_mutation_command,
+        report_command="experiment-review-mutation",
     )
     compose = operations.add_parser(
         "compose",

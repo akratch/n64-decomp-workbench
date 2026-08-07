@@ -1109,6 +1109,46 @@ both earlier single-family searches had left on disk.
 source-distinct traces with an identical decision outcome, or a cleaner exact
 candidate that still needs translation-unit collateral and project verification.
 
+## A sweep winner is a hypothesis, not an edit
+
+**Hard rule: no winner of an automated source-mutation sweep is adopted until
+its diff has been read and every changed line justified as a C
+transformation.** The score is not the evidence. A generator proposes edits by
+shape, so a variant that compiles and scores better than its baseline may
+simply not be the same program, and nothing downstream will catch it — the
+comparator answers "are these the same object", never "are these the same
+program".
+
+Both recorded failures came from one sweep that renamed a local's occurrences
+in line-proximity groups:
+
+* a group holding only *reads* — its definitions were 130 lines earlier —
+  became a read of an uninitialised variable. It compiled and it scored;
+* the top-scoring row renamed a local's *first* store and left a later
+  conditional store and two reads behind, so a path now reaches a read without
+  passing a write.
+
+```sh
+decomp-workbench experiment review-mutation baseline.c winner.c
+```
+
+prints the diff and flags both shapes: a use no earlier line writes to
+(`read-before-definition` / `definition-removed`, error), and a removed write
+to a value still read (`write-removed`, warning — whether the surviving reads
+are still dominated is a control-flow question the check does not answer).
+`--fail-on-warning` makes both fatal in a script.
+
+The command is a review surface, not a proof. It does not parse, type, or
+execute C: a clean report means the two named shapes were not found. The
+justification is still yours, and an unjustified line is a reason to drop the
+variant rather than to search around it.
+
+If you are writing the sweep, the same rule belongs in the generator:
+require every renamed group to begin with a definition of the name, and refuse
+a group that removes a write while leaving a read.
+
+---
+
 ## Dead families — do not spend variants here
 
 Each of these was searched exhaustively at real cost. Skipping them is as
