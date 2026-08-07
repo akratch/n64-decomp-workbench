@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **`compare` explains a `raw` that exceeds `words`.** The summary line has
+  always printed both counts and never said why they differ, and the answer is
+  a floor rather than outstanding work: `words` excludes a word whose only
+  differing bits are relocation-controlled, and a separately written
+  `objdump -d` diff, which has no relocation table in hand, does not. On the
+  recorded `object_interaction` pair that is 563 against 608, and the 45-row
+  gap was read as unfixed literal-pool work for about an hour, across three
+  campaign stages. Whenever the gap exists, a `raw-vs-words:` note now names
+  the count, the class, and the consequence — a raw disassembly diff counts
+  those words permanently, so `words = 0` is the honest gate, not a
+  byte-identical dump. Nothing is renamed or removed and no count changed.
+  Documented in `docs/object-comparison.md` and `docs/troubleshooting.md`;
+  regression test `tests/test_literal_pool.py::RawFloorTests`, including the
+  silence when the two counts agree.
+
 - **The IDO 5.3 float temp ring is documented as four wide, because that is
   what ugen hands out.** The register tables already placed `f16`/`f18` in
   `fp-pool`, but every sentence around them called the pair "ambiguous" and

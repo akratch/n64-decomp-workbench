@@ -38,8 +38,17 @@ identity, not an instruction-matching score. For example:
 ```text
 verdict=instruction-exact aligned_total=   0 words=   0 raw=  48 ...
 raw difference classes: relocation_controlled=48
+raw-vs-words: raw=48 exceeds words=0 by 48 relocation-controlled word(s):
+              linker-filled bits no source change moves. A raw objdump text diff counts
+              them permanently, so words=0 is the honest gate, not a byte-identical dump.
 next: Instruction-exact: raw differences are linker-controlled relocation fields.
 ```
+
+The `raw-vs-words` note appears whenever `raw` exceeds `words`, because that
+difference is the number a separately written disassembly diff will report and
+cannot remove. A pair whose target names each literal with its own symbol and
+whose candidate merges them into one anonymous section sits on such a floor at
+every literal load.
 
 This prevents a common late-stage failure mode: continuing to mutate source
 solely because a UI or raw comparison reports a nonzero number after the object

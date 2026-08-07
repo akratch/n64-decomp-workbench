@@ -29,6 +29,10 @@ import unittest
 from mips_asm import assemble
 
 from decomp_workbench.compare import compare_instructions
+from decomp_workbench.comparison_render import (
+    comparison_explanation_lines,
+    raw_versus_words_lines,
+)
 from decomp_workbench.literal_pool import (
     ABSOLUTE,
     CORRESPONDENCE,
@@ -351,6 +355,54 @@ class ComparisonReportTests(unittest.TestCase):
         ).as_dict()
         self.assertIsNone(payload["pool_resolution"])
         self.assertEqual(payload["pool_matches"], 0)
+
+
+class RawFloorTests(unittest.TestCase):
+    """`raw` above `words` on this pair is a floor, and now says so.
+
+    Resolving the pool retired the phantom *rows*, but not the arithmetic that
+    produced the campaign's second hour of pool attribution: `words` excludes a
+    word whose only differing bits are relocation-controlled, and a hand-rolled
+    `objdump -d` diff does not. The campaign's counts were 563 against 608, and
+    the 45-row gap was read as outstanding pool work. The summary line printed
+    both numbers and never explained the difference.
+    """
+
+    def item(self) -> Comparison:
+        return ComparisonReportTests().comparison()
+
+    def test_the_gap_is_exactly_the_relocation_controlled_words(self) -> None:
+        item = self.item()
+        self.assertEqual(item.word_mismatches, 0)
+        self.assertEqual(
+            item.raw_word_mismatches - item.word_mismatches,
+            item.raw_difference_breakdown["relocation_controlled"],
+        )
+
+    def test_the_note_names_the_count_and_the_honest_gate(self) -> None:
+        text = " ".join(raw_versus_words_lines(self.item()))
+        self.assertIn("raw-vs-words: raw=2 exceeds words=0 by 2", text)
+        self.assertIn("relocation-controlled", text)
+        self.assertIn("words=0 is the honest gate", text)
+
+    def test_the_note_reaches_the_rendered_comparison(self) -> None:
+        rendered = " ".join(
+            comparison_explanation_lines(self.item(), cross_rom=False, guidance=False)
+        )
+        self.assertIn("raw-vs-words:", rendered)
+
+    def test_an_agreeing_pair_prints_no_note(self) -> None:
+        """No gap, no sentence. The line exists to explain a difference."""
+
+        identical = compare_instructions(
+            parse_disassembly(assemble(["li v0,33", "jr ra", "nop"]), symbol="demo"),
+            parse_disassembly(assemble(["li v0,49", "jr ra", "nop"]), symbol="demo"),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertEqual(identical.raw_word_mismatches, identical.word_mismatches)
+        self.assertEqual(raw_versus_words_lines(identical), [])
 
 
 if __name__ == "__main__":

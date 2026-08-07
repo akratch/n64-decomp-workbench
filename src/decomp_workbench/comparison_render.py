@@ -114,6 +114,36 @@ def comparison_payload(
     return payload
 
 
+def raw_versus_words_lines(item: Comparison) -> list[str]:
+    """Explain a `raw=` that exceeds `words=`, once, where both are printed.
+
+    The summary line reports both counts and never said why they differ. On a
+    pair whose target names each float literal with its own `.rodata` symbol
+    and whose candidate merges them into one anonymous section, the gap is
+    every literal load: `words` excludes a word whose only differing bits are
+    relocation-controlled, and a hand-rolled `objdump -d` diff does not. One
+    campaign read the resulting 45 permanently-differing disassembly rows as
+    outstanding pool work and spent about an hour attributing them.
+
+    So the line names the number, the class, and the consequence: a raw
+    disassembly diff cannot reach zero on such a pair, and `words = 0` is the
+    honest gate.
+    """
+
+    controlled = item.raw_difference_breakdown.get("relocation_controlled", 0)
+    if not controlled or item.raw_word_mismatches <= item.word_mismatches:
+        return []
+    return [
+        f"raw-vs-words: raw={item.raw_word_mismatches} exceeds "
+        f"words={item.word_mismatches} by {controlled} relocation-controlled "
+        "word(s):",
+        "              linker-filled bits no source change moves. A raw "
+        "objdump text diff counts",
+        "              them permanently, so words=0 is the honest gate, not a "
+        "byte-identical dump.",
+    ]
+
+
 def comparison_explanation_lines(
     item: Comparison,
     *,
@@ -170,6 +200,7 @@ def comparison_explanation_lines(
     )
     if breakdown:
         lines.append(f"raw difference classes: {breakdown}")
+    lines.extend(raw_versus_words_lines(item))
     if item.diff_sites:
         classes = ", ".join(
             f"{name}={count}" for name, count in item.diff_site_classes.items()

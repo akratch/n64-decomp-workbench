@@ -111,6 +111,24 @@ The exact verdict also requires equal instruction counts and relocation kinds
 at aligned positions. Relocation symbols and addends are reported but are not
 part of the verdict.
 
+`compare` names the gap when `raw` exceeds `words`:
+
+```text
+raw difference classes: instruction_bits=563, relocation_controlled=45
+raw-vs-words: raw=608 exceeds words=563 by 45 relocation-controlled word(s):
+              linker-filled bits no source change moves. A raw objdump text diff counts
+              them permanently, so words=0 is the honest gate, not a byte-identical dump.
+```
+
+A separately written `objdump -d` diff has no relocation table in hand and
+counts those words as differences, which is why such a diff can sit on a floor
+the workbench does not report. The usual cause is symbol granularity: a target
+that names each float literal with its own `.rodata` symbol against a candidate
+that merges them into one anonymous section puts the slot in the addend, so
+every literal load differs in bits while reading the same slot. `pool_matches`
+and `pool_resolution` report that reading; `words = 0` remains the gate, and a
+byte-identical disassembly is not reachable on such a pair.
+
 ## An unknown relocation prevents `exact=true`
 
 The comparator refuses to guess which instruction bits an unfamiliar
