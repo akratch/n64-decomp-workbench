@@ -26,6 +26,8 @@ SYMBOL_COMMANDS = (
     "diagnose-dumps",
     "view",
     "view-dumps",
+    "window",
+    "window-dumps",
     "check-scratch",
     "rank",
     "compile-rank",

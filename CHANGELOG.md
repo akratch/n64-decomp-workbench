@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **`window` prints named aligned rows, in the row numbering the tool already
+  publishes.** Reading a row by number is the most common action in a register
+  residue campaign, and it had no command: three stages of one campaign each
+  wrote their own objdump-scraping script for it, and each invented its own row
+  numbering — none of them the `aligned_row` that `compare --json` reports and
+  `view` prints. A write-up saying "the gate is the `add.s` at row 863" was
+  therefore one private script away from being unreadable.
+  `decomp-workbench window TARGET CANDIDATE --rows 860-868` (and `window-dumps`
+  on retained objdump text) shares the aligner and prints exactly those rows
+  side by side, marking each differing row with `*` and carrying `view`'s web
+  colouring and substitution annotations. `--rows` takes `N` or `LOW-HIGH` and
+  repeats; matching rows are printed too, a range past the end is clamped and
+  says so, and a range entirely past the end is reported rather than rendered
+  as an empty screen. `--json` emits `decomp-workbench-window-v1` with `view`'s
+  per-row keys. Documented in `docs/view.md`; regression tests
+  `tests/test_window.py`, including that the rows `compare --json` names are
+  the rows `window` prints.
+
 - **`experiment review-mutation` gates a sweep winner on its diff, not its
   score.** An automated source-mutation sweep proposes edits by shape, and
   nothing downstream asks whether a variant is still the same program — the

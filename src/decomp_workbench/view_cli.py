@@ -70,9 +70,16 @@ __all__ = [
     "add_view_output_arguments",
     "add_view_render_arguments",
     "register_view_commands",
+    "register_window_commands",
     "render_view",
+    "render_window",
     "resolve_color",
 ]
+
+
+#: The `window` report vocabulary. Row keys are `view`'s own, so a row printed
+#: by one command and a row read by the other are the same row.
+WINDOW_SCHEMA = "decomp-workbench-window-v1"
 
 
 def _tokens(pairs: Sequence[tuple[str, object]]) -> str:
@@ -506,6 +513,162 @@ def render_register_report(view: MechanismView) -> list[str]:
     return lines
 
 
+def parse_row_ranges(values: Sequence[str]) -> list[tuple[int, int]]:
+    """Parse ``850-875`` / ``863`` selectors into inclusive row ranges.
+
+    Row numbers are the aligned-row numbers this tool already publishes as
+    `aligned_row` in `compare --json` and prints beside every hunk row, so the
+    number quoted in a dossier is the number typed here.
+    """
+
+    ranges: list[tuple[int, int]] = []
+    for value in values:
+        text = value.strip()
+        low_text, separator, high_text = text.partition("-")
+        try:
+            low = int(low_text)
+            high = int(high_text) if separator else low
+        except ValueError:
+            raise ValueError(
+                f"row selector must be N or LOW-HIGH, not {value!r}"
+            ) from None
+        if low < 0 or high < 0:
+            raise ValueError(f"row selector must not be negative: {value!r}")
+        if high < low:
+            raise ValueError(f"row selector must not run backwards: {value!r}")
+        ranges.append((low, high))
+    return ranges
+
+
+def render_window(
+    view: MechanismView,
+    ranges: Sequence[tuple[int, int]],
+    *,
+    painter: Painter,
+    budget: int = 0,
+) -> list[str]:
+    """Render the named aligned rows, in full, side by side.
+
+    Reading a row by number is the single most common action in a register
+    residue campaign, and every stage of one recorded campaign wrote its own
+    objdump-scraping script to do it -- each with its own row numbering, none
+    of them the numbering the tool publishes. This shares the aligner, so the
+    rows quoted in a dossier and the rows printed here are the same rows.
+    """
+
+    webs = {
+        (web.target, web.candidate): index for index, web in enumerate(view.webs, 1)
+    }
+    last = len(view.rows) - 1
+    lines: list[str] = []
+    for low, high in ranges:
+        lines.append("")
+        if low > last:
+            lines.append(
+                f"ROWS {low}-{high}  (past the end: the alignment holds "
+                f"{len(view.rows)} row(s), 0-{last})"
+            )
+            continue
+        end = min(high, last)
+        selected = view.rows[low : end + 1]
+        differing = sum(1 for row in selected if not row.matched)
+        header = _tokens(
+            (
+                ("count", len(selected)),
+                ("differing", differing),
+                ("classes", ",".join(_window_classes(selected)) or "-"),
+            )
+        )
+        if end < high:
+            header += f"  (clamped to the last row, {last})"
+        lines.append(painter.bold(f"ROWS {low}-{end}") + "  " + header)
+        lines.extend(
+            _render_window_rows(selected, webs=webs, painter=painter, budget=budget)
+        )
+    return lines
+
+
+def _window_classes(rows: Sequence[AlignedRow]) -> list[str]:
+    seen: dict[str, None] = {}
+    for row in rows:
+        if not row.matched:
+            seen.setdefault(row.classification, None)
+    return list(seen)
+
+
+def _render_window_rows(
+    rows: Sequence[AlignedRow],
+    *,
+    webs: dict[tuple[str, str], int],
+    painter: Painter,
+    budget: int = 0,
+) -> list[str]:
+    width = _assembly_width(rows)
+    lines: list[str] = []
+    for row in rows:
+        # The marker is the whole point of a window: a reader scanning a
+        # 25-row range for the one row that moved should not have to compare
+        # two columns character by character.
+        marker = " " if row.matched else "*"
+        parts = _annotation_parts(row, webs, painter) if not row.matched else []
+        if not parts and not row.matched:
+            parts = [row.classification]
+        target = _paint_registers(
+            row.target, row.target_registers, row, webs, painter, target_side=True
+        )
+        candidate = _paint_registers(
+            row.candidate,
+            row.candidate_registers,
+            row,
+            webs,
+            painter,
+            target_side=False,
+        )
+        body = (
+            f"  {row.index:5d} {marker} "
+            f"{visible_ljust(target, width)} | "
+            f"{visible_ljust(candidate, width)}"
+        )
+        lines.extend(_wrap_annotation(body, parts, budget))
+    return lines
+
+
+def window_payload(
+    view: MechanismView, ranges: Sequence[tuple[int, int]]
+) -> dict[str, Any]:
+    """Return the selected rows as JSON, in the published row vocabulary."""
+
+    last = len(view.rows) - 1
+    selected: list[dict[str, Any]] = []
+    for low, high in ranges:
+        for row in view.rows[low : min(high, last) + 1]:
+            selected.append(
+                {
+                    "aligned_row": row.index,
+                    "class": row.classification,
+                    "matched": row.matched,
+                    "target": row.target,
+                    "candidate": row.candidate,
+                    "target_address": row.target_address,
+                    "candidate_address": row.candidate_address,
+                    "target_registers": list(row.target_registers),
+                    "candidate_registers": list(row.candidate_registers),
+                    "substitutions": [list(pair) for pair in row.substitutions],
+                }
+            )
+    return {
+        "schema": WINDOW_SCHEMA,
+        "symbol": view.symbol,
+        "target": view.target,
+        "candidate": view.candidate,
+        "aligned_rows": view.aligned_rows,
+        "requested_rows": [list(item) for item in ranges],
+        "row_count": len(selected),
+        "differing": sum(1 for row in selected if not row["matched"]),
+        "rows": selected,
+    }
+
+
 def render_view(
     view: MechanismView,
     *,
@@ -900,6 +1063,116 @@ def add_view_output_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _window_view(args: argparse.Namespace) -> MechanismView:
+    symbol = _symbol(args)
+    if getattr(args, "objdump", None) is not None or hasattr(args, "section"):
+        target_text, target = dump_object(
+            args.target, objdump=args.objdump, symbol=symbol, section=args.section
+        )
+        candidate_text, candidate = dump_object(
+            args.candidate, objdump=args.objdump, symbol=symbol, section=args.section
+        )
+        warning = cross_function_warning(
+            target_text, candidate_text, symbol=symbol, section=args.section
+        )
+    else:
+        target_text = Path(args.target).read_text(encoding="utf-8")
+        candidate_text = Path(args.candidate).read_text(encoding="utf-8")
+        target = parse_disassembly(target_text, symbol=symbol)
+        candidate = parse_disassembly(candidate_text, symbol=symbol)
+        if not target or not candidate:
+            raise ValueError(
+                symbol_selection_error(
+                    symbol,
+                    inputs=(
+                        (display_path(args.target), target_text),
+                        (display_path(args.candidate), candidate_text),
+                    ),
+                )
+            )
+        warning = cross_function_warning(target_text, candidate_text, symbol=symbol)
+    return build_view(
+        target,
+        candidate,
+        target_name=display_path(args.target),
+        candidate_name=display_path(args.candidate),
+        symbol=symbol,
+        register_profile=args.register_profile,
+        warnings=(warning,) if warning else (),
+    )
+
+
+def window_command(args: argparse.Namespace) -> int:
+    """Print named aligned rows of two objects, side by side."""
+
+    try:
+        ranges = parse_row_ranges(args.rows)
+        view = _window_view(args)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(window_payload(view, ranges), indent=2, sort_keys=True))
+        return 0
+    painter = Painter(resolve_color(args.color))
+    lines = [f"warning: {warning}" for warning in view.warnings]
+    lines.append(
+        _tokens(
+            (
+                ("aligned_rows", view.aligned_rows),
+                ("target", view.target),
+                ("candidate", view.candidate),
+            )
+        )
+    )
+    lines.extend(
+        render_window(view, ranges, painter=painter, budget=resolve_width(args.width))
+    )
+    emit_lines([line.rstrip() for line in lines], width=args.width, pager=args.pager)
+    return 0
+
+
+def _add_window_arguments(
+    parser: argparse.ArgumentParser, *, object_inputs: bool
+) -> None:
+    add_symbol_argument(
+        parser,
+        help_text="window only this exact symbol; --function is the same option",
+    )
+    parser.add_argument(
+        "--rows",
+        action="append",
+        required=True,
+        metavar="LOW-HIGH",
+        help=(
+            "aligned rows to print, as N or LOW-HIGH; repeatable. These are "
+            "the numbers `compare --json` reports as aligned_row and `view` "
+            "prints beside every row"
+        ),
+    )
+    if object_inputs:
+        parser.add_argument(
+            "--section", default=".text", help="object section (default: .text)"
+        )
+        parser.add_argument(
+            "--objdump",
+            help="GNU-compatible MIPS objdump; auto-detected when omitted",
+        )
+    add_explain_keys_argument(parser)
+    parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--register-profile",
+        default=DEFAULT_REGISTER_PROFILE,
+        choices=sorted(REGISTER_CLASS_PROFILES),
+        help=(
+            "compiler era whose register class table names a substitution "
+            f"(default: {DEFAULT_REGISTER_PROFILE})"
+        ),
+    )
+    add_color_argument(parser)
+    add_terminal_arguments(parser)
+
+
 def register_view_commands(commands: argparse._SubParsersAction[Any]) -> None:
     """Register ``view`` and ``view-dumps`` on an existing subparser set."""
 
@@ -929,3 +1202,40 @@ def register_view_commands(commands: argparse._SubParsersAction[Any]) -> None:
     dumps_parser.add_argument("candidate", help="candidate objdump text")
     _add_shared_arguments(dumps_parser)
     dumps_parser.set_defaults(handler=view_dumps_command)
+
+
+def register_window_commands(commands: argparse._SubParsersAction[Any]) -> None:
+    """Register ``window`` and ``window-dumps`` on an existing subparser set.
+
+    Registered after `diagnose` so the command listing still opens with the
+    four commands the narrative documentation teaches first; `window` answers
+    a question a reader asks once they already have a row number.
+    """
+
+    window_description = (
+        "Print the named aligned rows of two disassemblies side by side, "
+        "marking every row that differs. The row numbers are the ones "
+        "`compare --json` publishes as aligned_row and `view` prints beside "
+        "each row, so a number quoted in a dossier is the number to type."
+    )
+    window_parser = commands.add_parser(
+        "window",
+        help="print named aligned rows of two objects side by side",
+        description=window_description,
+    )
+    window_parser.add_argument("target", help="reference object")
+    window_parser.add_argument("candidate", help="candidate object")
+    _add_window_arguments(window_parser, object_inputs=True)
+    window_parser.set_defaults(handler=window_command, report_command="window")
+
+    window_dumps_parser = commands.add_parser(
+        "window-dumps",
+        help="print named aligned rows from retained GNU objdump text",
+        description=window_description,
+    )
+    window_dumps_parser.add_argument("target", help="reference objdump text")
+    window_dumps_parser.add_argument("candidate", help="candidate objdump text")
+    _add_window_arguments(window_dumps_parser, object_inputs=False)
+    window_dumps_parser.set_defaults(
+        handler=window_command, report_command="window-dumps"
+    )

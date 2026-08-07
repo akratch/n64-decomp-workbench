@@ -417,6 +417,52 @@ registry's spelling.
   rather than reading the `ido53` lanes as universal.
 * Pool-trace rendering is not part of this command yet.
 
+## `window` — read named rows
+
+`view` chooses which rows to show. Once a campaign has a row *number* — from a
+hunk range, from `aligned_row` in `compare --json`, or from a dossier written
+last week — the question becomes "show me exactly rows 850 to 875", and
+`window` answers only that:
+
+```sh
+decomp-workbench window build/target.o build/candidate.o --rows 860-868
+```
+
+`window-dumps` runs on retained objdump text, and `--rows` repeats:
+
+```sh
+decomp-workbench window-dumps \
+  examples/fixtures/phase-shift-target.objdump \
+  examples/fixtures/phase-shift-candidate.objdump \
+  --function animStep --rows 10-16
+```
+
+```text
+aligned_rows=24 target=examples/fixtures/phase-shift-target.objdump candidate=examples/fixtures/phase-shift-candidate.objdump
+
+ROWS 10-16  count=7 differing=5 classes=register
+     10   sll $t6,$t9,2     | sll $t6,$t9,2
+     11   addu $s2,$s1,$t6  | addu $s2,$s1,$t6
+     12 * addu $t7,$s2,$s0  | addu $t8,$s2,$s0   t7->t8 [w1]
+     13 * lw $t8,20($t7)    | lw $t9,20($t8)     t8->t9 [w2] t7->t8 [w1]
+     14 * andi $t9,$t8,0xff | andi $t6,$t9,0xff  t9->t6 [w3] t8->t9 [w2]
+     15 * sw $t9,24($s0)    | sw $t6,24($s0)     t9->t6 [w3]
+     16 * lw $t6,28($s0)    | lw $t7,28($s0)     t6->t7 [w4]
+```
+
+
+`--rows` takes `N` or `LOW-HIGH` and repeats; ranges print in the order asked
+for. A `*` marks every row that differs, with the same web colouring and
+substitution annotation `view` uses, and matching rows are printed too — a
+window whose rows all match is evidence, not an empty screen. A range past the
+last row is clamped and says so rather than printing nothing.
+
+The row numbers are the aligned-row numbers, the same unit as `aligned_rows`,
+every hunk range, and `aligned_row` in `compare --json`. That is the point of
+the command: a row quoted in a write-up and a row printed in a terminal are the
+same row, without a private script in between. `--json` emits
+`decomp-workbench-window-v1` with the same per-row keys `view` publishes.
+
 ## The HTML report
 
 `--html PATH` writes one self-contained file — inline CSS, no script, no

@@ -132,6 +132,7 @@ from .view import MechanismView
 from .view_cli import (
     Painter,
     register_view_commands,
+    register_window_commands,
     render_view,
     resolve_color,
 )
@@ -1766,6 +1767,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     register_view_commands(commands)
     register_diagnose_commands(commands)
+    register_window_commands(commands)
     register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)
