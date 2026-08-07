@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .cache import cache_status, parse_duration, prune_cache, restore_pruned_cache
+from .discovery import subcommand_listing_handler
 
 DEFAULT_CACHE = ".decomp-workbench/cache"
 DEFAULT_TRASH = ".decomp-workbench/trash"
@@ -89,7 +90,8 @@ def register_cache_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "--apply moves entries to recoverable trash instead of deleting them."
         ),
     )
-    operations = parser.add_subparsers(dest="cache_command", required=True)
+    operations = parser.add_subparsers(dest="cache_command")
+    parser.set_defaults(handler=subcommand_listing_handler(parser))
 
     status = operations.add_parser("status", help="show cache size and age")
     status.add_argument(

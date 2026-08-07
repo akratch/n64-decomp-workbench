@@ -8,6 +8,7 @@ import sys
 from typing import Any
 
 from .context_lint import CONTEXT_LINT_SCHEMA, lint_files, parse_defines, render_report
+from .discovery import subcommand_listing_handler
 
 
 def context_lint_command(args: argparse.Namespace) -> int:
@@ -39,7 +40,8 @@ def register_context_commands(commands: argparse._SubParsersAction[Any]) -> None
             "to a constant no one intended."
         ),
     )
-    operations = parser.add_subparsers(dest="context_command", required=True)
+    operations = parser.add_subparsers(dest="context_command")
+    parser.set_defaults(handler=subcommand_listing_handler(parser))
 
     lint = operations.add_parser(
         "lint",

@@ -22,6 +22,15 @@
   `ranked_by`/`mixed_alignment` in `rank --json` and a one-line caution in the
   terminal; a uniform set still ranks aligned-first exactly as before.
 
+- **A command group printed without an operation now exits 0.** `cache` and
+  `context` answered the question "what can this do" with argparse's
+  required-subcommand error on stderr and exit 2, while their sibling groups
+  (`object`, `scratch`, `trace`, `instrument`) already printed a map and
+  succeeded. Printing a listing is the success path of discovery: a non-zero
+  status there breaks `set -e` scripts and reads as a failure. Naming an
+  operation or a `guide` topic that does not exist is still an error and still
+  exits non-zero, and the whole set is now locked by a test.
+
 - **A line-owned schedule verdict now routes to the command that fixes it.**
   `probe-lines --tie STATEMENT=LINE` (repeatable) compiles a fourth
   token-identical variant that reassigns one statement's line number via a

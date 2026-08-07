@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, NoReturn
 
 #: One readable word in place of argparse's generated choice list.
@@ -247,6 +247,25 @@ def commands_command(args: argparse.Namespace) -> int:
 def group_help_command(args: argparse.Namespace) -> int:
     print("\n".join(render_command_map(group=args.command)))
     return 0
+
+
+def subcommand_listing_handler(
+    parser: argparse.ArgumentParser,
+) -> Callable[[argparse.Namespace], int]:
+    """Return a handler that prints ``parser``'s own listing and succeeds.
+
+    Printing the operations a command group offers is the success path of
+    discovery, not a usage error: `argparse`'s ``required=True`` answers it on
+    stderr with exit 2, which breaks `set -e` scripts and reads as a failure to
+    anyone who just wanted to know what was available. Naming a subcommand that
+    does not exist is still an error, and still exits non-zero.
+    """
+
+    def handler(_args: argparse.Namespace) -> int:
+        parser.print_help()
+        return 0
+
+    return handler
 
 
 def _top_level_words(parser: argparse.ArgumentParser) -> list[str]:

@@ -14,6 +14,7 @@ from typing import cast
 from unittest import mock
 
 from decomp_workbench.cli import build_parser, main
+from decomp_workbench.field_guide import topic_names
 
 #: Every command that selects one function, and therefore owes the reader both
 #: spellings, the conflict check, and the key registry. `view` and `view-dumps`
@@ -115,6 +116,51 @@ class CliUxTests(unittest.TestCase):
         help_text = " ".join(commands["trace-origin-probe"].format_help().split())
         self.assertIn("controlled perturbation", help_text)
         self.assertIn("does not claim source attribution", help_text)
+
+    def test_printing_an_intentional_listing_succeeds(self) -> None:
+        """Discovery is a success path; only a wrong name is an error.
+
+        A listing that exits non-zero breaks `set -e` scripts and reads as a
+        failure to a reader who only wanted to know what was on offer.
+        """
+
+        for arguments in (
+            [],
+            ["guide"],
+            ["commands"],
+            ["object"],
+            ["scratch"],
+            ["trace"],
+            ["instrument"],
+            ["cache"],
+            ["context"],
+        ):
+            with self.subTest(arguments=arguments):
+                status, stdout, _ = self.run_cli(arguments)
+                self.assertEqual(status, 0)
+                self.assertTrue(stdout.strip())
+
+    def test_a_topic_that_does_not_exist_still_fails(self) -> None:
+        status, _, stderr = self.run_cli(["guide", "no-such-topic"])
+        self.assertEqual(status, 2)
+        self.assertIn("unknown guide topic", stderr)
+
+    def test_a_subcommand_that_does_not_exist_still_fails(self) -> None:
+        for arguments in (
+            ["cache", "no-such-operation"],
+            ["context", "no-such-operation"],
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_cli(arguments)
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_every_guide_topic_the_index_advertises_resolves(self) -> None:
+        for topic in topic_names():
+            with self.subTest(topic=topic):
+                status, stdout, _ = self.run_cli(["guide", topic, "--width", "100"])
+                self.assertEqual(status, 0)
+                self.assertTrue(stdout.strip())
 
     def test_trace_group_help_lists_copy_decisions(self) -> None:
         parser = build_parser()
