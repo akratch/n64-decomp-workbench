@@ -183,6 +183,17 @@ NO_DESTINATION_OPCODES = frozenset(
 SYMBOL_OPERAND_RE = re.compile(r"\b([0-9a-fA-F]+)\s+<([^>]+)>")
 IMMEDIATE_RE = re.compile(r"(?<![A-Za-z0-9_$.])-?(?:0x[0-9a-fA-F]+|\d+)\b")
 SELF_BRANCH_OPCODES = frozenset({"b", "j", "bal"})
+#: A branch or jump destination objdump rendered as a bare address because no
+#: symbol covered it. A stripped, positional target prints ``b 0x485c`` and
+#: ``jal 0x0`` where a symbolized candidate prints ``b 485c <fn+0x485c>`` and
+#: ``jal 0 <fn>``; the words are identical and only the symbol table differs.
+#: Classing that asymmetry as evidence produced 692 phantom relocation rows on
+#: one recorded campaign, which buried the real relocation differences under
+#: them.  It is matched at the end of the operand list because on a branch or a
+#: jump the destination is the last operand.
+BARE_DESTINATION_RE = re.compile(r"(?<=[\s,])(0x)?([0-9a-fA-F]+)\s*$")
+#: Opcodes whose last operand is a destination address rather than a value.
+JUMP_OPCODES = frozenset({"j", "jal", "jalx"})
 #: Placeholder written in place of a branch destination that resolves inside
 #: the function, so destinations compare by aligned row instead of by address.
 ALIGNED_TARGET = "@row"
@@ -462,24 +473,56 @@ def normalized_text(
     turn every later branch into a phantom difference.  Relocated operands are
     never resolved that way: their address field is linker-supplied, and
     ``jal 0 <helper>`` would otherwise resolve to row 0.
+
+    Whether objdump printed a destination symbolically at all is a property of
+    the *symbol table*, not of the code: a stripped, positional target renders
+    ``b 0x485c`` for the same word a symbolized candidate renders as
+    ``b 485c <fn+0x485c>``.  Both spellings are therefore normalized to the
+    same token, and a relocated destination is named by its own relocation
+    record rather than by whichever enclosing symbol objdump reached for.
     """
 
     relocated = bool(instruction.relocations)
     opcode = instruction.opcode
+    self_branch = opcode in SELF_BRANCH_OPCODES or opcode.startswith("b")
+
+    def resolved(address: int, name: str | None) -> str:
+        index = address_index.get(address)
+        if index is None:
+            return f"<{name}>" if name else f"<0x{address:x}>"
+        row = row_of_index.get(index)
+        return f"{ALIGNED_TARGET}{row}" if row is not None else f"@insn{index}"
+
+    def relocation_name() -> str:
+        names = sorted({item.symbol for item in instruction.relocations if item.symbol})
+        return f"<{','.join(names)}>" if names else "<relocated>"
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(2)
         if relocated:
+            # Only a destination operand is renamed from the relocation. A
+            # `lui`/`lw` pair also carries a relocation, and its printed
+            # spelling is compared elsewhere as relocation layout.
+            if self_branch or opcode in JUMP_OPCODES:
+                return relocation_name()
             return f"<{name.split('+')[0]}>"
-        if opcode not in SELF_BRANCH_OPCODES and not opcode.startswith("b"):
+        if not self_branch:
             return f"<{name.split('+')[0]}>"
-        index = address_index.get(int(match.group(1), 16))
-        if index is None:
-            return f"<{name}>"
-        row = row_of_index.get(index)
-        return f"{ALIGNED_TARGET}{row}" if row is not None else f"@insn{index}"
+        return resolved(int(match.group(1), 16), name)
 
-    return SYMBOL_OPERAND_RE.sub(replace, instruction.assembly).replace("$", "")
+    text = SYMBOL_OPERAND_RE.sub(replace, instruction.assembly)
+    if self_branch or opcode in JUMP_OPCODES:
+        bare = BARE_DESTINATION_RE.search(text)
+        if bare is not None:
+            token = (
+                relocation_name()
+                if relocated
+                else resolved(int(bare.group(2), 16), None)
+                if self_branch
+                else f"<0x{int(bare.group(2), 16):x}>"
+            )
+            text = text[: bare.start()] + token
+    return text.replace("$", "")
 
 
 def _relocation_signature(

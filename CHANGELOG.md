@@ -22,6 +22,20 @@
   `ranked_by`/`mixed_alignment` in `rank --json` and a one-line caution in the
   terminal; a uniform set still ranks aligned-first exactly as before.
 
+- **Symbol-table asymmetry no longer manufactures relocation rows.** A decomp
+  target is disassembled from a stripped, positional object and its candidate
+  from a symbolized one, so objdump renders the same word as `jal 0x0` against
+  `jal 0 <fn>` and `b 0x485c` against `b 485c <fn+0x485c>`. `view` classed the
+  spelling difference as a `relocation` row: on the recorded
+  `object_interaction` campaign, 692 of 780 such rows were phantoms, and the
+  real relocation differences were buried under them. Branch and jump
+  destinations are now normalized on both sides before classing -- a
+  self-branch by aligned row whichever spelling it arrived in, a relocated
+  destination by its own relocation record rather than by whichever enclosing
+  symbol objdump reached for. On that campaign's pair the relocation class
+  falls from 780 rows to the 88 real ones, and thirteen moved branch offsets
+  are now correctly counted as `displacement` rather than `constant`.
+
 - **A command group printed without an operation now exits 0.** `cache` and
   `context` answered the question "what can this do" with argparse's
   required-subcommand error on stderr and exit 2, while their sibling groups

@@ -339,6 +339,59 @@ class DisplacementTests(unittest.TestCase):
         self.assertIn("displacement", screen)
 
 
+class SymbolTableAsymmetryTests(unittest.TestCase):
+    """Whether objdump printed a destination symbolically is not evidence.
+
+    A decomp target is disassembled from a stripped, positional object and a
+    candidate from a symbolized one, so the same word renders as `jal 0x0`
+    against `jal 0 <fn>` and `b 0x485c` against `b 485c <fn+0x485c>`. On one
+    recorded campaign that asymmetry produced 692 phantom `relocation` rows out
+    of 780 and buried the real relocation differences under them.
+    """
+
+    STRIPPED = (
+        "00000000 <.text>:\n"
+        "   0: 27bdffe0  addiu $sp,$sp,-32\n"
+        "   4: afbf001c  sw $ra,28($sp)\n"
+        "   8: 0c000000  jal 0x0\n"
+        "                        8: R_MIPS_26 helper\n"
+        "   c: 00000000  nop\n"
+        "  10: 10000002  b 0x1c\n"
+        "  14: 00000000  nop\n"
+        "  18: 00000000  nop\n"
+        "  1c: 8fbf001c  lw $ra,28($sp)\n"
+        "  20: 03e00008  jr $ra\n"
+        "  24: 27bd0020  addiu $sp,$sp,32\n"
+    )
+    SYMBOLIZED = (
+        STRIPPED.replace("<.text>", "<demo>")
+        .replace("jal 0x0", "jal 0 <demo>")
+        .replace("b 0x1c", "b 1c <demo+0x1c>")
+    )
+
+    def view(self, target: str, candidate: str) -> MechanismView:
+        return build_view(
+            parse_disassembly(target),
+            parse_disassembly(candidate),
+            target_name="target.o",
+            candidate_name="candidate.o",
+        )
+
+    def test_the_same_word_rendered_two_ways_is_a_match(self) -> None:
+        view = self.view(self.STRIPPED, self.SYMBOLIZED)
+        self.assertEqual(view.counts["relocation"], 0)
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["match"], view.aligned_rows)
+        self.assertEqual(view.verdict, "exact")
+
+    def test_a_real_relocation_difference_is_still_reported(self) -> None:
+        other = self.SYMBOLIZED.replace("R_MIPS_26 helper", "R_MIPS_26 other_helper")
+        view = self.view(self.STRIPPED, other)
+        self.assertEqual(view.counts["match"], view.aligned_rows - 1)
+        call = next(row for row in view.rows if (row.target or "").startswith("jal"))
+        self.assertNotEqual(call.classification, "match")
+
+
 class ClassificationTests(unittest.TestCase):
     def test_commutative_swap_is_not_an_allocation_problem(self) -> None:
         view = view_of(
