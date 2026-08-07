@@ -11,8 +11,19 @@ FUNCTION_RE = re.compile(
     r"\s*\([^;\n]*\)\s*\{)\s*$",
     re.MULTILINE,
 )
+#: Known ugen free-list helpers, and the event each one emits.
+#:
+#: Not every entry is a *live* hook. A recorded campaign measured that
+#: `f_add_to_free_list` runs only inside `f_init_regs` -- ten calls for a
+#: 4644-instruction procedure -- so a trace hooked there sees the initial pool
+#: being built and nothing about the allocations that follow. The two hooks
+#: that fire per allocation are `f_get_free_fp_reg` (floating point) and
+#: `f_free_reg`. `f_get_free_fp_reg` is listed here because it was the missing
+#: half of that pair: a campaign asking "which register does the n-th fp temp
+#: get" had to add it by hand.
 FREE_LIST_FUNCTIONS = {
     "f_alloc_reg": "ALLOC",
+    "f_get_free_fp_reg": "ALLOC_FP",
     "f_free_reg": "FREE",
     "f_force_free_reg": "FORCE_FREE",
     "f_add_to_free_list": "ADD",

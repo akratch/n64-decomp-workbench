@@ -49,8 +49,18 @@ Restrict function tracing:
 
 ```sh
 decomp-workbench instrument-ugen ugen.c ugen.traced.c \
-  --functions '^(f_(alloc|free|add_to|remove_from|move_to).*)$'
+  --functions '^(f_(alloc|get_free|free|add_to|remove_from|move_to).*)$'
 ```
+
+#### Which free-list hook actually fires
+
+`ADD` records come from `f_add_to_free_list`, which a recorded campaign
+measured as running only inside `f_init_regs` — ten calls for a
+4644-instruction procedure. It shows the initial pool being built and says
+nothing about the allocations that follow, so a study of "which register does
+the n-th temporary get" that hooks there will see nothing and conclude wrongly.
+The two hooks that fire per allocation are `f_get_free_fp_reg` (`ALLOC_FP`,
+floating point) and `f_free_reg` (`FREE`).
 
 This is a shallow locator, not a complete allocator profile. The parser also
 accepts deeper `CODEX-*` queue events, but `instrument-ugen` does not emit all
@@ -243,6 +253,23 @@ A declined force is evidence, not a failure: it says the endpoint you were
 probing for does not exist under this interference, which is often the answer
 the probe was asking for. The sweep still finishes, and every other entry in it
 still applies.
+
+#### Reading `p1dec`/`p2dec` economics
+
+Two fields in the decision records are easy to read as something they are not,
+and a recorded campaign ranked webs by the wrong quantity before checking:
+
+- **`class=`** is the IR register class (integer versus floating point), from
+  `regclassof`. It is **not** the save class — the class-1/class-2 verdict that
+  decides whether the web is a colouring candidate at all is not in this
+  record, and no shipped field reports it.
+- **`nocs=`** is the compressed divisor the pass computes, `((n - 2) >> 2) + 2`
+  for `n` occurrences, not the occurrence count `n`. Ranking by `save * nocs`
+  is therefore not ranking by "saving times uses"; `save` is already the
+  per-web figure the pass compares.
+
+`save`, `totalsave`, and `bestcost` are the pass's own floats at the decision
+and are reported as measured.
 
 ### Alias and base-provenance profile
 

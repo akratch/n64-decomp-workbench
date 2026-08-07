@@ -763,6 +763,15 @@ Keep three observations separate: formation rank is construction chronology,
 the observed `p1dec`/`p2dec` selection sequence. None is interchangeable with
 the others or sufficient source-cause proof by itself.
 
+Two of those fields do not mean what their names suggest, and one campaign
+ranked webs by the wrong quantity before checking. `nocs` is the pass's
+*compressed* occurrence divisor, `((n - 2) >> 2) + 2` for `n` occurrences, not
+`n`: `save * nocs` is therefore not "saving times uses". And the `class` field
+in a decision record is the IR register class (integer versus floating point)
+from `regclassof`, not the save class -- the class-1/class-2 verdict that
+decides whether a web is a colouring candidate at all is decided earlier, in
+`compute_save`, and no shipped record reports it.
+
 This distinction mattered in the recorded SSSV
 [`func_802963D0_6A7A80`](https://github.com/akratch/n64-decomp-workbench/blob/main/case-studies/sssv-func-802963D0.md)
 campaign. A

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Instrument records now name what they measure.** Three labels were read as
+  claims the instrumentation does not make, and a campaign acted on two of
+  them. `nocs` in a `p1dec`/`p2dec` record is the pass's *compressed*
+  occurrence divisor, `((n - 2) >> 2) + 2`, not an occurrence count — so
+  `trace-webs` no longer renders the economics as `save:X*nocs:Y=total:Z`, an
+  equation shape that invited ranking by a product that is not "saving times
+  uses"; the three numbers are printed as three named fields. `class` in the
+  same record is the IR register class (integer versus floating point) from
+  `regclassof`, *not* the save class — the class-1/class-2 verdict that decides
+  whether a web is a colouring candidate at all is taken earlier and no shipped
+  record reports it. And `instrument-ugen`'s `ADD` hook on
+  `f_add_to_free_list` was measured as firing only inside `f_init_regs` (ten
+  calls for a 4644-instruction procedure), so it sees the pool being built and
+  nothing about the allocations that follow; `f_get_free_fp_reg` joins the hook
+  table as `ALLOC_FP`, the live per-allocation floating-point hook, beside
+  `f_free_reg`. Documented in `docs/compiler-instrumentation.md` and the field
+  guide.
+
 - **`window` prints named aligned rows, in the row numbering the tool already
   publishes.** Reading a row by number is the most common action in a register
   residue campaign, and it had no command: three stages of one campaign each

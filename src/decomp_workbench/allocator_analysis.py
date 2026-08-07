@@ -407,7 +407,9 @@ def web_report(trace: GlobalColorTrace, *, proc: int | None = None) -> dict[str,
         "formation_captured_webs": formation_captured,
         "formation_order_guidance": (
             "Formation rank is construction chronology, not coloring priority. "
-            "Economics reports save/nocs/totalsave at the decision. "
+            "Economics reports save/nocs/totalsave at the decision, where "
+            "nocs is the pass's compressed occurrence divisor and not an "
+            "occurrence count. "
             "Decision-trace ordinal is the observed p1dec/p2dec order. Compare "
             "paired traces: these are separate observations, and no one scalar "
             "proves the source cause."

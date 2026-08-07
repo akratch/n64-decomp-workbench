@@ -230,9 +230,14 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
                 f"phase={item['phase']} local=w{item['numeric_web']} "
                 f"color={item['assigned_color']} register={item['assigned_register']} "
                 f"decision-trace={item['decision_trace_ordinal']} "
-                f"economics=save:{economics.get('save', '-')}"
-                f"*nocs:{economics.get('nocs', '-')}"
-                f"=total:{economics.get('totalsave', '-')} "
+                # Printed as three named fields, not as `save*nocs=total`.
+                # `nocs` is the pass's compressed occurrence divisor, not an
+                # occurrence count, so the equation shape asserted arithmetic
+                # the records do not establish and invited ranking by a
+                # product that is not "saving times uses".
+                f"economics=save:{economics.get('save', '-')} "
+                f"nocs:{economics.get('nocs', '-')} "
+                f"totalsave:{economics.get('totalsave', '-')} "
                 f"formation={formation_text}"
             )
         print(f"formation guidance: {report['formation_order_guidance']}")
