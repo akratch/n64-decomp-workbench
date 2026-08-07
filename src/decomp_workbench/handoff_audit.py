@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from fnmatch import fnmatch
@@ -237,6 +238,34 @@ def _resolve_reference(
     return None, None
 
 
+def _resolve_root(value: str | Path, *, label: str) -> Path:
+    """Resolve one directory argument, and say where it was resolved from.
+
+    A relative argument is resolved against the process working directory,
+    which is exactly the fact a reader needs when the resolution surprises
+    them: a campaign reported ``.../bundle/bundle`` from
+    ``audit-handoff bundle/`` and read it as the tool doubling the basename,
+    when the real cause was a working directory that had already moved into
+    ``bundle``.  Printing the argument as typed beside the directory it was
+    resolved against distinguishes the two without the reader guessing.
+    """
+
+    given = os.fspath(value)
+    expanded = Path(given).expanduser()
+    # `resolve` is absolute, normalized, and symlink-canonical in one step.
+    # The canonical form is load-bearing further down: every file this module
+    # inspects is resolved before `relative_to(root)`, so a root that skipped
+    # symlink resolution would fail that join on any platform with a symlinked
+    # temporary or home directory.
+    root = expanded.resolve()
+    if not root.is_dir():
+        detail = f"{label} is not a directory: {root}"
+        if not expanded.is_absolute():
+            detail += f" (from {given!r} relative to {Path.cwd()})"
+        raise NotADirectoryError(detail)
+    return root
+
+
 def audit_handoff(
     path: str | Path,
     *,
@@ -245,18 +274,11 @@ def audit_handoff(
 ) -> dict[str, Any]:
     """Audit one public handoff tree for references that will not travel."""
 
-    root = Path(path).expanduser().resolve()
-    if not root.is_dir():
-        raise NotADirectoryError(f"handoff root is not a directory: {root}")
+    root = _resolve_root(path, label="handoff root")
     dependencies = [
-        Path(item).expanduser().resolve() for item in dependency_roots or []
+        _resolve_root(item, label="dependency root") for item in dependency_roots or []
     ]
     exclusions = list(exclude or [])
-    for dependency in dependencies:
-        if not dependency.is_dir():
-            raise NotADirectoryError(
-                f"dependency root is not a directory: {dependency}"
-            )
 
     findings: list[dict[str, Any]] = []
     git_cache: dict[Path, tuple[Path | None, bool]] = {}

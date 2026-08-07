@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`audit-handoff` says which directory a relative root was resolved
+  against.** A campaign read `handoff root is not a directory:
+  .../bundle/bundle` from `audit-handoff bundle/` as the command appending the
+  argument's basename to itself, and worked around it with absolute paths. It
+  never did that: relative and absolute spellings of one tree resolve to one
+  canonical root, and the doubled path was a working directory that had already
+  moved into `bundle`. Both root arguments now resolve through one helper, and
+  a failure on a relative argument quotes the argument as typed and the working
+  directory it was resolved against — the two cases the old sentence could not
+  tell apart. Regression test: `tests/test_handoff_audit.py`
+  (`HandoffRootResolutionTests`), which audits `.`, `bundle/`, `./bundle`, and
+  `../bundle` against the absolute spelling from two working directories.
+
 - **The pool-versus-temp register split is now per compiler era, and the IDO
   5.3 one is corrected.** `view` classed `t0`-`t5` as uopt coloring-pool
   registers and `t6`-`t9` plus `s8` as ugen temps under the single profile name

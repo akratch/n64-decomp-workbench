@@ -118,6 +118,22 @@ relocation controls. Retain a reduced objdump fixture, verify the relocation
 semantics from an authoritative ABI/binutils source, then add a mask and
 regression test. Do not work around the failure by broadly masking immediates.
 
+## `audit-handoff` says the root is not a directory, and doubles a name
+
+`handoff root is not a directory: /work/bundle/bundle` from
+`decomp-workbench audit-handoff bundle/` is not the argument being appended to
+itself. A relative argument is resolved against the process working directory,
+so that message means the shell was already inside `bundle` — the usual cause
+is a `cd` in an earlier step of the same script. The message names the argument
+as typed and the directory it was resolved against for exactly this reason:
+
+```text
+handoff root is not a directory: /work/bundle/bundle (from 'bundle/' relative to /work/bundle)
+```
+
+Relative and absolute spellings of the same tree audit identically; `.`,
+`bundle/`, and `../bundle` all resolve to one canonical root.
+
 ## A trace command reports no events
 
 Verify that:

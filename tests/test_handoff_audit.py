@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -97,6 +98,91 @@ class HandoffAuditTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(report["schema"], "decomp-workbench-handoff-audit-v1")
         self.assertEqual(report["findings"][0]["code"], "absolute-user-path")
+
+
+class HandoffRootResolutionTests(unittest.TestCase):
+    """A relative argument must name the same tree an absolute one names.
+
+    A campaign read `handoff root is not a directory: .../bundle/bundle` as the
+    command appending the argument's basename to itself. It does not: the two
+    spellings resolve to one canonical root, and the doubled path was a working
+    directory that had already moved into `bundle`. Both halves are locked
+    here -- the resolution, and the sentence that tells those two cases apart.
+    """
+
+    def setUp(self) -> None:
+        self.previous = Path.cwd()
+        self.addCleanup(os.chdir, self.previous)
+
+    def audit(self, *arguments: str) -> tuple[int, dict[str, object]]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            status = main(["audit-handoff", *arguments, "--json"])
+        return status, json.loads(stdout.getvalue())
+
+    def test_a_relative_path_from_the_parent_names_the_same_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary).resolve()
+            bundle = parent / "bundle"
+            bundle.mkdir()
+            (bundle / "README.md").write_text("proof\n", encoding="utf-8")
+            git_init(bundle, "README.md")
+
+            absolute_status, absolute = self.audit(str(bundle))
+            for working, spelling in (
+                (parent, "bundle"),
+                (parent, "bundle/"),
+                (parent, "./bundle"),
+                (bundle, "."),
+                (bundle, "../bundle"),
+            ):
+                with self.subTest(cwd=working.name, spelling=spelling):
+                    os.chdir(working)
+                    status, report = self.audit(spelling)
+                    self.assertEqual(status, absolute_status)
+                    self.assertEqual(report["root"], absolute["root"])
+                    self.assertEqual(report["findings"], absolute["findings"])
+
+    def test_a_missing_relative_root_names_the_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary).resolve()
+            os.chdir(parent)
+            with self.assertRaises(NotADirectoryError) as raised:
+                audit_handoff("bundle/")
+
+        message = str(raised.exception)
+        self.assertIn("handoff root is not a directory", message)
+        self.assertIn("'bundle/'", message)
+        self.assertIn(str(parent), message)
+        self.assertNotIn("bundle/bundle", message)
+
+    def test_a_missing_absolute_root_does_not_quote_a_working_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary).resolve() / "bundle"
+            with self.assertRaises(NotADirectoryError) as raised:
+                audit_handoff(missing)
+
+        self.assertIn(str(missing), str(raised.exception))
+        self.assertNotIn("relative to", str(raised.exception))
+
+    def test_a_relative_dependency_root_resolves_the_same_way(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary).resolve()
+            bundle = parent / "bundle"
+            project = parent / "project"
+            bundle.mkdir()
+            project.mkdir()
+            (bundle / "README.md").write_text("proof\n", encoding="utf-8")
+            git_init(bundle, "README.md")
+            git_init(project)
+            os.chdir(parent)
+
+            report = audit_handoff("bundle/", dependency_roots=["project/"])
+
+        self.assertEqual(report["root"], str(bundle))
+        self.assertTrue(report["ready"])
 
 
 if __name__ == "__main__":
