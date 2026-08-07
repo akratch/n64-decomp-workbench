@@ -93,6 +93,84 @@ reachable only through evidence-gated prose in the neutral block or through
 families, which needs lane evidence `view` does not currently produce, not
 another sentence in the footer.
 
+## Open, observed 2026-08-08
+
+From the `object_interaction` campaign's stage-attribution work. Both items are
+real, both have a working campaign-local prototype, and both are filed here
+rather than shipped because promoting them as they stand would put an
+unmeasured claim behind a workbench command.
+
+### A stage-capture harness for the IDO driver
+
+**The gap.** Answering "which stage decides X" means running `cfe`, `uopt`,
+`ugen`, and `as1` by hand on the composed translation unit, which means
+scraping `cc -show`, re-quoting `-Amachine(mips)` past the shell, threading the
+`-XS<symtab>` temporary between the four stages, and then proving the
+hand-driven object is byte-identical to the driver's. That is roughly forty
+minutes of setup, it is the *only* way to attribute a decision to a stage, and
+two campaigns (`ovl8`, `ge007`) have now built it independently as a local
+shell script. The `ge007` prototype is 23 lines and hard-codes every path.
+
+**The shape it would take.** `decomp-workbench stages SRC.c --cc DRIVER
+--outdir D`: parse `cc -show`, replay the four stages retaining `.B`, `.O`,
+`.s`, and `.o`, then assert the replayed object is byte-identical to the
+driver's and fail loudly when it is not. The identity assertion is the whole
+value — a replay that silently differs from the driver attributes decisions to
+the wrong stage, which is worse than no harness.
+
+**Why it is not shipped yet.** The command is only as good as its model of one
+driver's `-show` output, and the workbench has exactly one measured driver: the
+IDO 5.3 recompilation this campaign used. `cc -show` is not a stable interface,
+the stage set is version-specific (7.1 differs, `accom` differs more), and the
+`-XS` temporary threading is a driver detail rather than a documented contract.
+Shipping a `stages` command implies it works for a reader's compiler, and this
+repository's rule is that a claim carries its provenance. The honest sequence
+is: first a *recorded* `-show` transcript format that a reader can supply for
+their own driver (redistributable, like the existing objdump fixtures), then a
+replay engine over that record, then the identity gate. Note also that
+`pass replay-as1` and `toolchain calibrate` already own the "replay a pass and
+prove it reproduces the object" contract; a stage harness should extend that
+vocabulary rather than open a second one.
+
+**Prototype:** `p3f/work/stages.sh` in the `ge007-object-interaction` campaign
+(not redistributable: it names a local toolchain and include tree).
+
+### A ucode record decoder
+
+**The gap.** The `cfe`/`uopt` intermediate streams decode with a small, fixed
+record format — 8 bytes per record, an opcode record `[op][ty][flags:2]
+[word:4]`, with operand records `[00 00 00][kind][value:4]` following some
+opcodes — and every campaign that has needed it has rediscovered that by
+inspection. A decoder plus a `--diff A B` mode reporting differing record
+ranges is the one query a "which stage owns this decision" investigation
+actually runs.
+
+**The known correction, recorded here so it is not rediscovered a third
+time.** A decoder written for `accom` 4.1 (`phase3-bdump.py` in the `ssb64`
+overlay-8 campaign repository, which is not this repository and is deliberately
+not edited by this note) does decode IDO 5.3 streams — the record format is the
+same — but it carries one real bug for `cfe.B`: **opcode `0x49` carries two
+operand records, not one.** A decoder using the "one operand record may follow
+an opcode" heuristic goes out of phase at the first `0x49` and mis-pairs every
+record after it. `uopt.O` is unaffected in practice because its expression code
+holds no bare `0x49` runs. Opcode identities confirmed by micro-probe on 5.3:
+`0x01` add, `0x36` iload, `0x51` line, `0x52` push, `0x5b` mul, `0x7b` store;
+type byte low nibble `d` means float.
+
+**Why it is not shipped yet.** The opcode table is empirical and partial. About
+two dozen opcodes are named, most of them with a question mark, and the operand
+arity that makes the stream parseable at all is known for a handful. A decoder
+in this repository would print `op49` beside `add` with no way for a reader to
+tell the probed identification from the guessed one — the same failure the
+register-profile evidence strings exist to prevent. The shippable version is a
+per-opcode **arity** table (which is what parsing needs, and which a probe can
+establish one opcode at a time) with the arity's provenance recorded per entry,
+plus `--diff`; the mnemonic table stays advisory and clearly labelled until
+probed. Until then the format and the `0x49` correction are documented here so
+the next campaign starts from the fixed version.
+
+**Prototype:** `p3f/udump.py` in the `ge007-object-interaction` campaign.
+
 ## Original proposals (now implemented unless noted)
 
 ### Original-pass differential adapter
