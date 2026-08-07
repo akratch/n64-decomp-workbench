@@ -39,17 +39,17 @@ webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
 
 REGISTER LANES (per-class assignment sequences, matching instructions included)
-  pool  target     t0 t1 a0   slots=0..2/3
-        candidate  t0 t1 a0
-                   identical 3/3
+  pool  target     s0 s1 s2 a0 s0   slots=0..4/5
+        candidate  s0 s1 s2 a0 s0
+                   identical 5/5
   temp  target     t6 t7 t8 t9 t6 t7 t8 t9 t6   slots=0..8/9
         candidate  t6 t7 t8 t9 t6 t8 t9 t6 t7
                    ---------------^ slot=5 aligned_row=12 rotation=+1
 
 HUNK 1  class=register rows=12..17 target=12..17 candidate=12..17 target_bytes=0x30..0x44 candidate_bytes=0x30..0x44
      10   sll $t6,$t9,2     | sll $t6,$t9,2
-     11   addu $t1,$t0,$t6  | addu $t1,$t0,$t6
-     12 > addu $t7,$t1,$s0  | addu $t8,$t1,$s0   t7->t8 [w1]
+     11   addu $s2,$s1,$t6  | addu $s2,$s1,$t6
+     12 > addu $t7,$s2,$s0  | addu $t8,$s2,$s0   t7->t8 [w1]
      13 > lw $t8,20($t7)    | lw $t9,20($t8)     t8->t9 [w2] t7->t8 [w1]
      14 > andi $t9,$t8,0xff | andi $t6,$t9,0xff  t9->t6 [w3] t8->t9 [w2]
      15 > sw $t9,24($s0)    | sw $t6,24($s0)     t9->t6 [w3]
@@ -244,15 +244,32 @@ mismatched instructions alone hides the queue entirely.
 
 Only definitions add a slot; stores, branches, and jumps read their operands.
 
-Class tables are profile data, not hardcoded policy. The `ido53` profile is
-derived from black-box pool probing and confirmed by the ugen deep dive:
+Class tables are per-compiler-era profile data, not hardcoded policy, and which
+population a register belongs to decides which pass — and which lever family —
+the reader is sent to. `--register-profile` selects the era, and
+`register_profile_evidence` travels with the answer so a probed table is never
+mistaken for an inherited one.
 
-| Class | Registers |
-|---|---|
-| `pool` | `v0 v1 a0 a1 a2 a3 t0 t1 t2 t3 t4 t5` |
-| `temp` | `t6 t7 t8 t9 s8` |
+`ido53` (the default) is IDO 5.3 at `-O2 -mips2`, probed with nine forced-color
+experiments and confirmed against instrumented ugen:
 
-Select another with `--register-profile`. `rotation=+N` on a lane means the
+| Class | Pass | Registers |
+|---|---|---|
+| `pool` | uopt coloring | `v0 v1 a0 a1 a2 a3 s0 s1 s2 s3 s4 s5 s6 s7 s8` |
+| `temp` | ugen ring | `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` |
+| `fp-pool` | uopt coloring | `f0 f2 f12 f14 f16 f18 f20 f22 f24` |
+| `fp-temp` | ugen ring | `f4 f6 f8 f10` |
+
+`t0`–`t9` and `f4/f6/f8/f10` are **always** ugen block-local temps under 5.3 and
+never uopt colors — a `t`-register difference is a ring-phase question, not a
+coloring-priority one. The temp tables are stored in ugen free-list *ring*
+order rather than register-number order, so a phase rotation is a contiguous run
+of the table.
+
+`unverified` carries the pre-probe table (`pool = v0 v1 a0-a3 t0-t5`,
+`temp = t6-t9 s8`, no float split). It has never been measured against a named
+release and is deliberately what a compiler with no probe of its own still
+gets: outputs for an unmeasured era do not change silently. `rotation=+N` on a lane means the
 candidate tail equals the target tail rotated by `N` positions through the
 registers that function actually uses — one upstream phase event, not N
 decisions.

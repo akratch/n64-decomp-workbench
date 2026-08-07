@@ -280,9 +280,9 @@ class PhaseShiftEvidenceTests(unittest.TestCase):
                 "addu t6,t8,t9",
                 "andi t7,t6,0xff",
                 "sll t8,t7,2",
-                "lw t0,16(s0)",
-                "sw t0,20(s0)",
-                "lw t0,24(s0)",
+                "lw s1,16(s0)",
+                "sw s1,20(s0)",
+                "lw s1,24(s0)",
             ),
             body(
                 "lw t6,0(s0)",
@@ -292,9 +292,9 @@ class PhaseShiftEvidenceTests(unittest.TestCase):
                 "addu t7,t8,t9",
                 "andi t8,t7,0xff",
                 "sll t9,t8,2",
-                "lw t3,16(s0)",
-                "sw t3,20(s0)",
-                "lw t4,24(s0)",
+                "lw s3,16(s0)",
+                "sw s3,20(s0)",
+                "lw s4,24(s0)",
             ),
         )
         self.assertEqual(view.verdict, "allocation")
@@ -667,10 +667,14 @@ class LaneTests(unittest.TestCase):
         self.assertIsNone(temp.divergence)
 
     def test_lane_classes_come_from_the_profile_table(self) -> None:
-        lines = body("lw t0,0(s0)", "lw t6,4(s0)")
+        lines = body("lw s1,0(s0)", "lw t6,4(s0)")
         view = view_of(lines, lines)
         classes = {lane.classification: lane.target for lane in view.lanes}
-        self.assertEqual(classes["pool"], ("t0",))
+        # `s1` is a uopt color and `t6` a ugen temp under the verified IDO 5.3
+        # split; the two populations never share a lane.
+        # `s0` is a color too, so the fixture's own prologue and epilogue
+        # bracket the load.
+        self.assertEqual(classes["pool"], ("s0", "s1", "s0"))
         self.assertEqual(classes["temp"], ("t6",))
 
     def test_unknown_profile_is_refused(self) -> None:

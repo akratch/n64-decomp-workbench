@@ -247,11 +247,52 @@ exactly this census.
 
 ---
 
+## Which register belongs to which pass — the era table
+
+Two independent populations write MIPS registers, and reading one as the other
+sends you to the wrong compiler pass. This split is **per compiler release**,
+and only one release has been probed.
+
+### IDO 5.3 at `-O2 -mips2` — verified
+
+Probed with nine forced-color experiments and confirmed against instrumented
+ugen. `view --register-profile ido53` (the default) uses exactly this table.
+
+| Population | Pass | Registers |
+|---|---|---|
+| `pool` | uopt coloring | `v0 v1 a0 a1 a2 a3 s0 s1 s2 s3 s4 s5 s6 s7 s8` |
+| `temp` | ugen ring | `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` (ring order) |
+| `fp-pool` | uopt coloring | `f0 f2 f12 f14 f16 f18 f20 f22 f24` |
+| `fp-temp` | ugen ring | `f4 f6 f8 f10` (ring order) |
+
+Two facts to hold on to, because three campaign agents assumed the opposite of
+both:
+
+* **`t0`–`t9` are never uopt colors under 5.3.** They are always ugen
+  block-local temps. A `t`-register difference is a temp-ring question, never a
+  coloring-priority one, and the levers are 14–16 rather than 7–13.
+* **`f4/f6/f8/f10` are never uopt colors either.** `f16`/`f18` are the one
+  ambiguous pair: uopt colors them, and ugen's float free list also extends
+  onto them under pressure.
+
+The int color map has a hole at c13 and the float colors occupy c24–c32, which
+is why a forced-color probe on 5.3 must not assume a dense index space.
+
+### Any other release — unverified
+
+`--register-profile unverified` carries the pre-probe table
+(`pool = v0 v1 a0-a3 t0-t5`, `temp = t6-t9 s8`, no float split). It is the
+table six earlier campaigns were read against, and it is deliberately what a
+compiler with no probe of its own still gets. It has never been measured
+against a single named release; treat a lane it produces as a hypothesis, and
+probe before quoting it.
+
+---
+
 ## The coloring pool (uopt)
 
-The pool is `v0 v1 a0 a1 a2 a3 t0 t1 t2 t3 t4 t5`, and uopt colors variable
-webs into it, lowest free index first. `view`'s **pool lane** is the sequence of
-assignments in emission order. A pool-lane divergence means a web took a
+uopt colors variable webs into the pool population above, lowest free index
+first. `view`'s **pool lane** is the sequence of assignments in emission order. A pool-lane divergence means a web took a
 different slot, which almost always means the *set* or the *priority* of webs
 differs — not that one register was picked wrongly.
 
@@ -490,9 +531,31 @@ by an interfering web.
 
 ## The temp-FIFO lane (ugen)
 
-The temp rotation is `t6 t7 t8 t9`, extending to `s8` and further under
-pressure. It is a strict FIFO: expression temps pop from a free list and are
-pushed back at last use. `view`'s **temp lane** is that pop sequence.
+Expression temps come from ugen's own free list, not from uopt's coloring pool.
+`view`'s **temp lane** is that pop sequence.
+
+### The allocation law (IDO 5.3, read from ugen source and instrumented)
+
+Read from `ugen.c` in the 5.3 recompilation and confirmed with an instrumented
+binary that rebuilds a campaign object byte-identically to the stock toolchain:
+
+* ugen keeps **two singly-linked lists per register class**, free and in-use.
+  Allocation pops the **head** of the free list (`f_get_one_free_reg`);
+  freeing appends to its **tail** (`f_add_to_free_list`). It is therefore a
+  **least-recently-freed round robin**, not an LRU or a preference order.
+* `f_init_regs` runs **once per procedure**, so the phase does not carry across
+  functions. It seeds the int ring `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` and the
+  float ring `f4 f6 f8 f10`, extending to `f16 f18` under pressure.
+* Consequently **the register at a site is a pure function of the alloc/free
+  event sequence that preceded it** — nothing else. No liveness heuristic, no
+  ucode-temp-index mapping. A value that uopt colors is *not* a ugen temp; a
+  value it leaves uncolored consumes a ring slot.
+
+**This section is 5.3-verified.** The three levers under it (14–16) were
+derived on IDO 7.1 campaigns and still describe the mechanism, but the ring
+contents, the ring *order*, and the "not a FIFO rotation but a per-position
+permutation" caveat below are 5.3 measurements. On any other release the ring
+is unverified — run the probe before quoting numbers.
 
 A temp lane that reads `rotation=+1` from slot *k* is **one event**, not *N*
 mistakes: somewhere before slot *k* your candidate popped one more or one fewer
@@ -500,6 +563,37 @@ temp than the target. Fixing the visibly-wrong instructions individually is
 impossible — they are downstream of a queue.
 
 **The lever is always in the block *preceding* the visible divergence.**
+
+### The lever is the class-crossing site, not the row
+
+Rotating the initial free list is a legitimate oracle knob and it is **not** the
+fix. Swept over all ten phases on one 5.3 campaign function, the best possible
+initial phase was worth 84 of 845 int-temp rows; the phase that reproduced the
+first divergent instruction exactly made the total *worse* (1440 against 1416).
+No choice of initial state closes the band, because the initial state is fixed
+and the divergence is in the **event sequence**.
+
+The events are the sites where a value crosses the class boundary: your
+candidate leaves as a ugen temp what the target colored, or colors what the
+target left as a temp. Each such site re-phases **every** downstream temp in
+the procedure.
+
+* target colors, you do not → give the value a *named local* so uopt forms a
+  web. Adding a declaration wrecks the frame, so reuse a dead declared local
+  and retype it: declaration-count-neutral.
+* you color, the target does not → remove the named local and spell the value
+  as an expression.
+
+Find them by walking both objects position-wise and reporting every instruction
+whose *destination* register crosses the boundary. `view`'s lanes are that walk:
+a register in the temp lane on one side and the pool lane on the other is a
+class-crossing site.
+
+**Score on the site count, not on raw words.** Partial closure is *not*
+monotone: on the recorded run, closing 1 site moved 1416 → 1413, 2 → 1445,
+3 → 1477, and 5 → **572**. Each closure re-permutes the ring, so an
+intermediate candidate can look far worse than the one before it. Confirm on
+raw words only at full closure.
 
 ### 14. Temp-FIFO phase — perturb the preceding block
 

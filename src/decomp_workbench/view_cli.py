@@ -54,6 +54,7 @@ from .view import (
     DEFAULT_REGISTER_PROFILE,
     MATCH,
     REGISTER_CLASS_PROFILES,
+    REGISTER_PROFILE_EVIDENCE,
     AlignedRow,
     Hunk,
     MechanismView,
@@ -103,8 +104,9 @@ SIGNATURE_NOTE = (
 )
 LANE_NOTE = (
     "pool = uopt's colored variable webs (lowest free index wins); "
-    "temp = ugen's block-local FIFO rotation (t6-t9, s8) - two independent "
-    "register populations that diverge independently."
+    "temp = ugen's block-local least-recently-freed ring - two independent "
+    "register populations that diverge independently. Which registers are in "
+    "which population is per-compiler-era data: see --register-profile."
 )
 KEY_NOTE = "labels defined: decomp-workbench --explain-keys"
 
@@ -871,7 +873,12 @@ def add_view_render_arguments(
         default=DEFAULT_REGISTER_PROFILE,
         choices=sorted(REGISTER_CLASS_PROFILES),
         help=(
-            f"register class table for the lanes (default: {DEFAULT_REGISTER_PROFILE})"
+            "compiler era whose register class table the lanes use "
+            f"(default: {DEFAULT_REGISTER_PROFILE}). "
+            + "; ".join(
+                f"{name}: {REGISTER_PROFILE_EVIDENCE[name]}"
+                for name in sorted(REGISTER_CLASS_PROFILES)
+            )
         ),
     )
     add_color_argument(parser)

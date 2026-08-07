@@ -57,6 +57,7 @@ from .schema import VIEW_METRICS_BY_KEY
 __all__ = [
     "DEFAULT_REGISTER_PROFILE",
     "REGISTER_CLASS_PROFILES",
+    "REGISTER_PROFILE_EVIDENCE",
     "AlignedRow",
     "Hunk",
     "Lane",
@@ -89,33 +90,80 @@ def schema_keys() -> frozenset[str]:
 
 
 # ---------------------------------------------------------------------------
-# Register class tables (per-toolchain profile data, not hardcoded policy).
+# Register class tables (per-compiler-era profile data, not hardcoded policy).
 #
-# The IDO 5.3 tables come from black-box pool probing during the
-# rarezipUncompress campaign and were confirmed by the ugen deep dive: the
-# coloring pool hands out v0/v1/a0-a3/t0-t5, while a separate rotation serves
-# expression temps.
+# The split between "a register uopt colored a web into" and "a register ugen
+# handed out as a block-local temp" is *era-specific*, and getting it wrong
+# sends the reader to the wrong pass.  `--register-profile` selects the era;
+# `REGISTER_PROFILE_EVIDENCE` records what each table is actually made of, so
+# an unprobed release is never quoted as if it had been measured.
 # ---------------------------------------------------------------------------
 
-REGISTER_CLASS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
-    "ido53": {
-        "pool": (
-            "v0",
-            "v1",
-            "a0",
-            "a1",
-            "a2",
-            "a3",
-            "t0",
-            "t1",
-            "t2",
-            "t3",
-            "t4",
-            "t5",
-        ),
-        "temp": ("t6", "t7", "t8", "t9", "s8"),
-    },
+#: The pre-probe table, kept verbatim.  It is the conservative default for any
+#: release with no probe of its own: six recorded campaigns were read against
+#: it, so it is the behavior a reader with an unmeasured compiler already has,
+#: and changing that silently would relabel their evidence.
+UNVERIFIED_CLASSES: dict[str, tuple[str, ...]] = {
+    "pool": ("v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5"),
+    "temp": ("t6", "t7", "t8", "t9", "s8"),
 }
+
+#: IDO 5.3 at ``-O2 -mips2``, probed with nine forced-color experiments during
+#: the `object_interaction` campaign and confirmed against instrumented ugen.
+#:
+#: uopt hands out only ``v0``/``v1``/``a0-a3``/``s0-s8`` and
+#: ``f0``/``f2``/``f12-f24``.  ``t0-t9`` and ``f4/f6/f8/f10`` are *always* ugen
+#: block-local temps -- never pool colors -- which is the fact three campaign
+#: agents assumed the other way round.
+#:
+#: The temp tables are in *ring order*, not register-number order, because
+#: ugen's free list is a least-recently-freed FIFO seeded ``t6 t7 t8 t9 t0 ..
+#: t5`` (int) and ``f4 f6 f8 f10`` (float, extending to ``f16``/``f18`` under
+#: pressure).  A rotation through the ring is therefore a contiguous run of the
+#: table, which is what `_rotation_cycle` requires.
+IDO53_CLASSES: dict[str, tuple[str, ...]] = {
+    "pool": (
+        "v0",
+        "v1",
+        "a0",
+        "a1",
+        "a2",
+        "a3",
+        "s0",
+        "s1",
+        "s2",
+        "s3",
+        "s4",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+    ),
+    "temp": ("t6", "t7", "t8", "t9", "t0", "t1", "t2", "t3", "t4", "t5"),
+    "fp-pool": ("f0", "f2", "f12", "f14", "f16", "f18", "f20", "f22", "f24"),
+    "fp-temp": ("f4", "f6", "f8", "f10"),
+}
+
+REGISTER_CLASS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "ido53": IDO53_CLASSES,
+    "unverified": UNVERIFIED_CLASSES,
+}
+
+#: What each profile is made of, quoted wherever the profile is named.  A
+#: reader who cannot tell a probed table from an inherited one cannot tell a
+#: finding from an assumption.
+REGISTER_PROFILE_EVIDENCE: dict[str, str] = {
+    "ido53": (
+        "IDO 5.3 -O2 -mips2, probed (nine forced-color experiments) and "
+        "confirmed against instrumented ugen; temp tables are in ugen "
+        "free-list ring order"
+    ),
+    "unverified": (
+        "pre-probe table, not measured against any single release; the "
+        "conservative choice for a compiler with no probe of its own"
+    ),
+}
+
 DEFAULT_REGISTER_PROFILE = "ido53"
 
 # Opcodes whose first register operand is a source, not a destination.  A lane
@@ -456,6 +504,13 @@ class MechanismView:
             "target": self.target,
             "candidate": self.candidate,
             "register_profile": self.register_profile,
+            # What that table is made of. A reader who cannot tell a probed
+            # split from an inherited one cannot tell a finding from an
+            # assumption, and the pool/temp attribution is exactly where that
+            # confusion sent three campaign agents to the wrong pass.
+            "register_profile_evidence": REGISTER_PROFILE_EVIDENCE.get(
+                self.register_profile, "unknown profile"
+            ),
             "target_instructions": self.target_instructions,
             "candidate_instructions": self.candidate_instructions,
             "aligned_rows": self.aligned_rows,
@@ -842,10 +897,12 @@ def _rotation_cycle(
 
     The cycle is the observed registers in profile order, and it must be a
     *contiguous* run of the class table.  Measuring against the whole table
-    would hide a real rotation whenever a function leaves one member unused
-    (the IDO 5.3 temp class contains ``s8``, which no rotation visits), while
-    accepting an arbitrary subset would let any two cherry-picked registers
-    manufacture a cycle.  Contiguity is what a queue actually produces.
+    would hide a real rotation whenever a function leaves part of the ring
+    unused -- most do; the IDO 5.3 int ring is ten registers long and a short
+    function turns through four of them -- while accepting an arbitrary subset
+    would let any two cherry-picked registers manufacture a cycle.  Contiguity
+    is what a queue actually produces, which is why the temp tables are stored
+    in ugen free-list order rather than register-number order.
     """
 
     positions = [index for index, name in enumerate(members) if name in observed]

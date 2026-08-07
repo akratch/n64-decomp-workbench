@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **The pool-versus-temp register split is now per compiler era, and the IDO
+  5.3 one is corrected.** `view` classed `t0`-`t5` as uopt coloring-pool
+  registers and `t6`-`t9` plus `s8` as ugen temps under the single profile name
+  `ido53`. That table was inherited from earlier campaigns and had never been
+  measured against a named release; on IDO 5.3 at `-O2 -mips2` it is wrong in
+  both directions. Nine forced-color experiments, confirmed against an
+  instrumented ugen, show uopt handing out only `v0`/`v1`/`a0-a3`/`s0-s8` and
+  `f0`/`f2`/`f12-f24`, with `t0-t9` and `f4/f6/f8/f10` **always** ugen
+  block-local temps. Three campaign agents read a `t`-register difference as a
+  coloring-priority question because of the old table and spent variants on the
+  wrong lever family.
+
+  `--register-profile ido53` (still the default) now carries the probed split,
+  including separate `fp-pool`/`fp-temp` lanes, with the temp tables in ugen
+  free-list *ring* order (`t6 t7 t8 t9 t0 .. t5`, `f4 f6 f8 f10`) so a phase
+  rotation stays a contiguous run of the table. The pre-probe table ships
+  unchanged under the honest name `--register-profile unverified`, which is
+  what a release with no probe of its own still gets — outputs for an
+  unmeasured era do not change silently. `view --json` gained
+  `register_profile_evidence`, so a probed table is never quoted as an
+  inherited one.
+
+  The field guide's temp-FIFO section now carries the 5.3 allocation law read
+  from ugen source and validated with an instrumented binary — a per-class
+  least-recently-freed ring re-seeded once per procedure, so the register at a
+  site is a pure function of the alloc/free event sequence — together with the
+  consequence that the fix dimension is the count of **class-crossing sites**
+  rather than rows, and the warning that partial closure is *not* monotone in
+  raw words. Which claims are 5.3-verified and which are 7.1-derived is stated
+  where each is made. The shipped `phase-shift` example fixture was rebuilt to
+  use era-correct registers.
+
 - **Literal-pool accesses are compared by the slot they resolve to, not by the
   symbol that names it.** A decomp target and its candidate rarely anchor
   read-only data the same way: on the recorded `object_interaction` campaign

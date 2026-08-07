@@ -414,7 +414,13 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric(
         "register_profile",
         "register_profile",
-        "register class table used for the lanes",
+        "compiler era whose register class table the lanes use",
+    ),
+    Metric(
+        "register_profile_evidence",
+        "register_profile_evidence",
+        "what that table is made of: a probe of a named release, or the "
+        "pre-probe default carried for unmeasured ones",
     ),
     Metric(
         "target_instructions",

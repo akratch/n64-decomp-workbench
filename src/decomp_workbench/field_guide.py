@@ -314,6 +314,19 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "don't have an instrumented toolchain? levers 14-16 are pure source "
         "and are the first move; the lane rotation above already locates the "
         "preceding block to perturb.",
+        "the register at a site is a pure function of the alloc/free event "
+        "sequence before it (ugen pops the head of a per-class free list and "
+        "frees to its tail - a least-recently-freed ring, re-seeded once per "
+        "procedure). So do not chase the phase: chase the CLASS-CROSSING "
+        "sites, where one side leaves as a ugen temp what the other colored. "
+        "Each one re-phases everything downstream.",
+        "score on the site count, not on raw words: partial closure is not "
+        "monotone (a recorded run went 1416 -> 1413 -> 1445 -> 1477 -> 572 as "
+        "sites closed). Confirm on words only at full closure.",
+        "which registers are temps at all is per-compiler-era data. Under IDO "
+        "5.3 -O2 -mips2 (probed) t0-t9 and f4/f6/f8/f10 are ALWAYS ugen "
+        "temps and never uopt colors; other releases are unverified. "
+        "decomp-workbench guide temp-fifo-phase carries the table.",
         "have one, and those levers are spent? decomp-workbench trace-fifo "
         "TRACE.log replays the pool get/put schedule.",
     ),

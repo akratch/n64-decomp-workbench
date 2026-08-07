@@ -57,12 +57,32 @@ separate experiment cells, and always run them through the named frontend.
 
 When opcode shape stabilizes but registers differ:
 
+0. Decide which *population* the differing registers belong to, because the two
+   are allocated by different passes and answer to different levers. This is
+   per-compiler-era data, not a constant. Under IDO 5.3 at `-O2 -mips2`
+   (probed): uopt colors `v0 v1 a0-a3 s0-s8` and `f0 f2 f12-f24`, while
+   `t0-t9` and `f4/f6/f8/f10` are **always** ugen block-local temps and never
+   uopt colors. Any other release is unverified — `view --register-profile
+   unverified` is the pre-probe table and a lane it produces is a hypothesis.
+   `view --json` reports `register_profile` and `register_profile_evidence` so
+   the claim travels with its provenance.
 1. Localize the mismatch range.
 2. Capture the narrowest relevant `globalcolor`/UGEN trace.
 3. Inspect one procedure and web at a time.
 4. Form a lifetime hypothesis: an earlier use, a surviving pointer, or an
    unnecessary temporary may keep a color unavailable.
 5. Test the source-lifetime change, then remove diagnostic scaffolding.
+
+A temp-population difference is **not** a coloring-priority question. ugen pops
+the head of a per-class free list and frees to its tail — a least-recently-freed
+ring, re-seeded once per procedure — so the register at a site is a pure
+function of the alloc/free event sequence before it. The dimension that moves is
+the count of **class-crossing sites**, where one side leaves as a ugen temp what
+the other colored; each such site re-phases every downstream temp. Score a
+campaign on that site count, not on raw words: partial closure is not monotone,
+and a recorded 5.3 run went 1416 → 1413 → 1445 → 1477 → 572 as sites closed.
+Rotating the ring's initial phase is an oracle knob, not a fix; on that same run
+the best possible phase was worth 84 of 845 rows.
 
 The Hartley finish showed that removing a fake can repair a distant coherent
 register swap. A fake local is never neutral merely because its generated

@@ -244,9 +244,9 @@ editing the visibly-wrong block before working out that the block was innocent.
 
 ```text
 REGISTER LANES (per-class assignment sequences, matching instructions included)
-  pool  target     t0 t1 a0   slots=0..2/3
-        candidate  t0 t1 a0
-                   identical 3/3
+  pool  target     s0 s1 s2 a0 s0   slots=0..4/5
+        candidate  s0 s1 s2 a0 s0
+                   identical 5/5
   temp  target     t6 t7 t8 t9 t6 t7 t8 t9 t6   slots=0..8/9
         candidate  t6 t7 t8 t9 t6 t8 t9 t6 t7
                    ---------------^ slot=5 aligned_row=12 rotation=+1
@@ -273,7 +273,7 @@ before this block.
 
 ```text
 HUNK 1  class=register rows=12..17 target=12..17 candidate=12..17
-     12 > addu $t7,$t1,$s0  | addu $t8,$t1,$s0   t7->t8 [w1]
+     12 > addu $t7,$s2,$s0  | addu $t8,$s2,$s0   t7->t8 [w1]
      13 > lw $t8,20($t7)    | lw $t9,20($t8)     t8->t9 [w2] t7->t8 [w1]
      ...
 

@@ -25,7 +25,13 @@ check whether the two comparisons use different:
 - compiler versions or flags;
 - selected function boundaries;
 - translation-unit declarations and available prototypes;
-- constant-pool, BSS, or rodata symbol spelling;
+- constant-pool, BSS, or rodata symbol spelling — `compare --json` now resolves
+  literal-pool accesses to slots and reports `pool_resolution`; a
+  `pool`-classed row is an anchoring difference between the two symbol tables,
+  not a code difference, while `pool_layout` is a real one;
+- which register population a differing register belongs to: the uopt/ugen
+  split is per compiler release, and only IDO 5.3 `-O2 -mips2` has been probed
+  (`register_profile_evidence` says which table produced the lane);
 - object versus linked/ROM relocation context.
 
 The Titania campaign demonstrated this boundary: an external scratch score
