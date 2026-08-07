@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **`force-rows` measures which object rows an allocator control owns.** A web
+  number is not a location: it indexes a run-local table that does not survive
+  into the object, and one campaign measured that neither "ucode record index
+  implies program position" nor "allocator event order implies emission order"
+  holds — a change confined to sixteen intermediate records 18% into the stream
+  first moved the object at instruction 94, with 143 differing rows before the
+  edited site. So the map cannot be read; it has to be measured.
+  `decomp-workbench force-rows BASELINE.o FORCED.o --force p1:w9=c30` (and
+  `force-rows-dumps` on retained objdump text) reports the rows that moved,
+  grouped into runs with their classes. It runs no compiler — the two builds
+  are inputs — so the join works for any control a reader can set. `--target`
+  adds `compare_row`, the number `compare --json` publishes as `aligned_row`
+  and `window --rows` accepts; `--gap N` sets how many matched rows may sit
+  inside a run (default 3); a control that moves nothing prints `BYTE-INERT`,
+  which is a result and not an empty screen. Runs come from the shared aligner,
+  so a force that changes the instruction count is one run rather than
+  "everything after the insertion", and the report says the count changed.
+  `--force` is validated by the same parser the instrumented pass uses.
+  `--json` emits `decomp-workbench-force-rows-v1`. Documented in
+  `docs/compiler-instrumentation.md`; tests `tests/test_force_rows.py`.
+
 - **Instrument records now name what they measure.** Three labels were read as
   claims the instrumentation does not make, and a campaign acted on two of
   them. `nocs` in a `p1dec`/`p2dec` record is the pass's *compressed*

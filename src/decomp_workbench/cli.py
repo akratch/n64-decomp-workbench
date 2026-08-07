@@ -67,6 +67,7 @@ from .experiment_cli import register_experiment_commands
 from .experiments import load_experiment, validate_campaign_sources
 from .fidelity_cli import register_fidelity_command
 from .fingerprint_cli import register_fingerprint_commands
+from .force_rows_cli import register_force_rows_commands
 from .globalcolor import (
     COLOR_REGISTERS,
     color_for_register,
@@ -1775,6 +1776,10 @@ def build_parser() -> argparse.ArgumentParser:
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
     register_allocator_commands(commands)
+    # `force-rows` reads objects but speaks the allocator's vocabulary: its
+    # input is a force control, and it answers the question the allocator
+    # journey leaves open -- which rows that control actually owns.
+    register_force_rows_commands(commands)
     register_source_correlation_command(commands)
     register_pass_adapter_command(commands)
     register_line_probe_command(commands)

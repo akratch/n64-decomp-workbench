@@ -28,6 +28,8 @@ SYMBOL_COMMANDS = (
     "view-dumps",
     "window",
     "window-dumps",
+    "force-rows",
+    "force-rows-dumps",
     "check-scratch",
     "rank",
     "compile-rank",

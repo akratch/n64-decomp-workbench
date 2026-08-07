@@ -41,6 +41,8 @@ SCHEMAS: dict[str, str] = {
     "experiment-inspect-source": "decomp-workbench-source-inspection-v1",
     "experiment-review-mutation": "decomp-workbench-mutation-review-v1",
     "fingerprint-toolchain": "decomp-workbench-toolchain-fingerprint-v1",
+    "force-rows": "decomp-workbench-force-rows-v1",
+    "force-rows-dumps": "decomp-workbench-force-rows-v1",
     "fidelity": "decomp-workbench-object-fidelity-v1",
     "diagnose": "decomp-workbench-diagnosis-v1",
     "diagnose-dumps": "decomp-workbench-diagnosis-v1",

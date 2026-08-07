@@ -254,6 +254,58 @@ probing for does not exist under this interference, which is often the answer
 the probe was asking for. The sweep still finishes, and every other entry in it
 still applies.
 
+#### Which object rows does a force actually own?
+
+A web number is not a location. It indexes a run-local allocator table that
+does not survive into the object, and a recorded campaign measured that the
+intermediate stream's ordering does not imply the object's: a change confined
+to sixteen `uopt.O` records 18% into the stream first moved the object at
+instruction 94, with 143 differing rows *before* the edited site. So the
+web-to-row map cannot be read. It has to be measured, by building the same
+source twice and seeing which rows move:
+
+```sh
+decomp-workbench force-rows      baseline.o forced.o --force p1:w9=c30
+decomp-workbench force-rows-dumps baseline.d forced.d --force p1:w9=c30 \
+  --target target.d
+```
+
+```text
+force=p1:w9=c30 aligned_rows=1204 moved=42 runs=6
+  run   1  rows 860-868  moved=9  classes=register  compare_row=863
+        baseline: lwc1 $f4,0(at)
+        target:   lwc1 $f4,12(at)
+```
+
+The two builds are **inputs**. This command runs no compiler, so the join works
+for any control a reader can set, on any toolchain, with no assumption about
+how the forced object was produced. What it does own is the alignment:
+
+- runs come from the same LCS aligner `compare` and `window` use, so a force
+  that changes the instruction *count* is one run and not "everything after the
+  insertion". A positional diff of the two disassemblies gets this wrong, and
+  gets it wrong silently;
+- `--target` adds `compare_row`, the aligned row number `compare --json`
+  publishes as `aligned_row` and `window --rows` accepts. Without it the run is
+  still reported, in the baseline-versus-forced numbering only;
+- `--gap N` is how many matched rows may sit inside one run before it splits
+  (default 3; `--gap 0` reports strictly contiguous runs);
+- a control that moves nothing prints `BYTE-INERT`. That is a result: the force
+  reached the pass and changed no emitted instruction, so the web owns no row
+  here. It is not an empty screen.
+
+`--force` is validated by the same parser the instrumented pass uses, so a
+control this command will label a run with is a control the pass would accept —
+including the phase qualification. It is a label, not an instruction: the
+command cannot verify that `forced.o` was in fact built with it.
+
+**Grammar limit.** The shipped profile's controls are `c<N>` (force a color)
+and `s` (force the split path). Both express *which* register a coloured web
+gets; neither expresses whether the web is coloured at all, which is decided
+earlier by `compute_save`'s class verdict. A campaign extension adding `n`/`y`
+for that verdict is recorded in
+[the tooling roadmap](tooling-roadmap.md) and is not part of this grammar.
+
 #### Reading `p1dec`/`p2dec` economics
 
 Two fields in the decision records are easy to read as something they are not,
