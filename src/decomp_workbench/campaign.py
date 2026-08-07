@@ -677,7 +677,7 @@ def _execute_candidates(
                 future.cancel()
             terminate_running_compilers()
             raise
-    results.sort(key=campaign_result_sort_key)
+    results.sort(key=sort_campaign_results_key(results))
     return results
 
 
@@ -917,8 +917,16 @@ def region_score(
     }
 
 
-def campaign_result_sort_key(result: CompileResult) -> tuple[object, ...]:
-    """Rank region preservation before the ordinary whole-function metric."""
+def campaign_result_sort_key(
+    result: CompileResult, *, by_raw: bool = False
+) -> tuple[object, ...]:
+    """Rank region preservation before the ordinary whole-function metric.
+
+    ``by_raw`` swaps the whole-function metric for the positional word counts.
+    It is set for a run whose candidates did not all align the same way: see
+    :func:`~decomp_workbench.compare.rank_comparisons` for why aligned rows
+    stop being a common scale there.
+    """
 
     region = result.region
     region_key: tuple[object, ...] = ()
@@ -928,12 +936,30 @@ def campaign_result_sort_key(result: CompileResult) -> tuple[object, ...]:
             int(region["selected_mismatches"]),
             int(region["outside_mismatches"]),
         )
+    comparison = result.comparison
+    metric: tuple[object, ...] = ()
+    if comparison is not None:
+        metric = comparison.raw_sort_key if by_raw else comparison.sort_key
     return (
-        result.comparison is None,
+        comparison is None,
         *region_key,
-        result.comparison.sort_key if result.comparison else (),
+        metric,
         result.source,
     )
+
+
+def sort_campaign_results_key(
+    results: Sequence[CompileResult],
+) -> Callable[[CompileResult], tuple[object, ...]]:
+    """Return the ordering key this result set can honestly be sorted on."""
+
+    statuses = {
+        result.comparison.alignment_comparable
+        for result in results
+        if result.comparison is not None
+    }
+    by_raw = len(statuses) > 1
+    return lambda result: campaign_result_sort_key(result, by_raw=by_raw)
 
 
 def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileResult]]:

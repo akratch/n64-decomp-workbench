@@ -51,10 +51,18 @@ allocation verdict it deliberately names three candidate families without
 choosing; run `view` or `diagnose` to get the committed family before
 spending a variant.
 
-Rank candidates by `aligned_total`, never by `words`. Positional word counts
-shift on every inserted or deleted instruction, so the variant one edit away
-can report a longer residual than one with a dozen unrelated allocation
-differences. `words=0` with `exact=true` is still the only matching claim.
+Rank candidates by `aligned_total`, never by `words` -- but only across
+candidates whose summary line reads `gaps=   0`. Positional word counts shift
+on every inserted or deleted instruction, so the variant one edit away can
+report a longer residual than one with a dozen unrelated allocation
+differences. A candidate with gaps is aligned against a *different*
+subsequence of the target, so its `aligned_total` can fall *below* a strictly
+better candidate's: one recorded campaign built a 257-build lever table on a
+candidate reporting 1435 aligned rows against a 1865-row base while holding
+2918 mismatching words and 1807 opcode mismatches. `compare` prints a
+`caution:` line whenever that is the case, and `rank`/`campaign` order a mixed
+set on `words` instead and say so. `words=0` with `exact=true` is still the
+only matching claim.
 
 ## Choose the next experiment from the residual
 

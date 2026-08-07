@@ -40,6 +40,17 @@ def warning_lines(warnings: Sequence[str]) -> list[str]:
     return [f"warning: {warning}" for warning in warnings]
 
 
+def alignment_caution_lines(item: Comparison) -> list[str]:
+    """Render the aligned-count comparability caution, ahead of the numbers.
+
+    Same placement rule as `warning_lines`, for the same reason: a reader who
+    meets this after `aligned_total=` has already ranked on it. One campaign
+    spent 257 builds on a lever table ordered by a number this line retracts.
+    """
+
+    return [item.alignment_caution] if item.alignment_caution else []
+
+
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
     """Return command acceptance independently from the evidence verdict."""
 
@@ -146,6 +157,14 @@ def comparison_explanation_lines(
     )
     if aligned:
         lines.append(f"aligned residual classes: {aligned}")
+    if item.aligned_gaps:
+        lines.append(
+            "alignment gaps: "
+            f"insertions={item.aligned_insertions} "
+            f"deletions={item.aligned_deletions} "
+            f"(opcodes={item.opcode_mismatches}, "
+            f"words={item.word_mismatches}, raw={item.raw_word_mismatches})"
+        )
     breakdown = ", ".join(
         f"{name}={count}" for name, count in item.raw_difference_breakdown.items()
     )

@@ -21,8 +21,14 @@ from .cli_options import (
     add_explain_keys_argument,
     add_symbol_argument,
 )
-from .compare import compare_instructions, compare_objects
+from .compare import (
+    MIXED_ALIGNMENT_CAUTION,
+    compare_instructions,
+    compare_objects,
+    rank_comparisons,
+)
 from .comparison_render import (
+    alignment_caution_lines,
     comparison_acceptance,
     comparison_explanation_lines,
     comparison_line,
@@ -109,6 +115,8 @@ def _emit_comparison(
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
         for line in warning_lines(comparison.warnings):
+            print(line)
+        for line in alignment_caution_lines(comparison):
             print(line)
         print(comparison_line(comparison, painter))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
@@ -210,7 +218,7 @@ def rank_command(args: argparse.Namespace) -> int:
             )
         except (OSError, RuntimeError) as error:
             errors.append({"candidate": candidate, "error": str(error)})
-    comparisons.sort(key=lambda item: item.sort_key)
+    comparisons, mixed_alignment = rank_comparisons(comparisons)
     limited = comparisons[: args.limit] if args.limit else comparisons
     if args.json:
         print(
@@ -218,6 +226,8 @@ def rank_command(args: argparse.Namespace) -> int:
                 {
                     "results": [item.as_dict() for item in limited],
                     "errors": errors,
+                    "ranked_by": "words" if mixed_alignment else "aligned_total",
+                    "mixed_alignment": mixed_alignment,
                 },
                 indent=2,
                 sort_keys=True,
@@ -225,8 +235,12 @@ def rank_command(args: argparse.Namespace) -> int:
         )
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
+        if mixed_alignment:
+            print(MIXED_ALIGNMENT_CAUTION)
         for rank, item in enumerate(limited, 1):
             for line in warning_lines(item.warnings):
+                print(line)
+            for line in alignment_caution_lines(item):
                 print(line)
             print(f"{rank:3d} {comparison_line(item, painter)}")
         for failure in errors:

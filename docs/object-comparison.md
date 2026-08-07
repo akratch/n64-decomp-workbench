@@ -163,7 +163,9 @@ in `--explain-keys`.
 |---|---|---|
 | `raw_word_mismatches` | Positional 32-bit word differences before masking | Detect whether files are literally identical |
 | `word_mismatches` | Positional differences after masking known linker-controlled fields | Final function-level matching oracle at zero; a tiebreaker above it |
-| `aligned_total` | LCS-aligned differing rows a source change controls | Rank candidates against each other |
+| `aligned_total` | LCS-aligned differing rows a source change controls | Rank candidates against each other, but only where `aligned_gaps` is 0 on both |
+| `aligned_insertions`, `aligned_deletions`, `aligned_gaps` | Aligned rows the aligner filled on one side only | Decide whether `aligned_total` may be compared with another candidate's at all |
+| `alignment_comparable`, `alignment_caution` | Whether it may be, and the one-line caution when it may not | Gate an automated ranking |
 | `aligned_structural`, `aligned_schedule`, `aligned_register`, `aligned_constant`, `aligned_commutative` | The aligned residual split by mechanism | See which lever family the residual belongs to before opening `view` |
 | `opcode_mismatches` | Positional mnemonic differences | Distinguish structure from operands |
 | `normalized_distance` | Sequence edit distance after masking addresses, immediates, and stack offsets | Search guidance only |
@@ -229,6 +231,14 @@ Aligned rows classed `match`, `displacement` (an encoded branch offset that
 moved because something was inserted between here and there), and `relocation`
 (a linker-supplied field) are not in the total: none of them is a difference a
 source change owns.
+
+Alongside them, `gaps=` (with its `aligned_insertions`/`aligned_deletions`
+split) reports the alignment's own edit operations. `aligned_total ==
+word_mismatches` holds exactly when a candidate is a pure register renaming;
+once the aligner has inserted a gap, the candidate is aligned against a
+different subsequence of the target and its aligned total is no longer on the
+same scale as another candidate's. `compare` prints a one-line `caution:` in
+that case, ahead of the numbers it retracts.
 
 **What it costs.** The alignment is quadratic in the worst case and runs once
 per comparison. Measured on a synthetic function with one inserted instruction

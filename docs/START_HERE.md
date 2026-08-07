@@ -101,7 +101,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=instruction-exact aligned_total=   0 words=   0 raw=   2 norm=   0
+verdict=instruction-exact aligned_total=   0 words=   0 raw=   2 opcodes=   0 gaps=   0 norm=   0
 raw difference classes: relocation_controlled=2
 next: Instruction-exact: raw differences are linker-controlled relocation fields
 ```
@@ -140,7 +140,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=allocation-mismatch aligned_total=   1 words=   1 raw=   3 norm=   1
+verdict=allocation-mismatch aligned_total=   1 words=   1 raw=   3 opcodes=   0 gaps=   0 norm=   1
 aligned residual classes: aligned_register=1
 diff_sites=3 (register=1, relocation-controlled=2)
 next: Opcode shape matches but register allocation differs.
@@ -323,8 +323,10 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 norm=   1
+caution: alignment inserted 1 gaps (10 opcode mismatches) -- compare candidates on raw words, not aligned rows
+verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 opcodes=  10 gaps=   1 norm=   1
 aligned residual classes: aligned_structural=1
+alignment gaps: insertions=1 deletions=0 (opcodes=10, words=11, raw=11)
 ```
 
 Eleven positional words, one aligned difference — and `aligned_total` is the
@@ -350,6 +352,12 @@ offset moved because of the insertion. On a real function this effect has been
 measured at 635 positional words against an aligned truth of 27 structural plus
 8 register. If you are triaging a batch by `words=`, you are sorting by noise —
 which is why `aligned_total=` leads the line and owns the ranking.
+
+**With one limit, and the run above printed it.** `gaps=` counts the rows the aligner filled on one side only. Once a candidate
+has any, it is aligned against a *different subsequence* of the target than a
+gap-free candidate is, so its `aligned_total` is the honest description of
+**that** candidate and not a number to read against another one's. `rank` and
+`campaign` detect a mixed set and order it on `words=` instead, and say so.
 
 ---
 

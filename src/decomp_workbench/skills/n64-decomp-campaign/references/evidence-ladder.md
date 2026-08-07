@@ -52,3 +52,10 @@ rows after an LCS alignment; `words` counts positions and shifts on every
 inserted or deleted instruction, which misranked candidates in six recorded
 campaigns. The workbench sorts on the aligned count for this reason, and the
 `aligned_*` class split says which lever family the residual belongs to.
+
+The aligned score is comparable only across candidates the aligner treated the
+same way. `gaps=` counts the rows it filled on one side only; any gap means
+this candidate was aligned against a different subsequence of the target, so
+its row count is a statement about *it* and not a place in a table. The report
+prints an explicit `caution:` line in that case, and the ranking commands fall
+back to `words`.

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Aligned row counts now say when they are not comparable across
+  candidates.** `aligned_total` is computed against a per-candidate LCS
+  alignment, so a candidate that forced the aligner to insert gaps is measured
+  against a *different* subsequence of the target than a gap-free candidate is
+  — and its row count can fall below a strictly better candidate's. On the
+  recorded `object_interaction` campaign one such candidate reported 1435
+  aligned rows against an 1865-row base while holding 2918 mismatching words
+  and 1807 opcode mismatches, and a 257-build lever table was ordered on that
+  inversion. Every scoring surface now carries the evidence: the summary line
+  gained `opcodes=` and `gaps=` beside the existing `words=` and `raw=`,
+  `compare`/`diagnose` print
+  `caution: alignment inserted N gaps (M opcode mismatches) — compare
+  candidates on raw words, not aligned rows` ahead of the numbers it retracts,
+  and the JSON gained `aligned_insertions`, `aligned_deletions`,
+  `aligned_gaps`/`gaps`, `alignment_comparable`, and `alignment_caution`. No
+  existing key was renamed or removed. `rank` and `campaign` detect a result
+  set containing both kinds and order it on `words` instead, with
+  `ranked_by`/`mixed_alignment` in `rank --json` and a one-line caution in the
+  terminal; a uniform set still ranks aligned-first exactly as before.
+
 - **A line-owned schedule verdict now routes to the command that fixes it.**
   `probe-lines --tie STATEMENT=LINE` (repeatable) compiles a fourth
   token-identical variant that reassigns one statement's line number via a

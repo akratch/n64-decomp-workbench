@@ -23,6 +23,7 @@ from .cli_options import (
     add_symbol_argument,
 )
 from .comparison_render import (
+    alignment_caution_lines,
     comparison_acceptance,
     comparison_explanation_lines,
     comparison_line,
@@ -151,6 +152,7 @@ def _emit(
         lines = [
             *warning_lines(comparison.warnings),
             painter.bold("COMPARISON"),
+            *alignment_caution_lines(comparison),
             comparison_line(comparison, painter),
         ]
         lines.extend(

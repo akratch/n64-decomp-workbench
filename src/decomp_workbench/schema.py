@@ -116,6 +116,25 @@ METRICS: tuple[Metric, ...] = (
         kind="integer",
     ),
     Metric(
+        "opcodes",
+        "opcode_mismatches",
+        "positional mnemonic differences; the honest signal that two objects "
+        "have different instruction shapes and their aligned rows count "
+        "different things",
+        summary=True,
+        width=4,
+        kind="integer",
+    ),
+    Metric(
+        "gaps",
+        "aligned_gaps",
+        "aligned rows the aligner filled on one side only; any gap makes "
+        "aligned_total incomparable with another candidate's",
+        summary=True,
+        width=4,
+        kind="integer",
+    ),
+    Metric(
         "norm",
         "normalized_distance",
         "edit distance after masking addresses, immediates, and stack "
@@ -171,7 +190,28 @@ METRICS: tuple[Metric, ...] = (
         "instruction_delta",
         "candidate instruction count minus target instruction count",
     ),
-    Metric("opcodes", "opcode_mismatches", "positional mnemonic differences"),
+    Metric(
+        "aligned_insertions",
+        "aligned_insertions",
+        "aligned rows present only in the candidate",
+    ),
+    Metric(
+        "aligned_deletions",
+        "aligned_deletions",
+        "aligned rows present only in the target",
+    ),
+    Metric(
+        "alignment_comparable",
+        "alignment_comparable",
+        "whether aligned_total may be compared with another candidate's; "
+        "false once the aligner inserted gaps or the opcode streams diverged",
+    ),
+    Metric(
+        "alignment_caution",
+        "alignment_caution",
+        "the one-line caution printed when aligned counts are not comparable "
+        "across candidates, or null",
+    ),
     Metric(
         "relocs",
         "relocation_metadata_mismatches",

@@ -321,16 +321,63 @@ ALIGNED_CLASS_KEYS: tuple[str, ...] = (
 )
 
 
+#: Report keys for the alignment's own edit operations.  They are not residual
+#: classes: a gap is the aligner deciding that two positions do not correspond
+#: at all, which is exactly the condition that makes one candidate's aligned
+#: row count incomparable with another's.
+ALIGNMENT_GAP_KEYS: tuple[str, ...] = ("aligned_insertions", "aligned_deletions")
+
+#: Positional mnemonic differences tolerated before ``aligned_total`` is
+#: declared incomparable across candidates.  It is deliberately small rather
+#: than zero: a single ``move``/``addu`` spelling difference is routine in an
+#: otherwise pure register renaming, while a schedule or structure change moves
+#: mnemonics by the hundred.
+OPCODE_MISMATCH_CAUTION_THRESHOLD = 2
+
+
+def alignment_caution(
+    *, insertions: int, deletions: int, opcode_mismatches: int
+) -> str | None:
+    """Return the cross-candidate comparability caution, or ``None``.
+
+    ``aligned_total`` answers "how much of this candidate would a source change
+    have to move", which is the right question *about one candidate*.  It is
+    not a quantity two candidates can be compared on once the aligner has
+    inserted gaps: a differently scheduled object realigns against a different
+    subsequence of the target, and its row count can fall below a strictly
+    better candidate's.  One campaign built a 257-build lever table on that
+    inversion -- a candidate with 2924 mismatching words and 1813 opcode
+    mismatches reported fewer aligned rows than the 1865-row base it was
+    supposed to improve on.  The honest invariant is that
+    ``aligned_total == word_mismatches`` only when the candidate is a pure
+    register renaming; past that, ``raw``/``words`` is the comparable number.
+    """
+
+    gaps = insertions + deletions
+    if gaps == 0 and opcode_mismatches <= OPCODE_MISMATCH_CAUTION_THRESHOLD:
+        return None
+    return (
+        f"caution: alignment inserted {gaps} gaps "
+        f"({opcode_mismatches} opcode mismatches) -- compare candidates on "
+        "raw words, not aligned rows"
+    )
+
+
 def aligned_residual_analysis(
     target: Sequence[Instruction], candidate: Sequence[Instruction]
-) -> tuple[dict[str, int], list[dict[str, object]]]:
-    """Return LCS-aligned counts and target-anchored residual sites.
+) -> tuple[dict[str, int], dict[str, int], list[dict[str, object]]]:
+    """Return LCS-aligned counts, alignment gaps, and residual sites.
 
     Positional counting misranked candidates in six recorded campaigns: one
     inserted instruction shifts every later position, so a candidate that is one
     edit away reads as a long cascade and a candidate with a dozen scattered
     allocation differences looks closer.  The counts come from the ``view``
     analysis; nothing here re-implements the alignment.
+
+    The gap counts come back beside them because they are the receipt for the
+    counts: a row the aligner filled on one side only is a position the two
+    objects do not share, and every such row is a reason not to read this
+    candidate's aligned total against another candidate's.
     """
 
     # ``view`` is built on top of this module, so the import is deferred rather
@@ -343,6 +390,10 @@ def aligned_residual_analysis(
         # evidence supports.
         counts = dict.fromkeys(ALIGNED_CLASS_KEYS, 0)
         counts["aligned_structural"] = max(len(target), len(candidate))
+        gaps = {
+            "aligned_insertions": 0 if target else len(candidate),
+            "aligned_deletions": 0 if candidate else len(target),
+        }
         sites: list[dict[str, object]] = [
             {
                 "index": index if target else 0,
@@ -355,7 +406,7 @@ def aligned_residual_analysis(
             }
             for index in range(max(len(target), len(candidate)))
         ]
-        return counts, sites
+        return counts, gaps, sites
     view = build_view(
         target,
         candidate,
@@ -363,6 +414,10 @@ def aligned_residual_analysis(
         candidate_name="",
     )
     counts = {f"aligned_{name}": view.counts.get(name, 0) for name in RESIDUAL_CLASSES}
+    gaps = {
+        "aligned_insertions": sum(1 for row in view.rows if row.target_index is None),
+        "aligned_deletions": sum(1 for row in view.rows if row.candidate_index is None),
+    }
     next_target = len(target)
     anchors: dict[int, int] = {}
     for row in reversed(view.rows):
@@ -382,7 +437,7 @@ def aligned_residual_analysis(
         for row in view.rows
         if row.reported
     ]
-    return counts, sites
+    return counts, gaps, sites
 
 
 def aligned_residual(
@@ -390,7 +445,7 @@ def aligned_residual(
 ) -> dict[str, int]:
     """Return the LCS-aligned residual counts, keyed for the report."""
 
-    counts, _ = aligned_residual_analysis(target, candidate)
+    counts, _, _ = aligned_residual_analysis(target, candidate)
     return counts
 
 
@@ -964,12 +1019,18 @@ def compare_instructions(
         and fp_count == 0
         and target_frame == candidate_frame
     )
-    aligned, aligned_sites = aligned_residual_analysis(target, candidate)
+    aligned, aligned_gaps, aligned_sites = aligned_residual_analysis(target, candidate)
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
     sites = diff_sites(target, candidate, target_words, candidate_words)
     site_classes = diff_site_classes(sites)
+    opcode_mismatches = positional_mismatches(target_opcodes, candidate_opcodes)
+    caution = alignment_caution(
+        insertions=aligned_gaps["aligned_insertions"],
+        deletions=aligned_gaps["aligned_deletions"],
+        opcode_mismatches=opcode_mismatches,
+    )
     exact = (
         exact_mismatches == 0 and relocation_mismatches == 0 and not unknown_relocations
     )
@@ -979,7 +1040,7 @@ def compare_instructions(
         raw_difference_breakdown=breakdown,
         relocation_mismatches=relocation_mismatches,
         unknown_relocations=unknown_relocations,
-        opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
+        opcode_mismatches=opcode_mismatches,
         instruction_delta=len(candidate) - len(target),
         register_mismatches=register_count,
         site_classes=site_classes,
@@ -1023,7 +1084,7 @@ def compare_instructions(
         relocation_metadata_mismatches=relocation_mismatches,
         relocation_target_mismatches=relocation_target_mismatches,
         unknown_relocations=unknown_relocations,
-        opcode_mismatches=positional_mismatches(target_opcodes, candidate_opcodes),
+        opcode_mismatches=opcode_mismatches,
         normalized_distance=sequence_distance(target_normalized, candidate_normalized),
         register_mismatches=register_count,
         fp_register_mismatches=fp_count,
@@ -1049,7 +1110,38 @@ def compare_instructions(
         warnings=list(warnings),
         target_frame_layout=target_frame_layout,
         candidate_frame_layout=candidate_frame_layout,
+        aligned_insertions=aligned_gaps["aligned_insertions"],
+        aligned_deletions=aligned_gaps["aligned_deletions"],
+        aligned_gaps=sum(aligned_gaps.values()),
+        alignment_comparable=caution is None,
+        alignment_caution=caution,
     )
+
+
+#: Printed once above a mixed ranking, because the ordering itself changed and
+#: a reader who does not know that is reading a different table than the one
+#: they ran yesterday.
+MIXED_ALIGNMENT_CAUTION = (
+    "caution: candidates differ in alignment gap status -- ordered by raw "
+    "words, not aligned rows"
+)
+
+
+def rank_comparisons(items: Sequence[Comparison]) -> tuple[list[Comparison], bool]:
+    """Order candidates, and say whether aligned rows were trustworthy.
+
+    Aligned rows are the right ranking metric for a set of candidates the
+    aligner treated the same way; they are not a common scale once some of the
+    set forced gaps and some did not, because each gapped candidate is aligned
+    against a different subsequence of the target.  A mixed set is therefore
+    ordered on the positional word counts, which mean the same thing for every
+    candidate, and the caller is told so it can say so.
+    """
+
+    ordered = list(items)
+    mixed = len({item.alignment_comparable for item in ordered}) > 1
+    ordered.sort(key=lambda item: item.raw_sort_key if mixed else item.sort_key)
+    return ordered, mixed
 
 
 @dataclass(frozen=True)

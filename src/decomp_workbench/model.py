@@ -86,6 +86,17 @@ class Comparison:
     warnings: list[str] = field(default_factory=list)
     target_frame_layout: dict[str, Any] = field(default_factory=dict)
     candidate_frame_layout: dict[str, Any] = field(default_factory=dict)
+    #: Aligned rows the aligner filled on one side only. They are the receipt
+    #: for ``aligned_total``: every gap is a position the two objects do not
+    #: share, so the row counts either side of one are counts of different
+    #: things and cannot be read against another candidate's.
+    aligned_insertions: int = 0
+    aligned_deletions: int = 0
+    aligned_gaps: int = 0
+    #: Whether ``aligned_total`` may be compared with another candidate's.
+    alignment_comparable: bool = True
+    #: The one-line caution printed when it may not be, or ``None``.
+    alignment_caution: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.
@@ -118,6 +129,28 @@ class Comparison:
             self.relocation_metadata_mismatches,
             self.normalized_distance,
             self.register_mismatches,
+            abs(self.instruction_delta),
+            self.candidate,
+        )
+
+    @property
+    def raw_sort_key(self) -> tuple[int, int, int, int, int, int, int, str]:
+        """Rank on the positional word counts, with the aligned residual last.
+
+        This is the ordering used once a candidate set stops being comparable
+        on aligned rows -- see :func:`~decomp_workbench.compare.rank_comparisons`.
+        A gap-heavy object realigns against a different subsequence of the
+        target, so its aligned total measures a different alignment; ``words``
+        measures the same thing for every candidate whatever the aligner did.
+        """
+
+        return (
+            self.word_mismatches,
+            self.raw_word_mismatches,
+            len(self.unknown_relocations),
+            self.relocation_metadata_mismatches,
+            self.opcode_mismatches,
+            self.aligned_total,
             abs(self.instruction_delta),
             self.candidate,
         )
