@@ -171,6 +171,119 @@ the next campaign starts from the fixed version.
 
 **Prototype:** `p3f/udump.py` in the `ge007-object-interaction` campaign.
 
+### A stage-position map
+
+**The gap.** Nothing joins an object row to the stage state that produced it,
+and the two orderings a campaign would naturally assume are both false. The
+measurement: editing one floating-point sum changed exactly sixteen records of
+`uopt.O` (indices 3279–3310 of 17890, 18% into the stream, corresponding to
+object instruction ~863), and the resulting object first differed from the
+unedited one at **instruction 94** — 2% in, with 143 differing rows *before*
+the edited site. An instrumented `ugen` reported the fp allocate/free decisions
+as byte-identical until event 996, while the first trace divergence at event
+875 was a free-list **tail order** flip. So "ucode record index implies program
+position" is false, and so is "allocator event order implies emission order".
+A bisection anchored on either localises the wrong statement. This was checked
+for artefacts: the hand-run stage pipeline reproduced the campaign's object
+byte-for-byte, and the instrumented `ugen`'s own `ugen.s` was byte-identical to
+the stock one.
+
+**The shape it would take.** Per object row, the `uopt.O` record range and the
+`ugen` register event that produced it — `ugen` can be instrumented to emit
+`(event n, emitted instruction index)` pairs. With that, "which source
+statement owns object row R" stops being guesswork whenever a change is
+non-local, and "how many extra fp temporaries do we request before row 964"
+becomes a subtraction instead of a search.
+
+**Why it is not shipped yet.** The uopt.O half needs the ucode decoder above,
+which is itself deferred and for the same reason: the record arity table is
+empirical. Shipping the map without it would mean publishing record *indices*
+that the workbench cannot parse into records, which is a coordinate system with
+no origin. The `ugen` half is closer — it is an instrumentation profile plus a
+join — but it needs the emitted-instruction index to come from the pass rather
+than be inferred, and the workbench's `ugen` instrumentation is currently a
+shallow call/free-list locator with no emission hook.
+
+**What did ship instead.** The half of this that needs no stage instrumentation
+at all is now `force-rows` (see
+[Compiler instrumentation](compiler-instrumentation.md)): build the same source
+twice under one allocator control and the rows that moved are, by construction,
+the rows that control owns. That is a *measured* row-to-decision join rather
+than a positional one, and it does not need a position map because it does not
+assume an ordering. It cannot replace the map — it answers "which rows does
+this control own" one control at a time, not "which decision owns this row" —
+but it removes the case that forced the campaign to bisect by hand.
+
+**Prototypes:** `tools-p3d/ugen_ins` and `p3h/tools/webrows.py` in the
+`ge007-object-interaction` campaign.
+
+### A save-class force control and the terms of the verdict
+
+**The gap.** The shipped globalcolor force grammar is
+`p[12]:w<N>=(c<M>|s)` — force a colour, or force the split path. Neither
+expresses the outcome that removes a value from the allocator entirely:
+`compute_save`'s class-2 verdict, which strikes the web from both candidate
+loops *before* any colour is considered. A campaign holding only `=c`/`=s` can
+ask "would this web be happier in another register" but not "is this web
+coloured at all", and it can never test the mirror question — "the target
+colours one more web than we do" — because a class-2 web never reaches the
+decision site where `=c` is read. Two stages of one campaign framed their
+residue question as "how does a local avoid uopt colouring?" with no way to
+price the answer before searching for a C spelling for it.
+
+**The shape it would take.** Extend the grammar to
+`p[12]:w<N>=(c<M>|s|n|y)`, with `n` forcing class 2 and `y` forcing class 1,
+applied at `f_compute_save`'s verdict store — the single writer, memoised and
+phase independent. Alongside it, a per-web `[CDX] savedetail` record carrying
+the *terms* of the verdict (`occ gross chargeA chargeB net divisor dtype save
+class`) and a per-occurrence `[CDX] saveocc` (`usesdefs weight term`). Steering
+a compiler heuristic from source requires seeing the number, not inferring it:
+with the readout it took one build to learn that 293 of one procedure's 404
+uncoloured webs sit at exactly `net = 0.0`, one unit of gross from the other
+side of a strict `>`.
+
+**Why it is not shipped yet.** The change is not a grammar change, it is a new
+anchor in the pinned generated source. Every existing anchor is a
+`_replace_once` against a SHA-pinned `build/5.3/uopt.c` that this repository
+does not contain and cannot test against; an anchor that fails to match makes
+`instrument-uopt-globalcolor` refuse a file it previously accepted, and an
+anchor that matches the wrong site silently mis-forces. Accepting `=n`/`=y` in
+the parser *without* the anchor would be worse than either: the workbench would
+validate a control the shipped pass ignores, so a sweep would record "forced,
+no change" for a force that never applied — the exact failure the
+phase-qualification gate exists to prevent. The honest sequence is the anchor
+and its fidelity gates first, then the parser and the record schema.
+
+**What did ship instead.** The two decision-record fields that read as if the
+verdict were already being reported are now documented as what they are:
+`class=` is `regclassof` (integer versus floating point), *not* the save class,
+and `nocs=` is the compressed divisor `((n - 2) >> 2) + 2`, not the occurrence
+count — so `save * nocs` is not "saving times uses", and `trace-webs` no longer
+prints those three numbers in the shape of an equation.
+
+**Prototype:** `p3h/LOG.md` §0 and the env-gated, validity-gated
+`ido53-globalcolor-recomp/build/5.3/uopt.c` patch in the
+`ge007-object-interaction` campaign, whose binary lives in `p3h/tc/`.
+
+## Campaign migration notes
+
+Campaign-local scripts that the workbench has since absorbed. These are notes
+for the campaigns, not work items here; this repository does not edit campaign
+files.
+
+- `ge007-object-interaction`: `p3f/win.py`, `p3d/sites.py`, `p3e/fsites.py`,
+  and `p3e/fring.py` each scrape `objdump` to print a named row range of two
+  builds side by side, each with its own row numbering. `window --json` (and
+  `window-dumps` for retained text) does this on the aligner that produces
+  `aligned_row`, so migrating them makes the numbers in those scripts the
+  numbers a dossier quotes.
+- `ge007-object-interaction`: `p3h/tools/webrows.py` is the perturbation join
+  now shipped as `force-rows`. The workbench version aligns the two builds
+  instead of zipping them by position and joins the target through the same
+  alignment `compare` publishes, so it stays correct when a force changes the
+  instruction count. The build half stays campaign-local, as it must: it names
+  one instrumented compiler and one force grammar extension.
+
 ## Original proposals (now implemented unless noted)
 
 ### Original-pass differential adapter
