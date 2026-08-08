@@ -36,11 +36,18 @@ from .comparison_render import (
     diff_site_lines,
     warning_lines,
 )
-from .model import Comparison, display_path
+from .model import Comparison, Instruction, display_path
 from .objdump import (
     cross_function_warning,
+    dump_object,
     parse_disassembly,
     symbol_selection_error,
+)
+from .regions import (
+    RegionError,
+    RegionReport,
+    build_region_report,
+    render_region_report,
 )
 from .schema import COMPARISON_CENSUS_KEYS
 from .terminal import Painter, add_color_argument, resolve_color
@@ -87,31 +94,59 @@ def print_diff_sites(item: Comparison) -> None:
         print(line)
 
 
+def _region_report(
+    comparison: Comparison,
+    args: argparse.Namespace,
+    candidate_instructions: list[Instruction] | None,
+) -> RegionReport | None:
+    """Build the region attribution, or explain why it is unavailable.
+
+    Returns ``None`` when `--by-region` was not asked for. A failure to
+    attribute is raised, not swallowed: a silently absent ranking reads as
+    "no regions differ", which is the opposite of the truth.
+    """
+
+    source = getattr(args, "by_region", None)
+    if not source:
+        return None
+    if candidate_instructions is None:
+        raise RegionError(
+            "--by-region needs the candidate's instructions with their "
+            "relocations; this input form does not carry them"
+        )
+    return build_region_report(
+        source_path=source,
+        source_text=Path(source).read_text(encoding="utf-8"),
+        candidate=candidate_instructions,
+        sites=comparison.diff_sites,
+        instruction_delta=comparison.instruction_delta,
+    )
+
+
 def _emit_comparison(
     comparison: Comparison,
     args: argparse.Namespace,
     *,
     predicates: Sequence[Predicate],
     show_ranges: bool,
+    candidate_instructions: list[Instruction] | None = None,
 ) -> int:
     accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
     try:
         census = evaluate_census(predicates, comparison.as_dict())
-    except ValueError as error:
+        regions = _region_report(comparison, args, candidate_instructions)
+    except (OSError, RegionError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     if args.json:
-        print(
-            json.dumps(
-                comparison_payload(
-                    comparison,
-                    cross_rom=args.cross_rom,
-                    census=census,
-                ),
-                indent=2,
-                sort_keys=True,
-            )
+        payload = comparison_payload(
+            comparison,
+            cross_rom=args.cross_rom,
+            census=census,
         )
+        if regions is not None:
+            payload["by_region"] = regions.as_dict()
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
         for line in warning_lines(comparison.warnings):
@@ -135,6 +170,10 @@ def _emit_comparison(
             )
         if args.show_diff:
             print_diff_sites(comparison)
+        if regions is not None:
+            limit = getattr(args, "by_region_limit", 0) or None
+            print("")
+            print("\n".join(render_region_report(regions, limit=limit)))
         print_census(census)
     return census_status(
         census,
@@ -143,6 +182,7 @@ def _emit_comparison(
 
 
 def compare_command(args: argparse.Namespace) -> int:
+    candidate_instructions: list[Instruction] | None = None
     try:
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         comparison = compare_objects(
@@ -152,6 +192,15 @@ def compare_command(args: argparse.Namespace) -> int:
             symbol=args.symbol,
             section=args.section,
         )
+        if getattr(args, "by_region", None):
+            # Region attribution reads the candidate's own relocations, which
+            # the comparison does not carry, so the candidate is dumped again.
+            _, candidate_instructions = dump_object(
+                args.candidate,
+                objdump=args.objdump,
+                symbol=args.symbol,
+                section=args.section,
+            )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -160,6 +209,7 @@ def compare_command(args: argparse.Namespace) -> int:
         args,
         predicates=predicates,
         show_ranges=True,
+        candidate_instructions=candidate_instructions,
     )
 
 
@@ -199,6 +249,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         args,
         predicates=predicates,
         show_ranges=False,
+        candidate_instructions=candidate,
     )
 
 
@@ -251,6 +302,29 @@ def rank_command(args: argparse.Namespace) -> int:
     return 0 if comparisons else 1
 
 
+def _add_by_region_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add `--by-region`, the most-repeated manual step in a campaign."""
+
+    parser.add_argument(
+        "--by-region",
+        metavar="SRC",
+        help=(
+            "group the differing words by the source construct that emitted "
+            "them, ranked by count, each citing SRC:line. Attribution is "
+            "call-relocation anchoring: rows are bracketed between the two "
+            "calls around them, never interpolated to a line, and the report "
+            "states its own coverage"
+        ),
+    )
+    parser.add_argument(
+        "--by-region-limit",
+        type=int,
+        default=12,
+        metavar="N",
+        help="show only the top N regions (default: 12; 0 for all)",
+    )
+
+
 def register_object_commands(
     commands: argparse._SubParsersAction[Any],
     *,
@@ -276,6 +350,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    _add_by_region_arguments(compare)
     add_census_argument(compare)
     compare.set_defaults(handler=compare_handler)
 
@@ -301,6 +376,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    _add_by_region_arguments(dumps)
     add_census_argument(dumps)
     dumps.set_defaults(handler=compare_dumps_handler)
 
