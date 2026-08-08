@@ -360,7 +360,7 @@ def alignment_caution(
     return (
         f"caution: alignment inserted {gaps} gaps "
         f"({opcode_mismatches} opcode mismatches) -- compare candidates on "
-        "raw words, not aligned rows"
+        "positional words (words=), not aligned rows"
     )
 
 

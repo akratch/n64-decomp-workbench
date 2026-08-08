@@ -323,7 +323,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-caution: alignment inserted 1 gaps (10 opcode mismatches) -- compare candidates on raw words, not aligned rows
+caution: alignment inserted 1 gaps (10 opcode mismatches) -- compare candidates on positional words (words=), not aligned rows
 verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 opcodes=  10 gaps=   1 norm=   1
 aligned residual classes: aligned_structural=1
 alignment gaps: insertions=1 deletions=0 (opcodes=10, words=11, raw=11)

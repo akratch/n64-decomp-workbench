@@ -1,8 +1,62 @@
 # Score and matrix
 
-Two commands for the last mile of a campaign: `score` answers "did these
-exact bytes stop differing," and `matrix` runs a batch of pipeline variants
-and tells you which ones actually produced different bytes at all.
+Two commands for the last mile of a campaign: `score` answers "how far is
+this candidate from the target," and `matrix` runs a batch of pipeline
+variants and tells you which ones actually produced different bytes at all.
+
+## Start here: one number
+
+```sh
+decomp-workbench score target.o candidate.o
+```
+
+```text
+score: 516 words differ (0 = match)
+target:    target.o
+candidate: candidate.o
+
+  words          516  <- the score
+  aligned_total  516     one candidate only
+  raw            561     never the score
+```
+
+The headline is **`words`**: positional word differences after masking
+linker-controlled relocation fields. It is the function-level matching oracle
+(`words=0` is the match) and the only one of the three counts that means the
+same thing for two different candidates. Rank on it.
+
+The other two are printed because they are useful, and labelled because they
+are not the score:
+
+| Count | What it is | Why it is not the score |
+|---|---|---|
+| `words` | positional word differences, relocation-masked | — it *is* the score |
+| `aligned_total` | LCS-aligned rows a source change controls | once the aligner inserts gaps, a differently scheduled object realigns against a different subsequence, so its row count can fall *below* a strictly better candidate's |
+| `raw` | every differing word, relocations included | includes linker-filled bits no source change moves, so on some pairs it can never reach zero |
+
+When they disagree, `score` says so and says why, with the numbers:
+
+```text
+these numbers disagree, and here is why:
+  - raw=561 exceeds words=516 by 45: 45 relocation-controlled word(s).
+    The linker owns those bits, so raw cannot reach zero on this pair and
+    words=0 is the honest gate.
+```
+
+Silence in that block is itself a claim: it means all three counts agree and
+any of them would have ranked the candidate the same way.
+
+`--verbose` explains what each metric measures inline. `--json` emits
+`headline_metric`, `headline_value`, and `metric_disagreements` beside the
+existing fields.
+
+This mattered. Every stage of one campaign had to be told which number to
+trust, and one of them spent 257 builds ordering a lever table by the wrong
+one.
+
+The rest of this page is the second form of `score`, which windows one
+function's bytes against target bytes that live *outside* the pair -- a ROM
+image, or an object whose symbols are named differently.
 
 Both grew out of the same recurring failure during the SSB64 drawbitmap
 campaign: the operator hand-wrote the same roughly-30-line scoring snippet

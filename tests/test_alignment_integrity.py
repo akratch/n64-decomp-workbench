@@ -125,7 +125,7 @@ class AlignmentGapTests(unittest.TestCase):
         self.assertEqual(
             item.alignment_caution,
             "caution: alignment inserted 2 gaps (9 opcode mismatches) -- "
-            "compare candidates on raw words, not aligned rows",
+            "compare candidates on positional words (words=), not aligned rows",
         )
 
     def test_the_aligned_total_inverts_the_honest_order(self) -> None:
@@ -242,7 +242,12 @@ class AlignmentReportSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["aligned_gaps"], 2)
         self.assertEqual(payload["opcodes"], payload["opcode_mismatches"])
         self.assertFalse(payload["alignment_comparable"])
-        self.assertIn("compare candidates on raw words", payload["alignment_caution"])
+        # Named metric, not a family: "raw words" read as the `raw=` count,
+        # which is the one number that must never be ranked on.
+        self.assertIn(
+            "compare candidates on positional words (words=)",
+            payload["alignment_caution"],
+        )
 
     def test_diagnose_prints_the_caution_too(self) -> None:
         with self.dumps() as paths:
