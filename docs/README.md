@@ -44,6 +44,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | A `schedule` verdict survives `-g0` and every compiler you own, or you know line assignment owns it and need to know which line a statement wants (`--tie`) | [Line-assignment probe](line-assignment-probe.md) | A preprocessed `.i` and your compile command |
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
 | You are wiring an external compiler tree safely | [Toolchain calibration](toolchain-calibration.md) | User-supplied toolchain and fidelity cells |
+| Several people or agents append findings to one shared log | [Shared notes](shared-notes.md) | A findings file anyone may rewrite |
 | You consume reports from scripts or CI | [JSON contracts](json-contracts.md) | `--json` |
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |

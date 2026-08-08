@@ -80,6 +80,11 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("prune", "dry-run or recoverably move old entries to trash"),
         ("restore", "restore a prune without overwriting entries"),
     ),
+    "note": (
+        ("add", "record a finding that a concurrent writer cannot lose"),
+        ("list", "render the log's entries plus the pending sidecar notes"),
+        ("merge", "append pending notes to the log under an exclusive lock"),
+    ),
     "context": (("lint", "audit #if/#elif guards for the undefined-identifier trap"),),
     "trace": (
         ("summary", "summarize function and allocator trace events"),
@@ -146,6 +151,9 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("campaign", "resume"): "campaign-resume",
     ("campaign", "note"): "campaign-note",
     ("campaign", "export"): "campaign-export",
+    ("note", "add"): "note-add",
+    ("note", "list"): "note-list",
+    ("note", "merge"): "note-merge",
     ("trace", "summary"): "trace-summary",
     ("trace", "fifo"): "trace-fifo",
     ("trace", "globalcolor"): "trace-globalcolor",
@@ -178,6 +186,9 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "campaign-note",
         "campaign-resume",
         "campaign-status",
+        "note-add",
+        "note-list",
+        "note-merge",
         "toolchain-calibrate",
         "toolchain-init",
         "toolchain-status",
@@ -559,7 +570,15 @@ def register_discovery_commands(
     )
     completion.set_defaults(handler=completion_command)
 
-    for group in ("object", "scratch", "trace", "instrument", "pass", "toolchain"):
+    for group in (
+        "object",
+        "scratch",
+        "note",
+        "trace",
+        "instrument",
+        "pass",
+        "toolchain",
+    ):
         entries = COMMAND_MAP[group]
         width = max(len(operation) for operation, _description in entries)
         operation_help = "\n".join(
