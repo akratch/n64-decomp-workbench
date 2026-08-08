@@ -265,6 +265,91 @@ prints those three numbers in the shape of an equation.
 `ido53-globalcolor-recomp/build/5.3/uopt.c` patch in the
 `ge007-object-interaction` campaign, whose binary lives in `p3h/tc/`.
 
+## Open, observed 2026-08-08 (UX round)
+
+From the round that shipped `score`, `next`, `compare --by-region`, `note`,
+and the compiler-laws document. These two came out of the same review and are
+filed here rather than shipped because each needs a decision this evidence does
+not make, not a line of code.
+
+### A campaign is not the same object as a campaign manifest
+
+**The gap.** A late-stage campaign runs two tracked artifacts (a pushed-best
+and a record-true bundle), an oracle floor with a knob count, an attributed
+residue, and a list of what is not yet attributed. Answering "where are we"
+means reading four files. The obvious command is
+`decomp-workbench campaign status` with a one-screen summary and `--verbose`
+for per-region detail.
+
+**Why it is not shipped.** `campaign status` already exists and answers a
+different question well: it reports a *manifest* — a set of source variants
+compiled, cached, ranked, and recorded through `campaign run`. Its unit is a
+compiled candidate, and its state is a ledger it wrote itself.
+
+The campaign that asked for this never used a manifest. Its artifacts are
+files a human promoted, its floor came from an oracle sweep in another
+directory, and its residue is now a `--by-region` run against a source path
+nothing records. Making `campaign status` answer it means introducing a second
+notion of "campaign" — a registry of tracked artifacts with provenance —
+alongside the manifest, and deciding which one the existing command name
+belongs to.
+
+That is a schema decision with a compatibility cost, and there is exactly one
+campaign's evidence for the shape it should take. Two would be enough. Until
+then the honest position is that the four numbers exist and are each one
+command away:
+
+The artifact's score, its residue by region, and the oracle floor:
+
+```sh
+decomp-workbench score TARGET.o ARTIFACT.o
+decomp-workbench compare TARGET.o ARTIFACT.o --by-region SRC.c
+decomp-workbench oracle status
+```
+
+**What would settle it.** A second campaign that tracks more than one artifact,
+so the registry's fields are observed rather than designed. Specifically:
+whether an artifact's identity is its object hash or its source path, and
+whether "unattributed" is a property of the residue or of the campaign's own
+records.
+
+### An instrument build should not be able to return an ungated binary
+
+**The gap.** One campaign built roughly twelve instrumented compilers in
+per-stage directories, each re-deriving the same patch/build/gate ritual. The
+gate — *with the instrumentation disabled, the built object must be
+byte-identical to stock* — is the single most important habit in the whole
+practice, and it is enforced nowhere. An ungated instrument attributes
+decisions to the wrong pass, which is strictly worse than having no instrument,
+and the failure is silent.
+
+The shape is `decomp-workbench instrument build --spec FILE`: apply a
+declarative patch spec to a recompiled compiler source tree, build it, run the
+identity gate, and **refuse to return an unvalidated binary**. The refusal is
+the product; everything else is convenience.
+
+**Why it is not shipped.** The gate is not the hard part — `fidelity` already
+expresses it, and the existing `instrument uopt` profiles are already
+hash-pinned and gated. The hard part is the middle step. Building the compiler
+means invoking the user's build system, and this package will not run
+user-supplied compiler commands through a shell, for reasons that have not
+changed. Every alternative (a required build-command template, a container, a
+declarative build description) either reintroduces the shell or constrains the
+recomp trees this can serve to the one it was written against.
+
+There is also a scope question the campaign's own roster raises. Its twelve
+instruments patched four different passes with four different record
+grammars. A spec format that covers all four is close to "arbitrary source
+patch plus arbitrary log format", at which point the tool is a build wrapper
+whose only real contribution is the gate.
+
+**The smaller thing that is probably right.** Ship the gate alone, as
+`instrument gate --stock OBJ --instrumented-build OBJ`, which takes two objects
+somebody else built and states whether the instrument is trustworthy. It
+enforces the habit, it needs no build system, and it is the half that campaigns
+were skipping. The build half stays campaign-local, as it must: it names one
+compiler tree and one patch grammar.
+
 ## Campaign migration notes
 
 Campaign-local scripts that the workbench has since absorbed. These are notes
