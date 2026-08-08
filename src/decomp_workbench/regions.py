@@ -189,6 +189,28 @@ class RegionReport:
     attributed_words: int
     excluded_words: int
     caveats: tuple[str, ...] = field(default_factory=tuple)
+    #: Problems that make the WHOLE report unreliable, not just one region's
+    #: count -- printed ahead of the region table, the same placement rule as
+    #: `Comparison.warnings`. Empty when nothing is wrong.
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+    #: The candidate's true instruction count minus the target's (see
+    #: `Comparison.true_instruction_delta`), when the caller supplied it.
+    #: Absolute row positions are only comparable between two objects of the
+    #: same true length; a nonzero delta here means every site after the
+    #: divergence is bracketed against the wrong window, not just counted
+    #: with an off-by-a-few. `None` when the caller did not check.
+    true_instruction_delta: int | None = None
+    #: The differing-word total this decomposition is supposed to add up to
+    #: -- normally the same comparison's `word_mismatches` -- when the caller
+    #: supplied one to check against. `None` when nobody asked.
+    expected_total: int | None = None
+    #: Whether `attributed_words` equals `expected_total`. Always `True` when
+    #: `expected_total` is `None` (nothing to disagree with). `attributed_words`
+    #: is an exact count of kept sites, never a heuristic or a credited
+    #: estimate, so a `False` here means the `sites` passed in did not come
+    #: from the comparison `expected_total` did -- a wiring bug, not a
+    #: property of the code being compared.
+    reconciled: bool = True
 
     @property
     def median_width(self) -> int | None:
@@ -212,6 +234,10 @@ class RegionReport:
             "excluded_words": self.excluded_words,
             "median_bracket_width": self.median_width,
             "caveats": list(self.caveats),
+            "warnings": list(self.warnings),
+            "true_instruction_delta": self.true_instruction_delta,
+            "expected_total": self.expected_total,
+            "reconciled": self.reconciled,
         }
 
 
@@ -376,8 +402,29 @@ def build_region_report(
     candidate: list[Instruction],
     sites: list[dict[str, Any]],
     instruction_delta: int = 0,
+    true_instruction_delta: int | None = None,
+    expected_total: int | None = None,
 ) -> RegionReport:
-    """Build the full ranked attribution for one candidate and its source."""
+    """Build the full ranked attribution for one candidate and its source.
+
+    `true_instruction_delta` (WB-61) is the padding-safe
+    `Comparison.true_instruction_delta`, distinct from `instruction_delta`
+    (which can read zero while the real lengths differ -- the trap
+    `elf_instructions`/`true_instruction_count` exist to catch). A nonzero
+    value here means absolute row positions are unreliable, so it is raised
+    to a top-of-report `warnings` entry rather than folded into the bottom
+    `caveats`, which a reader who ranks by region size can miss.
+
+    `expected_total` (WB-64) is the differing-word total this decomposition
+    is supposed to add up to -- normally the same comparison's
+    `word_mismatches`. `attributed_words` reconciles with it *by
+    construction* whenever `sites` came from that comparison's own
+    `diff_sites` (every site is counted in exactly one of `attributed`/
+    `excluded`, never both, never neither), so a divergence here means the
+    `sites` and the total being checked did not come from the same
+    comparison -- flagged rather than silently trusted, so a region count
+    can never contradict its own score without saying so.
+    """
 
     object_side = object_calls(candidate)
     if not object_side:
@@ -403,6 +450,7 @@ def build_region_report(
             "one that produced this object."
         )
     regions, attributed, excluded = attribute_sites(sites, candidate, anchors)
+    reconciled = expected_total is None or attributed == expected_total
     report = RegionReport(
         source=source_path,
         regions=regions,
@@ -412,6 +460,9 @@ def build_region_report(
         dropped=dropped,
         attributed_words=attributed,
         excluded_words=excluded,
+        true_instruction_delta=true_instruction_delta,
+        expected_total=expected_total,
+        reconciled=reconciled,
     )
     return RegionReport(
         source=report.source,
@@ -423,7 +474,37 @@ def build_region_report(
         attributed_words=report.attributed_words,
         excluded_words=report.excluded_words,
         caveats=_caveats(report, instruction_delta=instruction_delta),
+        warnings=_warnings(report),
+        true_instruction_delta=report.true_instruction_delta,
+        expected_total=report.expected_total,
+        reconciled=report.reconciled,
     )
+
+
+def _warnings(report: RegionReport) -> tuple[str, ...]:
+    """State, loudly and first, any reason this whole report is unreliable."""
+
+    warnings: list[str] = []
+    if report.true_instruction_delta:
+        warnings.append(
+            "REGION ANALYSIS UNRELIABLE: target and candidate true instruction "
+            f"counts differ (delta {report.true_instruction_delta:+d}). Every "
+            "site is bracketed by its CANDIDATE address, so regions before the "
+            "first divergence stay valid, but any row after it sits at a "
+            "shifted position and may be bracketed by the wrong pair of calls. "
+            "Resolve the instruction-count delta before trusting this report."
+        )
+    if not report.reconciled:
+        warnings.append(
+            f"RECONCILIATION FAILED: attributed_words ({report.attributed_words}) "
+            f"does not equal expected_total ({report.expected_total}). "
+            "attributed_words is an exact count, not an estimate, so this means "
+            "`sites` and the total being checked were not read from the same "
+            "comparison -- a wiring bug upstream of this report, not a property "
+            "of the code being compared. Do not rank on these regions until "
+            "the mismatch is found."
+        )
+    return tuple(warnings)
 
 
 def _caveats(report: RegionReport, *, instruction_delta: int) -> tuple[str, ...]:
@@ -469,15 +550,25 @@ def _caveats(report: RegionReport, *, instruction_delta: int) -> tuple[str, ...]
 def render_region_report(
     report: RegionReport, *, limit: int | None = None
 ) -> list[str]:
-    """Render the ranked regions, then the coverage that qualifies them."""
+    """Render the ranked regions, then the coverage that qualifies them.
 
-    lines = [
-        f"by-region: {report.attributed_words} differing word(s) across "
-        f"{len(report.regions)} region(s) of {report.source}",
-        f"anchors: {len(report.anchors)} of {report.object_calls} object call(s) "
-        f"matched against {report.source_calls} source call expression(s)",
-        "",
-    ]
+    Any `report.warnings` print first, ahead of the region table itself --
+    the same placement rule `warning_lines` uses for `Comparison.warnings`,
+    and for the same reason: a reader who reaches the numbers before the
+    warning has already trusted them.
+    """
+
+    lines = [f"warning: {warning}" for warning in report.warnings]
+    lines.extend(
+        [
+            f"by-region: {report.attributed_words} differing word(s) across "
+            f"{len(report.regions)} region(s) of {report.source}",
+            f"anchors: {len(report.anchors)} of {report.object_calls} object "
+            f"call(s) matched against {report.source_calls} source call "
+            "expression(s)",
+            "",
+        ]
+    )
     shown = report.regions if limit is None else report.regions[:limit]
     if shown:
         width = max(len(region.label(report.source)) for region in shown)

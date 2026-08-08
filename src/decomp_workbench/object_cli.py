@@ -120,6 +120,8 @@ def _region_report(
         candidate=candidate_instructions,
         sites=comparison.diff_sites,
         instruction_delta=comparison.instruction_delta,
+        true_instruction_delta=comparison.true_instruction_delta,
+        expected_total=comparison.word_mismatches,
     )
 
 

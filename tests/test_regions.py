@@ -25,6 +25,7 @@ from decomp_workbench.regions import (
     build_anchors,
     build_region_report,
     object_calls,
+    render_region_report,
     source_calls,
     strip_noncode,
 )
@@ -131,7 +132,14 @@ class ObjectScanTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
-    def build(self, sites: list[dict[str, object]], *, delta: int = 0) -> RegionReport:
+    def build(
+        self,
+        sites: list[dict[str, object]],
+        *,
+        delta: int = 0,
+        true_delta: int | None = None,
+        expected_total: int | None = None,
+    ) -> RegionReport:
         candidate = [
             call_instruction(0, "ready"),
             plain(4),
@@ -149,6 +157,8 @@ class ReportTests(unittest.TestCase):
             candidate=candidate,
             sites=sites,
             instruction_delta=delta,
+            true_instruction_delta=true_delta,
+            expected_total=expected_total,
         )
 
     def test_words_are_bracketed_between_the_calls_around_them(self) -> None:
@@ -193,6 +203,83 @@ class ReportTests(unittest.TestCase):
     def test_an_instruction_count_delta_warns_about_shadow_rows(self) -> None:
         report = self.build([{"index": 4, "class": "constant"}], delta=2)
         self.assertIn("shadow", " ".join(report.caveats))
+
+    def test_a_true_instruction_delta_is_a_loud_top_level_warning(self) -> None:
+        # WB-61: row indices are absolute, so any true-length mismatch
+        # corrupts the attribution. This is a top-of-report `warnings` entry,
+        # not a bottom `caveats` line -- a reader ranking regions by size
+        # must see it before the numbers, not after.
+        report = self.build([{"index": 4, "class": "register"}], true_delta=3)
+        self.assertEqual(report.true_instruction_delta, 3)
+        self.assertTrue(
+            any("REGION ANALYSIS UNRELIABLE" in warning for warning in report.warnings)
+        )
+
+    def test_a_zero_true_instruction_delta_warns_nothing(self) -> None:
+        report = self.build([{"index": 4, "class": "register"}], true_delta=0)
+        self.assertEqual(report.warnings, ())
+
+    def test_an_unset_true_instruction_delta_warns_nothing(self) -> None:
+        report = self.build([{"index": 4, "class": "register"}])
+        self.assertIsNone(report.true_instruction_delta)
+        self.assertEqual(report.warnings, ())
+
+    def test_attributed_words_reconciles_with_a_matching_expected_total(self) -> None:
+        # WB-64: attributed_words is an exact count, so it reconciles with
+        # the honest total by construction whenever both came from the same
+        # comparison.
+        report = self.build(
+            [
+                {"index": 4, "class": "register"},
+                {"index": 6, "class": "relocation-controlled"},
+            ],
+            expected_total=1,
+        )
+        self.assertEqual(report.attributed_words, 1)
+        self.assertTrue(report.reconciled)
+        self.assertEqual(report.warnings, ())
+
+    def test_a_mismatched_expected_total_is_flagged_not_trusted(self) -> None:
+        report = self.build(
+            [{"index": 4, "class": "register"}],
+            expected_total=99,
+        )
+        self.assertFalse(report.reconciled)
+        self.assertTrue(
+            any("RECONCILIATION FAILED" in warning for warning in report.warnings)
+        )
+
+    def test_no_expected_total_reconciles_trivially(self) -> None:
+        report = self.build([{"index": 4, "class": "register"}])
+        self.assertIsNone(report.expected_total)
+        self.assertTrue(report.reconciled)
+
+    def test_warnings_render_ahead_of_the_region_table(self) -> None:
+        report = self.build([{"index": 4, "class": "register"}], true_delta=3)
+        lines = render_region_report(report)
+        self.assertTrue(lines[0].startswith("warning: REGION ANALYSIS UNRELIABLE"))
+        self.assertTrue(any(line.startswith("by-region:") for line in lines))
+        self.assertLess(
+            lines.index(next(line for line in lines if line.startswith("warning:"))),
+            lines.index(next(line for line in lines if line.startswith("by-region:"))),
+        )
+
+    def test_a_reliable_report_renders_no_warning_line(self) -> None:
+        report = self.build([{"index": 4, "class": "register"}], true_delta=0)
+        lines = render_region_report(report)
+        self.assertFalse(any(line.startswith("warning:") for line in lines))
+
+    def test_json_carries_the_new_fields(self) -> None:
+        report = self.build(
+            [{"index": 4, "class": "register"}], true_delta=3, expected_total=1
+        )
+        payload = report.as_dict()
+        self.assertEqual(payload["true_instruction_delta"], 3)
+        self.assertEqual(payload["expected_total"], 1)
+        self.assertTrue(payload["reconciled"])
+        self.assertTrue(
+            any("REGION ANALYSIS UNRELIABLE" in w for w in payload["warnings"])
+        )
 
     def test_coverage_is_always_reported(self) -> None:
         report = self.build([{"index": 4, "class": "register"}])
@@ -263,6 +350,91 @@ class ByRegionCommandTests(unittest.TestCase):
             self.assertEqual(
                 payload["by_region"]["method"], "call-relocation anchoring"
             )
+
+    #: Target: real body of 4 instructions (call, li, jr ra, delay slot)
+    #: padded to 6 words with a trailing all-zero run. Candidate: 6 real
+    #: instructions, no padding. Both report `insns=6` -- the exact WB-61/
+    #: WB-62 trap -- while the true counts are 4 and 6.
+    PADDED_TARGET_DUMP = """\
+00000000 <demo>:
+   0: 0c000000  jal 0 <alpha>
+                        0: R_MIPS_26 alpha
+   4: 24020001  li $v0,1
+   8: 03e00008  jr $ra
+   c: 00000000  nop
+  10: 00000000  nop
+  14: 00000000  nop
+"""
+
+    UNPADDED_CANDIDATE_DUMP = """\
+00000000 <demo>:
+   0: 0c000000  jal 0 <alpha>
+                        0: R_MIPS_26 alpha
+   4: 24020001  li $v0,1
+   8: 24030002  li $v1,2
+   c: 24040003  li $a0,3
+  10: 24050004  li $a1,4
+  14: 03e00008  jr $ra
+"""
+
+    def test_a_true_instruction_mismatch_is_a_loud_warning_end_to_end(self) -> None:
+        # WB-61, through the real CLI plumbing (object_cli._region_report),
+        # not just the regions.py unit tests above: `compare --by-region`
+        # wires `Comparison.true_instruction_delta` through to
+        # `RegionReport.warnings` for real.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.objdump"
+            candidate = root / "candidate.objdump"
+            source = root / "demo.c"
+            target.write_text(self.PADDED_TARGET_DUMP, encoding="utf-8")
+            candidate.write_text(self.UNPADDED_CANDIDATE_DUMP, encoding="utf-8")
+            source.write_text(SOURCE, encoding="utf-8")
+            status, output, _ = self.run_cli(
+                [
+                    "compare-dumps",
+                    str(target),
+                    str(candidate),
+                    "--by-region",
+                    str(source),
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("REGION ANALYSIS UNRELIABLE", output)
+        # It is not buried: a reader scanning top to bottom meets it before
+        # the region table.
+        self.assertLess(
+            output.index("REGION ANALYSIS UNRELIABLE"), output.index("by-region:")
+        )
+
+    def test_true_instruction_delta_and_reconciliation_in_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.objdump"
+            candidate = root / "candidate.objdump"
+            source = root / "demo.c"
+            target.write_text(self.PADDED_TARGET_DUMP, encoding="utf-8")
+            candidate.write_text(self.UNPADDED_CANDIDATE_DUMP, encoding="utf-8")
+            source.write_text(SOURCE, encoding="utf-8")
+            status, output, _ = self.run_cli(
+                [
+                    "compare-dumps",
+                    str(target),
+                    str(candidate),
+                    "--by-region",
+                    str(source),
+                    "--json",
+                ]
+            )
+        self.assertEqual(status, 0)
+        payload = json.loads(output)
+        self.assertEqual(payload["true_instruction_delta"], 2)
+        region = payload["by_region"]
+        self.assertEqual(region["true_instruction_delta"], 2)
+        # attributed_words came from the same comparison's diff_sites, so it
+        # reconciles with the same comparison's word_mismatches.
+        self.assertEqual(region["expected_total"], payload["word_mismatches"])
+        self.assertTrue(region["reconciled"])
 
 
 if __name__ == "__main__":

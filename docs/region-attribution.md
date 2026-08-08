@@ -72,6 +72,61 @@ line is derived from that run's measurements.
   separately. They are symbol naming, not emitted code, and no source edit
   moves them.
 
+## A true instruction-count mismatch is a loud, top-of-report warning
+
+Every site is bracketed by its **candidate address**, which is an absolute
+position. That position is only meaningful relative to the target's
+positions when the two objects have the same true length: once they diverge,
+every row after the divergence sits at a shifted position and can be
+bracketed by the wrong pair of calls. The shadow-rows caveat above (from
+`instruction_delta`, the *padded* count) already warns about this, but
+`instruction_delta` can read **zero** while the real lengths differ — the
+same `.text`-padding trap `target_true_instructions`/
+`candidate_true_instructions` exist to catch (see
+[object-comparison.md](object-comparison.md#the-true-instruction-count-and-why-the-padded-one-lies)).
+
+`compare --by-region`/`diagnose --by-region` pass the comparison's
+`true_instruction_delta` through, and whenever it is nonzero the report opens
+with:
+
+```text
+warning: REGION ANALYSIS UNRELIABLE: target and candidate true instruction
+counts differ (delta +3). Every site is bracketed by its CANDIDATE address,
+so regions before the first divergence stay valid, but any row after it sits
+at a shifted position and may be bracketed by the wrong pair of calls.
+Resolve the instruction-count delta before trusting this report.
+by-region: 4216 differing word(s) across 508 region(s) of ...
+```
+
+ahead of the region table itself, the same placement rule `compare`'s own
+`warning:` lines use — a reader who reaches the numbers before the warning
+has already trusted them. `--json` carries `true_instruction_delta` on the
+`by_region` object beside the existing keys.
+
+## A region count cannot silently contradict its own score
+
+`attributed_words` is an **exact** count of kept sites, not an estimate or a
+credited heuristic: `attribute_sites` puts every site from `sites` into
+either `attributed` or `excluded`, never both, never neither. So whenever
+`sites` came from the same comparison as the total being checked,
+`attributed_words` reconciles with that total *by construction* —
+`compare`/`diagnose` check it against the comparison's own `word_mismatches`
+and expose the check rather than assuming it:
+
+```json
+"by_region": {
+  "attributed_words": 63,
+  "expected_total": 63,
+  "reconciled": true
+}
+```
+
+A `reconciled: false` means the `sites` list and the total it is being
+checked against did not come from the same comparison — a wiring bug
+upstream of the report, not a property of the code being compared — and
+raises a `RECONCILIATION FAILED` entry in `warnings`, printed with the same
+top-of-report prominence as the instruction-count warning above.
+
 ## Options
 
 | Option | Effect |
