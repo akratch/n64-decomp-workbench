@@ -73,6 +73,27 @@ class AllocatorAnalysisTests(unittest.TestCase):
         self.assertIn("Economics reports", report["formation_order_guidance"])
         self.assertIn("observed p1dec/p2dec order", report["formation_order_guidance"])
 
+    def test_web_report_exposes_the_mincost_tie_set_not_forbidden(self) -> None:
+        # WB-65: `web_report`'s per-web JSON carries the correctly-named
+        # `mincost_tie_colors`/`mincost_tie_registers` beside
+        # `forbidden_colors`/`forbidden_registers`, sourced from the raw
+        # `available0`/`1` fields but never called "available".
+        trace = parse_globalcolor_trace(
+            "[CDX] p1dec phase=p1 proc=2 web=15 bestcolor=26 bestreg=t3 "
+            "forbidden0=0xd3 available0=0x1c decision=color\n"
+        )
+        report = web_report(trace, proc=2)
+        item = report["webs"][0]
+        self.assertEqual(item["mincost_tie_colors"], [27, 28, 29])
+        self.assertEqual(
+            item["mincost_tie_registers"],
+            [
+                {"color": 27, "register": None},
+                {"color": 28, "register": None},
+                {"color": 29, "register": None},
+            ],
+        )
+
     def test_web_report_requests_lineage_when_formation_is_absent(self) -> None:
         report = web_report(parse_globalcolor_trace(TARGET), proc=2)
 

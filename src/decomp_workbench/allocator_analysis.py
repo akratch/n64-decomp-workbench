@@ -161,6 +161,16 @@ class SemanticWeb:
                 }
                 for color in self.decision.forbidden_colors
             ],
+            # NOT "colours still free" -- the minimum-cost tie set at this
+            # decision. See AllocatorWebDecision.mincost_tie_colors (WB-65).
+            "mincost_tie_colors": self.decision.mincost_tie_colors,
+            "mincost_tie_registers": [
+                {
+                    "color": color,
+                    "register": register_for_color(color),
+                }
+                for color in self.decision.mincost_tie_colors
+            ],
         }
 
 

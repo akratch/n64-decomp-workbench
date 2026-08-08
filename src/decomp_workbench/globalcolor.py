@@ -45,8 +45,8 @@ def color_for_register(register: str) -> int | None:
 MAX_MASK_COLOR = 63
 
 
-def color_is_forbidden(forbidden0: int, forbidden1: int, color: int) -> bool:
-    """Return whether a web's interference mask rules one color out.
+def _color_bit_set(word0: int, word1: int, color: int) -> bool:
+    """Return whether a two-word 64-color bitmask has ``color`` set.
 
     The decode ring is ``1 << (31 - color)`` in the first word, confirmed
     against a recorded trace where ``forbidden0=0x7f800000`` meant exactly
@@ -54,25 +54,57 @@ def color_is_forbidden(forbidden0: int, forbidden1: int, color: int) -> bool:
     color the profile can name reaches it, so that half is a documented
     extrapolation rather than an observation.
 
-    This is the same rule the instrumented pass applies before honoring a
-    ``CDX_FORCE``, so a probe can be checked against a trace without running it.
+    Shared bit math only: what a set bit *means* -- forbidden, or tied for
+    minimum cost -- is the caller's field, not this function's. `forbidden0`/
+    `available0` are two different fields the pass fills from the same
+    64-color mask convention; giving them one decoder and two named
+    callers keeps that convention from leaking a borrowed name into either
+    reading (see `AllocatorWebDecision.mincost_tie_colors`, WB-65).
     """
 
     if color < 0 or color > MAX_MASK_COLOR:
         return False
     if color < 32:
-        return bool((forbidden0 >> (31 - color)) & 1)
-    return bool((forbidden1 >> (63 - color)) & 1)
+        return bool((word0 >> (31 - color)) & 1)
+    return bool((word1 >> (63 - color)) & 1)
+
+
+def _colors_in_mask(word0: int, word1: int) -> list[int]:
+    """Return every color a two-word 64-color bitmask has set, ascending."""
+
+    return [
+        color
+        for color in range(MAX_MASK_COLOR + 1)
+        if _color_bit_set(word0, word1, color)
+    ]
+
+
+def color_is_forbidden(forbidden0: int, forbidden1: int, color: int) -> bool:
+    """Return whether a web's interference mask rules one color out.
+
+    This is the same rule the instrumented pass applies before honoring a
+    ``CDX_FORCE``, so a probe can be checked against a trace without running it.
+    """
+
+    return _color_bit_set(forbidden0, forbidden1, color)
 
 
 def decode_forbidden_colors(forbidden0: int, forbidden1: int) -> list[int]:
     """Return every color the two mask words rule out, in ascending order."""
 
-    return [
-        color
-        for color in range(MAX_MASK_COLOR + 1)
-        if color_is_forbidden(forbidden0, forbidden1, color)
-    ]
+    return _colors_in_mask(forbidden0, forbidden1)
+
+
+def decode_mincost_tie_colors(available0: int, available1: int) -> list[int]:
+    """Return every color tied for minimum cost, in ascending order.
+
+    Same bit convention as `decode_forbidden_colors`, a different field:
+    see `AllocatorWebDecision.mincost_tie_colors` for what these bits mean
+    and the one case where reading them as "still free" is coincidentally
+    correct.
+    """
+
+    return _colors_in_mask(available0, available1)
 
 
 FLOAT_PATTERN = (
@@ -280,6 +312,42 @@ class AllocatorWebDecision:
             return []
         second = optional_integer(self.fields.get("forbidden1")) or 0
         return decode_forbidden_colors(first, second)
+
+    @property
+    def mincost_tie_colors(self) -> list[int]:
+        """Return the colors tied for the LOWEST cost at this decision.
+
+        This is the field the raw trace prints as ``available0``/
+        ``available1`` — a name that reads as "colours still free" and is
+        not: it is **not** the allocator's remaining candidate pool. `uopt`
+        keeps this pair of words at ``sp+212``/``sp+216`` across the whole
+        cost sweep for the web, **resetting** them to just the current color
+        whenever a strictly lower cost is found and **OR-ing** the current
+        color in whenever the cost exactly ties the running minimum. What
+        survives to the decision site is therefore the set of colors that
+        share the *cheapest* measured cost, whatever that cost turned out to
+        be — not every color the allocator could legally have assigned.
+
+        Several campaign stages read this as the free/available set and
+        picked a member as though any other listed color were an equally
+        legal substitute. That reading is only right in the one case where
+        it is coincidentally right: when the winning ``bestcost`` is the
+        caller-save 0.0 tier, every caller-save register ties at exactly
+        zero, so "tied for cheapest" and "still free" happen to name the same
+        set. At any other cost tier they diverge, and only this property's
+        name describes what the bits actually mean. See
+        docs/compiler-instrumentation.md, "Reading `p1dec`/`p2dec`
+        economics".
+
+        The raw ``available0``/``available1`` strings remain in ``fields``
+        unchanged, for anything already reading them by that name.
+        """
+
+        first = optional_integer(self.fields.get("available0"))
+        if first is None:
+            return []
+        second = optional_integer(self.fields.get("available1")) or 0
+        return decode_mincost_tie_colors(first, second)
 
     @property
     def registers_left(self) -> int | None:
@@ -492,6 +560,7 @@ class AllocatorWebDecision:
             "natural_color": self.natural_color,
             "natural_register": register_for_color(self.natural_color),
             "forbidden_colors": self.forbidden_colors,
+            "mincost_tie_colors": self.mincost_tie_colors,
             "explanation": self.explanation,
         }
 

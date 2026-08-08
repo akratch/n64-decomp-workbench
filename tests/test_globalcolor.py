@@ -190,6 +190,38 @@ class GlobalColorTests(unittest.TestCase):
         )
         self.assertEqual(report.allocator_webs(proc=46)[0].forbidden_colors, [])
 
+    def test_mincost_tie_colors_decodes_available_not_forbidden(self) -> None:
+        """WB-65: `available0`/`1` is the minimum-cost TIE SET, not "free colors".
+
+        `available0=0x1c` was recorded on a real campaign web
+        (`ge007-object-interaction` l4c/RESULT.md) and independently
+        cross-checked there as `{c27, c28, c29}` -- both colours 27 and 29
+        are 1 bit apart from 28 in the same 32-bit word (`1 << (31-color)`),
+        confirming this is the same forbidden0-style mask convention applied
+        to a different field. The instrumented pass keeps this pair at
+        `sp+212`/`sp+216`, resetting on a strictly lower cost and OR-ing on an
+        exact tie -- it is the set tied for cheapest, not the allocator's
+        free/candidate set, which is why the property is not named
+        `available_colors`.
+        """
+
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec phase=p1 proc=0 web=3097 sym=3097 class=1 save=2.0 "
+            "nocs=2 totalsave=4.0 bestcost=0.0 bestcolor=26 bestreg=t3 "
+            "forbidden0=0xd3 forbidden1=0x00000000 regsleft=7 numintf=10 "
+            "available0=0x1c available1=0x00000000 decision=color\n"
+        )
+        item = report.allocator_webs(proc=0, web=3097)[0]
+        self.assertEqual(item.mincost_tie_colors, [27, 28, 29])
+        self.assertEqual(item.fields["available0"], "0x1c")
+        self.assertEqual(item.as_dict()["mincost_tie_colors"], [27, 28, 29])
+
+    def test_a_decision_without_an_available_mask_claims_no_tie_set(self) -> None:
+        report = parse_globalcolor_trace(
+            "[CDX] p1dec proc=46 web=240 bestcolor=17 decision=color\n"
+        )
+        self.assertEqual(report.allocator_webs(proc=46)[0].mincost_tie_colors, [])
+
     def test_desired_register_barrier_names_interfering_owner(self) -> None:
         report = parse_globalcolor_trace(
             "[CDX] p2dec phase=p2 proc=0 web=100 bestcolor=18 "

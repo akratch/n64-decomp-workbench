@@ -308,8 +308,9 @@ for that verdict is recorded in
 
 #### Reading `p1dec`/`p2dec` economics
 
-Two fields in the decision records are easy to read as something they are not,
-and a recorded campaign ranked webs by the wrong quantity before checking:
+Three fields in the decision records are easy to read as something they are
+not, and a recorded campaign ranked or picked webs by the wrong quantity
+before checking each one:
 
 - **`class=`** is the IR register class (integer versus floating point), from
   `regclassof`. It is **not** the save class — the class-1/class-2 verdict that
@@ -319,6 +320,27 @@ and a recorded campaign ranked webs by the wrong quantity before checking:
   for `n` occurrences, not the occurrence count `n`. Ranking by `save * nocs`
   is therefore not ranking by "saving times uses"; `save` is already the
   per-web figure the pass compares.
+- **`available0=`/`available1=`** is **not** "colours still free" — it is the
+  **minimum-cost tie set**. `uopt` keeps this pair of words at `sp+212`/
+  `sp+216` across the whole cost sweep for the web: it **resets** to just the
+  current color on a strictly *lower* cost and **ORs** the current color in on
+  an exact *tie*. What survives to the decision site is every color that
+  shares the cheapest measured cost, not every color the allocator could
+  legally still assign. Several stages read it as the free/available set and
+  treated any listed color as an equally legal substitute for another.
+  That reading is coincidentally right in exactly one case: when the winning
+  `bestcost` is the caller-save 0.0 tier, every caller-save register ties at
+  zero, so "tied for cheapest" and "still free" name the same set there. At
+  any other cost tier they diverge. The workbench reads this field as
+  `AllocatorWebDecision.mincost_tie_colors` (`mincost_tie_colors`/
+  `mincost_tie_registers` in `web_report`'s JSON) — same 64-color bitmask
+  convention as `forbidden0=`/`forbidden1=` (`1 << (31 - color)`), decoded by
+  the same code, under a name that says what the bits mean instead of what a
+  reader might assume. The raw `available0=`/`available1=` strings are
+  unchanged in the record and in `AllocatorWebDecision.fields`, for anything
+  already reading them by that name. Confirmed against a recorded trace:
+  `available0=0x1c` decodes to `{c27, c28, c29}`, independently identified
+  from the same trace by hand.
 
 `save`, `totalsave`, and `bestcost` are the pass's own floats at the decision
 and are reported as measured.
