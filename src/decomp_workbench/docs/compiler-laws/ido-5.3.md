@@ -253,6 +253,83 @@ claim about founding order: a *live* occurrence did flip founding and banked 13
 rows. Web founding itself is live-ucode first-occurrence order, computed
 **after** dead-code deletion — which is the reason this law holds.
 
+### L20. A copy-lever's temp NAME is inert; only site and count matter
+
+Once a grafting site and a member count are fixed (see
+[L9](#l9-all-du-chains-of-one-variable-merge-into-one-web-the-graft-lever)),
+which *name* fills each slot does not change the object at all — not the
+score, not the register file, not the frame.
+
+**Receipt — T2, exhaustive.** 40 distinct ordered triples of dead `f32` locals
+at one three-statement copy site, drawn from a 14-name pool, all compiled to
+`ni = 4641`, all four positional coordinates identical, and the identical
+positional word count. The rows the copy occupies were charged by the site,
+not by any property of the 40 spellings tried there.
+
+**Falsifies.** The implicit assumption behind every "try another temp name"
+sweep at an already-identified site: that spelling is a free variable worth
+searching. It is not, once the site and count are fixed — a tool or a reader
+should stop respelling and start asking why the *site* charges what it does.
+
+**Scope.** Copy-lever grafts specifically. A name still matters for the
+*register* a graft inherits when donor identity changes (L9's directed-lever
+mechanism) — this law is about respelling **within** one already-chosen
+donor/site combination, not about choosing a different donor.
+
+### L21. A mint requires an unwebbed memory load feeding an operation directly
+
+Every construct observed to mint an interfering coloured web shares one shape:
+an **unwebbed** memory load (a struct field, not an existing local) that feeds
+an operation — a comparison, an arithmetic op — **directly**, with no
+intervening assignment to a webbed local. A load that lands in an existing web
+first, or a load whose result is only ever stored, does not mint.
+
+**Receipt — T2, unifying.** Established by elimination: three independently
+discovered minters (a struct-field copy pair, a struct-field comparison hoist,
+and an address pun) all fit the shape, and a large window of otherwise-plausible
+candidate sites (nine source lines, dozens of respellings) were all inert
+*because* each already routes its load through an existing web before use. The
+inert results are explained by the same rule that explains the three positive
+ones.
+
+**Scope.** Necessary in every case observed; not proven sufficient in
+general — see [L22](#l22-a-mint-also-requires-an-address-exposed-frame-slot),
+which found a load meeting this shape that still did not mint until a second
+condition was met.
+
+### L22. A mint also requires an address-exposed frame slot
+
+An unwebbed load feeding an operation directly (L21) mints an interfering web
+**only when uopt cannot register-promote it** — and register promotion is
+refused specifically when the value's stack slot is **address-exposed**
+elsewhere in the function (something in the source takes its address, even
+indirectly through a pun). The carrier that round-trips through that slot —
+whichever declaration happens to occupy it — is what mints, not the
+expression or the variable name used to reach it.
+
+**Receipt — T2, positional, exhaustive.** A 186-position sweep transposing
+which `f32` declaration occupies each frame slot found that only two adjacent
+positions mint, and *whichever* declaration sits at the minting position
+reproduces the same object **byte-for-byte**; moved off that position, the
+same declaration is byte-identical to the base with no mint at all. The mint
+follows the slot, independent of which source name or expression fills it.
+
+**Falsifies.** The previous stage's narrower reading — "extending a live range
+across a boundary mints an interfering web" — which was true of its one
+example but named the wrong necessary condition: the mechanism is address
+exposure of the slot the value round-trips through, not liveness extension by
+itself. It also falsifies a claim from the stage before that: that a repeated
+carrier at the same site is CSE'd into a single instance and so cannot mint
+independently. Two independently-declared carriers at the delta-saturated
+class (see [L25](#l25-a-delta-saturated-site-scores-identically-under-further-generators))
+compose exactly by the group law and produce **different objects with the
+same delta and the same instruction count** — proof that the delta is a
+property of the *site*, not of which carrier occupies it.
+
+**Scope.** One procedure, one address-exposing pun (`&sp498 - 8`-style). Not
+tested against a function with no address-exposed locals at all, where this
+mechanism may not be reachable.
+
 ---
 
 ## ugen (the code generator)
@@ -323,6 +400,27 @@ them under pressure". Corrected; regression tests now lock the four-wide ring.
 
 **Scope.** The *effective* ring for this driver's defaults. The withdrawal is
 uopt's and is per-procedure.
+
+### L23. Two independent copies take the ring colour their SOURCE ORDER sets
+
+When two field-copy statements are independent of each other (neither reads
+what the other writes) and both land on ring-temp candidates, **transposing
+their source order** transposes which one gets which ring colour — with no
+other effect: the instruction count, the frame, and every other positional
+coordinate stay identical. This is the first lever found in the campaign that
+repairs a ring-colour mismatch without minting a new record at all.
+
+**Receipt — T2, swept.** 44 adjacent simple-assignment pairs in the procedure
+were tried as the transposition; exactly one location produced the swap
+(closing four rows of a residual byte-for-byte); nine more were score-neutral
+but changed the object (a different, untested swap), and the remainder did
+nothing. `ni` and frame were unchanged in every one of the 44.
+
+**Scope.** Two source-adjacent, mutually-independent copy statements whose
+values are both ring-temp (not uopt-web) candidates. Does not apply once
+either side is coloured by uopt (see
+[L8](#l8-an-uncoloured-web-is-a-memory-home-not-a-ring-temp)) — this is a
+purely ugen-side reordering.
 
 ### L14. A new declaration costs the frame
 
@@ -399,6 +497,49 @@ downstream of it, and the phase only settles when its partner closes too.
 which raises the score is a lever to discard. Under this law a rising score is
 evidence about the *set*, not about the lever.
 
+### L24. Instruction count under composition is not additive
+
+Composing two constructs whose individually-measured `ni` deltas are `+a` and
+`-a` does not reliably produce `ni + 0`. Screening candidate compositions by
+their summed instruction-count delta, instead of building each one, is invalid.
+
+**Receipt — T2, exhaustive within one window.** Sixteen zero-sum ±`ni`
+compositions were built (pairs and triples measured individually at `+1`/`-1`,
+`+3`/`-3`, `+11`/`-8`/`-3`, and others) across one nine-site window. None
+landed on the target instruction count; the results scattered across five
+other values instead, including one three-way composition that summed to zero
+individually-measured delta and still missed by eight.
+
+**Scope.** One window, one procedure. Stated as a warning against a specific
+screening shortcut, not a claim about why composition fails — the individual
+mechanisms (frame shifts, whole-procedure renumbering, CSE across sites) are
+each independently documented elsewhere on this page; this law is that their
+*sum* is not the composition's effect.
+
+### L25. A delta-saturated site scores identically under further generators
+
+Once a source line's available *permutation deltas* have all been produced by
+some generator at that site, additional generators at the same site — even
+structurally different ones — reproduce a delta already seen, and several
+reproduce the identical object byte-for-byte.
+
+**Receipt — T2, hash-exact.** Of 38 companion solutions found for one target
+delta, 30 land on two adjacent source lines and **all 30 score identically**;
+six of the 30 are byte-identical objects, not merely equal-scoring ones. An
+earlier stage's table of per-generator scores at those same two lines was
+measured against a single plain generator and does not transfer to the
+saturated set — every later generator there was always going to match it.
+
+**Falsifies.** The implicit assumption that a table of per-site scores,
+measured once, stays valid as new generators are tried at that site. Once a
+site is known saturated, further search there answers "which spelling",
+never "what score" — the score question is already closed.
+
+**Scope.** Sites where multiple generators have already been found; a lever
+found once. Whether a NEW site is saturated is not knowable in advance —
+this law explains why several already-saturated sites stopped producing
+information, not which untried site will turn out to be one.
+
 ---
 
 ## Claims a reader will find in older notes and should not believe
@@ -419,6 +560,8 @@ evidence about the *set*, not about the lever.
 | No single fp-ring perturbation improves on the base | was a **sampled** claim presented as an enumeration | one eighth of the space had been swept; the conclusion held on re-run, but the original statement was not entitled to be a proof |
 | A named heavy float literal is the headline lever | refuted with an instruction count | the proposed spelling deletes three instructions the target contains |
 | Row *N* is the gate for all float rows | retired | it is worth one commutative row |
+| Extending a live range across a boundary is sufficient to explain a mint | refined by [L22](#l22-a-mint-also-requires-an-address-exposed-frame-slot) | a 186-position sweep showed the mint follows the frame slot, not the live range |
+| A repeated dead-store carrier at one site is CSE'd, so a second one cannot mint independently | falsified by [L22](#l22-a-mint-also-requires-an-address-exposed-frame-slot) | two independent carriers composed to different objects with the same delta and the same instruction count |
 
 ---
 
