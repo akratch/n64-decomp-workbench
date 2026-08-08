@@ -51,6 +51,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 decomp_workbench = [
+    "docs/compiler-laws/*.md",
     "docs/field-guide.md",
     "fingerprints/*.c",
     "py.typed",

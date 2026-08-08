@@ -15,6 +15,8 @@ from typing import Any
 
 from .field_guide import (
     GuideSection,
+    law_index_lines,
+    read_laws,
     render_topic,
     resolve_topic,
     sections,
@@ -22,10 +24,23 @@ from .field_guide import (
 )
 from .terminal import add_terminal_arguments, emit_lines
 
+#: The topic word that selects compiler mechanism rather than levers.
+LAWS_TOPIC = "laws"
+
 
 def guide_command(args: argparse.Namespace) -> int:
     """Print the field-guide sections for a playbook, verdict, or lever."""
 
+    if args.topic == LAWS_TOPIC:
+        return _laws_command(args)
+    if args.era:
+        print(
+            f"error: a second argument is only used by `guide {LAWS_TOPIC} "
+            "ERA`; pass one topic, or run `decomp-workbench guide` for the "
+            "topic index",
+            file=sys.stderr,
+        )
+        return 2
     if not args.topic:
         emit_lines(topic_index_lines(), width=args.width, pager=args.pager)
         return 0
@@ -50,22 +65,48 @@ def guide_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _laws_command(args: argparse.Namespace) -> int:
+    """Print one era's compiler-laws document, or the list of eras."""
+
+    if not args.era:
+        emit_lines(law_index_lines(), width=args.width, pager=args.pager)
+        return 0
+    try:
+        text = read_laws(args.era)
+    except (FileNotFoundError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    emit_lines(text.splitlines(), width=args.width, pager=args.pager)
+    return 0
+
+
 def register_guide_command(commands: argparse._SubParsersAction[Any]) -> None:
     """Register `guide` on an existing subparser set."""
 
     parser = commands.add_parser(
         "guide",
-        help="print the field-guide levers for a playbook, verdict, or lever",
+        help="print the field-guide levers, or one era's compiler laws",
         description=(
             "Expand the lever family named by a `next:` footer into the field "
-            "guide's own text. Run without a topic for the index."
+            "guide's own text. Run without a topic for the index.\n"
+            "\n"
+            "`guide laws ERA` prints something different in kind: not what to "
+            "change, but what the compiler does about it -- each law with the "
+            "evidence tier that established it and the earlier claim it "
+            "corrected. Run `guide laws` for the eras that ship."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "topic",
         nargs="?",
         help="playbook (forced-color-oracle), verdict (register-permutation), "
-        "or lever number (19)",
+        "lever number (19), or the word `laws`",
+    )
+    parser.add_argument(
+        "era",
+        nargs="?",
+        help="with `laws`, the compiler era to print (for example ido53)",
     )
     add_terminal_arguments(parser)
     parser.set_defaults(handler=guide_command)

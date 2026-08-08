@@ -35,13 +35,17 @@ __all__ = [
     "AMBIGUOUS_PLAYBOOK_FAMILIES",
     "COARSE_ALLOCATION_LEAD_IN",
     "GUIDE_DOCUMENT",
+    "LAW_DOCUMENTS",
     "LEVER_ACTIONS",
     "PLAYBOOK_LEVERS",
     "VERDICT_PLAYBOOKS",
     "GuideSection",
     "Topic",
+    "law_eras",
+    "law_index_lines",
     "next_steps",
     "read_field_guide",
+    "read_laws",
     "render_topic",
     "resolve_topic",
     "sections",
@@ -55,6 +59,20 @@ GUIDE_DOCUMENT = "docs/field-guide.md"
 #: Where it lives for a reader who only has the installed package. The mirror
 #: is byte-identical to `GUIDE_DOCUMENT` and a test enforces that.
 PACKAGED_GUIDE = ("docs", "field-guide.md")
+
+#: Compiler-mechanism documents, keyed by the era token `guide laws` takes.
+#:
+#: These are a different kind of knowledge from the levers. A lever says what
+#: to change; a law says what the compiler will do about it, with the evidence
+#: that established it and the earlier claim it corrected. They were filed as
+#: "workbench improvements" for a whole campaign because there was nowhere
+#: else to put them, which is how twenty-six of them came to be lost.
+#:
+#: Era-scoped by construction: nothing measured on one IDO release may be
+#: printed under another's name, so the era token is part of the address.
+LAW_DOCUMENTS: dict[str, tuple[str, str]] = {
+    "ido53": ("docs/compiler-laws/ido-5.3.md", "IDO 5.3"),
+}
 
 #: One line of action per numbered lever.
 #:
@@ -521,6 +539,64 @@ class Topic:
     playbook: str | None
 
 
+def law_eras() -> tuple[str, ...]:
+    """Return the era tokens `guide laws` accepts."""
+
+    return tuple(sorted(LAW_DOCUMENTS))
+
+
+def read_laws(era: str) -> str:
+    """Return one era's compiler-laws document.
+
+    Read from the packaged mirror, like the field guide, so an installed
+    wheel can print it with no checkout. An unknown era is an error naming
+    the ones that exist rather than a silent empty page: a laws document that
+    prints nothing reads as "this compiler has no known laws".
+    """
+
+    token = era.strip().casefold()
+    entry = LAW_DOCUMENTS.get(token)
+    if entry is None:
+        known = ", ".join(law_eras())
+        raise ValueError(
+            f"unknown compiler era {era!r}; this package carries laws for: {known}"
+        )
+    document, _label = entry
+    resource = resources.files(__package__ or "decomp_workbench")
+    for part in document.split("/"):
+        resource = resource.joinpath(part)
+    try:
+        return resource.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError) as error:
+        raise FileNotFoundError(
+            f"the {token} compiler-laws document is not installed with this "
+            f"package ({document}); read it at {document} in a checkout, or "
+            "at https://github.com/akratch/n64-decomp-workbench/blob/main/"
+            f"{document}"
+        ) from error
+
+
+def law_index_lines() -> list[str]:
+    """Return the listing printed by `guide laws` with no era."""
+
+    lines = [
+        "Compiler laws: what the compiler does, as opposed to what to do about it.",
+        "",
+        "eras",
+    ]
+    width = max(len(token) for token in LAW_DOCUMENTS)
+    for token, (document, label) in sorted(LAW_DOCUMENTS.items()):
+        lines.append(f"  {token.ljust(width)}  {label}  ({document})")
+    lines.extend(
+        (
+            "",
+            "Example: decomp-workbench guide laws ido53",
+            "Levers, as opposed to mechanism: decomp-workbench guide",
+        )
+    )
+    return lines
+
+
 def read_field_guide() -> str:
     """Return the packaged field-guide Markdown.
 
@@ -668,6 +744,11 @@ def topic_index_lines() -> list[str]:
             "",
             "Example: decomp-workbench guide forced-color-oracle",
             "Worked end to end: docs/from-verdict-to-edit.md",
+            # Different in kind from everything above: levers say what to
+            # change, laws say what the compiler does about it. A reader who
+            # never learns the second exists will keep re-deriving it.
+            "Compiler mechanism, not levers: decomp-workbench guide laws "
+            f"({', '.join(law_eras())})",
         )
     )
     return lines

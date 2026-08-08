@@ -61,6 +61,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | The project compiler provably cannot emit what the target does | [Alternate authentic frontends](alternate-frontends.md) |
 | You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
 | You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
+| You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
 | You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |
