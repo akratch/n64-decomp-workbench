@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .compare import compare_instructions
+from .compare import compare_instructions, resolve_true_instructions
 from .model import Comparison, Instruction, display_path
 from .objdump import (
     cross_function_warning,
@@ -61,8 +61,16 @@ def diagnose_instructions(
     symbol: str | None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
     warnings: Sequence[str] = (),
+    target_true_instructions: int | None = None,
+    candidate_true_instructions: int | None = None,
+    instruction_count_verified: bool = False,
 ) -> Diagnosis:
-    """Build both reports from two already-parsed instruction streams."""
+    """Build both reports from two already-parsed instruction streams.
+
+    The `target_true_instructions`/`candidate_true_instructions`/
+    `instruction_count_verified` triple passes straight through to
+    `compare_instructions`; see its docstring.
+    """
 
     target_items = list(target)
     candidate_items = list(candidate)
@@ -73,6 +81,9 @@ def diagnose_instructions(
         candidate_name=candidate_name,
         symbol=symbol,
         warnings=warnings,
+        target_true_instructions=target_true_instructions,
+        candidate_true_instructions=candidate_true_instructions,
+        instruction_count_verified=instruction_count_verified,
     )
     view = build_view(
         target_items,
@@ -115,6 +126,12 @@ def diagnose_objects(
         symbol=symbol,
         section=section,
     )
+    target_true_instructions = resolve_true_instructions(
+        target, symbol=symbol, section=section
+    )
+    candidate_true_instructions = resolve_true_instructions(
+        candidate, symbol=symbol, section=section
+    )
     return diagnose_instructions(
         target_items,
         candidate_items,
@@ -123,6 +140,12 @@ def diagnose_objects(
         symbol=symbol,
         register_profile=register_profile,
         warnings=(warning,) if warning else (),
+        target_true_instructions=target_true_instructions,
+        candidate_true_instructions=candidate_true_instructions,
+        instruction_count_verified=(
+            target_true_instructions is not None
+            and candidate_true_instructions is not None
+        ),
     )
 
 

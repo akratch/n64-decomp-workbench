@@ -144,6 +144,35 @@ def raw_versus_words_lines(item: Comparison) -> list[str]:
     ]
 
 
+def true_instruction_lines(item: Comparison) -> list[str]:
+    """Show the true (unpadded) instruction count wherever it hides padding.
+
+    `.text` is padded to a 16-byte, 4-instruction boundary, so
+    `target_instructions`/`candidate_instructions` can include trailing pad
+    words a source change never produced -- a probe three instructions too
+    long once reported the same padded count as an exact-length one. Silent
+    otherwise: printing this every time would bury the one comparison where it
+    matters, which is exactly the reading that let the padding through.
+    """
+
+    lines: list[str] = []
+    if item.target_true_instructions != item.target_instructions:
+        lines.append(
+            f"target padding: {item.target_instructions} reported, "
+            f"{item.target_true_instructions} true "
+            f"({item.target_instructions - item.target_true_instructions} "
+            "pad word(s))"
+        )
+    if item.candidate_true_instructions != item.candidate_instructions:
+        lines.append(
+            f"candidate padding: {item.candidate_instructions} reported, "
+            f"{item.candidate_true_instructions} true "
+            f"({item.candidate_instructions - item.candidate_true_instructions} "
+            "pad word(s))"
+        )
+    return lines
+
+
 def comparison_explanation_lines(
     item: Comparison,
     *,
@@ -158,6 +187,7 @@ def comparison_explanation_lines(
     """
 
     lines: list[str] = []
+    lines.extend(true_instruction_lines(item))
     if (
         item.target_frame_size is not None
         and item.candidate_frame_size is not None

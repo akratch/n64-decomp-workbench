@@ -15,6 +15,7 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+from .elf_instructions import MINIMUM_ELIDED_RUN
 from .model import Instruction, Relocation
 
 #: How many symbol names an error lists before eliding the rest. Enough to
@@ -232,7 +233,12 @@ def trim_function_padding(instructions: list[Instruction]) -> list[Instruction]:
     objdump's ``--disassemble=SYMBOL`` output can run from the symbol through
     the end of the section and include alignment zeroes after the function.
     A MIPS return owns exactly one delay-slot instruction, so later zero words
-    are section padding rather than part of that function.
+    are section padding rather than part of that function -- provided there
+    are at least :data:`~decomp_workbench.elf_instructions.MINIMUM_ELIDED_RUN`
+    of them. A single trailing zero word is a real ``nop`` GNU objdump's own
+    default disassembly still prints, not padding it elides; trimming it took
+    one real instruction off a campaign object whose ``.text`` needed no
+    alignment filler at all. See ``elf_instructions`` for the measurement.
     """
 
     last_return = None
@@ -243,9 +249,26 @@ def trim_function_padding(instructions: list[Instruction]) -> list[Instruction]:
     if last_return is None or last_return + 2 >= len(instructions):
         return instructions
     trailing = instructions[last_return + 2 :]
-    if all(instruction.word == "00000000" for instruction in trailing):
+    if len(trailing) >= MINIMUM_ELIDED_RUN and all(
+        instruction.word == "00000000" for instruction in trailing
+    ):
         return instructions[: last_return + 2]
     return instructions
+
+
+def true_instruction_count(instructions: Sequence[Instruction]) -> int:
+    """Return the real instruction count, blind to trailing `.text` padding.
+
+    The disassembly-text equivalent of
+    :func:`decomp_workbench.elf_instructions.true_instruction_count`, for
+    callers that hold parsed instructions but no path to an object file to
+    read directly (retained ``--dumps`` text has no such path). Both apply the
+    identical trimming rule, so a caller that has *both* an object and its
+    already-parsed instructions should get the same number from either -- this
+    one is the fallback when only the text is available.
+    """
+
+    return len(trim_function_padding(list(instructions)))
 
 
 def _run_objdump(

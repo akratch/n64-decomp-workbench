@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .elf_instructions import true_instruction_count as elf_true_instruction_count
 from .field_guide import (
     AMBIGUOUS_PLAYBOOK_FAMILIES,
     COARSE_ALLOCATION_LEAD_IN,
@@ -18,7 +19,12 @@ from .field_guide import (
 )
 from .literal_pool import PoolReport
 from .model import Comparison, Instruction, display_path
-from .objdump import cross_function_warning, dump_object, symbol_labels
+from .objdump import (
+    cross_function_warning,
+    dump_object,
+    symbol_labels,
+    true_instruction_count,
+)
 
 REGISTER_RE = re.compile(
     r"(?<![A-Za-z0-9_$])\$?(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b"
@@ -973,6 +979,9 @@ def compare_instructions(
     candidate_name: str,
     symbol: str | None,
     warnings: Sequence[str] = (),
+    target_true_instructions: int | None = None,
+    candidate_true_instructions: int | None = None,
+    instruction_count_verified: bool = False,
 ) -> Comparison:
     """Compare parsed instruction streams.
 
@@ -980,6 +989,16 @@ def compare_instructions(
     the loader knows which symbols each dump defines, and this function only
     ever sees two instruction lists -- so that one report object holds both the
     verdict and the reasons not to trust it.
+
+    `target_true_instructions`/`candidate_true_instructions` are the real,
+    unpadded instruction counts when a caller with access to the object files
+    already measured them from the ELF `.text` section (see
+    `elf_instructions.true_instruction_count`); `instruction_count_verified`
+    says so. Omitted (the default for any `-dumps` entry point, which has no
+    object file to read), both are derived here from the same trimming rule
+    applied to the parsed instructions themselves -- less independent, since
+    it is the same data `target_instructions`/`candidate_instructions` came
+    from, but identical in method and exactly as good as the disassembly.
     """
 
     raw_target_words = [item.word for item in target]
@@ -1089,6 +1108,28 @@ def compare_instructions(
                 "Search ABI padding, outgoing arguments, spills, or local/temp "
                 "homes rather than the saved-register set.",
             )
+    resolved_target_true = (
+        target_true_instructions
+        if target_true_instructions is not None
+        else true_instruction_count(target)
+    )
+    resolved_candidate_true = (
+        candidate_true_instructions
+        if candidate_true_instructions is not None
+        else true_instruction_count(candidate)
+    )
+    resolved_warnings = list(warnings)
+    if resolved_target_true != resolved_candidate_true:
+        resolved_warnings.append(
+            "true instruction count differs: target="
+            f"{resolved_target_true} candidate={resolved_candidate_true} "
+            f"(delta {resolved_candidate_true - resolved_target_true:+d}). "
+            f".text is 16-byte padded, so target_instructions/"
+            f"candidate_instructions ({len(target)}/{len(candidate)}) can "
+            "agree even when the real function lengths do not -- any "
+            "per-region or per-row analysis keyed on absolute position is "
+            "unreliable until this is resolved."
+        )
     return Comparison(
         candidate=candidate_name,
         target=target_name,
@@ -1130,7 +1171,7 @@ def compare_instructions(
         diff_sites=sites,
         diff_site_classes=site_classes,
         aligned_diff_sites=aligned_sites,
-        warnings=list(warnings),
+        warnings=resolved_warnings,
         target_frame_layout=target_frame_layout,
         candidate_frame_layout=candidate_frame_layout,
         aligned_insertions=aligned_gaps["aligned_insertions"],
@@ -1143,6 +1184,14 @@ def compare_instructions(
         pool_layout_mismatches=pool.layout_mismatches if pool is not None else 0,
         target_pool_slots=pool.target_slots if pool is not None else 0,
         candidate_pool_slots=pool.candidate_slots if pool is not None else 0,
+        target_true_instructions=resolved_target_true,
+        candidate_true_instructions=resolved_candidate_true,
+        true_instruction_delta=resolved_candidate_true - resolved_target_true,
+        instruction_count_verified=(
+            instruction_count_verified
+            and target_true_instructions is not None
+            and candidate_true_instructions is not None
+        ),
     )
 
 
@@ -1172,6 +1221,32 @@ def rank_comparisons(items: Sequence[Comparison]) -> tuple[list[Comparison], boo
     return ordered, mixed
 
 
+def resolve_true_instructions(
+    path: str | Path, *, symbol: str | None, section: str
+) -> int | None:
+    """Read the true instruction count straight from the object's ELF.
+
+    Only attempted for a whole-section comparison (``symbol is None``): the
+    ELF read answers "how many real instructions are in this section",  which
+    is the right question for the campaign's own single-function objects but
+    a different one from "how long is the named symbol" once a section holds
+    more than one function. A narrowed ``--symbol`` dump falls back to the
+    disassembly-based count instead, which is already scoped to that symbol.
+
+    Returns ``None`` on anything that stops a confident answer -- a missing
+    file, a section this reader does not support -- so the caller falls back
+    to the disassembly-based count rather than raising out of what is meant
+    to be a cross-check, not a new way for `compare`/`diagnose` to fail.
+    """
+
+    if symbol is not None:
+        return None
+    try:
+        return elf_true_instruction_count(path, section=section)
+    except (OSError, ValueError):
+        return None
+
+
 @dataclass(frozen=True)
 class TargetObject:
     """A disassembled target retained for repeated comparison.
@@ -1187,6 +1262,11 @@ class TargetObject:
     #: against it without disassembling the target a second time.
     labels: tuple[str, ...] = ()
     text: str = ""
+    #: The target's true instruction count read from its own ELF section, or
+    #: ``None`` when no object file backed this target (see
+    #: `resolve_true_instructions`). Held here so `compare_candidate` does not
+    #: re-read the target's file for every candidate it compares.
+    true_instructions: int | None = None
 
 
 def load_target(
@@ -1207,6 +1287,9 @@ def load_target(
         instructions=instructions,
         labels=symbol_labels(text),
         text=text,
+        true_instructions=resolve_true_instructions(
+            target, symbol=symbol, section=section
+        ),
     )
 
 
@@ -1222,6 +1305,9 @@ def compare_candidate(
     candidate_text, candidate_instructions = dump_object(
         candidate, objdump=objdump, symbol=target.symbol, section=section
     )
+    candidate_true_instructions = resolve_true_instructions(
+        candidate, symbol=target.symbol, section=section
+    )
     warning = cross_function_warning(
         target.text,
         candidate_text,
@@ -1235,6 +1321,12 @@ def compare_candidate(
         candidate_name=display_path(candidate),
         symbol=target.symbol,
         warnings=(warning,) if warning else (),
+        target_true_instructions=target.true_instructions,
+        candidate_true_instructions=candidate_true_instructions,
+        instruction_count_verified=(
+            target.true_instructions is not None
+            and candidate_true_instructions is not None
+        ),
     )
 
 

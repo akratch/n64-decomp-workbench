@@ -214,6 +214,27 @@ class CompareTests(unittest.TestCase):
         )
         self.assertEqual([item.address for item in instructions], [0, 4, 8])
 
+    def test_does_not_trim_a_single_trailing_zero_word(self) -> None:
+        # WB-62: a real campaign object (archive/p2-04/cand.o) ends its
+        # `.text` exactly at a genuine trailing `nop`, with no alignment
+        # padding after it -- the section needed none. GNU objdump's own
+        # default disassembly still prints that word as a real instruction
+        # (a run below `MINIMUM_ELIDED_RUN` is not elided), so trimming it
+        # silently drops one real instruction. Trimming this word regressed
+        # the true count from 4632 to 4631 on the actual object before the
+        # threshold was measured against a hand-assembled fixture.
+        instructions = parse_disassembly(
+            """
+00000000 <demo>:
+   0: 848e004c  lh $t6,76($a0)
+   4: 03e00008  jr $ra
+   8: a4ae004c  sh $t6,76($a1)
+   c: 00000000  nop
+""",
+            symbol="demo",
+        )
+        self.assertEqual(trim_function_padding(instructions), instructions)
+
     def test_does_not_trim_a_return_delay_slot(self) -> None:
         instructions = parse_disassembly(
             """
@@ -707,6 +728,140 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(
             mismatch_ranges([1, 2, 3, 7, 9, 10]),
             [(1, 3), (7, 7), (9, 10)],
+        )
+
+
+#: A target padded to 6 words whose real body is 3 instructions -- the exact
+#: shape that let a probe three instructions too long pass a campaign's gate:
+#: `target_instructions`/`candidate_instructions` read 6/6 (equal) while the
+#: real lengths are 3 and 6.
+PADDED_TARGET = """
+00000000 <demo>:
+   0: 848e004c  lh $t6,76($a0)
+   4: 03e00008  jr $ra
+   8: a4ae004c  sh $t6,76($a1)
+   c: 00000000  nop
+  10: 00000000  nop
+"""
+
+#: Five real instructions, no padding -- two instructions longer than
+#: PADDED_TARGET's true 3-instruction body, at the same reported (padded)
+#: length of 5.
+UNPADDED_CANDIDATE = """
+00000000 <demo>:
+   0: 848e004c  lh $t6,76($a0)
+   4: 848f0050  lh $t7,80($a0)
+   8: a4ae004c  sh $t6,76($a1)
+   c: a4af0050  sh $t7,80($a1)
+  10: 03e00008  jr $ra
+"""
+
+
+class TrueInstructionCountTests(unittest.TestCase):
+    """WB-62: the true instruction count is a first-class, always-populated
+    field, sourced from the object's own ELF `.text` when one was read and
+    from the same trimming rule applied to the disassembly otherwise."""
+
+    def test_padded_counts_hide_a_real_length_difference(self) -> None:
+        # No `--symbol`: a whole-section positional comparison, same as the
+        # campaign's own single-function objects. Padding trimming is a
+        # symbol-scoped parse behavior, so it does not fire here -- this is
+        # the exact shape that let the padded counts agree.
+        target = parse_disassembly(PADDED_TARGET)
+        candidate = parse_disassembly(UNPADDED_CANDIDATE)
+        # The trap this field exists to catch: the reported counts agree...
+        self.assertEqual(len(target), len(candidate))
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+        self.assertEqual(result.target_instructions, result.candidate_instructions)
+        # ...but the true counts do not, and the tool now says so.
+        self.assertEqual(result.target_true_instructions, 3)
+        self.assertEqual(result.candidate_true_instructions, 5)
+        self.assertEqual(result.true_instruction_delta, 2)
+        self.assertFalse(result.instruction_count_verified)
+        self.assertTrue(
+            any(
+                "true instruction count differs" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_agreeing_true_counts_carry_no_warning(self) -> None:
+        target = parse_disassembly(TARGET, symbol="demo")
+        candidate = parse_disassembly(TARGET, symbol="demo")
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+        )
+        self.assertEqual(
+            result.target_true_instructions, result.candidate_true_instructions
+        )
+        self.assertFalse(
+            any("true instruction count" in warning for warning in result.warnings)
+        )
+
+    def test_an_elf_measured_count_overrides_the_disassembly_fallback(self) -> None:
+        # A caller with object-file access (compare_objects/diagnose_objects)
+        # passes the ELF-measured counts in; they are trusted over whatever
+        # the disassembly-based fallback would have computed, and the
+        # verified flag says the number is ELF-backed.
+        target = parse_disassembly(PADDED_TARGET, symbol="demo")
+        candidate = parse_disassembly(PADDED_TARGET, symbol="demo")
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol="demo",
+            target_true_instructions=3,
+            candidate_true_instructions=5,
+            instruction_count_verified=True,
+        )
+        self.assertEqual(result.candidate_true_instructions, 5)
+        self.assertTrue(result.instruction_count_verified)
+
+    def test_compare_objects_reads_the_true_count_from_the_elf_file(self) -> None:
+        # End to end through `compare_objects`: given real object files, the
+        # true counts come from `elf_instructions` reading `.text` directly,
+        # not from whatever a `--symbol`-less disassembly happened to trim.
+        from elf_fixtures import build_elf32be, words
+
+        from decomp_workbench.compare import compare_objects
+
+        jr_ra = 0x03E00008
+        target_bytes = words(0x00000000, jr_ra, 0x27BD0010, 0, 0, 0)  # 6, true 3
+        candidate_bytes = words(0x00000000, jr_ra, 0x27BD0010)  # 3, true 3
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            objdump = root / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0:\\t00000000 \\tnop')\n"
+                "print('   4:\\t03e00008 \\tjr\\tra')\n"
+                "print('   8:\\t27bd0010 \\taddiu\\tsp,sp,16')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            target_path = root / "target.o"
+            candidate_path = root / "candidate.o"
+            target_path.write_bytes(build_elf32be({".text": target_bytes}))
+            candidate_path.write_bytes(build_elf32be({".text": candidate_bytes}))
+            result = compare_objects(target_path, candidate_path, objdump=str(objdump))
+        self.assertEqual(result.target_true_instructions, 3)
+        self.assertEqual(result.candidate_true_instructions, 3)
+        self.assertTrue(result.instruction_count_verified)
+        self.assertFalse(
+            any("true instruction count" in warning for warning in result.warnings)
         )
 
 

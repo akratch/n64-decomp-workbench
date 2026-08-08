@@ -191,6 +191,30 @@ METRICS: tuple[Metric, ...] = (
         "candidate instruction count minus target instruction count",
     ),
     Metric(
+        "target_true_insns",
+        "target_true_instructions",
+        "target's real instruction count, blind to .text's 16-byte padding; "
+        "what `objdump -d obj.o | grep -c` measures by hand",
+    ),
+    Metric(
+        "candidate_true_insns",
+        "candidate_true_instructions",
+        "candidate's real instruction count, blind to .text's 16-byte padding",
+    ),
+    Metric(
+        "true_insn_delta",
+        "true_instruction_delta",
+        "candidate_true_instructions minus target_true_instructions; the "
+        "padding-safe instruction_delta -- can differ from insn_delta when "
+        "the padded counts agree but the real lengths do not",
+    ),
+    Metric(
+        "insn_count_verified",
+        "instruction_count_verified",
+        "whether both true instruction counts were read from the objects' "
+        "own ELF .text sections rather than derived from disassembly text",
+    ),
+    Metric(
         "aligned_insertions",
         "aligned_insertions",
         "aligned rows present only in the candidate",

@@ -181,6 +181,9 @@ in `--explain-keys`.
 | `register_mismatches` | Positional register-operand differences | Locate allocation phases |
 | `fp_register_mismatches` | Register differences involving `$fN` | FP allocation diagnostics |
 | `instruction_delta` | Candidate instruction count minus target count | Structural basin |
+| `target_true_instructions`, `candidate_true_instructions` | Real, unpadded instruction counts -- see "The true instruction count" below | The correctness screen to run before trusting anything position-based |
+| `true_instruction_delta` | `candidate_true_instructions - target_true_instructions` | The padding-safe `instruction_delta`; can be nonzero when `instruction_delta` reads zero |
+| `instruction_count_verified` | Whether both true counts were read from the objects' own ELF `.text` sections | Distinguish a byte-exact measurement from the disassembly-based fallback |
 | `candidate_frame_size` | First `addiu sp,sp,N` adjustment | Stack topology |
 | `candidate_stack_offsets` | Histogram of `N(sp)` operands | Spill and local-home comparison |
 | `candidate_fp_register_uses` | Histogram of FP operands | Promotion/allocation comparison |
@@ -196,6 +199,66 @@ in `--explain-keys`.
 `instruction-words-identical` means the selected function's raw instruction
 words and known relocation-kind layout agree. It does not claim that the whole
 object file, symbol table, or final ROM is byte-identical.
+
+## The true instruction count, and why the padded one lies
+
+`target_instructions`/`candidate_instructions` (`insns=`/`target_insns=`) are
+the number of instruction *words compared* -- however many words objdump
+disassembled. That number can include trailing padding: MIPS `.text` sections
+are padded to a 16-byte, 4-instruction boundary, so a function whose real body
+is not itself a multiple of four instructions has alignment filler words after
+it. A whole-section comparison (no `--symbol`) disassembles that padding along
+with the code, so `target_instructions`/`candidate_instructions` count it too.
+
+The trap: two functions of *different* real length can report the *same*
+padded count. A target with a 4641-instruction body padded out to 4644 words,
+compared against a candidate whose real body is exactly 4644 instructions
+(needing no padding at all), reports `insns=4644` on both sides -- the padded
+counts agree while the real lengths differ by three. A probe three
+instructions too long once passed a campaign's gate exactly this way, and
+every stage after it had to re-derive the true count by hand with:
+
+```sh
+mips-linux-gnu-objdump -d obj.o | grep -c '^ *[0-9a-f]*:'
+```
+
+That command works only because GNU objdump's *default* disassembly (no
+`-z`) elides a long-enough run of trailing zero bytes as `...` instead of
+printing it, so alignment padding never reaches the count -- but *this tool*
+always passes `-z` (it needs every word, including zero ones, to keep
+addresses and relocations aligned), so it cannot get the same answer by
+accident.
+
+`target_true_instructions`/`candidate_true_instructions` are the answer to
+the hand command, without running objdump a second time or depending on which
+flags happened to be passed. They are always populated:
+
+- **Read from the object's own ELF `.text` section** (`instruction_count_verified: true`) whenever a real object file is available and the
+  comparison is not narrowed with `--symbol` -- the same question the hand
+  command answers, for the same reason (`compare`, `diagnose`, `rank`, `score`,
+  `campaign`, and anything else that reads `.o` paths).
+- **Derived from the parsed disassembly** with the identical rule otherwise
+  (`compare-dumps`/`diagnose-dumps`, which have no object file to read, and
+  any `--symbol`-narrowed comparison, where a whole-section ELF read would
+  answer "how long is the section" rather than "how long is the symbol").
+
+The rule, either way: find the *last* `jr $ra` in the measured range, keep its
+one delay-slot instruction, and drop everything after it only if it is at
+least two all-zero words. That "at least two" is measured, not assumed: GNU
+objdump's default disassembly still prints a *single* trailing zero word as a
+real `nop` rather than eliding it, so a section that happens to end in one
+genuine trailing `nop` -- needing no alignment filler at all -- is not
+touched. Trimming that word anyway silently drops one real instruction from
+the count, which happened on a real campaign object before the threshold was
+measured against a hand-assembled fixture and locked in a regression test.
+
+`compare`/`diagnose` print a `warning:` line, ahead of everything else, only
+when `target_true_instructions != candidate_true_instructions` -- the
+condition that actually invalidates a positional or per-region reading.
+Whenever either side's *true* count differs from its *reported* one (padding
+was found at all, even if both sides agree), a `target padding:`/`candidate
+padding:` line says so in the explanation, without raising it to a warning:
+padding by itself is not a problem, a true-count *mismatch* is.
 
 ## Aligned counts, and why they rank
 

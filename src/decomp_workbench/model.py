@@ -113,6 +113,33 @@ class Comparison:
     #: Distinct literal-pool slots each object references.
     target_pool_slots: int = 0
     candidate_pool_slots: int = 0
+    #: The real, unpadded instruction count -- what
+    #: ``objdump -d obj.o | grep -c '^ *[0-9a-f]*:'`` measures by hand.
+    #: ``target_instructions``/``candidate_instructions`` above can include
+    #: trailing `.text` alignment padding (the section is padded to a 16-byte,
+    #: 4-instruction boundary), so two functions of different real length can
+    #: report the same padded count -- a probe three instructions too long
+    #: passed a campaign's gate exactly this way. Read from the object's own
+    #: ELF section when a real object file was available and no ``--symbol``
+    #: narrowed the dump (see ``instruction_count_verified``); otherwise
+    #: derived from the same trimming rule applied to the parsed disassembly.
+    #: Always populated -- never ``None`` -- because the text-based fallback
+    #: needs nothing but the instructions already parsed for everything else.
+    target_true_instructions: int = 0
+    candidate_true_instructions: int = 0
+    #: ``candidate_true_instructions - target_true_instructions``. The
+    #: padding-safe ``instruction_delta``: that field can read zero when the
+    #: two objects' *padded* counts happen to agree while their real lengths
+    #: do not.
+    true_instruction_delta: int = 0
+    #: Whether both true counts above were read directly from the objects'
+    #: own ELF `.text` sections (ground truth, byte-exact) rather than derived
+    #: from parsed disassembly text (the identical rule, but only as reliable
+    #: as the disassembly it was applied to). ``False`` for retained-dump
+    #: comparisons, which have no object file to read, and for any comparison
+    #: narrowed with ``--symbol``, where a whole-section ELF read would answer
+    #: a different question than "how long is this function".
+    instruction_count_verified: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.
