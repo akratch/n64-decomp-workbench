@@ -87,6 +87,7 @@ from .instrument_uopt import instrument_uopt_globalcolor
 from .line_probe_cli import register_line_probe_command
 from .matrix_cli import register_matrix_command
 from .model import Comparison, CompileResult, display_path
+from .next_cli import register_next_command
 from .notes_cli import register_note_commands
 from .objdump import discover_objdump, dump_object, parse_disassembly
 from .object_cli import (
@@ -1793,6 +1794,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_score_command(commands)
     register_matrix_command(commands)
     register_note_commands(commands)
+    register_next_command(commands)
 
     register_scratch_commands(
         commands,

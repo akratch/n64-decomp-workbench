@@ -50,6 +50,8 @@ SCHEMAS: dict[str, str] = {
     "instrument-scheduler": "decomp-workbench-scheduler-instrument-v1",
     "lineage": "decomp-workbench-cross-rom-lineage-v1",
     "matrix": "decomp-workbench-matrix-v1",
+    "next": "decomp-workbench-next-v1",
+    "next-dumps": "decomp-workbench-next-v1",
     "note-add": "decomp-workbench-note-add-v1",
     "note-list": "decomp-workbench-note-list-v1",
     "note-merge": "decomp-workbench-note-merge-v1",

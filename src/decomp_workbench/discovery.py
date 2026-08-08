@@ -45,6 +45,8 @@ class CommandParser(argparse.ArgumentParser):
 
 COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "object": (
+        ("next", "name the next diagnostic step, with the command and why"),
+        ("score", "one honest headline number for how far this candidate is"),
         ("diagnose", "one-screen exactness, mechanism, and next lever"),
         ("compare", "exact object truth and ranked metrics"),
         ("view", "full aligned mechanism evidence"),
@@ -129,6 +131,9 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 GROUP_ALIASES: dict[tuple[str, str], str] = {
+    ("object", "next"): "next",
+    ("object", "next-dumps"): "next-dumps",
+    ("object", "score"): "score",
     ("object", "compare"): "compare",
     ("object", "compare-dumps"): "compare-dumps",
     ("object", "diagnose"): "diagnose",
@@ -186,6 +191,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "campaign-note",
         "campaign-resume",
         "campaign-status",
+        "next-dumps",
         "note-add",
         "note-list",
         "note-merge",
