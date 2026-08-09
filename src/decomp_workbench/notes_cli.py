@@ -92,6 +92,7 @@ def note_reserve_command(args: argparse.Namespace) -> int:
             author=args.author,
             purpose=args.purpose,
             start=args.start,
+            also=tuple(args.also_log),
         )
     except (NoteError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -319,6 +320,17 @@ def register_note_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "--count", type=int, default=1, metavar="N", help="how many to claim"
     )
     reserve.add_argument("--author", help="who is claiming them")
+    reserve.add_argument(
+        "--also-log",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "another document that mints identifiers in this series -- a "
+            "backlog, a handoff -- read for mentions so a number published "
+            "there is not handed out again; repeatable"
+        ),
+    )
     reserve.add_argument(
         "--purpose", default="", help="one line about what they are for"
     )

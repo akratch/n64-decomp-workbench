@@ -73,6 +73,18 @@ is only an optimisation. The correctness is entirely in the exclusive create,
 because every scheme whose last step is a read has already lost the race by the
 time it writes.
 
+If a *second* document in the same campaign also mints numbers in this series
+— an audit that renumbered a pile of colliding filings into a backlog, say —
+name it, or the scan will hand out a number that has already been published:
+
+```sh
+decomp-workbench note reserve --log FINDINGS.md --also-log WB-BACKLOG.md \
+    --prefix WB --count 3
+```
+
+That is not hypothetical: it is what happened the first time this command was
+run for real.
+
 `note add` then refuses an identifier somebody else reserved:
 
 ```text

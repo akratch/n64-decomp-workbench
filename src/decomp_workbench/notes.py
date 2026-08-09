@@ -296,13 +296,21 @@ def _sort_key(identifier: str) -> tuple[str, int, str]:
     return (match.group("prefix"), int(match.group("number")), identifier)
 
 
-def taken_identifiers(log: str | Path, *, prefix: str) -> set[int]:
+def taken_identifiers(
+    log: str | Path, *, prefix: str, also: tuple[str | Path, ...] = ()
+) -> set[int]:
     """Every number already used under ``prefix``, wherever it is recorded.
 
     The log's own entries, the pending sidecar notes, the merged ones, and the
     reservations. A number that appears in any of them is spoken for; the
     campaign that lost three identifiers in one night had three agents each
     reading only one of those four places.
+
+    ``also`` names further documents that mint identifiers for the same
+    series. A campaign's audit can renumber a colliding pile in a *second*
+    document -- a backlog, a handoff -- and those numbers are taken even
+    though the findings log has never carried them. Reserving without reading
+    that document hands out an identifier somebody has already published.
     """
 
     view = merged_view(log)
@@ -312,12 +320,32 @@ def taken_identifiers(log: str | Path, *, prefix: str) -> set[int]:
         *(note.identifier for note in view.merged),
         *(item.identifier for item in read_reservations(log)),
     ]
+    for other in also:
+        path = Path(other)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise NoteError(
+                f"could not read the additional identifier source {path}: {error}"
+            ) from None
+        identifiers.extend(_mentioned_identifiers(text, prefix=prefix))
     numbers: set[int] = set()
     for identifier in identifiers:
         match = _NUMBERED_ID_RE.match(identifier.strip())
         if match is not None and match.group("prefix") == prefix:
             numbers.add(int(match.group("number")))
     return numbers
+
+
+def _mentioned_identifiers(text: str, *, prefix: str) -> list[str]:
+    """Every ``PREFIX-N`` token the text mentions anywhere.
+
+    Deliberately a mention, not a heading. A second document that minted the
+    number has spoken for it whether or not it wrote it as a section.
+    """
+
+    pattern = re.compile(rf"(?<![\w-]){re.escape(prefix)}-(\d+)(?![\w-])")
+    return [f"{prefix}-{match.group(1)}" for match in pattern.finditer(text)]
 
 
 def reserve_identifiers(
@@ -328,6 +356,7 @@ def reserve_identifiers(
     author: str | None = None,
     purpose: str = "",
     start: int | None = None,
+    also: tuple[str | Path, ...] = (),
 ) -> tuple[Reservation, ...]:
     """Claim ``count`` unused identifiers under ``prefix``, atomically.
 
@@ -358,7 +387,7 @@ def reserve_identifiers(
             f"could not create the reservation directory {directory}: {error}"
         ) from error
 
-    taken = taken_identifiers(log, prefix=prefix)
+    taken = taken_identifiers(log, prefix=prefix, also=also)
     candidate = max(taken, default=0) if start is None else start - 1
     claimed: list[Reservation] = []
     attempts = 0

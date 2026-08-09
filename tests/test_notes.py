@@ -325,6 +325,37 @@ class IdentifierReservationTests(unittest.TestCase):
             [item.identifier for item in view.unfiled_reservations], ["WB-4"]
         )
 
+    def test_a_second_document_that_minted_numbers_is_read_too(self) -> None:
+        """The gap dogfooding found: the audit renumbered a pile elsewhere.
+
+        A campaign's audit resolved a set of colliding filings by minting
+        WB-113..WB-121 in its *backlog*, a document the findings log has never
+        carried. Reserving without reading it handed out WB-121 a second time.
+        """
+
+        backlog = self.root / "WB-BACKLOG.md"
+        backlog.write_text(
+            "| WB-113 | ring-phase profiler |\n| WB-121 | document the grammar |\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            reserve_identifiers(self.log, prefix="WB", count=1)[0].identifier,
+            "WB-3",
+        )
+        claimed = reserve_identifiers(
+            self.log, prefix="WB", count=1, also=(backlog,)
+        )
+        self.assertEqual(claimed[0].identifier, "WB-122")
+
+    def test_an_unreadable_additional_document_is_an_error_not_a_shrug(
+        self,
+    ) -> None:
+        with self.assertRaises(NoteError) as raised:
+            reserve_identifiers(
+                self.log, prefix="WB", also=(self.root / "nowhere.md",)
+            )
+        self.assertIn("additional identifier source", str(raised.exception))
+
     def test_a_prefix_that_is_not_a_prefix_says_what_one_looks_like(self) -> None:
         with self.assertRaises(NoteError) as raised:
             reserve_identifiers(self.log, prefix="WB-1")
