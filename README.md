@@ -284,10 +284,14 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
 | Is temp-register reuse following a FIFO? | `trace-fifo` | Validated queue and physical-to-logical value schedule |
 | Why did uopt keep or split a live range? | `trace-globalcolor` | Per-web costs and color/split decisions, filterable by procedure |
+| What happened to this one variable, in every round? | `trace-cascade`, `trace-order`, `trace-blocks` | The whole f_split cascade keyed by frame offset, the colour actually taken, the charge each occurrence pays |
 | Which source/listing line owns a traced web? | `trace-source` | Marker-aware correlation with ambiguity preserved |
 | Can a measured allocator choice close the residual? | `oracle plan/force/sweep` | Calibrated causal evidence, persistent status and export |
 | Which alias facts reached uopt? | `trace-alias` | Base provenance and may-alias decisions |
 | Does statement line assignment own this schedule, and which line does a statement need? | `probe-lines`, `probe-lines --tie` | Token-identical variants plus a control, scored toward and away from the target |
+| Are these two reads of a local the same value? | `probe-equiv` | Same-value ranges from definition placement plus the address-of check, with its limits printed |
+| Where can a statement that emits nothing change the allocation? | `probe-deadread` | Candidate positions, the measured spelling table, and one variant source per candidate |
+| What would fusing this donor cost? | `slots` | Loads, stores and address-takes per frame offset, and the punned slots |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
 | Will this proof repository work from a fresh clone? | `handoff audit` | Missing paths, absolute paths, and untracked local dependencies |
@@ -333,6 +337,8 @@ The three narrative pages first, then the focused guides:
 - [Portable Codex and Claude Code skill][agent-skill]
 - [IDO version support][ido-support]
 - [Trace analysis][trace-analysis]
+- [The allocator decision cascade][cdx-cascade]
+- [Source probes][source-probes]
 - [Compiler instrumentation][compiler-instrumentation]
 - [Pass replay][pass-replay]
 - [Line-assignment probe][line-assignment-probe] — does statement line assignment own the schedule
@@ -402,6 +408,8 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
 [scratch-bundles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/scratch-bundles.md
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
+[cdx-cascade]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/cdx-cascade.md
+[source-probes]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/source-probes.md
 [troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/troubleshooting.md
 [workflows]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/workflows.md
 [oracle]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/oracle.md
