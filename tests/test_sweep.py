@@ -215,9 +215,7 @@ class RemovalTests(SourceCase):
         self.assertIn("L10+L11", sites)
 
     def test_the_joint_point_is_always_included(self) -> None:
-        constructs = tuple(
-            parse_construct(item) for item in ("10=a", "11=b", "12=c")
-        )
+        constructs = tuple(parse_construct(item) for item in ("10=a", "11=b", "12=c"))
         manifest = removal_family(self.path, constructs=constructs, order=1)
         self.assertIn("L10+L11+L12", [item.key.site for item in manifest.variants])
 
@@ -272,9 +270,7 @@ class HoistTests(SourceCase):
 
     def test_the_compound_assignment_class_exists(self) -> None:
         self.path.write_text(
-            SOURCE.replace(
-                "    span = lead + obj->z;", "    span *= lead + obj->z;"
-            ),
+            SOURCE.replace("    span = lead + obj->z;", "    span *= lead + obj->z;"),
             encoding="utf-8",
         )
         manifest = hoist_family(self.path, line=8, classes=("P",), carriers=("lead",))
@@ -525,8 +521,27 @@ class IngestTests(SourceCase):
         result = self.ingest()
         payload = result.as_dict()
         self.assertEqual(payload["coverage"]["covered"], 3)
-        self.assertEqual(payload["coverage"]["excluded"], 1)
         self.assertIn("coverage:", "\n".join(ingest_lines(result)))
+
+    def test_an_unbuilt_point_is_unvisited_and_never_an_exclusion(self) -> None:
+        """An unbuilt variant must not buy back the exhaustiveness claim.
+
+        `excluded` means "declined for a stated reason" -- a conflict rule, a
+        failed edit -- and it counts toward `exhaustive`. Crediting variants
+        that simply did not build restored exhaustiveness arithmetically, so
+        an ingest that scored nothing still printed `swept-exhaustively` and
+        `a negative result here is a proof about this space`.
+        """
+
+        result = self.ingest()
+        payload = result.as_dict()
+        self.assertEqual(len(result.missing), 1)
+        self.assertEqual(payload["coverage"]["excluded"], 0)
+        self.assertEqual(payload["coverage"]["unvisited"], 1)
+        sentence = "\n".join(ingest_lines(result))
+        self.assertIn("sampled", sentence)
+        self.assertIn("never visited", sentence)
+        self.assertNotIn("is a proof about this space", sentence)
 
     def test_the_best_variant_ranks_first(self) -> None:
         result = self.ingest()

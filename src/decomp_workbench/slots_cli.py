@@ -52,7 +52,10 @@ def slots_command(args: argparse.Namespace) -> int:
                 directory=args.volatile_probe,
                 variables=tuple(args.variable),
             )
-    except (CSourceError, OSError, ValueError) as error:
+    except (CSourceError, OSError, RuntimeError, ValueError) as error:
+        # RuntimeError is what a failed objdump raises, and it names the file
+        # and quotes the tool: a census refused for an unreadable object is a
+        # refusal, not a crash.
         print(f"error: {error}", file=sys.stderr)
         return 2
 

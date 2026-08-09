@@ -211,6 +211,32 @@ class SlotsCommandTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "decomp-workbench-stack-slots-v1")
         self.assertTrue(payload["slots"])
 
+    def test_an_unreadable_object_is_refused_rather_than_traced_back(self) -> None:
+        """A failed objdump must reach the user as a refusal, not a traceback.
+
+        Every sibling census (`align`, `phase`, `score`, `view`) answers an
+        unreadable object with `error:` and exit 2. This one caught only
+        OSError and ValueError, so the RuntimeError objdump raises escaped the
+        handler and printed a stack trace with the real message at the bottom.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "demo.o"
+            target.write_bytes(b"not an object at all")
+
+            def refuse(*_args: object, **_kwargs: object) -> None:
+                raise RuntimeError(
+                    f"objdump failed for {target}: this does not look like a "
+                    "compiled MIPS ELF object"
+                )
+
+            with mock.patch("decomp_workbench.row_source.dump_object", refuse):
+                status, _, err = run_cli(["slots", str(target)])
+
+        self.assertEqual(status, 2)
+        self.assertTrue(err.startswith("error: objdump failed for"), err)
+        self.assertNotIn("Traceback", err)
+
     def test_the_grouped_spelling_reaches_the_same_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "demo.o"

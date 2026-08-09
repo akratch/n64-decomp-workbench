@@ -37,7 +37,18 @@ from .terminal import add_terminal_arguments, emit_lines
 
 __all__ = ["register_sweep_commands"]
 
-_SWEEP_ERRORS = (SweepError, ComposeError, CSourceError, OSError, ValueError)
+#: RuntimeError is what a failed objdump raises, and `sweep ingest` reads
+#: objects. Without it a broken toolchain leaves a traceback and exit 1 --
+#: the code reserved for "a requested gate failed", which a sweep driver
+#: treats as "no match, keep going".
+_SWEEP_ERRORS = (
+    SweepError,
+    ComposeError,
+    CSourceError,
+    OSError,
+    RuntimeError,
+    ValueError,
+)
 
 
 def _frozen(args: argparse.Namespace) -> tuple[tuple[int, int], ...]:
@@ -273,9 +284,7 @@ def sweep_ingest_command(args: argparse.Namespace) -> int:
         print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
         return 0
     limit = args.limit if args.limit else len(result.results) or 1
-    emit_lines(
-        ingest_lines(result, limit=limit), width=args.width, pager=args.pager
-    )
+    emit_lines(ingest_lines(result, limit=limit), width=args.width, pager=args.pager)
     return 0
 
 
@@ -306,9 +315,7 @@ def _add_generator_arguments(parser: argparse.ArgumentParser) -> None:
             "zone; repeatable"
         ),
     )
-    add_list_file_argument(
-        parser, option="frozen", dest="frozen", noun="frozen zones"
-    )
+    add_list_file_argument(parser, option="frozen", dest="frozen", noun="frozen zones")
     parser.add_argument(
         "--limit",
         type=int,

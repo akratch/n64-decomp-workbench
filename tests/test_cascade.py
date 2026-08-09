@@ -740,6 +740,84 @@ class CascadeCommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("ld1184=2 st1184=1", out)
 
+    def test_two_site_spellings_that_disagree_are_refused(self) -> None:
+        """`--slot`+`--frame` and `--frame-offset` must name the same site.
+
+        `--slot` alongside `--frame-offset` is a screen narrowing, by design.
+        But once `--frame` is there too, both spellings resolve a site, and a
+        driver that sets each from a different place and lets one drift would
+        otherwise be handed a plausible cascade for the wrong slot in silence.
+        """
+
+        with written(cascade_log(symbol=1039, killed=False)) as path:
+            status, _, err = run_cli(
+                [
+                    "trace-cascade",
+                    path,
+                    "--frame-offset",
+                    TARGET_OFFSET,
+                    "--slot",
+                    "999",
+                    "--frame",
+                    "-1704",
+                    "--kill",
+                ]
+            )
+
+        self.assertEqual(status, 2)
+        self.assertIn("-520", err)
+        self.assertIn("-705", err)
+        self.assertIn("Name one site", err)
+
+    def test_two_site_spellings_that_agree_are_accepted(self) -> None:
+        with written(cascade_log(symbol=1039, killed=False)) as path:
+            status, out, _ = run_cli(
+                [
+                    "trace-cascade",
+                    path,
+                    "--frame-offset",
+                    TARGET_OFFSET,
+                    "--slot",
+                    "1184",
+                    "--frame",
+                    "-1704",
+                    "--kill",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertIn("kill:", out)
+
+    def test_an_unreadable_reference_object_is_refused_not_traced_back(self) -> None:
+        """`--rom`/`--object` reach objdump, which raises RuntimeError."""
+
+        with written(
+            cascade_log(symbol=1039, killed=False), objects=("target.o",)
+        ) as path:
+            reference = str(Path(path).with_name("target.o"))
+
+            def refuse(*_args: object, **_kwargs: object) -> None:
+                raise RuntimeError(
+                    f"objdump failed for {reference}: this does not look like "
+                    "a compiled MIPS ELF object"
+                )
+
+            with mock.patch("decomp_workbench.row_source.dump_object", refuse):
+                status, _, err = run_cli(
+                    [
+                        "trace-cascade",
+                        path,
+                        "--frame-offset",
+                        TARGET_OFFSET,
+                        "--rom",
+                        reference,
+                    ]
+                )
+
+        self.assertEqual(status, 2)
+        self.assertTrue(err.startswith("error: objdump failed for"), err)
+        self.assertNotIn("Traceback", err)
+
     def test_json_carries_the_schema_and_the_rounds(self) -> None:
         with written(cascade_log(symbol=1039, killed=False)) as path:
             status, out, _ = run_cli(

@@ -102,8 +102,23 @@ def _site_arguments(args: argparse.Namespace) -> dict[str, int | None]:
     """Turn the site options into exactly one keyed lookup."""
 
     if args.frame_offset is not None:
+        named = parse_frame_offset(args.frame_offset)
+        if args.slot is not None and args.frame is not None:
+            # Both spellings resolve a site, so both must resolve the same
+            # one. A driver that sets each from a different place and lets one
+            # drift would otherwise get a plausible cascade for the wrong slot.
+            derived = args.slot + args.frame
+            if derived != named:
+                raise CascadeError(
+                    f"--frame-offset names frame offset {named} "
+                    f"({named & 0xFFFFFFFF:#010x}), but --slot {args.slot} "
+                    f"--frame {args.frame} derives {derived} "
+                    f"({derived & 0xFFFFFFFF:#010x}). Name one site: drop "
+                    "--frame-offset, or drop --frame and let --slot narrow "
+                    "the screen line only."
+                )
         return {
-            "frame_offset": parse_frame_offset(args.frame_offset),
+            "frame_offset": named,
             "symbol": args.symbol_id,
             "web": args.web,
         }
@@ -452,7 +467,10 @@ def cascade_command(args: argparse.Namespace) -> int:
             extra.extend(_rom_lines(args, cascade))
         if args.object:
             extra.extend(_screen_lines(args))
-    except (CascadeError, OSError, ValueError) as error:
+    except (CascadeError, OSError, RuntimeError, ValueError) as error:
+        # --rom and --object reach objdump, which raises RuntimeError with the
+        # file named and the tool quoted. The cascade itself already read; an
+        # unreadable reference object refuses the run rather than crashing it.
         print(f"error: {error}", file=sys.stderr)
         return 2
 
@@ -664,7 +682,12 @@ def register_cascade_commands(commands: argparse._SubParsersAction[Any]) -> None
     cascade.add_argument(
         "--kill",
         action="store_true",
-        help="print only the one-line kill signal, for a sweep column",
+        help=(
+            "print only the one-line kill signal, for a sweep column. "
+            "--json is unaffected: it always emits the whole cascade "
+            "document, whose `killed` and `kill_line` fields carry this "
+            "same signal"
+        ),
     )
     cascade.add_argument(
         "--rom",

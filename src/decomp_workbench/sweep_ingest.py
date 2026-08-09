@@ -145,7 +145,17 @@ class IngestResult:
 
 
 def _ingest_coverage(result: IngestResult):
-    """The manifest's coverage, reduced by whatever failed to build."""
+    """The manifest's coverage, reduced by whatever failed to build.
+
+    A variant with no object, or one objdump could not read, is a point the
+    sweep **never visited** -- not one it declined for a stated reason. Only
+    the generator's own refusals are exclusions, and those are already in the
+    manifest's declared count. Crediting the unbuilt ones as excluded restored
+    exhaustiveness arithmetically, so an ingest where nothing built at all
+    printed `swept-exhaustively -- 0 of 4 point(s), 4 excluded; a negative
+    result here is a proof about this space`. That is the false proof the
+    coverage model exists to prevent.
+    """
 
     from .coverage import SweepCoverage
 
@@ -155,7 +165,7 @@ def _ingest_coverage(result: IngestResult):
         space=declared.space,
         covered=len(result.scored),
         step=declared.step,
-        excluded=declared.excluded + len(result.missing),
+        excluded=declared.excluded,
     )
 
 
@@ -229,7 +239,10 @@ def ingest_sweep(
                 section=section,
                 cache=cache,
             )
-        except (OSError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError) as error:
+            # A failed objdump raises RuntimeError. One truncated variant is
+            # an `unreadable:` row like any other, not the end of the ingest:
+            # a sweep is read for the variants that did build.
             results.append(
                 VariantResult(
                     key=variant.key,
@@ -305,7 +318,13 @@ def ingest_lines(result: IngestResult, *, limit: int = 20) -> list[str]:
     if result.missing:
         lines.extend(("", f"unbuilt ({len(result.missing)}):"))
         for item in result.missing[:limit]:
-            lines.append(f"  {item.key.label}  {item.missing}")
+            # An objdump refusal quotes the tool over several lines. One
+            # variant is one row here, so keep the sentence and say the rest
+            # is there -- a table that reflows on a bad object is unreadable
+            # exactly when the reader most needs to scan it.
+            reason = (item.missing or "").splitlines() or [""]
+            more = "" if len(reason) == 1 else f" (+{len(reason) - 1} more line(s))"
+            lines.append(f"  {item.key.label}  {reason[0]}{more}")
         if len(result.missing) > limit:
             lines.append(f"  ... {len(result.missing) - limit} more")
     if manifest.dropped:
