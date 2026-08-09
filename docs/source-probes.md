@@ -111,6 +111,33 @@ and store counts at the slot are the screen that separates a kill from a
 relocation) and read the allocator side with
 [`trace-cascade`](cdx-cascade.md).
 
+## `slots` — what a donor costs, without a build
+
+Two of the questions that surround these probes are about the object, not the
+source: how many rows touch a candidate donor's stack slot (that count *is* the
+donor's price), and whether a slot is one variable or a pun.
+
+```sh
+decomp-workbench slots examples/fixtures/target.objdump --dumps
+```
+
+`slots` counts, per frame offset, the loads, the stores, the address-takes, the
+access widths that reach it and the registers that carry it. A slot reached by
+two widths is marked `PUN`: that is one storage location under two spellings,
+and the allocator keys webs on storage rather than on the C name.
+
+It reports what the rows do. It does not claim which C local lives at a slot,
+because nothing in an object says so. The measurement that does answer that is
+a build:
+
+```sh
+decomp-workbench slots target.o --source work.c --volatile-probe variants/
+```
+
+writes one variant of the source per local, that local made `volatile` so the
+compiler must keep it in memory. Build each one, re-run `slots`, and the offset
+whose traffic appears or grows is that local's stack home.
+
 ## See also
 
 - [The p1 decision arithmetic](p1-decision-arithmetic.md) — why an occurrence

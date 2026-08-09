@@ -66,7 +66,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |
 | A trace gives you `save`, `nocs`, `totalsave`, `chargeA`, or `chargeB` and you need the whole allocator formula in one place | [The p1 decision arithmetic](p1-decision-arithmetic.md) |
 | A score improved, or a lever's old price looked stable, and you want the catalogue of ways that can still be the wrong reading | [Metric traps](metric-traps.md) |
-| You are about to blame the allocator, and want the two source questions to ask first: are these two reads the same value, and where can a statement that emits nothing change the allocation | [Source probes](source-probes.md) |
+| You are about to blame the allocator, and want the two source questions to ask first (are these two reads the same value; where can a statement that emits nothing change the allocation), or what a fusion donor costs before building one | [Source probes](source-probes.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
 | You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |

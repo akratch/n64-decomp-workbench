@@ -75,6 +75,7 @@ SCHEMAS: dict[str, str] = {
     "phase-dumps": "decomp-workbench-phase-v1",
     "replay-as1": "decomp-workbench-pass-replay-v1",
     "score": "decomp-workbench-score-v1",
+    "slots": "decomp-workbench-stack-slots-v1",
     "trace-alias": "decomp-workbench-trace-alias-v1",
     "trace-blocks": "decomp-workbench-web-blocks-v1",
     "trace-cascade": "decomp-workbench-cascade-v1",

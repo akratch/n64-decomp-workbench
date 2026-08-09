@@ -122,6 +122,7 @@ from .scratch_check import (
     site_source_marker,
 )
 from .scratch_registration import register_scratch_commands
+from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
 from .toolchain import toolchain_status
@@ -1803,6 +1804,9 @@ def build_parser() -> argparse.ArgumentParser:
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.
     register_source_probe_commands(commands)
+    # `slots` reads the same object the other object commands read and
+    # answers what a fusion donor costs, without a build.
+    register_slots_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)
     register_fidelity_command(commands)

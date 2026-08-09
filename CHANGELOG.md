@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **`slots` prices a fusion donor without building one.** For each frame
+  offset: the loads, the stores, the address-takes, the access widths that
+  reach it and the registers that carry it. A donor's price is exactly the
+  number of rows that touch its stack slot, and one campaign spent a whole
+  sweep answering that by construction — the cheapest donor available cost 2
+  rows, the others 4, 6 and 7, and none of it was visible until the slots were
+  listed. A slot reached by two widths is marked `PUN`: one storage location
+  under two spellings, which matters because the allocator keys webs on
+  storage and not on the C name. The prologue's own `addiu sp,sp,-N` is not a
+  slot. `--source SRC --volatile-probe DIR` writes one variant per local with
+  that local made `volatile`, which is the measurement that attributes a slot
+  to a name — the workbench writes the sources and stops, because it does not
+  own the build. Documented in `docs/source-probes.md`.
+
 - **`probe-equiv` answers "are these two reads the same value", which is the
   check one campaign never ran.** A local whose address never escapes cannot be
   written by a callee, so between two of its definitions its value is fixed and
