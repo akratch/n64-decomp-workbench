@@ -1275,6 +1275,10 @@ class TargetObject:
     #: `resolve_true_instructions`). Held here so `compare_candidate` does not
     #: re-read the target's file for every candidate it compares.
     true_instructions: int | None = None
+    #: Which section was disassembled. Carried so a comparison built from two
+    #: already-loaded objects reports the same section in its warnings as one
+    #: that loaded them itself.
+    section: str = ".text"
 
 
 def load_target(
@@ -1298,6 +1302,38 @@ def load_target(
         true_instructions=resolve_true_instructions(
             target, symbol=symbol, section=section
         ),
+        section=section,
+    )
+
+
+def compare_loaded(target: TargetObject, candidate: TargetObject) -> Comparison:
+    """Compare two already-disassembled objects.
+
+    The form for a caller that needs the parsed instructions for something
+    else as well -- `score`, which reads the same two streams a second time to
+    build its screen line -- so nothing disassembles an object twice and no
+    second copy of this argument list can drift from it.
+    """
+
+    warning = cross_function_warning(
+        target.text,
+        candidate.text,
+        symbol=target.symbol,
+        section=target.section,
+    )
+    return compare_instructions(
+        target.instructions,
+        candidate.instructions,
+        target_name=target.name,
+        candidate_name=candidate.name,
+        symbol=target.symbol,
+        warnings=(warning,) if warning else (),
+        target_true_instructions=target.true_instructions,
+        candidate_true_instructions=candidate.true_instructions,
+        instruction_count_verified=(
+            target.true_instructions is not None
+            and candidate.true_instructions is not None
+        ),
     )
 
 
@@ -1310,31 +1346,9 @@ def compare_candidate(
 ) -> Comparison:
     """Compare one candidate object against an already-parsed target."""
 
-    candidate_text, candidate_instructions = dump_object(
-        candidate, objdump=objdump, symbol=target.symbol, section=section
-    )
-    candidate_true_instructions = resolve_true_instructions(
-        candidate, symbol=target.symbol, section=section
-    )
-    warning = cross_function_warning(
-        target.text,
-        candidate_text,
-        symbol=target.symbol,
-        section=section,
-    )
-    return compare_instructions(
-        target.instructions,
-        candidate_instructions,
-        target_name=target.name,
-        candidate_name=display_path(candidate),
-        symbol=target.symbol,
-        warnings=(warning,) if warning else (),
-        target_true_instructions=target.true_instructions,
-        candidate_true_instructions=candidate_true_instructions,
-        instruction_count_verified=(
-            target.true_instructions is not None
-            and candidate_true_instructions is not None
-        ),
+    return compare_loaded(
+        target,
+        load_target(candidate, objdump=objdump, symbol=target.symbol, section=section),
     )
 
 

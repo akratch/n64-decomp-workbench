@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .cli_options import add_symbol_argument
-from .compare import compare_objects
+from .compare import compare_loaded, load_target
 from .headline import Headline, build_headline, render_headline
 from .score import (
     ScoreError,
@@ -20,6 +20,7 @@ from .score import (
     parse_control_spec,
     score_report,
 )
+from .screen import build_screen_line
 
 NEXT_GUIDE = "decomp-workbench guide"
 NEXT_DIAGNOSE = "decomp-workbench diagnose"
@@ -88,6 +89,11 @@ def _print_word_score(item: WordScore, *, indent: str = "") -> None:
 def render_score_human(report: ScoreReport) -> None:
     print(f"candidate: {report.candidate}")
     print(f"target: {report.target_description}")
+    if report.screen:
+        print(report.screen["rendered"])
+        caution = report.screen.get("coset_caution")
+        if caution:
+            print(caution)
     _print_word_score(report.function)
     if report.controls:
         print(f"controls: {len(report.controls)} checked")
@@ -138,12 +144,19 @@ def headline_command(args: argparse.Namespace) -> int:
         )
         return 2
     try:
-        comparison = compare_objects(
-            args.target,
-            args.candidate,
-            objdump=args.objdump,
-            symbol=args.symbol,
-            section=args.section,
+        loaded = [
+            load_target(
+                path, objdump=args.objdump, symbol=args.symbol, section=args.section
+            )
+            for path in (args.target, args.candidate)
+        ]
+        comparison = compare_loaded(*loaded)
+        screen = build_screen_line(
+            loaded[1].instructions,
+            label=loaded[1].name,
+            path=args.candidate,
+            target=loaded[0].instructions,
+            slot=args.slot,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -157,10 +170,15 @@ def headline_command(args: argparse.Namespace) -> int:
             "schema": "decomp-workbench-score-v1",
             "mode": "headline",
             **report.as_dict(),
+            "screen": screen.as_dict(),
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print("\n".join(render_headline(report, verbose=args.verbose)))
+        print(screen.render())
+        caution = screen.caution()
+        if caution:
+            print(caution)
         print_guidance(headline_guidance(report))
     return 0 if report.matched else 1
 
@@ -204,7 +222,7 @@ def score_command(args: argparse.Namespace) -> int:
     try:
         spec = score_spec_from_args(args)
         candidate = Path(args.target)
-        report = score_report(candidate, spec)
+        report = score_report(candidate, spec, slot=args.slot)
     except (ScoreError, OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -299,6 +317,16 @@ def register_score_command(commands: Any) -> None:
         help=(
             "target window size in bytes; only valid with --rom "
             "(default: the candidate function's own size)"
+        ),
+    )
+    parser.add_argument(
+        "--slot",
+        type=int,
+        metavar="OFFSET",
+        help=(
+            "narrow the screen line's float load and store counts to one "
+            "stack slot, printed as ld<OFFSET>/st<OFFSET>. Omit it for the "
+            "whole frame"
         ),
     )
     parser.add_argument(

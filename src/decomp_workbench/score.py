@@ -418,6 +418,10 @@ class ScoreReport:
     controls_broken: bool
     matched: bool
     guidance: list[str] = field(default_factory=list)
+    #: The sweep line for this candidate: identity, true length, frame, float
+    #: load/store traffic, and the ring coset it sits at. See
+    #: :mod:`decomp_workbench.screen`.
+    screen: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -428,6 +432,7 @@ class ScoreReport:
             "controls_broken": self.controls_broken,
             "matched": self.matched,
             "guidance": self.guidance,
+            "screen": self.screen,
         }
 
 
@@ -453,8 +458,16 @@ def resolve_candidate_window(candidate_path: str | Path, spec: ScoreSpec) -> Win
     )
 
 
-def _resolve_target_words(spec: ScoreSpec, window: Window) -> tuple[list[str], str]:
-    """Return target words plus a human description of where they came from."""
+def _resolve_target_words(
+    spec: ScoreSpec, window: Window
+) -> tuple[list[str], str, Window | None]:
+    """Return target words, where they came from, and the target window.
+
+    The third element is ``None`` for a raw-ROM target: bytes read at an
+    offset are not a disassembly, so there are no target instructions to read
+    a ring coset against, and the screen line says so instead of assuming
+    identity.
+    """
 
     if spec.target.kind == "rom":
         if not spec.target.rom or spec.target.rom_offset is None:
@@ -467,7 +480,7 @@ def _resolve_target_words(spec: ScoreSpec, window: Window) -> tuple[list[str], s
             f"--rom {display_path(spec.target.rom)} offset "
             f"{spec.target.rom_offset:#x} size {size}"
         )
-        return words_from_bytes(data), description
+        return words_from_bytes(data), description, None
     target_object = spec.target.target_object
     if not target_object:
         raise ScoreError("--target-object is required when --rom is not given")
@@ -491,7 +504,7 @@ def _resolve_target_words(spec: ScoreSpec, window: Window) -> tuple[list[str], s
     description = (
         f"--target-object {display_path(target_object)} ({target_window.label})"
     )
-    return target_window.words, description
+    return target_window.words, description, target_window
 
 
 def _resolve_control_target_words(
@@ -569,14 +582,20 @@ def build_guidance(
     return lines
 
 
-def score_report(candidate_path: str | Path, spec: ScoreSpec) -> ScoreReport:
+def score_report(
+    candidate_path: str | Path, spec: ScoreSpec, *, slot: int | None = None
+) -> ScoreReport:
     """Score one candidate object's function, plus every declared control."""
+
+    from .screen import build_screen_line
 
     candidate_display = display_path(candidate_path)
     if not Path(candidate_path).is_file():
         raise ScoreError(f"candidate object does not exist: {candidate_display}")
     window = resolve_candidate_window(candidate_path, spec)
-    target_words, target_description = _resolve_target_words(spec, window)
+    target_words, target_description, target_window = _resolve_target_words(
+        spec, window
+    )
     function_score = score_window(window, target_words)
     control_scores: list[WordScore] = []
     for control in spec.controls:
@@ -599,6 +618,13 @@ def score_report(candidate_path: str | Path, spec: ScoreSpec) -> ScoreReport:
         target=spec.target,
         function_label=window.label,
     )
+    screen = build_screen_line(
+        window.instructions,
+        label=window.label,
+        path=candidate_path,
+        target=target_window.instructions if target_window else None,
+        slot=slot,
+    )
     return ScoreReport(
         candidate=candidate_display,
         target_description=target_description,
@@ -607,4 +633,5 @@ def score_report(candidate_path: str | Path, spec: ScoreSpec) -> ScoreReport:
         controls_broken=controls_broken,
         matched=matched,
         guidance=guidance,
+        screen=screen.as_dict(),
     )
