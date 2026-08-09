@@ -72,6 +72,7 @@ __all__ = [
     "DERIVED",
     "HARDWARE_WINDOWS",
     "ROM_OFFSET",
+    "SHADOWING_PIN",
     "UNCLASSIFIED",
     "VRAM_WINDOW_FLOOR",
     "WHITELIST_REVIEW_MARKER",
@@ -87,6 +88,7 @@ __all__ = [
     "parse_whitelist_text",
     "read_pin_files",
     "reclassify_rom_offsets",
+    "reclassify_shadowing_pins",
     "whitelist_candidates",
     "whitelist_template_text",
 ]
@@ -100,16 +102,26 @@ ARTIFACT_SUSPECT = "artifact-suspect"
 #: A raw offset into the cartridge image: too small to be any run-time
 #: address, and inside the extent the map placed. See `classify_absolute`.
 ROM_OFFSET = "rom-offset"
+#: An absolute pin that overrode an object's own definition of the same name.
+#: See `reclassify_shadowing_pins` -- and note the spelling is shared with
+#: :data:`decomp_workbench.shift_rehearse.SHADOWING_PIN`, deliberately: the
+#: static audit and the rehearsal find the same defect from two directions.
+SHADOWING_PIN = "shadowing-pin"
 #: No window named it, it is not a ROM offset, or the expression did not
 #: fold. Reported, not guessed.
 UNCLASSIFIED = "unclassified"
 
 #: Report order: the interesting end first, so a capped list spends its budget
-#: on the entries a reader is looking for. `ROM_OFFSET` sits between the
-#: suspects and the unclassified because it is the same *kind* of finding as a
-#: suspect -- a written-down number with a named remediation -- while being
-#: strictly better understood than an entry nothing could name at all.
+#: on the entries a reader is looking for. `SHADOWING_PIN` leads because it is
+#: the only class that carries a *proven-free* remediation -- the object
+#: already defines the symbol, so deleting the pin is byte-identical at the
+#: current layout, which S6 demonstrated by ablation rather than argued.
+#: `ROM_OFFSET` sits between the suspects and the unclassified because it is
+#: the same *kind* of finding as a suspect -- a written-down number with a
+#: named remediation -- while being strictly better understood than an entry
+#: nothing could name at all.
 CLASSIFICATIONS: tuple[str, ...] = (
+    SHADOWING_PIN,
     ARTIFACT_SUSPECT,
     ROM_OFFSET,
     UNCLASSIFIED,
@@ -588,6 +600,7 @@ class PinCatalogue:
             "pins_authentic": counts[AUTHENTIC_FIXED],
             "pins_artifact": counts[ARTIFACT_SUSPECT],
             "pins_rom_offset": counts[ROM_OFFSET],
+            "pins_shadowing": counts[SHADOWING_PIN],
             "pins_unclassified": counts[UNCLASSIFIED],
             "pins_shown": len(shown),
             "limit": max(0, limit),
@@ -646,6 +659,61 @@ def reclassify_rom_offsets(
         entries.append(
             replace(
                 item, classification=classification, window=window, reason=reason
+            )
+        )
+    return PinCatalogue(entries=tuple(entries), sources=catalogue.sources)
+
+
+_SHADOWING_REASON = (
+    "an object in this link already defines this symbol, and the linker "
+    "script's assignment silently overrode it (GNU ld does that with no "
+    "warning). The linked ELF still carries the losing definition's size and "
+    "type on the surviving absolute symbol, which is how this was detected. "
+    "Deleting the pin restores the object's own definition, which follows the "
+    "layout for free -- and is byte-identical at the current layout, since "
+    "both spellings resolve to the same address today"
+)
+
+
+def reclassify_shadowing_pins(
+    catalogue: PinCatalogue, *, elf: Any
+) -> PinCatalogue:
+    """WB-143b: re-answer a pin's class against the ELF the link produced.
+
+    ``elf`` is a :class:`~decomp_workbench.ldmap.ElfSymbols` (typed loosely
+    to keep this module free of an import cycle with the reader it is handed
+    from). A pin is reclassified `SHADOWING_PIN` when the ELF's symbol of the
+    same name is absolute *and* carries a non-zero size -- see
+    :attr:`~decomp_workbench.ldmap.ElfSymbol.shadows_definition` for why that
+    is the evidence and not a heuristic.
+
+    **This is statically detectable with no shift at all**, which is the
+    whole point of putting it in the audit as well as the rehearsal. S6 found
+    pilotwings64's ten by relinking twice, running ``nm`` over both ELFs by
+    hand, and then ablating the pin file to prove causation; the same ten
+    fall out of one shipped ``.elf`` and one pin file here. Measured on that
+    project: 10 of 37, no misses, no false positives.
+
+    Every class is re-examined, unlike `reclassify_rom_offsets` -- because
+    this evidence outranks every window-based answer. ``D_803571F0`` is a
+    kseg0 constant and would otherwise stay `ARTIFACT_SUSPECT` forever: true,
+    but strictly weaker than "an object already defines it, delete it".
+    Derived pins are the one exception: a pin whose right-hand side names a
+    symbol already follows the layout, and a name collision with an object
+    would be a different (and much louder) problem than this one.
+    """
+
+    entries: list[Pin] = []
+    for item in catalogue.entries:
+        symbol = elf.symbol(item.name) if item.form != "derived" else None
+        if symbol is None or not symbol.shadows_definition:
+            entries.append(item)
+            continue
+        entries.append(
+            replace(
+                item,
+                classification=SHADOWING_PIN,
+                reason=_SHADOWING_REASON,
             )
         )
     return PinCatalogue(entries=tuple(entries), sources=catalogue.sources)

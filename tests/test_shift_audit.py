@@ -21,14 +21,24 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import ClassVar
 
+from test_ldmap import build_elf
+
 from decomp_workbench.cli import main
-from decomp_workbench.ldmap import LdMap, parse_ld_map, read_ld_map
+from decomp_workbench.ldmap import (
+    SHN_ABS,
+    LdMap,
+    parse_elf_symbols,
+    parse_ld_map,
+    read_elf_symbols,
+    read_ld_map,
+)
 from decomp_workbench.mips_refs import WhitelistEntry
 from decomp_workbench.pins import (
     ARTIFACT_SUSPECT,
     AUTHENTIC_FIXED,
     DERIVED,
     ROM_OFFSET,
+    SHADOWING_PIN,
     UNCLASSIFIED,
     PinCatalogue,
     boot_globals_whitelist,
@@ -2710,6 +2720,294 @@ class Pw64AuditConformanceTests(unittest.TestCase):
         self.assertIn("# REVIEW: osTvType", text)
         self.assertIn("movable window floor: 0x80200050 (.entry)", text)
         self.assertEqual(parse_whitelist_text(text), ())
+
+
+# --------------------------------------------------------------------------
+# WB-143b: `--elf`, the class only the linked ELF can name
+# --------------------------------------------------------------------------
+
+PW64_ELF = (
+    PLAYGROUND
+    / ".workbench"
+    / "shift-instrumentation"
+    / "s6"
+    / "scratch"
+    / "base-symbolic.elf"
+)
+PW64_SYMBOLIC_MAP = (
+    PLAYGROUND
+    / ".workbench"
+    / "shift-instrumentation"
+    / "s6"
+    / "artifacts"
+    / "base-symbolic.map"
+)
+PW64_SYMBOLIC_IMAGE = PW64_SYMBOLIC_MAP.with_suffix(".z64")
+PW64_AUTO_SYMS = (
+    PW64_ROOT / "build" / "splat_out" / "us" / "undefined_syms_auto.txt"
+)
+
+_HAVE_PW64_S6_AUDIT = (
+    PW64_ELF.is_file()
+    and PW64_SYMBOLIC_MAP.is_file()
+    and PW64_SYMBOLIC_IMAGE.is_file()
+    and PW64_AUTO_SYMS.is_file()
+)
+
+#: S6 4.4(a). Ablation B deleted exactly these ten and rebuilt to the same
+#: sha1, which is what makes "deleting is free" a measurement rather than an
+#: argument.
+PW64_ABLATED_TEN = (
+    "D_80250E80",
+    "D_8034E710",
+    "D_803571F0",
+    "aspMainDataStart",
+    "aspMainTextStart",
+    "gspF3DEX_fifoDataStart",
+    "gspF3DEX_fifoTextStart",
+    "gspFast3DDataStart",
+    "gspFast3DTextStart",
+    "rspbootTextStart",
+)
+
+
+@unittest.skipUnless(
+    _HAVE_PW64_S6_AUDIT, f"S6 pilotwings64 artifacts not found near {PW64_ELF}"
+)
+class Pw64ShadowingPinConformanceTests(unittest.TestCase):
+    """The static half of WB-143, against the ten S6 found the hard way.
+
+    S6 identified these by relinking twice, diffing `nm -n` over both ELFs,
+    counting relocations with `readelf -r` across 307 objects, and rebuilding
+    twice more to prove the deletions were free. Every one of them is in the
+    shipped link's own symbol table, so `shift audit --elf` finds the same ten
+    from one build, no shift, and about a second of work.
+    """
+
+    audit: ClassVar[ShiftAudit]
+    without_elf: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        model = default_pin_model()
+        image = PW64_SYMBOLIC_IMAGE.read_bytes()
+        ldmap = read_ld_map(PW64_SYMBOLIC_MAP)
+        pins = read_pin_files((PW64_AUTO_SYMS,), model=model)
+        cls.without_elf = build_shift_audit(
+            ldmap=ldmap,
+            image=image,
+            pins=pins,
+            model=model,
+            blobs=PW64_BLOBS,
+            map_path=str(PW64_SYMBOLIC_MAP),
+            image_path=str(PW64_SYMBOLIC_IMAGE),
+        )
+        cls.audit = build_shift_audit(
+            ldmap=ldmap,
+            image=image,
+            pins=pins,
+            model=model,
+            blobs=PW64_BLOBS,
+            elf=read_elf_symbols(PW64_ELF),
+            map_path=str(PW64_SYMBOLIC_MAP),
+            image_path=str(PW64_SYMBOLIC_IMAGE),
+            elf_path=str(PW64_ELF),
+        )
+
+    def test_the_pin_file_is_the_37_lines_s6_enumerated(self) -> None:
+        self.assertEqual(len(self.audit.pins.entries), 37)
+
+    def test_exactly_the_ten_ablated_pins_are_flagged(self) -> None:
+        """Ten of ten, and no twenty-eighth: `D_803805E0` is the trap, since
+        its `extern` declaration gives it an `object` type with no size."""
+
+        found = self.audit.pins.by_classification(SHADOWING_PIN)
+        self.assertEqual(sorted(item.name for item in found), sorted(PW64_ABLATED_TEN))
+        self.assertEqual(self.audit.pins.counts[SHADOWING_PIN], 10)
+
+    def test_d_803571f0_is_among_them(self) -> None:
+        """The one word S6's rehearsal convicted, found with no shift."""
+
+        pin = next(
+            item
+            for item in self.audit.pins.by_classification(SHADOWING_PIN)
+            if item.name == "D_803571F0"
+        )
+        self.assertEqual(pin.value, 0x803571F0)
+        assert pin.reason is not None
+        self.assertIn("already defines", pin.reason)
+
+    def test_without_the_elf_all_ten_hide_among_the_artifact_suspects(self) -> None:
+        """What the map alone can say about them: they are kseg0 constants.
+        True, and strictly weaker than "an object already defines this"."""
+
+        self.assertEqual(self.without_elf.pins.counts[SHADOWING_PIN], 0)
+        self.assertIsNone(self.without_elf.elf_path)
+        suspects = {
+            item.name
+            for item in self.without_elf.pins.by_classification(ARTIFACT_SUSPECT)
+        }
+        self.assertTrue(set(PW64_ABLATED_TEN) <= suspects)
+
+    def test_the_ten_move_out_of_the_artifact_column_and_nothing_else_does(
+        self,
+    ) -> None:
+        before = self.without_elf.pins.counts
+        after = self.audit.pins.counts
+        self.assertEqual(after[ARTIFACT_SUSPECT], before[ARTIFACT_SUSPECT] - 10)
+        for name in (DERIVED, AUTHENTIC_FIXED, ROM_OFFSET, UNCLASSIFIED):
+            with self.subTest(classification=name):
+                self.assertEqual(after[name], before[name])
+
+    def test_the_report_prints_the_class_and_its_remediation(self) -> None:
+        text = "\n".join(shift_audit_lines(self.audit, limit=10))
+        self.assertIn("pins_shadowing=10", text)
+        self.assertIn("shadowing pins (10 of 10, --limit)", text)
+        self.assertIn("byte-identical at this layout", text)
+
+    def test_without_an_elf_the_report_says_off_rather_than_zero(self) -> None:
+        text = "\n".join(shift_audit_lines(self.without_elf, limit=10))
+        self.assertIn("pins_shadowing=off", text)
+        self.assertIn("--elf", text)
+
+    def test_the_command_runs_it_end_to_end(self) -> None:
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            status = main(
+                [
+                    "shift",
+                    "audit",
+                    "--map",
+                    str(PW64_SYMBOLIC_MAP),
+                    "--image",
+                    str(PW64_SYMBOLIC_IMAGE),
+                    "--elf",
+                    str(PW64_ELF),
+                    "--pins",
+                    str(PW64_AUTO_SYMS),
+                    *[item for blob in PW64_BLOBS for item in ("--blob", blob)],
+                    "--json",
+                    "--census",
+                    "pins_shadowing=10",
+                ]
+            )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["pins_shadowing"], 10)
+        self.assertEqual(payload["elf"], str(PW64_ELF))
+
+
+BK_ELF = BK_ROOT / "banjo.us.v10.elf"
+
+
+@unittest.skipUnless(
+    _HAVE_BK_PINS and BK_ELF.is_file(),
+    f"Banjo-Kazooie build artifacts not found under {BK_ROOT}",
+)
+class BkShadowingPinConformanceTests(unittest.TestCase):
+    """The negative result, and it is a real one.
+
+    Banjo-Kazooie ran a deliberate shiftability campaign: MR !52, merged two
+    days after its 100% announcement and authored by the N64Recomp author,
+    is titled *"Remove all undefined symbols (besides fixed address ones) and
+    fix bss/data migrations to allow shifting"*. If that landed, this project
+    should have no shadowing pins at all -- and it has none. The check is
+    worth running precisely because it can come back empty: a classifier that
+    only ever fires is not a classifier.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        model = default_pin_model()
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(BK_MAP),
+            image=BK_IMAGE.read_bytes(),
+            pins=read_pin_files(BK_PIN_FILES, model=model),
+            model=model,
+            auto_blobs=True,
+            elf=read_elf_symbols(BK_ELF),
+            map_path=str(BK_MAP),
+            image_path=str(BK_IMAGE),
+            elf_path=str(BK_ELF),
+        )
+
+    def test_no_pin_in_this_project_shadows_an_object_definition(self) -> None:
+        self.assertEqual(self.audit.pins.counts[SHADOWING_PIN], 0)
+
+    def test_the_other_classes_are_the_s7_scorecard_unchanged(self) -> None:
+        """Reading the ELF adds a class; it never moves one that was already
+        decided on other evidence."""
+
+        counts = self.audit.pins.counts
+        self.assertEqual(len(self.audit.pins.entries), 127)
+        self.assertEqual(counts[DERIVED], 6)
+        self.assertEqual(counts[ARTIFACT_SUSPECT], 84)
+        self.assertEqual(counts[ROM_OFFSET], 37)
+        self.assertEqual(counts[UNCLASSIFIED], 0)
+
+
+class ElfAuditWiringTests(unittest.TestCase):
+    """The synthetic half: the flag is optional, and off is not zero."""
+
+    def audit(self, *, elf: object | None = None) -> ShiftAudit:
+        model = default_pin_model()
+        return build_shift_audit(
+            ldmap=parse_ld_map(SYNTHETIC_MAP),
+            image=SYNTHETIC_IMAGE,
+            pins=PinCatalogue(
+                entries=parse_pin_text(
+                    "D_80000440 = 0x80000440;\n", path="syms.txt", model=model
+                ),
+                sources=("syms.txt",),
+            ),
+            model=model,
+            elf=elf,  # type: ignore[arg-type]
+            elf_path="game.elf" if elf is not None else None,
+        )
+
+    def test_no_elf_leaves_the_class_empty_and_the_path_null(self) -> None:
+        found = self.audit()
+        self.assertIsNone(found.elf_path)
+        self.assertEqual(found.pins.counts[SHADOWING_PIN], 0)
+        self.assertIsNone(found.as_dict(limit=5)["elf"])
+
+    def test_an_elf_that_shadows_the_pin_reclassifies_it(self) -> None:
+        elf = parse_elf_symbols(
+            build_elf(
+                sections=[(".main", 0x80000400, 0x80, 0x6)],
+                symbols=[("D_80000440", 0x80000440, 0x4, 1, 1, SHN_ABS)],
+            ),
+            path="game.elf",
+        )
+        found = self.audit(elf=elf)
+        self.assertEqual(found.pins.counts[SHADOWING_PIN], 1)
+        self.assertEqual(found.as_dict(limit=5)["pins_shadowing"], 1)
+        self.assertEqual(found.elf_path, "game.elf")
+
+    def test_a_bad_elf_is_refused_by_the_command_not_the_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "game.map").write_text(SYNTHETIC_MAP, encoding="utf-8")
+            (root / "game.z64").write_bytes(SYNTHETIC_IMAGE)
+            (root / "not.elf").write_bytes(b"\x80\x37\x12\x40" + bytes(64))
+            stderr = io.StringIO()
+            with redirect_stderr(stderr), redirect_stdout(io.StringIO()):
+                status = main(
+                    [
+                        "shift",
+                        "audit",
+                        "--map",
+                        str(root / "game.map"),
+                        "--image",
+                        str(root / "game.z64"),
+                        "--elf",
+                        str(root / "not.elf"),
+                    ]
+                )
+        self.assertEqual(status, 2)
+        self.assertIn("not an ELF file", stderr.getvalue())
 
 
 if __name__ == "__main__":

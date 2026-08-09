@@ -79,6 +79,13 @@ SCHEMAS: dict[str, str] = {
     "replay-as1": "decomp-workbench-pass-replay-v1",
     "score": "decomp-workbench-score-v1",
     "shift-audit": "decomp-workbench-shift-audit-v1",
+    # The faithful-cascade gate reads two links and answers one question, so
+    # it gets its own schema rather than a mode inside the rehearsal's: a
+    # consumer asking "did the config edit move anything" is not asking any
+    # of the rehearsal's questions.
+    "shift-config-verify": "decomp-workbench-shift-config-v1",
+    # The remediation queue. Reads the two schemas below and emits its own.
+    "shift-plan": "decomp-workbench-shift-plan-v1",
     # One schema, two shapes. An orchestration is a list of analyses plus the
     # comparison between them, told apart by `mode`, so a consumer that reads
     # one reads the other.

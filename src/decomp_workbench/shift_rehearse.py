@@ -76,7 +76,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .ldmap import LdMap, MovementAudit, SymbolMovement, audit_symbol_movement
+from .ldmap import (
+    ElfSymbols,
+    LdMap,
+    MovementAudit,
+    SymbolMovement,
+    audit_symbol_movement,
+)
 from .mips_refs import (
     GeneratedSpec,
     RangeModel,
@@ -97,7 +103,10 @@ from .shift_audit import (
 __all__ = [
     "CHECKSUM_RULES",
     "MERGE_TIERS",
+    "SHADOWING_PIN",
     "SHIFT_REHEARSE_SCHEMA",
+    "SYMBOL_RULES",
+    "SYMBOL_STALE",
     "WRAPPER_CONTRACT",
     "Anchor",
     "ChecksumRule",
@@ -108,6 +117,9 @@ __all__ = [
     "Rehearsal",
     "RunRecord",
     "StaleVerdict",
+    "SymbolCensus",
+    "SymbolFinding",
+    "SymbolRule",
     "build_rehearsal",
     "checksum_verdicts",
     "cross_delta_disagreements",
@@ -120,6 +132,7 @@ __all__ = [
     "parse_offsets",
     "reconcile",
     "rehearse_lines",
+    "symbol_census",
     "symbol_extent",
 ]
 
@@ -207,10 +220,23 @@ class Anchor:
     named one)."""
     symbol: str | None
     highest_unmoved: int | None
-    """The highest in-window VRAM a shared symbol kept. With `lowest_moved`
-    it brackets the true insertion point; a wide bracket means the maps place
-    no symbol near the pad and the derived anchor is the top of the range."""
+    """The highest in-window VRAM *any* shared symbol kept -- assignment
+    symbols included, unlike `lowest_moved` (WB-142). With `lowest_moved` it
+    normally brackets the true insertion point; a wide bracket means the maps
+    place no symbol near the pad.
+
+    It can also come out *above* `lowest_moved`, which is not a bracket
+    failure but a finding showing through: an absolute pin above the
+    insertion that the relink did not move is exactly what
+    ``symbol_stale``/``shadowing_pins`` count (pilotwings64 reports
+    ``0x803571f0`` here, the pin S6 convicted). Reported unrestricted for
+    that reason -- narrowing it to object-backed symbols would hide the one
+    shape worth seeing."""
+
     lowest_moved: int | None
+    """The lowest in-window VRAM an **object-backed** shared symbol moved
+    `delta` from: the auto anchor. See `derive_anchor` for why the
+    restriction."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -235,10 +261,41 @@ def derive_anchor(
     """Locate the insertion point, from a named symbol or from the two maps.
 
     Auto-derivation is the lowest VRAM at which shared symbols start
-    differing by `delta`, restricted to ``[window_lo, window_hi)``. The
-    restriction is not cosmetic: a cascade script's ``ABSOLUTE`` size symbols
-    grow by exactly delta too, and DKR's ``main_TEXT_SIZE`` sits at
-    ``0xd08e0`` -- the unrestricted minimum, and 2 GB away from the answer.
+    differing by `delta`, restricted twice: to ``[window_lo, window_hi)``,
+    and -- **WB-142** -- to symbols that are not linker-script assignments.
+
+    The window restriction is not cosmetic: a cascade script's ``ABSOLUTE``
+    size symbols grow by exactly delta too, and DKR's ``main_TEXT_SIZE`` sits
+    at ``0xd08e0`` -- the unrestricted minimum, and 2 GB away from the
+    answer.
+
+    **WB-142, filed from S6's pilotwings64 run (``s6/PW64-SHIFT-CONFIG.md``
+    §3.3).** ``--anchor auto`` refused there with *"the anchor VRAM
+    0x00001050 has no ROM placement in the base map"*, because splat emits
+    ``<seg>_ROM_START``/``_ROM_END`` for every segment unconditionally, those
+    hold small ROM offsets that look like low VRAM, and every one of them
+    above the pad grows by exactly delta. ``entry_ROM_END = 0x1050`` was the
+    numeric minimum, and the anchor derivation followed it out of the layout
+    entirely. S7's `~decomp_workbench.shift_audit.MOVABLE_FLOOR_MIN` has
+    since raised the window floor above every such value, so that exact
+    refusal no longer reproduces -- but the class it exposed is general, and
+    the fix belongs one level down from the window:
+
+    **an assignment names a boundary; only an object-backed symbol names a
+    byte.** The anchor is a byte -- the first one the pad moved -- and it has
+    to translate through an ``AT()`` placement to a ROM offset. A
+    ``<seg>_ROM_*`` symbol's value is a ROM offset already and translates to
+    nothing; a ``<seg>_SIZE`` symbol's value is a length; and even a perfectly
+    ordinary in-window boundary symbol collides with the insertion point from
+    the wrong side. pilotwings64 has six shared symbols at the true anchor
+    ``0x802000a0`` and five of them are assignments: without this restriction
+    the reported ``anchor_symbol`` is ``entry_BSS_END`` -- the *end of the
+    segment below the pad*, which reads as though the pad went in before the
+    entrypoint. With it, the answer is ``func_802000A0``, the first byte that
+    actually moved, and it agrees with the anchor S6 chose by hand
+    (``--anchor kernel_TEXT_START``, ``anchor_rom=0x1050``).
+
+    `highest_unmoved` stays unrestricted -- see `Anchor`.
 
     Raises `ValueError` rather than guessing: an anchor that is wrong by one
     word reclassifies the whole image, so there is no safe fallback.
@@ -254,7 +311,7 @@ def derive_anchor(
         if not window_lo <= placed.address < window_hi:
             continue
         movement = relinked.address - placed.address
-        if movement == delta:
+        if movement == delta and not placed.is_assignment:
             moved.append(placed.address)
         elif movement == 0:
             unmoved.append(placed.address)
@@ -270,16 +327,19 @@ def derive_anchor(
     else:
         if lowest_moved is None:
             raise ValueError(
-                f"no symbol inside the movable window "
+                f"no object-backed symbol inside the movable window "
                 f"[0x{window_lo:08x}, 0x{window_hi:08x}) moved by the declared "
-                f"delta 0x{delta:x}: either the delta is wrong or the two maps "
-                "do not describe the same relink"
+                f"delta 0x{delta:x}: either the delta is wrong, the two maps "
+                "do not describe the same relink, or this map places nothing "
+                "but linker-script assignments in its own window (WB-142 -- "
+                "pass --anchor <symbol> to name the insertion point yourself)"
             )
         vram, source = lowest_moved, "auto"
         named = min(
             name
             for name in shared
             if (placed := base.symbol(name)) is not None
+            and not placed.is_assignment
             and placed.address == lowest_moved
             and (relinked := shifted.symbol(name)) is not None
             and relinked.address - placed.address == delta
@@ -637,6 +697,260 @@ def reconcile(
 
 
 # ---------------------------------------------------------------------------
+# WB-143: the symbol-side census
+# ---------------------------------------------------------------------------
+
+#: A symbol naming an address the shift moved that did not move with it.
+SYMBOL_STALE = "symbol-stale"
+#: An absolute symbol that overrode an object's own definition of the same
+#: name. Spelled the same as :data:`decomp_workbench.pins.SHADOWING_PIN`, on
+#: purpose: the static audit and the rehearsal find the same defect from two
+#: directions and a plan that merges them must not have to translate.
+SHADOWING_PIN = "shadowing-pin"
+
+
+@dataclass(frozen=True)
+class SymbolRule:
+    """One published reason a symbol-side finding is classed where it is."""
+
+    name: str
+    evidence: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "evidence": self.evidence}
+
+
+#: The symbol-side rule table, shipped inside every report that carries a
+#: census. Two classes, tried in this order: a shadowing pin is a stale
+#: symbol with a *known* remediation, so naming it as one rather than folding
+#: it into the generic count is what lets `shift plan` rank it as a free win.
+SYMBOL_RULES: tuple[SymbolRule, ...] = (
+    SymbolRule(
+        SHADOWING_PIN,
+        "an absolute (SHN_ABS) symbol carrying a non-zero st_size: GNU ld "
+        "let a linker-script assignment override an object's definition of "
+        "the same name, silently, and kept the overridden definition's size "
+        "and type on the surviving symbol. The object still defines it, so "
+        "deleting the assignment is byte-identical at the current layout -- "
+        "S6 proved exactly that by ablation on pilotwings64's ten",
+    ),
+    SymbolRule(
+        SYMBOL_STALE,
+        "a symbol naming an address inside the range this shift moved, which "
+        "did not move by the delta. Every reference resolved through it now "
+        "points at whatever the relink put in its place",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SymbolFinding:
+    """One symbol the shift left behind, with the evidence it was judged on."""
+
+    name: str
+    value: int
+    shifted_value: int
+    kind: str
+    binding: str
+    size: int
+    absolute: bool
+    symbol_section: str | None
+    """The section the ELF says owns this symbol, or ``None`` for an absolute
+    one -- which is the point: an absolute symbol is owned by nothing and
+    therefore follows nothing."""
+
+    owning_section: str | None
+    """The section whose extent actually contains `value`. The evidence a
+    remediation is built from: a pin resolving into ``.app_bss`` needs a home
+    in ``.app_bss``, and one resolving into nothing at all is residue."""
+
+    classification: str
+
+    @property
+    def movement(self) -> int:
+        return self.shifted_value - self.value
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "shifted_value": self.shifted_value,
+            # Spelled `delta` rather than `movement`: the movement-audit rows
+            # above already use that key for the same quantity, and `movement`
+            # is taken by the anomaly list itself.
+            "delta": self.movement,
+            "kind": self.kind,
+            "binding": self.binding,
+            "size": self.size,
+            "absolute": self.absolute,
+            "symbol_section": self.symbol_section,
+            "owning_section": self.owning_section,
+            "classification": self.classification,
+        }
+
+
+@dataclass(frozen=True)
+class SymbolCensus:
+    """Every shared symbol above the insertion, judged against the relink.
+
+    **The instrument S6 measured the need for.** ``shift rehearse``'s
+    ``stale_confirmed`` is the *data-side* answer: it can only convict a word
+    the static scan read, and the scan does not read text regions, because a
+    MIPS address is split across a ``lui``/``%lo`` pair that no single word
+    carries (see :meth:`Rehearsal.stale_unattributed` and S6 §4.5). On
+    pilotwings64 that hid seven RSP-microcode pins, a kernel bss pin carrying
+    ten relocations, and the boot stack pointer -- every one of them consumed
+    only from code. The data side convicted exactly one word; the symbol side
+    finds thirteen more plus ten shadowing pins, and neither subsumes the
+    other.
+
+    This is the symbol-side answer, and it needs no scan at all: read both
+    ELFs' symbol tables and require that every shared symbol naming an
+    address the shift moved moved with it.
+    """
+
+    base_path: str | None
+    shifted_path: str | None
+    delta: int
+    range_lo: int
+    """The insertion VRAM. Exclusive -- see `symbol_census`."""
+
+    range_hi: int
+    """The movable window's high bound. Inclusive -- see `symbol_census`."""
+
+    checked: int
+    moved: int
+    findings: tuple[SymbolFinding, ...]
+    boundary_symbols: int
+    """Shared symbols sitting exactly *on* the insertion address, excluded
+    from the census and counted here rather than absorbed. Both answers are
+    correct at that one address at once and no rule can tell them apart --
+    see `symbol_census`."""
+
+    only_in_base: int
+    only_in_shifted: int
+
+    def by_classification(self, classification: str) -> tuple[SymbolFinding, ...]:
+        return tuple(
+            item for item in self.findings if item.classification == classification
+        )
+
+    @property
+    def symbol_stale(self) -> int:
+        return len(self.by_classification(SYMBOL_STALE))
+
+    @property
+    def shadowing_pins(self) -> int:
+        return len(self.by_classification(SHADOWING_PIN))
+
+    def as_dict(self, *, limit: int) -> dict[str, Any]:
+        shown = self.findings[: max(0, limit)]
+        return {
+            "base_elf": self.base_path,
+            "shifted_elf": self.shifted_path,
+            "symbol_range_lo": self.range_lo,
+            "symbol_range_hi": self.range_hi,
+            "symbol_checked": self.checked,
+            "symbol_moved": self.moved,
+            "symbol_stale": self.symbol_stale,
+            "shadowing_pins": self.shadowing_pins,
+            "symbol_boundary": self.boundary_symbols,
+            "symbol_only_in_base": self.only_in_base,
+            "symbol_only_in_shifted": self.only_in_shifted,
+            "symbol_findings_shown": len(shown),
+            "symbol_findings": [item.as_dict() for item in shown],
+            "symbol_rules": [item.as_dict() for item in SYMBOL_RULES],
+        }
+
+
+def symbol_census(
+    base: ElfSymbols,
+    shifted: ElfSymbols,
+    *,
+    delta: int,
+    anchor_vram: int,
+    window_hi: int,
+) -> SymbolCensus:
+    """Require every symbol above the insertion to move by `delta`.
+
+    The judged range is ``(anchor_vram, window_hi]`` -- open at the bottom
+    and closed at the top, and both ends are measured rather than chosen for
+    symmetry.
+
+    *Open at the bottom*, because the insertion address is the one address at
+    which both answers are right. pilotwings64's pad goes in at the end of
+    ``.entry``: ``entry_TEXT_END``, ``entry_DATA_START`` and four more sit at
+    ``0x802000a0`` and correctly do **not** move, because ``.entry``'s
+    contents did not grow -- while ``func_802000A0``, the first byte of
+    ``.kernel``, sits at the same address and correctly does. Nothing about a
+    symbol says which side of the pad it describes, so the address itself is
+    excluded and the symbols on it are counted in `boundary_symbols` rather
+    than reported as eight findings that are not findings.
+
+    *Closed at the top*, because ``window_hi`` is one past the last movable
+    byte and the symbol that names that boundary moves with it:
+    pilotwings64's ``app_BSS_END`` is at ``0x803805e0`` and moves, and so
+    does ``filetable_DATA_START`` beside it. The pin ``D_803805E0 =
+    0x803805E0`` -- which S6 identified as the heap base read by
+    ``src/kernel/memory.c`` -- sits on the same address and does not. A
+    half-open top bound would drop exactly that finding.
+    """
+
+    shared = base.names() & shifted.names()
+    checked = 0
+    moved = 0
+    boundary = 0
+    findings: list[SymbolFinding] = []
+    for name in sorted(shared):
+        placed = base.symbol(name)
+        relinked = shifted.symbol(name)
+        assert placed is not None and relinked is not None  # from shared names
+        if placed.value == anchor_vram:
+            boundary += 1
+            continue
+        if not anchor_vram < placed.value <= window_hi:
+            continue
+        checked += 1
+        if relinked.value - placed.value == delta:
+            moved += 1
+            continue
+        owner = base.section_at(placed.value)
+        findings.append(
+            SymbolFinding(
+                name=name,
+                value=placed.value,
+                shifted_value=relinked.value,
+                kind=placed.kind,
+                binding=placed.binding,
+                size=placed.size,
+                absolute=placed.is_absolute,
+                symbol_section=placed.section,
+                owning_section=owner.name if owner is not None else None,
+                classification=(
+                    SHADOWING_PIN if placed.shadows_definition else SYMBOL_STALE
+                ),
+            )
+        )
+    order = {item.name: index for index, item in enumerate(SYMBOL_RULES)}
+    findings.sort(
+        key=lambda item: (order.get(item.classification, len(order)), item.value)
+    )
+    return SymbolCensus(
+        base_path=base.path,
+        shifted_path=shifted.path,
+        delta=delta,
+        range_lo=anchor_vram,
+        range_hi=window_hi,
+        checked=checked,
+        moved=moved,
+        findings=tuple(findings),
+        boundary_symbols=boundary,
+        only_in_base=len(base.names() - shifted.names()),
+        only_in_shifted=len(shifted.names() - base.names()),
+    )
+
+
+# ---------------------------------------------------------------------------
 # The analysis
 # ---------------------------------------------------------------------------
 
@@ -660,6 +974,11 @@ class Rehearsal:
     census: WordCensus
     reconciliation: tuple[StaleVerdict, ...]
     checksums: tuple[ChecksumVerdict, ...]
+    symbols: SymbolCensus | None = None
+    """WB-143's symbol-side census, when the caller handed in both ELFs.
+    ``None`` when it did not -- and reported as ``symbol_census=off`` rather
+    than as zero findings, because "nobody asked" and "nothing found" are the
+    two answers this command exists to keep apart."""
 
     @property
     def movement_anomalies(self) -> tuple[SymbolMovement, ...]:
@@ -739,12 +1058,25 @@ class Rehearsal:
         return sum(1 for item in self.checksums if item.status != "pass")
 
     @property
+    def symbol_stale(self) -> int:
+        """The symbol-side headline. ``0`` when no census ran -- and
+        ``symbol_census`` says which zero it is."""
+
+        return 0 if self.symbols is None else self.symbols.symbol_stale
+
+    @property
+    def shadowing_pins(self) -> int:
+        return 0 if self.symbols is None else self.symbols.shadowing_pins
+
+    @property
     def findings(self) -> int:
         return (
             self.unexplained_changed
             + self.stale_confirmed
             + len(self.movement_anomalies)
             + self.checksum_findings
+            + self.symbol_stale
+            + self.shadowing_pins
         )
 
     def ranked_stale(self) -> tuple[StaleVerdict, ...]:
@@ -813,6 +1145,9 @@ class Rehearsal:
         }
         payload.update(self.anchor.as_dict())
         payload.update(self.window.as_dict())
+        payload["symbol_census"] = self.symbols is not None
+        if self.symbols is not None:
+            payload.update(self.symbols.as_dict(limit=cap))
         return payload
 
 
@@ -828,6 +1163,8 @@ def build_rehearsal(
     header_sections: Iterable[str] = (".header",),
     crc_words: Iterable[int] = (),
     checksum_pairs: Sequence[tuple[str, str]] = (),
+    base_elf: ElfSymbols | None = None,
+    shifted_elf: ElfSymbols | None = None,
     model: RangeModel | None = None,
     detail_cap: int = 200,
     base_map_path: str | None = None,
@@ -913,6 +1250,26 @@ def build_rehearsal(
         insertion=found_anchor.rom,
         delta=delta,
     )
+    # WB-143: the symbol side, only when the caller handed in both ELFs. One
+    # ELF alone cannot answer it -- movement is a two-link question -- and
+    # refusing here rather than half-running keeps `symbol_census=false` from
+    # ever meaning "you gave me one".
+    if (base_elf is None) != (shifted_elf is None):
+        raise ValueError(
+            "--base-elf and --shifted-elf go together: whether a symbol moved "
+            "is a question about two links, and one of them cannot answer it"
+        )
+    symbols = (
+        symbol_census(
+            base_elf,
+            shifted_elf,
+            delta=delta,
+            anchor_vram=found_anchor.vram,
+            window_hi=window.hi,
+        )
+        if base_elf is not None and shifted_elf is not None
+        else None
+    )
     return Rehearsal(
         base_map_path=base_map_path,
         base_image_path=base_image_path,
@@ -929,6 +1286,7 @@ def build_rehearsal(
         census=census,
         reconciliation=reconciliation,
         checksums=checksums,
+        symbols=symbols,
     )
 
 
@@ -1278,6 +1636,63 @@ def _named(symbol: str | None, offset: int | None) -> str:
     return symbol if not offset else f"{symbol}+0x{offset:x}"
 
 
+def _symbol_census_lines(found: SymbolCensus | None, *, limit: int) -> list[str]:
+    """Render WB-143's symbol-side census, or say why there is none."""
+
+    if found is None:
+        return [
+            "",
+            "symbol_census=off -- pass --base-elf and --shifted-elf to run it. "
+            "The data-side referee above can only judge words the static scan "
+            "read, and it does not read text: a reference consumed only from "
+            "a lui/%lo pair is invisible to it. The symbol census answers "
+            "that half, and on pilotwings64 it found 13x more blockers than "
+            "the data side did (S6 4.5).",
+        ]
+    lines = [
+        "",
+        f"symbol_census=on  symbol_checked={found.checked:,}  "
+        f"symbol_moved={found.moved:,}  symbol_stale={found.symbol_stale:,}  "
+        f"shadowing_pins={found.shadowing_pins:,}",
+        f"symbol_range=(0x{found.range_lo:08x}, 0x{found.range_hi:08x}]  "
+        f"symbol_boundary={found.boundary_symbols:,}  "
+        f"symbol_only_in_base={found.only_in_base:,}  "
+        f"symbol_only_in_shifted={found.only_in_shifted:,}",
+        "",
+        f"symbol findings ({min(len(found.findings), max(0, limit))} of "
+        f"{len(found.findings):,}, --limit)",
+    ]
+    lines.extend(
+        _table(
+            (
+                "name",
+                "value",
+                "shifted",
+                "class",
+                "kind",
+                "size",
+                "owning_section",
+            ),
+            [
+                (
+                    item.name,
+                    f"0x{item.value:08x}",
+                    f"0x{item.shifted_value:08x}",
+                    item.classification,
+                    item.kind,
+                    f"{item.size:,}",
+                    item.owning_section or "-",
+                )
+                for item in found.findings[: max(0, limit)]
+            ],
+        )
+    )
+    lines.append("")
+    for rule in SYMBOL_RULES:
+        lines.append(f"  {rule.name}: {rule.evidence}")
+    return lines
+
+
 def rehearse_lines(found: Rehearsal, *, limit: int) -> list[str]:
     """Render the human report: the same numbers `as_dict` carries."""
 
@@ -1288,7 +1703,13 @@ def rehearse_lines(found: Rehearsal, *, limit: int) -> list[str]:
         "",
         f"unexplained_changed={found.unexplained_changed:,}  "
         f"stale_confirmed={found.stale_confirmed:,}  "
-        f"findings={found.findings:,}",
+        + (
+            ""
+            if found.symbols is None
+            else f"symbol_stale={found.symbol_stale:,}  "
+            f"shadowing_pins={found.shadowing_pins:,}  "
+        )
+        + f"findings={found.findings:,}",
         "",
         f"anchor_vram=0x{anchor.vram:08x}  anchor_rom=0x{anchor.rom:06x}  "
         f"anchor_source={anchor.source}  anchor_symbol={anchor.symbol or '-'}  "
@@ -1457,6 +1878,8 @@ def rehearse_lines(found: Rehearsal, *, limit: int) -> list[str]:
             ],
         )
     )
+
+    lines.extend(_symbol_census_lines(found.symbols, limit=limit))
 
     lines.extend(
         (

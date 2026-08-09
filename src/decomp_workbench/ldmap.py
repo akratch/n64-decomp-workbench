@@ -1,4 +1,4 @@
-"""Read a GNU ``ld -Map`` file into addressable sections, records, and symbols.
+"""Read a linked project's symbols: from its ``ld -Map``, and from its ELF.
 
 S0's hand rehearsal (``shift-instrumentation/s0``, DKR ``us.v77``) proved the
 whole shiftability-audit concept by hand before any of this existed: shift a
@@ -65,11 +65,43 @@ scan does not:
   this parser does not carry as an input section. Deciding which is a job
   for the caller, with the symbols around the gap in evidence --
   :func:`audit_tiling` hands back the coordinates and nothing more.
+
+**The ELF half (WB-143).** A linker map answers "what name is at what
+address" and nothing else. S6's pilotwings64 experiment
+(``s6/PW64-SHIFT-CONFIG.md`` §4.4) needed three more facts per symbol, and
+none of them is printable in a map: whether a name is *object-backed* (owned
+by a real output section) or *absolute* (``SHN_ABS`` -- a linker-script
+assignment, which by construction cannot follow a layout), what the symbol's
+**size** is, and what its **type** is. `parse_elf_symbols` reads exactly
+those out of the linked ELF's ``.symtab``.
+
+The size field is the one that turned a hand experiment into a rule. When a
+linker-script assignment overrides an object's definition of the same name --
+splat's ``undefined_syms_auto.txt`` writing ``D_803571F0 = 0x803571F0;`` over
+the ``.bss`` object that already defines it -- GNU ld emits **one** symbol,
+typed ``SHN_ABS``, and *keeps the overridden definition's ``st_size`` and
+``st_type``*. So an absolute symbol carrying a non-zero size is an absolute
+symbol that shadowed a real definition, and that is visible in the shipped
+link with no ablation, no rebuild and no second ELF. Measured on pw64's
+37-pin ``undefined_syms_auto.txt``: exactly the ten pins S6 proved redundant
+by ablation carry a size (4 to 5,168 bytes), and the other twenty-seven carry
+zero. See `ElfSymbol.shadows_definition`.
+
+Parsing rather than shelling out to ``nm`` is a deliberate choice with one
+decisive reason: ``nm``'s default output does not carry ``st_size`` at all,
+which is the discriminator above. The flags that would print it
+(``--print-size``/``-S``) differ between GNU binutils and the llvm ``nm`` that
+ships on macOS, and either way a subprocess makes the answer depend on which
+cross-toolchain happens to be on ``PATH`` at audit time -- for a command whose
+whole point is reading a build somebody else produced. The parse is
+~60 lines of `struct`, has no dependency beyond the standard library, and is
+tested against a handcrafted ELF built byte by byte in the test module.
 """
 
 from __future__ import annotations
 
 import re
+import struct
 from bisect import bisect_right
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -78,6 +110,16 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "ELF_SYMBOL_BINDINGS",
+    "ELF_SYMBOL_KINDS",
+    "SHN_ABS",
+    "SHN_COMMON",
+    "SHN_LORESERVE",
+    "SHN_UNDEF",
+    "ElfFormatError",
+    "ElfSection",
+    "ElfSymbol",
+    "ElfSymbols",
     "InputSection",
     "LdMap",
     "LinkerSymbol",
@@ -87,7 +129,9 @@ __all__ = [
     "TilingGap",
     "audit_symbol_movement",
     "audit_tiling",
+    "parse_elf_symbols",
     "parse_ld_map",
+    "read_elf_symbols",
     "read_ld_map",
 ]
 
@@ -750,3 +794,320 @@ def audit_symbol_movement(
         only_in_base=tuple(sorted(base_names - shifted_names)),
         only_in_shifted=tuple(sorted(shifted_names - base_names)),
     )
+
+
+# ---------------------------------------------------------------------------
+# The ELF symbol table (WB-143)
+# ---------------------------------------------------------------------------
+
+#: ``st_shndx`` for a symbol the link never resolved to a section.
+SHN_UNDEF = 0
+#: The first reserved section index. Anything at or above it is a special
+#: value rather than an index into the section header table.
+SHN_LORESERVE = 0xFF00
+#: An absolute symbol: a value, not a place. Every linker-script assignment
+#: that survives into the output lands here, which is why this index is the
+#: whole point of reading the ELF at all -- see the module docstring.
+SHN_ABS = 0xFFF1
+#: A common (tentative) definition the link did not allocate.
+SHN_COMMON = 0xFFF2
+
+#: ``ELF32_ST_TYPE`` values, named. Reported as the word rather than the
+#: number because a report a human reads should not need a table open beside
+#: it; unknown values are rendered as ``type-N`` rather than dropped.
+ELF_SYMBOL_KINDS: dict[int, str] = {
+    0: "notype",
+    1: "object",
+    2: "func",
+    3: "section",
+    4: "file",
+    5: "common",
+    6: "tls",
+}
+
+#: ``ELF32_ST_BIND`` values, named, on the same terms.
+ELF_SYMBOL_BINDINGS: dict[int, str] = {0: "local", 1: "global", 2: "weak"}
+
+#: Symbol kinds this reader drops. A ``file`` symbol names a translation unit
+#: and a ``section`` symbol names a section: neither places a name at an
+#: address a project can pin, reference, or shift, and both arrive at value
+#: ``0`` in ``SHN_ABS`` (``file``) or duplicate a section start (``section``)
+#: where they would only add noise to a name-keyed census.
+_ELF_SKIPPED_KINDS = frozenset({"file", "section"})
+
+_ELF_MAGIC = b"\x7fELF"
+_ELFCLASS32 = 1
+_ELFDATA2MSB = 2
+_SHT_SYMTAB = 2
+_SHF_ALLOC = 0x2
+#: One ``Elf32_Sym`` is 16 bytes: name, value, size, info, other, shndx.
+_ELF32_SYM_SIZE = 16
+
+
+class ElfFormatError(ValueError):
+    """The file is not the big-endian 32-bit ELF this reader was written for.
+
+    A subclass of `ValueError` so that every command in the shift family --
+    all of which already funnel `ValueError` into one ``error:`` line --
+    reports a bad ``--elf`` the same way they report a bad ``--map``, without
+    a second except clause per call site.
+    """
+
+
+@dataclass(frozen=True)
+class ElfSection:
+    """One ELF section header: enough of it to own an address."""
+
+    name: str
+    address: int
+    size: int
+    allocated: bool
+    """Whether ``SHF_ALLOC`` is set -- whether this section is really in the
+    running image. Debug and symbol-table sections are not, and a symbol
+    "owned" by one of them owns no run-time address."""
+
+    @property
+    def end(self) -> int:
+        return self.address + self.size
+
+    def contains(self, address: int) -> bool:
+        if self.size == 0:
+            return address == self.address
+        return self.address <= address < self.end
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "address": self.address,
+            "size": self.size,
+            "allocated": self.allocated,
+        }
+
+
+@dataclass(frozen=True)
+class ElfSymbol:
+    """One ``.symtab`` entry, with the three facts a map cannot print."""
+
+    name: str
+    value: int
+    size: int
+    kind: str
+    """One of `ELF_SYMBOL_KINDS`' values, or ``type-N`` for an unknown one."""
+
+    binding: str
+    """One of `ELF_SYMBOL_BINDINGS`' values, or ``bind-N``."""
+
+    section_index: int
+    section: str | None
+    """The owning section's name, or ``None`` when `section_index` is a
+    reserved value (`SHN_ABS`, `SHN_UNDEF`, `SHN_COMMON`) and there is no
+    section to name."""
+
+    @property
+    def is_absolute(self) -> bool:
+        return self.section_index == SHN_ABS
+
+    @property
+    def is_undefined(self) -> bool:
+        return self.section_index == SHN_UNDEF
+
+    @property
+    def is_object_backed(self) -> bool:
+        """Whether a real output section owns this symbol.
+
+        The property the shift question turns on: an object-backed symbol
+        moves when its section moves, by construction, and an absolute one
+        cannot.
+        """
+
+        return 0 < self.section_index < SHN_LORESERVE
+
+    @property
+    def shadows_definition(self) -> bool:
+        """Whether this absolute symbol overrode an object's definition.
+
+        The WB-143 rule, and the evidence behind it is `size`. GNU ld lets a
+        linker-script assignment win over an object that defines the same
+        name -- silently, with no warning -- and emits one ``SHN_ABS`` symbol
+        that *keeps the losing definition's* ``st_size`` and ``st_type``. A
+        pin that never had an object behind it has nothing to inherit and
+        arrives ``notype``, size ``0``.
+
+        Measured on pilotwings64's ``undefined_syms_auto.txt`` (S6 §4.4):
+        exactly the ten pins whose deletion ablation B proved byte-identical
+        carry a size here, and none of the other twenty-seven does. Zero
+        false positives and zero misses against a hand-derived ground truth
+        of ten.
+        """
+
+        return self.is_absolute and self.size > 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "size": self.size,
+            "kind": self.kind,
+            "binding": self.binding,
+            "section": self.section,
+        }
+
+
+@dataclass
+class ElfSymbols:
+    """One linked ELF's symbol table and the sections its symbols live in.
+
+    Not frozen for the same reason `LdMap` is not: `__post_init__` builds the
+    name index once, and a whole-project census asks this thousands of times.
+    """
+
+    path: str | None
+    sections: tuple[ElfSection, ...]
+    symbols: tuple[ElfSymbol, ...]
+
+    def __post_init__(self) -> None:
+        by_name: dict[str, ElfSymbol] = {}
+        for symbol in self.symbols:
+            # Last write wins, the same rule `LdMap` applies and for the same
+            # reason: a real symbol table carries repeated local names (pw64's
+            # carries 24 `_MACRO_INC_GUARD` rows), and a name-keyed lookup has
+            # to answer with one of them rather than refuse.
+            by_name[symbol.name] = symbol
+        self._by_name: dict[str, ElfSymbol] = by_name
+
+    def symbol(self, name: str) -> ElfSymbol | None:
+        return self._by_name.get(name)
+
+    def names(self) -> frozenset[str]:
+        return frozenset(self._by_name)
+
+    def section_at(self, address: int) -> ElfSection | None:
+        """The smallest allocated section whose extent holds ``address``.
+
+        Smallest-first for the same reason :meth:`LdMap.section_containing`
+        picks that way -- and with the same honesty caveat: an N64 overlay
+        group places several sections at one address as alternatives, and no
+        tie-break makes one of them the right answer.
+        """
+
+        candidates = [
+            item
+            for item in self.sections
+            if item.allocated and item.contains(address)
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: (item.size, item.address))
+
+
+def parse_elf_symbols(data: bytes, *, path: str | None = None) -> ElfSymbols:
+    """Parse one big-endian ELF32's ``.symtab`` into named, typed symbols.
+
+    Refuses anything that is not a big-endian 32-bit ELF rather than reading
+    a plausible-looking number out of the wrong offsets -- the same rule
+    :func:`~decomp_workbench.shift_audit.require_parsed_map` applies to a
+    file handed in as ``--map``. An ELF with no ``.symtab`` (a stripped
+    image) is refused too, with the reason named: a stripped link cannot
+    answer this command's question and reporting an empty census for it
+    would be a confident wrong answer.
+    """
+
+    if len(data) < 52 or data[:4] != _ELF_MAGIC:
+        raise ElfFormatError(
+            f"{path or 'input'} is not an ELF file (bad magic): --elf wants the "
+            "linked ELF your `ld` produced, not the image or the map"
+        )
+    if data[4] != _ELFCLASS32:
+        raise ElfFormatError(
+            f"{path or 'input'}: only 32-bit ELF (EI_CLASS=1) is supported, "
+            f"got class {data[4]}"
+        )
+    if data[5] != _ELFDATA2MSB:
+        raise ElfFormatError(
+            f"{path or 'input'}: only big-endian ELF (EI_DATA=2) is supported, "
+            f"got data encoding {data[5]}"
+        )
+
+    endian = ">"
+    (e_shoff,) = struct.unpack_from(endian + "I", data, 0x20)
+    e_shentsize, e_shnum, e_shstrndx = struct.unpack_from(endian + "HHH", data, 0x2E)
+    if e_shoff == 0 or e_shnum == 0:
+        raise ElfFormatError(f"{path or 'input'} carries no section header table")
+
+    def header(index: int) -> tuple[int, int, int, int, int, int, int]:
+        offset = e_shoff + index * e_shentsize
+        name, kind, flags, address, file_offset, size, link = struct.unpack_from(
+            endian + "7I", data, offset
+        )
+        return name, kind, flags, address, file_offset, size, link
+
+    def string_at(table_offset: int, table_size: int, index: int) -> str:
+        start = table_offset + index
+        end = data.find(b"\x00", start, table_offset + table_size)
+        if end < 0:
+            end = table_offset + table_size
+        return data[start:end].decode("ascii", errors="replace")
+
+    _, _, _, _, shstr_offset, shstr_size, _ = header(e_shstrndx)
+    sections: list[ElfSection] = []
+    symtab: tuple[int, int, int] | None = None
+    for index in range(e_shnum):
+        name, kind, flags, address, file_offset, size, link = header(index)
+        sections.append(
+            ElfSection(
+                name=string_at(shstr_offset, shstr_size, name),
+                address=address,
+                size=size,
+                allocated=bool(flags & _SHF_ALLOC),
+            )
+        )
+        if kind == _SHT_SYMTAB and symtab is None:
+            symtab = (file_offset, size, link)
+
+    if symtab is None:
+        raise ElfFormatError(
+            f"{path or 'input'} carries no .symtab: this ELF is stripped, and a "
+            "stripped link cannot answer which of its symbols are absolute"
+        )
+
+    sym_offset, sym_size, str_index = symtab
+    _, _, _, _, str_offset, str_size, _ = header(str_index)
+    symbols: list[ElfSymbol] = []
+    for index in range(sym_size // _ELF32_SYM_SIZE):
+        offset = sym_offset + index * _ELF32_SYM_SIZE
+        st_name, st_value, st_size, st_info, _st_other, st_shndx = struct.unpack_from(
+            endian + "IIIBBH", data, offset
+        )
+        symbol_name = string_at(str_offset, str_size, st_name)
+        if not symbol_name:
+            continue
+        symbol_kind = ELF_SYMBOL_KINDS.get(st_info & 0xF, f"type-{st_info & 0xF}")
+        if symbol_kind in _ELF_SKIPPED_KINDS:
+            continue
+        owner = (
+            sections[st_shndx].name
+            if 0 < st_shndx < SHN_LORESERVE and st_shndx < len(sections)
+            else None
+        )
+        symbols.append(
+            ElfSymbol(
+                name=symbol_name,
+                value=st_value,
+                size=st_size,
+                kind=symbol_kind,
+                binding=ELF_SYMBOL_BINDINGS.get(
+                    st_info >> 4, f"bind-{st_info >> 4}"
+                ),
+                section_index=st_shndx,
+                section=owner,
+            )
+        )
+    return ElfSymbols(
+        path=path, sections=tuple(sections), symbols=tuple(symbols)
+    )
+
+
+def read_elf_symbols(path: str | Path) -> ElfSymbols:
+    """Read and parse one linked ELF's symbol table from disk."""
+
+    return parse_elf_symbols(Path(path).read_bytes(), path=str(path))

@@ -146,6 +146,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "shift": (
         ("audit", "inventory where a linked project's addresses come from"),
         ("rehearse", "relink against a padded script and explain every changed word"),
+        ("config", "prove a linker-config edit reproduces the shipped link exactly"),
+        ("plan", "merge the reports into one ranked, gated remediation queue"),
     ),
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),

@@ -579,6 +579,13 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric("schema", "schema", "report schema identity"),
     Metric("map", "map", "the linked `ld -Map` file the report was read from"),
     Metric("image", "image", "the linked image the map describes"),
+    Metric(
+        "elf",
+        "elf",
+        "WB-143: the linked ELF the shadowing-pin check read, or null when "
+        "--elf was not passed. Null and `pins_shadowing=0` are different "
+        "answers: not asked, versus none found",
+    ),
     Metric("image_bytes", "image_bytes", "size of that image"),
     Metric(
         "max_placed_extent",
@@ -745,6 +752,15 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "every run-time RAM window and inside the extent the map placed. "
         "Remediable by symbolizing against the linker's own "
         "<segment>_ROM_START/_ROM_END symbols",
+    ),
+    Metric(
+        "pins_shadowing",
+        "pins_shadowing",
+        "WB-143: absolute pins an object in the linked ELF already defines -- "
+        "the script assignment overrode that definition silently, and the "
+        "surviving absolute symbol kept the losing definition's size, which "
+        "is the evidence. Deleting one is byte-identical at the current "
+        "layout. Only reported when --elf was passed",
     ),
     Metric(
         "pins_unclassified",
@@ -1063,6 +1079,104 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "unexplained words plus confirmed stale words plus movement "
         "anomalies plus checksum findings",
     ),
+    # ------------------------------------------------------------------
+    # WB-143's symbol-side census (``shift rehearse analyze --base-elf
+    # --shifted-elf``). The word census above asks what the *bytes* did; this
+    # asks what the *names* did, and neither subsumes the other -- a
+    # reference consumed only from a lui/%lo pair in text never appears as
+    # one address-shaped word, so the data side structurally cannot see it.
+    # ------------------------------------------------------------------
+    Metric(
+        "symbol_census",
+        "symbol_census",
+        "whether the symbol-side census ran at all: false when no ELF pair "
+        "was handed in, which is a different answer from finding nothing",
+    ),
+    Metric("base_elf", "base_elf", "the unshifted link's ELF"),
+    Metric("shifted_elf", "shifted_elf", "the relinked build's ELF"),
+    Metric(
+        "symbol_range_lo",
+        "symbol_range_lo",
+        "the insertion VRAM; the census judges symbols strictly above it, "
+        "because the insertion address itself carries both a boundary that "
+        "correctly stays and content that correctly moves",
+    ),
+    Metric(
+        "symbol_range_hi",
+        "symbol_range_hi",
+        "the movable window's high bound, judged inclusively: the symbol "
+        "naming the end of the last bss section moves with it",
+    ),
+    Metric("symbol_checked", "symbol_checked", "shared symbols inside that range"),
+    Metric("symbol_moved", "symbol_moved", "of those, the ones that moved by delta"),
+    Metric(
+        "symbol_stale",
+        "symbol_stale",
+        "the symbol-side headline: symbols naming an address the shift moved "
+        "that did not move with it. Every reference resolved through one now "
+        "points at whatever the relink put there",
+    ),
+    Metric(
+        "shadowing_pins",
+        "shadowing_pins",
+        "stale symbols with a known free remediation: an absolute symbol that "
+        "overrode an object's own definition of the same name. Counted apart "
+        "from symbol_stale so a plan can rank them as free wins",
+    ),
+    Metric(
+        "symbol_boundary",
+        "symbol_boundary",
+        "shared symbols sitting exactly on the insertion address, excluded "
+        "from the census and counted rather than absorbed: both answers are "
+        "correct there at once",
+    ),
+    Metric(
+        "symbol_only_in_base",
+        "symbol_only_in_base",
+        "names the base ELF defines and the relink lost",
+    ),
+    Metric(
+        "symbol_only_in_shifted",
+        "symbol_only_in_shifted",
+        "names the relink gained",
+    ),
+    Metric(
+        "symbol_findings",
+        "symbol_findings",
+        "the ranked symbol-side finding list, capped at --limit",
+    ),
+    Metric(
+        "symbol_findings_shown",
+        "symbol_findings_shown",
+        "rows the symbol-finding list carries",
+    ),
+    Metric(
+        "symbol_rules",
+        "symbol_rules",
+        "the published symbol-side rule table, with the evidence behind each "
+        "class",
+    ),
+    Metric(
+        "absolute",
+        "absolute",
+        "whether the ELF types this symbol SHN_ABS: a value, not a place",
+    ),
+    Metric(
+        "symbol_section",
+        "symbol_section",
+        "the section the ELF says owns a symbol, or null for an absolute one",
+    ),
+    Metric(
+        "owning_section",
+        "owning_section",
+        "the section whose extent actually contains a symbol's value -- the "
+        "home a migration would give it",
+    ),
+    Metric(
+        "binding",
+        "binding",
+        "the ELF symbol binding: local, global, or weak",
+    ),
     Metric("wrapper", "wrapper", "the relink script the driver invoked"),
     Metric("ld_script", "ld_script", "the linker script a run was linked with"),
     Metric(
@@ -1092,6 +1206,242 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     ),
     Metric("disagreements", "disagreements", "every count the deltas differed on"),
     Metric("values", "values", "that count, per delta"),
+    # ------------------------------------------------------------------
+    # The faithful-cascade gate (``shift config verify``). S6's Gate 2 as
+    # three checks: symbols, sections, bytes -- in that strength order,
+    # because a byte-identical image can coexist with a symbol that moved
+    # into a hole and only the first check sees that.
+    # ------------------------------------------------------------------
+    Metric("pinned_map", "pinned_map", "the `ld -Map` of the link shipped today"),
+    Metric(
+        "candidate_map",
+        "candidate_map",
+        "the `ld -Map` of the link the configuration edit produces",
+    ),
+    Metric("pinned_image", "pinned_image", "the shipped link's image, when given"),
+    Metric(
+        "candidate_image", "candidate_image", "the candidate link's image, when given"
+    ),
+    Metric(
+        "allowed_deltas",
+        "allowed_deltas",
+        "the movement a pair is allowed; {0} for a faithful pair, which is "
+        "the one number separating this gate from a shift rehearsal",
+    ),
+    Metric(
+        "shared_symbols",
+        "shared_symbols",
+        "names both links define; the population the movement check ran over",
+    ),
+    Metric(
+        "candidate_image_bytes",
+        "candidate_image_bytes",
+        "size of the candidate link's image; a faithful pair's two sizes are "
+        "equal, and an unequal pair is reported rather than compared anyway",
+    ),
+    Metric(
+        "symbols_moved",
+        "symbols_moved",
+        "shared symbols the two links place at different addresses; a "
+        "faithful pair has none",
+    ),
+    Metric(
+        "symbols_only_in_pinned",
+        "symbols_only_in_pinned",
+        "names the shipped link defines and the candidate lost",
+    ),
+    Metric(
+        "symbols_only_in_candidate",
+        "symbols_only_in_candidate",
+        "names the candidate link gained",
+    ),
+    Metric(
+        "moved_symbols",
+        "moved_symbols",
+        "the divergent-symbol list in the pinned map's address order, capped "
+        "at --limit; the first row is the one to debug",
+    ),
+    Metric("moved_symbols_shown", "moved_symbols_shown", "rows that list carries"),
+    Metric("shared_sections", "shared_sections", "output sections both maps place"),
+    Metric(
+        "sections_diverged",
+        "sections_diverged",
+        "sections placed at a different VMA, size, or AT() load address",
+    ),
+    Metric(
+        "sections_only_in_pinned",
+        "sections_only_in_pinned",
+        "sections the shipped link places and the candidate does not",
+    ),
+    Metric(
+        "sections_only_in_candidate",
+        "sections_only_in_candidate",
+        "sections the candidate link added",
+    ),
+    Metric(
+        "section_divergences",
+        "section_divergences",
+        "one row per divergent section: which field differed and both values",
+    ),
+    Metric("field", "field", "which placement field of a section differed"),
+    Metric("pinned", "pinned", "that field's value in the shipped link"),
+    Metric("candidate", "candidate", "that field's value in the candidate link"),
+    Metric(
+        "image_checked",
+        "image_checked",
+        "whether an image pair was supplied at all: false is 'not asked', "
+        "not 'identical'",
+    ),
+    Metric(
+        "image_identical",
+        "image_identical",
+        "whether the two images are byte-identical; null when none was given",
+    ),
+    Metric(
+        "image_first_difference",
+        "image_first_difference",
+        "the first byte offset at which the two images differ, or null",
+    ),
+    Metric(
+        "differences",
+        "differences",
+        "every reason this pair is not faithful, counted once each",
+    ),
+    Metric(
+        "faithful",
+        "faithful",
+        "the gate: the candidate link reproduces the shipped one exactly. "
+        "Exit 0 when true, 3 when false",
+    ),
+    Metric(
+        "faithful_checks",
+        "faithful_checks",
+        "the published check table: what each of the three catches that the "
+        "others do not",
+    ),
+    # ------------------------------------------------------------------
+    # The remediation queue (``shift plan``).
+    # ------------------------------------------------------------------
+    Metric("audit_report", "audit_report", "the `shift audit` report read"),
+    Metric(
+        "rehearse_reports",
+        "rehearse_reports",
+        "the `shift rehearse` reports read, in the order given",
+    ),
+    Metric("plan_total", "plan_total", "items in the queue; things to do, not "
+        "times they were mentioned -- one subject in one class is one item"),
+    Metric(
+        "plan_convictions",
+        "plan_convictions",
+        "items a real relink demonstrated rather than a static scan "
+        "suspected; they lead the queue",
+    ),
+    Metric(
+        "plan_free_wins",
+        "plan_free_wins",
+        "delete-redundant-pin items: an object already defines the symbol, so "
+        "the fix changes no bytes at the current layout",
+    ),
+    Metric(
+        "plan_derive_pin",
+        "plan_derive_pin",
+        "items whose pinned value is a boundary the linker already computes",
+    ),
+    Metric(
+        "plan_migrate_symbol",
+        "plan_migrate_symbol",
+        "items needing a section home: real work, still match-preserving",
+    ),
+    Metric(
+        "plan_investigate",
+        "plan_investigate",
+        "items with evidence but no remediation the reports can derive",
+    ),
+    Metric(
+        "plan_dual_spelling",
+        "plan_dual_spelling",
+        "items naming what this instrumentation structurally cannot judge: "
+        "references split across a lui/%lo or lui/ori pair",
+    ),
+    Metric(
+        "plan_whitelist",
+        "plan_whitelist",
+        "items whose fix is a written reason rather than a code change",
+    ),
+    Metric(
+        "plan_structural",
+        "plan_structural",
+        "items parked with a named reason: overlay windows and opaque blobs",
+    ),
+    Metric("plan_by_class", "plan_by_class", "queue items per remediation class"),
+    Metric(
+        "plan_by_source",
+        "plan_by_source",
+        "queue items per report source that named them",
+    ),
+    Metric(
+        "plan_sections",
+        "plan_sections",
+        "working items per owning section: the locality a maintainer fixes "
+        "one file at a time",
+    ),
+    Metric(
+        "plan_capped",
+        "plan_capped",
+        "report lists whose --limit cut them short. A plan built from a capped "
+        "report describes part of the work and says which part",
+    ),
+    Metric("plan_items", "plan_items", "the ranked queue, capped at --limit"),
+    Metric("plan_shown", "plan_shown", "rows the queue actually carries"),
+    Metric(
+        "remediation_classes",
+        "remediation_classes",
+        "the published class table: what each fix is, and how it is gated",
+    ),
+    Metric(
+        "plan_rules",
+        "plan_rules",
+        "the published routing table: every path a finding takes from a "
+        "report into the queue, and why it lands in the class it does",
+    ),
+    Metric("subject", "subject", "what one queue item is about"),
+    Metric("title", "title", "the one-line instruction for one queue item"),
+    Metric("remediation", "remediation", "the class one queue item belongs to"),
+    Metric(
+        "remediation_kind",
+        "remediation_kind",
+        "match-preserving, conviction, declaration, or parked",
+    ),
+    Metric(
+        "conviction",
+        "conviction",
+        "whether a relink demonstrated this item, rather than a scan "
+        "suspecting it",
+    ),
+    Metric(
+        "exemplar",
+        "exemplar",
+        "whether this item's value is exactly an address the linker already "
+        "computes -- an arithmetic identity rather than an argued one. "
+        "Exemplars lead their class",
+    ),
+    Metric("sources", "sources", "the report halves that named one item"),
+    Metric(
+        "matched_rules",
+        "matched_rules",
+        "the plan_rules entries that placed one item; spelled apart from the "
+        "audit's own `rules` because that key already names the suppressor "
+        "table and one spelling cannot mean two tables",
+    ),
+    Metric(
+        "gates",
+        "gates",
+        "the exact commands to run after one item's fix; a fix with no gate "
+        "is a hope",
+    ),
+    Metric("section", "section", "the section whose extent owns one item's address"),
+    Metric("rank", "rank", "a remediation class's position in queue order"),
+    Metric("gate", "gate", "what to run after a class's fix, in prose"),
 )
 
 # Keys a command wraps around a report rather than measures. They answer

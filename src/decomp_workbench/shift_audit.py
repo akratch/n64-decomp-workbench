@@ -191,16 +191,18 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .ldmap import LdMap
+from .ldmap import ElfSymbols, LdMap
 from .mips_refs import RangeModel, alignment
 from .pins import (
     ARTIFACT_SUSPECT,
     AUTHENTIC_FIXED,
     DERIVED,
     ROM_OFFSET,
+    SHADOWING_PIN,
     UNCLASSIFIED,
     PinCatalogue,
     reclassify_rom_offsets,
+    reclassify_shadowing_pins,
     whitelist_template_text,
 )
 
@@ -1391,6 +1393,11 @@ class ShiftAudit:
     blobs: BlobPlan = BlobPlan(
         applied=(), source=BLOB_SOURCE_NONE, suggestions=(), excluded=()
     )
+    elf_path: str | None = None
+    """The linked ELF WB-143b's shadowing check read, or ``None`` when
+    ``--elf`` was not passed. Reported either way, because
+    ``pins_shadowing=0`` with no ELF means "not asked" and with one means
+    "none found"."""
 
     def whitelist_template(self) -> str:
         """The skeleton `--emit-whitelist` writes, from this run's evidence."""
@@ -1463,6 +1470,7 @@ class ShiftAudit:
             "schema": SHIFT_AUDIT_SCHEMA,
             "map": self.map_path,
             "image": self.image_path,
+            "elf": self.elf_path,
             "image_bytes": self.image_bytes,
             "region_count": len(self.regions),
             "regions": [item.as_dict() for item in self.regions],
@@ -1499,8 +1507,10 @@ def build_shift_audit(
     auto_blobs: bool = False,
     excluded_blobs: Iterable[str] = (),
     header_sections: Iterable[str] = (".header",),
+    elf: ElfSymbols | None = None,
     map_path: str | None = None,
     image_path: str | None = None,
+    elf_path: str | None = None,
 ) -> ShiftAudit:
     """Read one project's map, image, and pins into a single inventory.
 
@@ -1533,18 +1543,26 @@ def build_shift_audit(
     )
     window = movable_window(regions)
     hits = scan_regions(image, regions, window=window, ldmap=ldmap, model=model)
+    classified = reclassify_rom_offsets(
+        pins, model=model, rom_extent=consistency.max_placed_extent
+    )
+    if elf is not None:
+        # WB-143b runs last, because its evidence outranks every window-based
+        # answer the two passes above could give: "an object already defines
+        # this" is a stronger statement about a pin than "it is a kseg0
+        # constant", and it comes with a remediation that costs nothing.
+        classified = reclassify_shadowing_pins(classified, elf=elf)
     return ShiftAudit(
         map_path=map_path,
         image_path=image_path,
         image_bytes=len(image),
         regions=regions,
         window=window,
-        pins=reclassify_rom_offsets(
-            pins, model=model, rom_extent=consistency.max_placed_extent
-        ),
+        pins=classified,
         hits=hits,
         consistency=consistency,
         blobs=plan,
+        elf_path=elf_path if elf_path is not None else (elf.path if elf else None),
     )
 
 
@@ -1585,7 +1603,8 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
         "-" if consistency.padding_bytes is None else f"{consistency.padding_bytes:,}"
     )
     lines = [
-        f"shift audit  map={found.map_path or '-'}  image={found.image_path or '-'}",
+        f"shift audit  map={found.map_path or '-'}  image={found.image_path or '-'}  "
+        f"elf={found.elf_path or '-'}",
         "",
         f"image_bytes={found.image_bytes:,}  region_count={len(found.regions)}  "
         f"scanned_words={found.scanned_words:,}  "
@@ -1662,12 +1681,23 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             f"pins_authentic={counts[AUTHENTIC_FIXED]:,}  "
             f"pins_artifact={counts[ARTIFACT_SUSPECT]:,}  "
             f"pins_rom_offset={counts[ROM_OFFSET]:,}  "
-            f"pins_unclassified={counts[UNCLASSIFIED]:,}",
+            f"pins_shadowing="
+            + ("off" if found.elf_path is None else f"{counts[SHADOWING_PIN]:,}")
+            + f"  pins_unclassified={counts[UNCLASSIFIED]:,}",
         )
     )
     for source in found.pins.sources:
         lines.append(f"  pin_sources: {source}")
+    if found.elf_path is None:
+        lines.append(
+            "  pins_shadowing is off: pass --elf <linked ELF> to find pins an "
+            "object already defines. GNU ld lets a script assignment override "
+            "an object's definition silently, and the surviving absolute "
+            "symbol keeps the losing definition's size -- which is what makes "
+            "the check exact, and free (WB-143)."
+        )
     for classification, heading in (
+        (SHADOWING_PIN, "shadowing pins"),
         (ARTIFACT_SUSPECT, "artifact-suspect pins"),
         (ROM_OFFSET, "rom-offset pins"),
     ):
@@ -1701,6 +1731,13 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             "  rom-offset pins address the cartridge image, not memory. "
             "Symbolize them against the linker's own "
             "<segment>_ROM_START/_ROM_END symbols and they follow the layout."
+        )
+    if found.pins.by_classification(SHADOWING_PIN):
+        lines.append(
+            "  shadowing pins are already defined by an object in this link: "
+            "the script's assignment overrode that definition silently. "
+            "Deleting the pin is byte-identical at this layout and the "
+            "object's own definition then follows the layout for free."
         )
 
     lines.extend(

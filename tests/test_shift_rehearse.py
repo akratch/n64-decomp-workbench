@@ -30,8 +30,17 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import ClassVar
 
+from test_ldmap import build_elf
+
 from decomp_workbench.cli import main
-from decomp_workbench.ldmap import LdMap, parse_ld_map, read_ld_map
+from decomp_workbench.ldmap import (
+    SHN_ABS,
+    LdMap,
+    parse_elf_symbols,
+    parse_ld_map,
+    read_elf_symbols,
+    read_ld_map,
+)
 from decomp_workbench.pins import boot_globals_whitelist, default_pin_model
 from decomp_workbench.schema import (
     SHIFT_CENSUS_KEYS,
@@ -41,13 +50,17 @@ from decomp_workbench.schema import (
 from decomp_workbench.shift_rehearse import (
     CHECKSUM_RULES,
     MERGE_TIERS,
+    SHADOWING_PIN,
     SHIFT_REHEARSE_SCHEMA,
+    SYMBOL_RULES,
+    SYMBOL_STALE,
     Rehearsal,
     build_rehearsal,
     cross_delta_disagreements,
     derive_anchor,
     pad_ld_script,
     rehearse_lines,
+    symbol_census,
     symbol_extent,
 )
 
@@ -1323,6 +1336,561 @@ class DkrRehearseConformanceTests(unittest.TestCase):
                     self.assertFalse(item.variable_changed)
 
     def test_the_two_deltas_agree_on_every_class(self) -> None:
+        self.assertEqual(cross_delta_disagreements([self.at10, self.at40]), ())
+
+
+# --------------------------------------------------------------------------
+# WB-142: an assignment names a boundary; only an object names a byte
+# --------------------------------------------------------------------------
+
+#: One map shape, rendered at two shifts. Everything at or above
+#: `0x80000400` moves by `delta`. The only in-window symbol *below* the first
+#: object-backed one is `pre_VRAM_END`, a linker-script assignment placed in a
+#: section that declared no ``AT()`` -- which is exactly S6's pilotwings64
+#: shape: splat writes `<seg>_ROM_START`/`_ROM_END` for every segment, they
+#: move by the delta like everything else, and they translate to no ROM offset
+#: at all.
+def wb142_map(delta: int) -> str:
+    return "\n".join(
+        (
+            "",
+            "Linker script and memory map",
+            "",
+            ".header         0x00000000       0x40",
+            " .data          0x00000000       0x40 build/header.o",
+            "",
+            f".pre_bss        0x{0x80000380 + delta:08x}       0x80",
+            f" .bss           0x{0x80000380 + delta:08x}       0x80 build/pre.o",
+            f"                0x{0x80000380 + delta:08x}                "
+            f"pre_VRAM_END = 0x{0x80000380 + delta:08x}",
+            "",
+            f".main           0x{0x80000400 + delta:08x}       0x100 "
+            "load address 0x00000040",
+            f" .text          0x{0x80000400 + delta:08x}       0x100 build/code.o",
+            f"                0x{0x80000400 + delta:08x}                "
+            f"main_TEXT_START = 0x{0x80000400 + delta:08x}",
+            f"                0x{0x80000410 + delta:08x}                func_a",
+            f"                0x{0x80000440 + delta:08x}                func_b",
+            "",
+        )
+    )
+
+
+class Wb142AnchorDerivationTests(unittest.TestCase):
+    """The anchor is a byte the pad moved, so only an object can name it.
+
+    S6 hit this on pilotwings64 (`PW64-SHIFT-CONFIG.md` 3.3): `--anchor auto`
+    refused with *"the anchor VRAM 0x00001050 has no ROM placement in the base
+    map"*, having followed `entry_ROM_END` -- an unconditional splat output
+    whose value is a ROM offset, not an address -- out of the layout. S7's
+    movable-window floor has since put values that low out of reach, so the
+    fix here is one level down and general: an assignment names a *boundary*,
+    an object names a *byte*, and an anchor is a byte.
+    """
+
+    def setUp(self) -> None:
+        self.base = parse_ld_map(wb142_map(0), path="base.map")
+        self.shifted = parse_ld_map(wb142_map(0x10), path="shifted.map")
+
+    def test_auto_derives_the_first_object_backed_symbol(self) -> None:
+        found = derive_anchor(
+            self.base,
+            self.shifted,
+            delta=0x10,
+            window_lo=0x80000380,
+            window_hi=0x80000500,
+        )
+        self.assertEqual(found.vram, 0x80000410)
+        self.assertEqual(found.symbol, "func_a")
+        self.assertEqual(found.source, "auto")
+        self.assertEqual(found.lowest_moved, 0x80000410)
+
+    def test_the_anchor_translates_to_a_rom_offset(self) -> None:
+        """The half S6's refusal was actually about: the derived VRAM has to
+        sit inside a section that declared `AT()`, and an assignment's
+        does not have to."""
+
+        found = derive_anchor(
+            self.base,
+            self.shifted,
+            delta=0x10,
+            window_lo=0x80000380,
+            window_hi=0x80000500,
+        )
+        self.assertEqual(found.rom, 0x50)
+        self.assertIsNone(self.base.rom_for_vram(0x80000380))
+
+    def test_the_unrestricted_minimum_is_the_assignment_and_is_lower(self) -> None:
+        """The bug, stated as an assertion rather than as prose.
+
+        `pre_VRAM_END` moves by exactly the delta and sits below every object
+        symbol, so an unrestricted derivation picks it -- and then correctly
+        refuses to translate it, because no `AT()` section covers it. Both
+        halves are asserted so that a future change that re-admits assignment
+        symbols fails here rather than in a live conformance run.
+        """
+
+        moved = sorted(
+            self.base.symbol(name).address
+            for name in self.base.symbol_names() & self.shifted.symbol_names()
+            if 0x80000380 <= self.base.symbol(name).address < 0x80000500
+            and self.shifted.symbol(name).address
+            - self.base.symbol(name).address
+            == 0x10
+        )
+        self.assertEqual(moved[0], 0x80000380)
+        self.assertTrue(self.base.symbol("pre_VRAM_END").is_assignment)
+        self.assertFalse(self.base.symbol("func_a").is_assignment)
+
+    def test_highest_unmoved_is_deliberately_not_restricted(self) -> None:
+        """It answers a different question, and narrowing it would hide the
+        one shape worth seeing -- an absolute pin above the insertion that
+        never moves. See `Anchor.highest_unmoved`."""
+
+        found = derive_anchor(
+            self.base,
+            self.shifted,
+            delta=0x10,
+            window_lo=0x00000000,
+            window_hi=0x80000500,
+        )
+        self.assertEqual(found.vram, 0x80000410)
+
+    def test_a_map_with_only_assignments_refuses_and_says_why(self) -> None:
+        text = "\n".join(
+            (
+                "",
+                "Linker script and memory map",
+                "",
+                ".main           0x80000400       0x100 load address 0x00000040",
+                " .text          0x80000400       0x100 build/code.o",
+                "                0x80000400                "
+                "main_TEXT_START = 0x80000400",
+                "",
+            )
+        )
+        shifted_text = text.replace("0x80000400 ", "0x80000410 ").replace(
+            "= 0x80000400", "= 0x80000410"
+        )
+        with self.assertRaises(ValueError) as caught:
+            derive_anchor(
+                parse_ld_map(text),
+                parse_ld_map(shifted_text),
+                delta=0x10,
+                window_lo=0x80000000,
+                window_hi=0x80001000,
+            )
+        message = str(caught.exception)
+        self.assertIn("object-backed", message)
+        self.assertIn("WB-142", message)
+        self.assertIn("--anchor", message)
+
+
+# --------------------------------------------------------------------------
+# WB-143a: the symbol-side census
+# --------------------------------------------------------------------------
+
+CENSUS_SECTIONS = (
+    (".text", 0x80000400, 0x100, 0x6),
+    (".bss", 0x80000500, 0x80, 0x3),
+)
+
+
+def census_elf(delta: int) -> bytes:
+    """One link's symbols, at a shift of `delta`.
+
+    Six symbols covering every case the census has to separate: the boundary
+    the pad went in at, an object that tracks, an absolute pin that shadowed
+    an object definition (the size is the evidence), an absolute pin with
+    nothing behind it, an absolute pin at the window's own top bound, and one
+    below the insertion that correctly does not move.
+    """
+
+    def moved(address: int) -> int:
+        return address + delta if address >= 0x80000410 else address
+
+    return build_elf(
+        sections=[
+            (name, moved(address) if address >= 0x80000410 else address, size, flags)
+            for name, address, size, flags in CENSUS_SECTIONS
+        ],
+        symbols=[
+            ("below_pad", 0x80000404, 0x4, 1, 1, 1),
+            ("func_a", moved(0x80000410), 0x40, 2, 1, 1),
+            ("gTracked", moved(0x80000500), 0x4, 1, 1, 2),
+            ("D_80000510", 0x80000510, 0x8, 1, 1, SHN_ABS),
+            ("D_80000520", 0x80000520, 0x0, 0, 1, SHN_ABS),
+            ("D_80000580", 0x80000580, 0x0, 0, 1, SHN_ABS),
+        ],
+    )
+
+
+class SymbolCensusTests(unittest.TestCase):
+    """Every rule the symbol side applies, one symbol apiece."""
+
+    def setUp(self) -> None:
+        self.census = symbol_census(
+            parse_elf_symbols(census_elf(0), path="base.elf"),
+            parse_elf_symbols(census_elf(0x10), path="shifted.elf"),
+            delta=0x10,
+            anchor_vram=0x80000410,
+            window_hi=0x80000580,
+        )
+
+    def test_a_symbol_at_the_insertion_is_excluded_and_counted(self) -> None:
+        """Both answers are correct at that one address at once -- see
+        `symbol_census`. Counting it beats absorbing it."""
+
+        self.assertEqual(self.census.boundary_symbols, 1)
+        self.assertNotIn(
+            "func_a", [item.name for item in self.census.findings]
+        )
+
+    def test_a_symbol_below_the_insertion_is_not_judged(self) -> None:
+        self.assertNotIn(
+            "below_pad", [item.name for item in self.census.findings]
+        )
+
+    def test_an_object_backed_symbol_that_tracked_is_a_pass(self) -> None:
+        self.assertEqual(self.census.checked, 4)
+        self.assertEqual(self.census.moved, 1)
+
+    def test_the_shadowing_pin_is_named_apart_from_the_stale_ones(self) -> None:
+        self.assertEqual(self.census.shadowing_pins, 1)
+        self.assertEqual(self.census.symbol_stale, 2)
+        found = {item.name: item.classification for item in self.census.findings}
+        self.assertEqual(found["D_80000510"], SHADOWING_PIN)
+        self.assertEqual(found["D_80000520"], SYMBOL_STALE)
+
+    def test_the_top_bound_is_inclusive(self) -> None:
+        """`window_hi` is one past the last movable byte, and the symbol
+        naming that boundary moves with it. A half-open bound would drop
+        exactly the pin sitting on it."""
+
+        self.assertIn("D_80000580", [item.name for item in self.census.findings])
+
+    def test_every_finding_names_the_section_that_owns_its_address(self) -> None:
+        found = {item.name: item.owning_section for item in self.census.findings}
+        self.assertEqual(found["D_80000510"], ".bss")
+        self.assertEqual(found["D_80000520"], ".bss")
+        self.assertIsNone(found["D_80000580"])
+
+    def test_findings_are_ranked_free_wins_first(self) -> None:
+        self.assertEqual(self.census.findings[0].name, "D_80000510")
+
+    def test_the_rules_travel_with_the_report(self) -> None:
+        payload = self.census.as_dict(limit=10)
+        self.assertEqual(
+            [item["name"] for item in payload["symbol_rules"]],
+            [item.name for item in SYMBOL_RULES],
+        )
+        self.assertEqual(payload["symbol_range_lo"], 0x80000410)
+        self.assertEqual(payload["symbol_range_hi"], 0x80000580)
+
+
+class SymbolCensusWiringTests(unittest.TestCase):
+    """The census is off unless both ELFs arrive, and says which zero it is."""
+
+    def analysis(self, **extra: object) -> Rehearsal:
+        return build_rehearsal(
+            base_ldmap=base_map(),
+            base_image=base_image(),
+            shifted_ldmap=shifted_map(0x10),
+            shifted_image=shifted_image(0x10),
+            delta=0x10,
+            blobs=BLOBS,
+            crc_words=CRC_WORDS,
+            **extra,  # type: ignore[arg-type]
+        )
+
+    def test_off_by_default(self) -> None:
+        found = self.analysis()
+        self.assertIsNone(found.symbols)
+        self.assertEqual(found.symbol_stale, 0)
+        payload = found.as_dict(limit=5)
+        self.assertFalse(payload["symbol_census"])
+        self.assertNotIn("symbol_stale", payload)
+
+    def test_the_report_says_how_to_turn_it_on(self) -> None:
+        text = "\n".join(rehearse_lines(self.analysis(), limit=5))
+        self.assertIn("symbol_census=off", text)
+        self.assertIn("--base-elf", text)
+
+    def test_one_elf_alone_is_refused(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.analysis(base_elf=parse_elf_symbols(census_elf(0)))
+        self.assertIn("go together", str(caught.exception))
+
+    def test_both_elfs_turn_it_on_and_it_counts_toward_findings(self) -> None:
+        found = self.analysis(
+            base_elf=parse_elf_symbols(census_elf(0), path="base.elf"),
+            shifted_elf=parse_elf_symbols(census_elf(0x10), path="shifted.elf"),
+        )
+        assert found.symbols is not None
+        payload = found.as_dict(limit=5)
+        self.assertTrue(payload["symbol_census"])
+        self.assertEqual(payload["base_elf"], "base.elf")
+        self.assertEqual(
+            found.findings,
+            found.unexplained_changed
+            + found.stale_confirmed
+            + len(found.movement_anomalies)
+            + found.checksum_findings
+            + found.symbol_stale
+            + found.shadowing_pins,
+        )
+
+    def test_every_emitted_key_is_registered(self) -> None:
+        payload = self.analysis(
+            base_elf=parse_elf_symbols(census_elf(0)),
+            shifted_elf=parse_elf_symbols(census_elf(0x10)),
+        ).as_dict(limit=5)
+        emitted = set(payload)
+        for row in payload["symbol_findings"]:
+            emitted |= set(row)
+        for row in payload["symbol_rules"]:
+            emitted |= set(row)
+        self.assertLessEqual(emitted, set(SHIFT_METRICS_BY_KEY))
+
+
+# --------------------------------------------------------------------------
+# pilotwings64 conformance (S6) -- the live regression for WB-142 and WB-143a
+# --------------------------------------------------------------------------
+
+S6_DIR = PLAYGROUND / ".workbench" / "shift-instrumentation" / "s6"
+PW64_BASE_MAP = S6_DIR / "artifacts" / "base-symbolic.map"
+PW64_BASE_IMAGE = S6_DIR / "artifacts" / "base-symbolic.z64"
+PW64_BASE_ELF = S6_DIR / "scratch" / "base-symbolic.elf"
+
+#: The five `type: bin` segments S6 marked opaque. They are DMA'd from cart,
+#: so their link-time VMA is a placement artifact -- marking them is what
+#: keeps 703 coincidental address-shaped words in `.filesys` classified as
+#: noise instead of promoted into the finding set.
+PW64_BLOBS = (".filetable", ".filesys", ".audio_seq", ".audio_ctl", ".audio_tbl")
+
+#: S6 4.4(a): the ten pins an object already defines. Ablation B deleted all
+#: ten and rebuilt to the same sha1.
+PW64_SHADOWING = (
+    "D_80250E80",
+    "D_8034E710",
+    "D_803571F0",
+    "aspMainDataStart",
+    "aspMainTextStart",
+    "gspF3DEX_fifoDataStart",
+    "gspF3DEX_fifoTextStart",
+    "gspFast3DDataStart",
+    "gspFast3DTextStart",
+    "rspbootTextStart",
+)
+
+#: S6 4.4(b) and (c): eleven inert leftovers plus the boot stack pointer and
+#: the heap base. The thirteen the experiment's post-ablation `nm` census
+#: measured by hand.
+PW64_SYMBOL_STALE = (
+    "D_8024B355",
+    "D_8024B356",
+    "D_8024B357",
+    "D_802C3C90",
+    "D_803509B7",
+    "D_80350466",
+    "D_8035046A",
+    "D_8034EF33",
+    "D_8034F167",
+    "D_8034F8EA",
+    "D_8034F98F",
+    "D_803805E0",
+    "env_data_00FE",
+)
+
+
+def pw64_rehearsal(delta: int) -> Rehearsal:
+    return build_rehearsal(
+        base_ldmap=read_ld_map(PW64_BASE_MAP),
+        base_image=PW64_BASE_IMAGE.read_bytes(),
+        shifted_ldmap=read_ld_map(S6_DIR / "artifacts" / f"shifted-{delta:x}.map"),
+        shifted_image=(S6_DIR / "artifacts" / f"shifted-{delta:x}.z64").read_bytes(),
+        delta=delta,
+        blobs=PW64_BLOBS,
+        crc_words=(0x10, 0x14),
+        base_elf=read_elf_symbols(PW64_BASE_ELF),
+        shifted_elf=read_elf_symbols(S6_DIR / "scratch" / f"shifted-{delta:x}.elf"),
+        base_map_path=str(PW64_BASE_MAP),
+        base_image_path=str(PW64_BASE_IMAGE),
+    )
+
+
+_HAVE_PW64_S6 = (
+    PW64_BASE_MAP.is_file()
+    and PW64_BASE_IMAGE.is_file()
+    and PW64_BASE_ELF.is_file()
+    and (S6_DIR / "scratch" / "shifted-10.elf").is_file()
+    and (S6_DIR / "scratch" / "shifted-40.elf").is_file()
+)
+
+
+@unittest.skipUnless(
+    _HAVE_PW64_S6, f"S6 pilotwings64 artifacts not found under {S6_DIR}"
+)
+class Pw64RehearseConformanceTests(unittest.TestCase):
+    """S6's experiment, replayed through the two instruments it asked for.
+
+    The experiment reached its numbers by hand: `--anchor kernel_TEXT_START`
+    passed explicitly because `auto` refused, and the symbol-side blockers
+    found with `nm -n` over two ELFs, `readelf -r` over 307 objects, and two
+    ablation rebuilds. Both are commands now, and both must reproduce what the
+    hand method measured -- not approximately, exactly.
+    """
+
+    at10: ClassVar[Rehearsal]
+    at40: ClassVar[Rehearsal]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.at10 = pw64_rehearsal(0x10)
+        cls.at40 = pw64_rehearsal(0x40)
+
+    def test_wb142_auto_now_derives_the_anchor_s6_passed_by_hand(self) -> None:
+        """S6 3.3: `--anchor kernel_TEXT_START` resolved to
+        ``anchor_vram=0x802000a0 anchor_rom=0x001050`` -- "precisely the
+        insertion point (entrypoint is 0x50 bytes at ROM 0x1000, so ROM
+        0x1050 / VRAM 0x802000A0 is the first shifted byte)". `auto` reaches
+        the same pair, and names the object that starts there rather than one
+        of the five boundary assignments sharing the address.
+        """
+
+        for delta, found in ((0x10, self.at10), (0x40, self.at40)):
+            with self.subTest(delta=delta):
+                self.assertEqual(found.anchor.vram, 0x802000A0)
+                self.assertEqual(found.anchor.rom, 0x1050)
+                self.assertEqual(found.anchor.source, "auto")
+                self.assertEqual(found.anchor.symbol, "func_802000A0")
+
+    def test_the_anchor_is_the_one_the_named_symbol_resolves_to(self) -> None:
+        """The same pair, reached the way S6 reached it. Two routes to one
+        address is what makes the derived one trustworthy."""
+
+        named = build_rehearsal(
+            base_ldmap=read_ld_map(PW64_BASE_MAP),
+            base_image=PW64_BASE_IMAGE.read_bytes(),
+            shifted_ldmap=read_ld_map(S6_DIR / "artifacts" / "shifted-10.map"),
+            shifted_image=(S6_DIR / "artifacts" / "shifted-10.z64").read_bytes(),
+            delta=0x10,
+            anchor="kernel_TEXT_START",
+            blobs=PW64_BLOBS,
+            crc_words=(0x10, 0x14),
+        )
+        self.assertEqual(named.anchor.vram, self.at10.anchor.vram)
+        self.assertEqual(named.anchor.rom, self.at10.anchor.rom)
+        self.assertEqual(named.anchor.source, "symbol")
+
+    def test_the_headline_s6_measured_is_reproduced(self) -> None:
+        for delta, found in ((0x10, self.at10), (0x40, self.at40)):
+            with self.subTest(delta=delta):
+                self.assertEqual(found.unexplained_changed, 0)
+                self.assertEqual(found.stale_confirmed, 1)
+
+    def test_the_convicted_word_is_d_803571f0(self) -> None:
+        """S6 4.1: ROM `0x0d5cbc` holds `0x803571f0`, in `.app`'s `.data`,
+        contributed by `src/app/code_51E30.c`."""
+
+        for delta, found in ((0x10, self.at10), (0x40, self.at40)):
+            with self.subTest(delta=delta):
+                confirmed = [
+                    item
+                    for item in found.reconciliation
+                    if item.outcome == "stale-confirmed"
+                ]
+                self.assertEqual(len(confirmed), 1)
+                self.assertEqual(confirmed[0].rom, 0x0D5CBC)
+                self.assertEqual(confirmed[0].value, 0x803571F0)
+                self.assertEqual(confirmed[0].target_symbol, "D_803571F0")
+
+    def test_wb143_the_symbol_census_measures_s6s_thirteen(self) -> None:
+        """S6 4.4: *"of 2731 shared symbols, exactly 13 in-window symbols
+        still fail to move -- the 11 inert ones from (c) plus `D_802C3C90`
+        and `D_803805E0` from (b). The 8 `entry_*` symbols also do not move,
+        correctly, because they are below the pad."*
+
+        Thirteen is the post-ablation number, and this pair is *pre*-ablation
+        -- which is the point: the ten pins ablation B removed are still here
+        and are counted apart, as `shadowing-pin`. 13 + 10 is the whole
+        23-symbol population, split by whether the remediation is known.
+        """
+
+        for delta, found in ((0x10, self.at10), (0x40, self.at40)):
+            with self.subTest(delta=delta):
+                assert found.symbols is not None
+                self.assertEqual(found.symbol_stale, 13)
+                self.assertEqual(found.shadowing_pins, 10)
+                self.assertEqual(
+                    sorted(
+                        item.name
+                        for item in found.symbols.by_classification(SYMBOL_STALE)
+                    ),
+                    sorted(PW64_SYMBOL_STALE),
+                )
+                self.assertEqual(
+                    sorted(
+                        item.name
+                        for item in found.symbols.by_classification(SHADOWING_PIN)
+                    ),
+                    sorted(PW64_SHADOWING),
+                )
+
+    def test_the_eight_entry_symbols_are_the_boundary_not_a_finding(self) -> None:
+        """S6 counted them and set them aside; so does this, by name."""
+
+        assert self.at10.symbols is not None
+        names = [item.name for item in self.at10.symbols.findings]
+        for name in ("entry_TEXT_END", "entry_RODATA_END", "entrypoint"):
+            self.assertNotIn(name, names)
+        self.assertGreater(self.at10.symbols.boundary_symbols, 0)
+
+    def test_the_named_examples_s6_singled_out(self) -> None:
+        """Four spot checks, one per shape S6 described in prose.
+
+        The RSP ucode pins and `D_80250E80` are the ones S6 said the
+        data-side referee *structurally could not see* -- they are consumed
+        through `%hi/%lo` pairs in text -- and they are exactly the ones this
+        census reaches without reading a single instruction word.
+        """
+
+        assert self.at10.symbols is not None
+        found = {item.name: item for item in self.at10.symbols.findings}
+
+        rsp = found["rspbootTextStart"]
+        self.assertEqual(rsp.classification, SHADOWING_PIN)
+        self.assertEqual(rsp.value, 0x80245530)
+        self.assertEqual(rsp.size, 0xD0)  # src/rsp/rspboot.o's own function
+
+        kernel_bss = found["D_80250E80"]
+        self.assertEqual(kernel_bss.classification, SHADOWING_PIN)
+        self.assertEqual(kernel_bss.owning_section, ".kernel_bss")
+
+        stack = found["D_802C3C90"]  # the boot stack pointer, S6 4.4(b)
+        self.assertEqual(stack.classification, SYMBOL_STALE)
+        self.assertEqual(stack.size, 0)
+        self.assertEqual(stack.owning_section, ".kernel_bss")
+
+        shadow = found["D_803571F0"]
+        self.assertEqual(shadow.classification, SHADOWING_PIN)
+        self.assertEqual(shadow.size, 4)  # the `f32` the object declares
+        self.assertEqual(shadow.owning_section, ".app_bss")
+
+    def test_the_symbol_side_finds_more_than_the_data_side(self) -> None:
+        """S6 4.5, as a number: *"on this project the symbol-side census
+        found 13x more blockers"*. One data-side conviction; twenty-three
+        symbol-side findings, of which the one the data side saw is a
+        member."""
+
+        assert self.at10.symbols is not None
+        self.assertEqual(self.at10.stale_confirmed, 1)
+        self.assertEqual(len(self.at10.symbols.findings), 23)
+        self.assertIn(
+            "D_803571F0", [item.name for item in self.at10.symbols.findings]
+        )
+
+    def test_the_two_deltas_agree(self) -> None:
         self.assertEqual(cross_delta_disagreements([self.at10, self.at40]), ())
 
 

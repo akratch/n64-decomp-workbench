@@ -30,7 +30,7 @@ from .cli_options import (
     add_explain_keys_argument,
 )
 from .discovery import subcommand_listing_handler
-from .ldmap import read_ld_map
+from .ldmap import read_elf_symbols, read_ld_map
 from .mips_refs import RangeModel, WhitelistEntry
 from .pins import PinCatalogue, default_pin_model, parse_whitelist_text, read_pin_files
 from .schema import SHIFT_CENSUS_KEYS
@@ -40,6 +40,15 @@ from .shift_audit import (
     build_shift_audit,
     require_parsed_map,
     shift_audit_lines,
+)
+from .shift_config import verify_faithful, verify_lines
+from .shift_plan import (
+    AUDIT_SCHEMA,
+    REHEARSE_SCHEMA,
+    build_plan,
+    plan_lines,
+    plan_markdown,
+    read_report,
 )
 from .shift_rehearse import (
     WRAPPER_CONTRACT,
@@ -56,7 +65,9 @@ from .terminal import add_terminal_arguments, emit_lines
 __all__ = [
     "register_shift_commands",
     "shift_audit_command",
+    "shift_config_verify_command",
     "shift_orchestrate_command",
+    "shift_plan_command",
     "shift_rehearse_command",
 ]
 
@@ -116,6 +127,7 @@ def shift_audit_command(args: argparse.Namespace) -> int:
             if pin_files
             else PinCatalogue(entries=(), sources=())
         )
+        elf = read_elf_symbols(args.elf) if args.elf else None
         ldmap = read_ld_map(args.map)
         if not ldmap.sections:
             # Cheap and only paid when there is something to refuse: a
@@ -133,8 +145,10 @@ def shift_audit_command(args: argparse.Namespace) -> int:
             blobs=args.blob,
             auto_blobs=args.blobs == "auto",
             excluded_blobs=args.no_blob,
+            elf=elf,
             map_path=str(args.map),
             image_path=str(args.image),
+            elf_path=str(args.elf) if args.elf else None,
         )
         if args.emit_whitelist:
             _emit_whitelist(audit, Path(args.emit_whitelist))
@@ -191,6 +205,14 @@ def shift_rehearse_command(args: argparse.Namespace) -> int:
         shifted_ldmap = read_ld_map(args.shifted_map)
         shifted_image = Path(args.shifted_image).read_bytes()
         delta = int(args.delta, 0)
+        # Refused here rather than inside `build_rehearsal` so the message
+        # names the flags the caller typed, and before either image is read.
+        if bool(args.base_elf) != bool(args.shifted_elf):
+            raise ValueError(
+                "--base-elf and --shifted-elf go together: whether a symbol "
+                "moved is a question about two links, and one of them cannot "
+                "answer it"
+            )
         rehearsal = build_rehearsal(
             base_ldmap=base_ldmap,
             base_image=base_image,
@@ -201,6 +223,10 @@ def shift_rehearse_command(args: argparse.Namespace) -> int:
             blobs=args.blob,
             crc_words=crc_words,
             checksum_pairs=pairs,
+            base_elf=read_elf_symbols(args.base_elf) if args.base_elf else None,
+            shifted_elf=(
+                read_elf_symbols(args.shifted_elf) if args.shifted_elf else None
+            ),
             model=model,
             base_map_path=str(args.base_map),
             base_image_path=str(args.base_image),
@@ -297,6 +323,106 @@ def shift_orchestrate_command(args: argparse.Namespace) -> int:
     else:
         emit_lines(
             orchestrate_lines(orchestration, limit=args.limit),
+            width=args.width,
+            pager=args.pager,
+        )
+        print_census(census)
+    return census_status(census, otherwise=0)
+
+
+def shift_config_verify_command(args: argparse.Namespace) -> int:
+    """Prove a config edit changed the linker script and nothing else."""
+
+    try:
+        predicates = parse_census(args.census, allowed=SHIFT_CENSUS_KEYS)
+    except ValueError as error:
+        return _fail(str(error))
+
+    try:
+        if bool(args.pinned_image) != bool(args.candidate_image):
+            raise ValueError(
+                "--pinned-image and --candidate-image go together: "
+                "byte-identity is a question about two images, and one of "
+                "them cannot answer it"
+            )
+        verification = verify_faithful(
+            pinned=read_ld_map(args.pinned_map),
+            candidate=read_ld_map(args.candidate_map),
+            pinned_image=(
+                Path(args.pinned_image).read_bytes() if args.pinned_image else None
+            ),
+            candidate_image=(
+                Path(args.candidate_image).read_bytes()
+                if args.candidate_image
+                else None
+            ),
+            pinned_image_path=args.pinned_image,
+            candidate_image_path=args.candidate_image,
+        )
+    except (OSError, ValueError) as error:
+        return _fail(str(error))
+
+    payload = verification.as_dict(limit=args.limit)
+    try:
+        census = evaluate_census(predicates, payload)
+    except ValueError as error:
+        return _fail(str(error))
+
+    if args.json:
+        if census:
+            payload["census"] = [item.as_dict() for item in census]
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        emit_lines(
+            verify_lines(verification, limit=args.limit),
+            width=args.width,
+            pager=args.pager,
+        )
+        print_census(census)
+    # A pair that is not faithful exits like a failed census, deliberately:
+    # this command *is* a gate, and a gate that exits 0 on a failure is a
+    # decoration. `--census` failures fold into the same status.
+    return census_status(census, otherwise=0 if verification.faithful else 3)
+
+
+def shift_plan_command(args: argparse.Namespace) -> int:
+    """Merge every shift report into one ranked, gated remediation queue."""
+
+    try:
+        predicates = parse_census(args.census, allowed=SHIFT_CENSUS_KEYS)
+    except ValueError as error:
+        return _fail(str(error))
+
+    try:
+        audit = read_report(args.audit, expected=AUDIT_SCHEMA)
+        rehearsals = [
+            read_report(path, expected=REHEARSE_SCHEMA) for path in args.rehearse
+        ]
+        plan = build_plan(
+            audit=audit,
+            rehearsals=rehearsals,
+            audit_path=str(args.audit),
+            rehearse_paths=[str(path) for path in args.rehearse],
+        )
+        if args.markdown:
+            Path(args.markdown).write_text(plan_markdown(plan), encoding="utf-8")
+            print(f"wrote work order: {args.markdown}", file=sys.stderr)
+    except (OSError, ValueError) as error:
+        return _fail(str(error))
+
+    payload = plan.as_dict(limit=args.limit)
+    try:
+        census = evaluate_census(predicates, payload)
+    except ValueError as error:
+        return _fail(str(error))
+
+    if args.json:
+        if census:
+            payload["census"] = [item.as_dict() for item in census]
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        emit_lines(
+            plan_lines(plan, limit=args.limit),
             width=args.width,
             pager=args.pager,
         )
@@ -435,8 +561,40 @@ _ORCHESTRATE_DESCRIPTION = (
 )
 
 
+_CONFIG_DESCRIPTION = (
+    "Making a project shiftable means editing its linker configuration, and "
+    "the one thing that edit must not do is change the build. `verify` is "
+    "S6's Gate 2 as a command: every shared symbol at an identical address, "
+    "every output section placed identically, and -- when you hand it both "
+    "images -- byte-identical output. Three checks rather than one, because "
+    "a byte-identical image can coexist with a symbol that moved into a hole."
+)
+
+_VERIFY_DESCRIPTION = (
+    "Compare the link your project ships against the link your configuration "
+    "edit produces, and report every way they differ. A faithful pair exits "
+    "0; anything else exits 3 and names the first divergent symbol and the "
+    "first divergent section, because the first one is the one you debug. "
+    "Note what this does *not* answer: a genuinely shifted pair fails all "
+    "three checks by construction, and that is `shift rehearse`'s question."
+)
+
+_PLAN_DESCRIPTION = (
+    "Merge the audit and the rehearsals into one ranked queue, where every "
+    "item carries a remediation class, the evidence behind it, and the exact "
+    "command to run after the fix. Merged by subject rather than concatenated "
+    "by report -- a pin four reports mention is one job -- and ranked by what "
+    "the evidence cost and then by what the fix costs: convictions a relink "
+    "demonstrated, then the free wins an object already defines, then the "
+    "mechanical symbolizations, then the real migrations grouped by owning "
+    "section, with the structural classes named and parked at the bottom. The "
+    "deliverable a shiftability campaign needs is not ten thousand "
+    "address-shaped words; it is a finite queue somebody can finish."
+)
+
+
 def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
-    """Register the ``shift`` group and its ``audit`` and ``rehearse`` halves."""
+    """Register the ``shift`` group and its four operations."""
 
     parser = commands.add_parser(
         "shift",
@@ -446,9 +604,12 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "the addresses in them are references. `audit` is the static "
             "inventory -- one map, one image, no build. `rehearse` is the "
             "empirical referee -- the same objects relinked against a padded "
-            "script, with every changed word explained. Run "
-            "`decomp-workbench shift audit --help` or "
-            "`decomp-workbench shift rehearse --help`."
+            "script, with every changed word explained. `config verify` is "
+            "the gate a configuration edit has to pass before either number "
+            "means anything: the candidate link must reproduce the shipped "
+            "one exactly. `plan` merges the reports into one ranked, gated "
+            "remediation queue. Run `decomp-workbench shift audit --help` "
+            "and its neighbours."
         ),
     )
     operations = parser.add_subparsers(dest="shift_command")
@@ -474,6 +635,20 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
         required=True,
         metavar="FILE",
         help="the linked image the map describes",
+    )
+    audit.add_argument(
+        "--elf",
+        metavar="FILE",
+        help=(
+            "the linked ELF this map and image came from. Optional, and it "
+            "buys one class the map cannot see: a pin an object in the link "
+            "already defines. GNU ld lets a script assignment override an "
+            "object's definition with no warning, and keeps the losing "
+            "definition's size on the surviving absolute symbol -- so the "
+            "check is exact rather than a heuristic, and needs no shift "
+            "(WB-143). Those pins are `shadowing-pin`, and deleting one is "
+            "byte-identical at the current layout"
+        ),
     )
     audit.add_argument(
         "--pins",
@@ -626,6 +801,27 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "paired anyway"
         ),
     )
+    analyze.add_argument(
+        "--base-elf",
+        metavar="FILE",
+        help=(
+            "the unshifted link's ELF. With --shifted-elf this turns on the "
+            "symbol-side census: every symbol naming an address above the "
+            "insertion must have moved by --delta. It answers the half the "
+            "word-by-word referee structurally cannot -- a reference consumed "
+            "only from a lui/%%lo pair in text is invisible to a value test, "
+            "and on pilotwings64 the symbol side found 13x more blockers than "
+            "the data side did (WB-143)"
+        ),
+    )
+    analyze.add_argument(
+        "--shifted-elf",
+        metavar="FILE",
+        help=(
+            "the relinked build's ELF. Goes with --base-elf; one alone is "
+            "refused, because movement is a question about two links"
+        ),
+    )
     _add_rehearsal_arguments(analyze)
     analyze.set_defaults(
         handler=shift_rehearse_command, report_command="shift-rehearse"
@@ -697,3 +893,126 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
     driver.set_defaults(
         handler=shift_orchestrate_command, report_command="shift-orchestrate"
     )
+
+    config = operations.add_parser(
+        "config",
+        help="check a linker-configuration change against the build it must not move",
+        description=_CONFIG_DESCRIPTION,
+    )
+    configurations = config.add_subparsers(dest="config_command")
+    config.set_defaults(handler=subcommand_listing_handler(config))
+
+    verify = configurations.add_parser(
+        "verify",
+        help="prove a config edit changed the script and nothing else",
+        description=_VERIFY_DESCRIPTION,
+        epilog=(
+            "example: decomp-workbench shift config verify "
+            "--pinned-map build/game.map --candidate-map scratch/symbolic.map "
+            "--pinned-image build/game.z64 "
+            "--candidate-image scratch/symbolic.z64"
+        ),
+    )
+    verify.add_argument(
+        "--pinned-map",
+        required=True,
+        metavar="FILE",
+        help="the `ld -Map` of the link your project ships today",
+    )
+    verify.add_argument(
+        "--candidate-map",
+        required=True,
+        metavar="FILE",
+        help="the `ld -Map` of the link your configuration edit produces",
+    )
+    verify.add_argument(
+        "--pinned-image",
+        metavar="FILE",
+        help=(
+            "the shipped link's image. Optional and paired: naming one image "
+            "and not the other is refused, because an identity check that "
+            "silently did not run is worse than one that says so"
+        ),
+    )
+    verify.add_argument(
+        "--candidate-image",
+        metavar="FILE",
+        help="the candidate link's image; goes with --pinned-image",
+    )
+    verify.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LIMIT,
+        metavar="N",
+        help=(
+            f"rows per capped detail list (default: {DEFAULT_LIMIT}); every "
+            "list prints its cap beside its total"
+        ),
+    )
+    verify.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a `decomp-workbench-shift-config-v1` report",
+    )
+    add_census_argument(verify)
+    add_explain_keys_argument(verify)
+    add_terminal_arguments(verify)
+    verify.set_defaults(
+        handler=shift_config_verify_command, report_command="shift-config-verify"
+    )
+
+    plan = operations.add_parser(
+        "plan",
+        help="merge the audit and rehearsal reports into one ranked queue",
+        description=_PLAN_DESCRIPTION,
+        epilog=(
+            "example: decomp-workbench shift plan --audit audit.json "
+            "--rehearse rehearse-10.json --rehearse rehearse-40.json "
+            "--markdown WORK-ORDER.md --census plan_convictions=0"
+        ),
+    )
+    plan.add_argument(
+        "--audit",
+        required=True,
+        metavar="FILE",
+        help="a `shift audit --json` report; the static half of the queue",
+    )
+    plan.add_argument(
+        "--rehearse",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "a `shift rehearse --json` report, repeatable -- one per delta. "
+            "Optional: a plan from the audit alone is a plan of suspicions, "
+            "and every item a rehearsal contributes outranks all of them"
+        ),
+    )
+    plan.add_argument(
+        "--markdown",
+        metavar="FILE",
+        help=(
+            "also write the queue as a human work order: a grouped checklist "
+            "with the loop stated at the top and every item's gate command "
+            "beside it"
+        ),
+    )
+    plan.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LIMIT,
+        metavar="N",
+        help=(
+            f"rows the queue prints (default: {DEFAULT_LIMIT}); the total is "
+            "printed beside the cap, and --markdown exports every item"
+        ),
+    )
+    plan.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a `decomp-workbench-shift-plan-v1` report",
+    )
+    add_census_argument(plan)
+    add_explain_keys_argument(plan)
+    add_terminal_arguments(plan)
+    plan.set_defaults(handler=shift_plan_command, report_command="shift-plan")

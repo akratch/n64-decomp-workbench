@@ -19,6 +19,11 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 
+# The handcrafted-ELF builder lives beside the reader it exercises; this is
+# the same bare-module import `test_line_probe_cli` uses to borrow a fixture.
+from test_ldmap import build_elf
+
+from decomp_workbench.ldmap import SHN_ABS, parse_elf_symbols
 from decomp_workbench.mips_refs import NamedRange, RangeModel, WhitelistEntry
 from decomp_workbench.pins import (
     ARTIFACT_SUSPECT,
@@ -26,6 +31,7 @@ from decomp_workbench.pins import (
     CLASSIFICATIONS,
     DERIVED,
     ROM_OFFSET,
+    SHADOWING_PIN,
     UNCLASSIFIED,
     WHITELIST_REVIEW_MARKER,
     WHITELIST_TEMPLATE_RULES,
@@ -38,6 +44,7 @@ from decomp_workbench.pins import (
     parse_whitelist_text,
     read_pin_files,
     reclassify_rom_offsets,
+    reclassify_shadowing_pins,
     whitelist_candidates,
     whitelist_template_text,
 )
@@ -768,6 +775,109 @@ class DkrSymbolAddrsConformanceTest(unittest.TestCase):
         # construction, which is exactly why the file is not evidence of a
         # shiftability problem on its own -- see the module docstring.
         self.assertEqual({item.form for item in found.entries}, {"absolute"})
+
+
+# --------------------------------------------------------------------------
+# WB-143b: the class only the ELF can name
+# --------------------------------------------------------------------------
+
+#: One link in which `D_80000540` is an absolute pin that overrode an object
+#: definition (the 8-byte size is the inherited evidence), `D_B0000574` is an
+#: absolute pin with nothing behind it, and `gCounter` is an ordinary
+#: object-backed symbol a pin file also happens to name.
+SHADOW_LINK = build_elf(
+    sections=[(".text", 0x80000400, 0x100, 0x6), (".bss", 0x80000500, 0x80, 0x3)],
+    symbols=[
+        ("gCounter", 0x80000500, 0x4, 1, 1, 2),
+        ("D_80000540", 0x80000540, 0x8, 1, 1, SHN_ABS),
+        ("D_B0000574", 0xB0000574, 0x0, 0, 1, SHN_ABS),
+        ("gMainMemoryPool", 0x80000560, 0x0, 0, 1, SHN_ABS),
+    ],
+)
+
+SHADOW_PINS = """
+D_80000540 = 0x80000540;
+D_B0000574 = 0xB0000574;
+gCounter = 0x80000500;
+gMainMemoryPool = main_BSS_END;
+D_C0DEC0DE = 0xC0DEC0DE;
+"""
+
+
+class ShadowingPinTests(unittest.TestCase):
+    """The pin class a linker map cannot see and one ELF can."""
+
+    def setUp(self) -> None:
+        self.model = default_pin_model()
+        self.catalogue = PinCatalogue(
+            entries=parse_pin_text(SHADOW_PINS, path="syms.txt", model=self.model),
+            sources=("syms.txt",),
+        )
+        self.elf = parse_elf_symbols(SHADOW_LINK, path="game.elf")
+
+    def test_before_the_elf_the_shadowing_pin_is_just_a_kseg0_suspect(self) -> None:
+        """The whole point: no window-based classifier can reach this."""
+
+        found = {item.name: item.classification for item in self.catalogue.entries}
+        self.assertEqual(found["D_80000540"], ARTIFACT_SUSPECT)
+        self.assertEqual(found["D_B0000574"], ARTIFACT_SUSPECT)
+
+    def test_only_the_pin_with_an_inherited_size_is_reclassified(self) -> None:
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        found = {item.name: item.classification for item in reclassified.entries}
+        self.assertEqual(found["D_80000540"], SHADOWING_PIN)
+        self.assertEqual(found["D_B0000574"], ARTIFACT_SUSPECT)
+
+    def test_a_pin_naming_an_object_backed_symbol_is_not_shadowing(self) -> None:
+        """`gCounter` is defined by an object *and* written down -- but the
+        object's definition won, so nothing was overridden and the surviving
+        symbol is section-backed rather than absolute."""
+
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        found = {item.name: item.classification for item in reclassified.entries}
+        self.assertEqual(found["gCounter"], ARTIFACT_SUSPECT)
+
+    def test_a_derived_pin_is_never_reclassified(self) -> None:
+        """A pin whose right-hand side names a symbol already follows the
+        layout; a name collision there would be a different and much louder
+        problem than this one."""
+
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        found = {item.name: item.classification for item in reclassified.entries}
+        self.assertEqual(found["gMainMemoryPool"], DERIVED)
+
+    def test_a_pin_the_elf_never_heard_of_is_left_alone(self) -> None:
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        found = {item.name: item.classification for item in reclassified.entries}
+        self.assertEqual(found["D_C0DEC0DE"], UNCLASSIFIED)
+
+    def test_the_reclassified_pin_carries_the_remediation_in_its_reason(self) -> None:
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        pin = next(
+            item for item in reclassified.entries if item.name == "D_80000540"
+        )
+        assert pin.reason is not None
+        self.assertIn("already defines", pin.reason)
+        self.assertIn("byte-identical", pin.reason)
+
+    def test_the_counts_carry_the_new_class_at_zero_when_empty(self) -> None:
+        """A class that vanishes when empty is one a reader cannot tell from
+        a class the module forgot to look for."""
+
+        self.assertIn(SHADOWING_PIN, self.catalogue.counts)
+        self.assertEqual(self.catalogue.counts[SHADOWING_PIN], 0)
+        self.assertIn("pins_shadowing", self.catalogue.as_dict(limit=5))
+
+    def test_the_new_class_leads_the_report_order(self) -> None:
+        """It is the only class whose remediation is proven free."""
+
+        self.assertEqual(CLASSIFICATIONS[0], SHADOWING_PIN)
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        self.assertEqual(reclassified.ranked()[0].name, "D_80000540")
+
+    def test_sources_survive_the_pass(self) -> None:
+        reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
+        self.assertEqual(reclassified.sources, ("syms.txt",))
 
 
 if __name__ == "__main__":
