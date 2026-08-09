@@ -69,11 +69,13 @@ from decomp_workbench.shift_audit import (
     BlobRule,
     ConsistencyCheck,
     Hit,
+    MovableWindow,
     Region,
     ShiftAudit,
     build_region_table,
     build_shift_audit,
     check_map_image_consistency,
+    find_missing_pin_sources,
     movable_window,
     require_parsed_map,
     resolve_blobs,
@@ -3008,6 +3010,467 @@ class ElfAuditWiringTests(unittest.TestCase):
                 )
         self.assertEqual(status, 2)
         self.assertIn("not an ELF file", stderr.getvalue())
+
+
+# --------------------------------------------------------------------------
+# WB-144: pin-inventory completeness (`pins_missing_sources`)
+# --------------------------------------------------------------------------
+
+#: `SYNTHETIC_MAP` plus four assignment-shaped symbol lines, appended rather
+#: than woven into the section bodies above because the parser keys a symbol
+#: line on its own shape (`0x... NAME = expression`) and does not care what
+#: section it trails -- see `parse_ld_map`. Three shapes this check has to
+#: tell apart, each named for the ELF symbol that will carry its value:
+#: `app_ROM_START`/`app_TEXT_SIZE` are the ld-script's own per-segment
+#: boundary family (`LD_SCRIPT_BOUNDARY_SUFFIXES`); `D_803571F0` is a real
+#: pin, deliberately unmatched by any suffix; `D_ALREADY_PINNED` exists only
+#: so a test can prove the "already supplied" branch short-circuits before
+#: either family check runs at all.
+MISSING_PIN_MAP = (
+    SYNTHETIC_MAP
+    + """
+                0x80000000                app_ROM_START = __romPos
+                0x10  app_TEXT_SIZE = ABSOLUTE ((app_TEXT_END - app_TEXT_START))
+                0x80000470                D_803571F0 = 0x80000470
+                0x80000430                D_ALREADY_PINNED = 0x80000430
+"""
+)
+
+
+def missing_pin_ldmap() -> LdMap:
+    return parse_ld_map(MISSING_PIN_MAP, path="missing.map")
+
+
+def missing_pin_elf() -> bytes:
+    """One ELF exercising every branch `find_missing_pin_sources` has.
+
+    Eight symbols, each present for a different reason: a real miss
+    (`D_803571F0`, in-window, no suffix match -- the one that must survive);
+    the two ld-script boundary shapes (`app_ROM_START` in-window,
+    `app_TEXT_SIZE` in the ROM extent); the two measured ELF-builtin shapes
+    (`_MACRO_INC_GUARD`, `_binary_bin_foo_bin_size`); a name the inventory
+    already supplies (`D_ALREADY_PINNED`); a value in neither the window nor
+    the ROM extent (`HW_REG`, kseg1-shaped); and one object-backed symbol
+    (`gData`, not absolute at all) proving the scan skips anything that is
+    not `SHN_ABS` before it ever reaches either exclusion.
+    """
+
+    return build_elf(
+        sections=[(".main", 0x80000400, 0x80, 0x6)],
+        symbols=[
+            ("D_803571F0", 0x80000470, 0, 1, 1, SHN_ABS),
+            ("app_ROM_START", 0x80000420, 0, 1, 1, SHN_ABS),
+            ("app_TEXT_SIZE", 0x40, 0, 1, 1, SHN_ABS),
+            ("_MACRO_INC_GUARD", 1, 0, 0, 0, SHN_ABS),
+            ("_binary_bin_foo_bin_size", 0x20, 0, 0, 1, SHN_ABS),
+            ("D_ALREADY_PINNED", 0x80000430, 0, 1, 1, SHN_ABS),
+            ("HW_REG", 0xA4040010, 0, 1, 1, SHN_ABS),
+            ("gData", 0x80000430, 0x10, 1, 1, 1),
+        ],
+    )
+
+
+class MissingPinSourceTests(unittest.TestCase):
+    """WB-144's classifier, exercised directly against the synthetic fixture."""
+
+    def _window_and_extent(self) -> tuple[LdMap, MovableWindow, int]:
+        ldmap = missing_pin_ldmap()
+        regions = build_region_table(ldmap, image_size=len(SYNTHETIC_IMAGE))
+        window = movable_window(regions)
+        consistency = check_map_image_consistency(regions, SYNTHETIC_IMAGE)
+        return ldmap, window, consistency.max_placed_extent
+
+    def test_only_the_true_miss_survives_every_exclusion(self) -> None:
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset({"D_ALREADY_PINNED"}),
+        )
+        self.assertEqual([item.name for item in found], ["D_803571F0"])
+        self.assertEqual(found[0].value, 0x80000470)
+        self.assertEqual(found[0].size, 0)
+
+    def test_a_name_already_in_the_inventory_is_never_reported(self) -> None:
+        """The short-circuit: supplied, whatever the map or the ELF says."""
+
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset({"D_ALREADY_PINNED", "D_803571F0"}),
+        )
+        self.assertEqual(found, ())
+
+    def test_the_ld_scripts_own_boundary_family_is_excluded(self) -> None:
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset({"D_ALREADY_PINNED"}),
+        )
+        names = {item.name for item in found}
+        self.assertNotIn("app_ROM_START", names)
+        self.assertNotIn("app_TEXT_SIZE", names)
+
+    def test_elf_builtin_absolutes_are_excluded(self) -> None:
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset({"D_ALREADY_PINNED"}),
+        )
+        names = {item.name for item in found}
+        self.assertNotIn("_MACRO_INC_GUARD", names)
+        self.assertNotIn("_binary_bin_foo_bin_size", names)
+
+    def test_a_value_outside_the_window_and_the_rom_extent_is_out_of_scope(
+        self,
+    ) -> None:
+        """`HW_REG` is kseg1-shaped: neither the movable window nor a ROM
+        offset names it, so an omitted `hardware_regs.ld` is invisible to
+        this specific check -- the honest domain limit the module docstring
+        states rather than papers over."""
+
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset({"D_ALREADY_PINNED"}),
+        )
+        self.assertNotIn("HW_REG", {item.name for item in found})
+
+    def test_a_non_absolute_symbol_is_never_a_candidate(self) -> None:
+        ldmap, window, rom_extent = self._window_and_extent()
+        elf = parse_elf_symbols(missing_pin_elf(), path="game.elf")
+        found = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=rom_extent,
+            pin_names=frozenset(),
+        )
+        self.assertNotIn("gData", {item.name for item in found})
+
+    def test_no_elf_at_all_reports_nothing_through_the_audit(self) -> None:
+        """The wiring, not the classifier: `build_shift_audit` never calls
+        `find_missing_pin_sources` when `--elf` was not passed."""
+
+        found = build_shift_audit(
+            ldmap=missing_pin_ldmap(),
+            image=SYNTHETIC_IMAGE,
+            pins=empty_pins(),
+            model=default_pin_model(),
+        )
+        self.assertEqual(found.missing_pins, ())
+        self.assertEqual(found.pins_missing_sources, 0)
+        self.assertIsNone(found.elf_path)
+
+
+_MISSING_PIN_DEFAULT_PINS = "D_ALREADY_PINNED = 0x80000430;\n"
+
+
+def missing_pin_audit(*, pins: PinCatalogue | None = None) -> ShiftAudit:
+    return build_shift_audit(
+        ldmap=missing_pin_ldmap(),
+        image=SYNTHETIC_IMAGE,
+        pins=pins if pins is not None else read_pin_text(_MISSING_PIN_DEFAULT_PINS),
+        model=default_pin_model(),
+        elf=parse_elf_symbols(missing_pin_elf(), path="game.elf"),
+        elf_path="game.elf",
+        map_path="missing.map",
+        image_path="synthetic.z64",
+    )
+
+
+class MissingPinSourceReportTests(unittest.TestCase):
+    """The headline, the capped list, the off/zero/found shapes, and JSON."""
+
+    def test_the_headline_and_detail_list_name_the_one_survivor(self) -> None:
+        found = missing_pin_audit()
+        self.assertEqual(found.pins_missing_sources, 1)
+        self.assertEqual([item.name for item in found.missing_pins], ["D_803571F0"])
+        text = "\n".join(shift_audit_lines(found, limit=10))
+        self.assertIn("pins_missing_sources=1", text)
+        self.assertIn("missing pin sources (1 of 1, --limit)", text)
+        self.assertIn("D_803571F0", text)
+        self.assertIn("read your link's -T list", text)
+        self.assertIn("splat's auto files count", text)
+
+    def test_zero_prints_the_key_and_nothing_else(self) -> None:
+        """The inventory names the one real miss too: `pins_missing_sources=0`,
+        and no `missing pin sources` section at all."""
+
+        found = missing_pin_audit(
+            pins=read_pin_text(
+                "D_ALREADY_PINNED = 0x80000430;\nD_803571F0 = 0x80000470;\n"
+            )
+        )
+        self.assertEqual(found.pins_missing_sources, 0)
+        text = "\n".join(shift_audit_lines(found, limit=10))
+        self.assertIn("pins_missing_sources=0", text)
+        self.assertNotIn("missing pin sources", text)
+
+    def test_without_an_elf_the_report_says_off(self) -> None:
+        found = build_shift_audit(
+            ldmap=missing_pin_ldmap(),
+            image=SYNTHETIC_IMAGE,
+            pins=empty_pins(),
+            model=default_pin_model(),
+        )
+        text = "\n".join(shift_audit_lines(found, limit=10))
+        self.assertIn("pins_missing_sources=off", text)
+        self.assertIn("pins_missing_sources is off", text)
+        self.assertIn("--elf", text)
+
+    def test_the_json_payload_carries_the_capped_list(self) -> None:
+        found = missing_pin_audit()
+        payload = found.as_dict(limit=10)
+        self.assertEqual(payload["pins_missing_sources"], 1)
+        self.assertEqual(payload["pins_missing_sources_shown"], 1)
+        self.assertEqual(
+            payload["pins_missing_sources_list"],
+            [{"name": "D_803571F0", "value": 0x80000470, "size": 0}],
+        )
+
+    def test_the_cap_is_honoured(self) -> None:
+        found = missing_pin_audit()
+        payload = found.as_dict(limit=0)
+        self.assertEqual(payload["pins_missing_sources"], 1)
+        self.assertEqual(payload["pins_missing_sources_shown"], 0)
+        self.assertEqual(payload["pins_missing_sources_list"], [])
+
+    def test_every_key_this_report_emits_is_registered(self) -> None:
+        payload = missing_pin_audit().as_dict(limit=10)
+        for key in ("pins_missing_sources", "pins_missing_sources_shown"):
+            self.assertIn(key, SHIFT_METRICS_BY_KEY)
+        for row in payload["pins_missing_sources_list"]:
+            for key in row:
+                self.assertIn(key, SHIFT_METRICS_BY_KEY)
+        self.assertIn("pins_missing_sources_list", SHIFT_METRICS_BY_KEY)
+
+    def test_the_command_runs_it_end_to_end_with_census(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "game.map").write_text(MISSING_PIN_MAP, encoding="utf-8")
+            (root / "game.z64").write_bytes(SYNTHETIC_IMAGE)
+            (root / "game.elf").write_bytes(missing_pin_elf())
+            (root / "pins.txt").write_text(
+                "D_ALREADY_PINNED = 0x80000430;\n", encoding="utf-8"
+            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                status = main(
+                    [
+                        "shift",
+                        "audit",
+                        "--map",
+                        str(root / "game.map"),
+                        "--image",
+                        str(root / "game.z64"),
+                        "--elf",
+                        str(root / "game.elf"),
+                        "--pins",
+                        str(root / "pins.txt"),
+                        "--json",
+                        "--census",
+                        "pins_missing_sources=1",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["pins_missing_sources"], 1)
+        self.assertEqual(
+            [item["name"] for item in payload["pins_missing_sources_list"]],
+            ["D_803571F0"],
+        )
+
+
+# --------------------------------------------------------------------------
+# WB-144 conformance: pilotwings64 and Banjo-Kazooie, live and self-skip.
+# --------------------------------------------------------------------------
+
+PW64_HAND_PIN_FILES = (
+    PW64_SYM / "hardware_regs.ld",
+    PW64_SYM / "pif_syms.ld",
+    PW64_SYM / "libultra_undefined_syms.txt",
+)
+PW64_AUTO_PIN_FILES = (
+    PW64_ROOT / "build" / "splat_out" / "us" / "undefined_funcs_auto.txt",
+    PW64_ROOT / "build" / "splat_out" / "us" / "undefined_syms_auto.txt",
+)
+PW64_SYMBOL_ADDRS_FILES = (
+    PW64_SYM / "symbol_addrs_app.txt",
+    PW64_SYM / "symbol_addrs_kernel.txt",
+    PW64_SYM / "symbol_addrs_libultra.txt",
+)
+PW64_MAIN_ELF = PW64_ROOT / "build" / "pilotwings64.us.elf"
+
+_HAVE_PW64_MISSING_SOURCES = (
+    _HAVE_PW64
+    and PW64_MAIN_ELF.is_file()
+    and all(item.is_file() for item in (*PW64_AUTO_PIN_FILES, *PW64_SYMBOL_ADDRS_FILES))
+)
+
+
+@unittest.skipUnless(
+    _HAVE_PW64_MISSING_SOURCES,
+    f"pilotwings64 build artifacts not found under {PW64_ROOT}",
+)
+class Pw64MissingPinSourceConformanceTests(unittest.TestCase):
+    """WB-144's own incident, replayed against the project it happened on.
+
+    The coordinator's incomplete run (docs/shiftability-campaign.md Sec 0.4)
+    dropped `undefined_funcs_auto.txt` and `undefined_syms_auto.txt` from
+    `--pins` and got `pins_shadowing=7` with no signal ten more pins were
+    sitting in a `-T` file nobody handed the audit. This is that run,
+    replayed with the actual classifier: the full, correct inventory
+    reports zero, and the deliberately-incomplete one reports the gap.
+    """
+
+    full: ClassVar[ShiftAudit]
+    incomplete: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        image = PW64_IMAGE.read_bytes()
+        elf = read_elf_symbols(PW64_MAIN_ELF)
+
+        model_full = default_pin_model()
+        pins_full = read_pin_files(
+            [*PW64_HAND_PIN_FILES, *PW64_AUTO_PIN_FILES, *PW64_SYMBOL_ADDRS_FILES],
+            model=model_full,
+        )
+        cls.full = build_shift_audit(
+            ldmap=read_ld_map(PW64_MAP),
+            image=image,
+            pins=pins_full,
+            model=model_full,
+            blobs=PW64_BLOBS,
+            elf=elf,
+            map_path=str(PW64_MAP),
+            image_path=str(PW64_IMAGE),
+            elf_path=str(PW64_MAIN_ELF),
+        )
+
+        model_incomplete = default_pin_model()
+        pins_incomplete = read_pin_files(
+            [*PW64_HAND_PIN_FILES, *PW64_SYMBOL_ADDRS_FILES],
+            model=model_incomplete,
+        )
+        cls.incomplete = build_shift_audit(
+            ldmap=read_ld_map(PW64_MAP),
+            image=image,
+            pins=pins_incomplete,
+            model=model_incomplete,
+            blobs=PW64_BLOBS,
+            elf=elf,
+            map_path=str(PW64_MAP),
+            image_path=str(PW64_IMAGE),
+            elf_path=str(PW64_MAIN_ELF),
+        )
+
+    def test_the_full_six_file_inventory_measures_zero(self) -> None:
+        """Every absolute symbol the link carries in-window or in-ROM is
+        named by one of the six `-T`-equivalent files handed to `--pins`/
+        `--symbol-addrs`, or is one of the measured, documented exclusions
+        (`LD_SCRIPT_BOUNDARY_SUFFIXES`, `ELF_BUILTIN_ABSOLUTES`) -- measured,
+        not forced: a nonzero result here would name exactly which symbol
+        this module's exclusions do not yet explain."""
+
+        self.assertEqual(self.full.pins_missing_sources, 0)
+        self.assertEqual(self.full.missing_pins, ())
+
+    def test_the_incomplete_inventory_surfaces_the_gap(self) -> None:
+        """Omitting the two splat auto files reproduces the incident:
+        `pins_shadowing` drops (this project's own scorecard, silently), and
+        `pins_missing_sources` is the check that would have caught it.
+
+        Not all ten of S6's ablated names resurface here, and that is a
+        real, measured fact about this project rather than a weaker
+        assertion: seven of the ten (the `asp`/`gsp`/`rspboot` microcode
+        overlay symbols) are *also* written down in `symbol_addrs_kernel.
+        txt`, one of the `--symbol-addrs` files this run keeps supplied
+        throughout -- so the inventory this run was handed does still name
+        them, just not from the file that actually pins them at link time.
+        `D_803571F0` carries no such duplicate and is the one the incident
+        report itself quoted; it is asserted by name.
+        """
+
+        names = {item.name for item in self.incomplete.missing_pins}
+        self.assertIn("D_803571F0", names)
+        self.assertIn("D_80250E80", names)
+        self.assertIn("D_8034E710", names)
+        # The seven microcode names duplicated in symbol_addrs_kernel.txt
+        # are still covered by this run's inventory and must not appear.
+        for name in (
+            "aspMainDataStart",
+            "aspMainTextStart",
+            "gspF3DEX_fifoDataStart",
+            "gspF3DEX_fifoTextStart",
+            "gspFast3DDataStart",
+            "gspFast3DTextStart",
+            "rspbootTextStart",
+        ):
+            self.assertNotIn(name, names)
+        self.assertGreater(self.incomplete.pins_missing_sources, 0)
+        self.assertGreater(
+            self.incomplete.pins_missing_sources, self.full.pins_missing_sources
+        )
+
+    def test_the_report_names_the_t_list(self) -> None:
+        text = "\n".join(shift_audit_lines(self.incomplete, limit=40))
+        self.assertIn("D_803571F0", text)
+        self.assertIn("read your link's -T list", text)
+
+
+@unittest.skipUnless(
+    _HAVE_BK_PINS and BK_ELF.is_file(),
+    f"Banjo-Kazooie build artifacts not found under {BK_ROOT}",
+)
+class BkMissingPinSourceConformanceTests(unittest.TestCase):
+    """Frozen at zero, on the same project and the same evidence as
+    `BkShadowingPinConformanceTests`: MR !52 removed Banjo-Kazooie's
+    undefined symbols ahead of a shift, and its own four pin files already
+    name everything the link's absolute symbol table carries in-window or
+    in-ROM. A project that did this work has an empty finding here too.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        model = default_pin_model()
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(BK_MAP),
+            image=BK_IMAGE.read_bytes(),
+            pins=read_pin_files(BK_PIN_FILES, model=model),
+            model=model,
+            auto_blobs=True,
+            elf=read_elf_symbols(BK_ELF),
+            map_path=str(BK_MAP),
+            image_path=str(BK_IMAGE),
+            elf_path=str(BK_ELF),
+        )
+
+    def test_the_full_inventory_measures_zero(self) -> None:
+        self.assertEqual(self.audit.pins_missing_sources, 0)
+        self.assertEqual(self.audit.missing_pins, ())
 
 
 if __name__ == "__main__":

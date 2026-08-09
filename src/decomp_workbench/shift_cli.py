@@ -641,13 +641,16 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
         metavar="FILE",
         help=(
             "the linked ELF this map and image came from. Optional, and it "
-            "buys one class the map cannot see: a pin an object in the link "
-            "already defines. GNU ld lets a script assignment override an "
-            "object's definition with no warning, and keeps the losing "
+            "buys two things the map cannot see. A pin an object in the "
+            "link already defines: GNU ld lets a script assignment override "
+            "an object's definition with no warning, and keeps the losing "
             "definition's size on the surviving absolute symbol -- so the "
             "check is exact rather than a heuristic, and needs no shift "
             "(WB-143). Those pins are `shadowing-pin`, and deleting one is "
-            "byte-identical at the current layout"
+            "byte-identical at the current layout. And whether --pins/"
+            "--symbol-addrs itself is complete: an absolute symbol the link "
+            "carries that no supplied file names is `pins_missing_sources` "
+            "-- the -T file nobody handed this run (WB-144)"
         ),
     )
     audit.add_argument(

@@ -169,6 +169,14 @@ places to look:
 > files reports `pins_shadowing=7`; with them it reports 17, and the ten it
 > was missing include the one word a relink later convicted.
 
+That mistake is the one `shift audit` now catches on its own (WB-144). Pass
+`--elf` and the audit cross-checks its own pin classes against the linked
+ELF's absolute symbol table: any address-shaped symbol the link carries in
+the movable window or the placed ROM extent that no `--pins`/`--symbol-addrs`
+file names is reported as `pins_missing_sources`, with the names themselves
+capped and printed — the -T file nobody handed it, found without a second
+run.
+
 splat projects also keep a *third* population that is not a pin at all:
 `symbol_addrs_*.txt`. Those are disassembly hints. They are read with the same
 grammar, they never reach `ld`, and §1.4 explains what including them does to

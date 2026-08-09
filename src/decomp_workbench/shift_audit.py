@@ -175,6 +175,66 @@ way the report could not show.
   ``--blob``. pilotwings64's ``scan_total`` goes from 977,512 to 2,548 with
   ``scan_high`` unchanged at 62.
 
+WB-144 is about the inventory itself, filed the day after a coordinator ran
+pilotwings64's own scorecard (S6/S7's, `--elf` and all) with two of its six
+``-T`` files left off ``--pins`` -- splat's ``undefined_funcs_auto.txt`` and
+``undefined_syms_auto.txt``. The run exited clean and reported
+``pins_shadowing=7``. The true number, with every ``-T`` file the link
+actually consumes, is 17 (``docs/shiftability-campaign.md`` Sec 0.4) -- and
+nothing about a 7 printed with no ``--elf`` complaint *looks* incomplete, the
+same shape WB-140's map/image mismatch took. `pins_shadowing` and every other
+pin-class count can only be wrong about pins it was *given*; `find_missing_pin_sources`
+is the other half, over pins the *link* was given and the inventory was not.
+It reads the linked ELF's own absolute symbol table -- which already carries
+the answer, no relink required, the same evidence `reclassify_shadowing_pins`
+reads -- and reports every absolute symbol address-shaped enough to matter
+(inside the movable window or the map's own placed ROM extent) whose name
+appears in no supplied ``--pins``/``--symbol-addrs`` file.
+
+Two edges, both measured against pilotwings64's and Banjo-Kazooie's real
+links rather than assumed, because a false positive here is exactly the kind
+of noise that gets the whole check turned off:
+
+* **The ld script's own per-segment boundary symbols are not missing pins.**
+  A cascade script computes ``<segment>_ROM_START``/``_ROM_END`` (from
+  ``__romPos``) and ``<segment>_TEXT_SIZE``/``_DATA_SIZE``/``_RODATA_SIZE``/
+  ``_BSS_SIZE`` (from ``ABSOLUTE ((X_END - X_START))``) for every segment it
+  names, and none of that comes from a ``-T`` file -- it is the main script's
+  own bookkeeping. These *are* map assignments (``ldmap.symbol(name).
+  is_assignment``), the same as a real pin, which is exactly why
+  `LD_SCRIPT_BOUNDARY_SUFFIXES` has to be a name-shape family rather than a
+  blanket "is this a map assignment" exclusion: splat's own auto-file pins
+  print in the map with the identical ``NAME = expression`` shape (see
+  :mod:`decomp_workbench.ldmap`'s module docstring on how little provenance a
+  text map keeps), so excluding every map assignment would have hidden the
+  incident's own ten names along with the boundary symbols. Measured on both
+  projects: pilotwings64's eight segments and Banjo-Kazooie's twenty-three
+  (nine of them overlay groups) produce 45 and 142 such names, and every one
+  is one of the six suffixes -- zero collisions with either project's pin
+  files, zero unexplained residue.
+* **Not every absolute symbol came from a script at all.** A handful are
+  object-file-native: the assembler's `_MACRO_INC_GUARD` (one per translation
+  unit pilotwings64 compiles, value ``1``, a C include-guard constant, not an
+  address) and objcopy's own ``_binary_<path>_size`` beside the ``_start``/
+  ``_end`` pair `BLOB_OBJECT_RULES` already reads (a blob's byte count, not a
+  reference) -- absolute, in no ``-T`` file, and not a map assignment either
+  (``ldmap.symbol`` returns ``None`` for both shapes). `ELF_BUILTIN_ABSOLUTES`
+  is the measured, documented exclusion for these; widening it to a
+  guess -- ``_gp``, ``__bss_start``, and their kin are the textbook shape but
+  appear in neither project's own link -- is deliberately left undone until a
+  real link shows one.
+
+Size is not part of either edge's decision, on purpose: `reclassify_shadowing_
+pins` uses a symbol's size as evidence of what it overrode, but a missing
+inventory entry is missing regardless of whether the ELF happens to carry a
+size on it, so this check treats a zero-size and a sized absolute symbol
+identically once they clear the two exclusions above. And the domain itself
+is narrower than "every absolute symbol" on purpose: a value neither inside
+the movable window nor inside the map's placed ROM extent (a hardware
+register in kseg1, say) is outside what this check can see at all -- the same
+honesty `movable_window` and `ROM_OFFSET` already practice, not a gap this
+module pretends is covered.
+
 Two more affordances live next door, in :mod:`decomp_workbench.pins`, and are
 wired up from here. :func:`~decomp_workbench.pins.reclassify_rom_offsets`
 runs against this module's own ``max_placed_extent`` and turns the raw
@@ -213,6 +273,8 @@ __all__ = [
     "BLOB_SOURCE_EXPLICIT",
     "BLOB_SOURCE_NONE",
     "CLUSTER_MINIMUM",
+    "ELF_BUILTIN_ABSOLUTES",
+    "LD_SCRIPT_BOUNDARY_SUFFIXES",
     "MAP_SNIFF_BYTES",
     "MOVABLE_FLOOR_MIN",
     "NON_ALLOC_KIND",
@@ -230,6 +292,7 @@ __all__ = [
     "BlobSuggestion",
     "ConsistencyCheck",
     "Hit",
+    "MissingPin",
     "MovableWindow",
     "Region",
     "ShiftAudit",
@@ -237,6 +300,7 @@ __all__ = [
     "build_region_table",
     "build_shift_audit",
     "check_map_image_consistency",
+    "find_missing_pin_sources",
     "movable_window",
     "require_parsed_map",
     "resolve_blobs",
@@ -1374,6 +1438,133 @@ def scan_regions(
 
 
 # ---------------------------------------------------------------------------
+# WB-144: is the pin inventory complete?
+# ---------------------------------------------------------------------------
+
+#: ELF-native absolute symbols with no `-T` file and no map assignment behind
+#: them at all -- not a pin, not a cascade-script boundary symbol, an
+#: object-file-native constant the assembler or objcopy inserted. See the
+#: module docstring's WB-144 section for how each entry was measured, not
+#: assumed. `(pattern, "exact" | "prefix")`, the same shape
+#: `NON_ALLOC_SECTION_FAMILIES` uses.
+ELF_BUILTIN_ABSOLUTES: tuple[tuple[str, str], ...] = (
+    # The assembler's per-translation-unit C include-guard constant (always
+    # value 1): pilotwings64 emits one per object, 24 across its link.
+    ("_MACRO_INC_GUARD", "exact"),
+    # objcopy's own `_binary_<path>_size` beside the `_start`/`_end` pair
+    # `BLOB_OBJECT_RULES` already reads -- a blob's byte count, not a
+    # reference. Both live conformance projects carry these, one per blob
+    # object (pilotwings64: 6, Banjo-Kazooie: 11).
+    ("_binary_", "prefix"),
+)
+
+
+def _is_elf_builtin_absolute(name: str) -> bool:
+    """Whether `name` matches a family `ELF_BUILTIN_ABSOLUTES` names."""
+
+    for pattern, kind in ELF_BUILTIN_ABSOLUTES:
+        if kind == "exact":
+            if name == pattern:
+                return True
+        elif name.startswith(pattern):
+            return True
+    return False
+
+
+#: Per-segment boundary and size symbols a cascade linker script computes for
+#: every segment it names -- an assignment in the map exactly like a real
+#: pin (``NAME = expression``), but never written by any `-T` file. See the
+#: module docstring's WB-144 section for why a name-shape family, not a
+#: blanket "is this a map assignment" test, is the only exclusion that does
+#: not also hide a genuinely missing pin. Suffix match, not prefix: the
+#: segment name itself is the caller's own and carries no fixed shape.
+LD_SCRIPT_BOUNDARY_SUFFIXES: tuple[str, ...] = (
+    "_ROM_START",
+    "_ROM_END",
+    "_TEXT_SIZE",
+    "_DATA_SIZE",
+    "_RODATA_SIZE",
+    "_BSS_SIZE",
+)
+
+
+def _is_ld_script_boundary(name: str) -> bool:
+    """Whether `name` ends with one of `LD_SCRIPT_BOUNDARY_SUFFIXES`."""
+
+    return any(name.endswith(suffix) for suffix in LD_SCRIPT_BOUNDARY_SUFFIXES)
+
+
+@dataclass(frozen=True)
+class MissingPin:
+    """One ELF absolute symbol the supplied pin inventory does not name."""
+
+    name: str
+    value: int
+    size: int
+    """The ELF symbol's own `st_size` -- carried for the same reason
+    `ElfSymbol.shadows_definition` reads it, though this check does not: a
+    nonzero size here means some object once defined this name too, zero
+    means it never did, and either way the inventory is still missing
+    whatever `-T` file pinned it."""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "value": self.value, "size": self.size}
+
+
+def find_missing_pin_sources(
+    *,
+    elf: ElfSymbols,
+    ldmap: LdMap,
+    window: MovableWindow,
+    rom_extent: int,
+    pin_names: frozenset[str],
+) -> tuple[MissingPin, ...]:
+    """WB-144: which ELF absolute symbols does `pin_names` not account for?
+
+    The domain is deliberately narrower than "every absolute symbol in the
+    ELF": only ones whose value lands inside `window` or inside `rom_extent`
+    (the map's own `ConsistencyCheck.max_placed_extent`) are asked about at
+    all -- the same two address families a pin can land in
+    (`~decomp_workbench.pins.ARTIFACT_SUSPECT`,
+    `~decomp_workbench.pins.ROM_OFFSET`) plus the shadowing check's own VRAM
+    range. A hardware register in kseg1 or the cart domain is neither, so an
+    omitted ``hardware_regs.ld`` is outside what this specific check can see
+    -- true, and worth stating rather than widening the domain to relabel a
+    different guess as certainty.
+
+    For each in-domain symbol not named by `pin_names`, `_is_elf_builtin_
+    absolute` and `_is_ld_script_boundary` (gated on the map actually
+    carrying it as an assignment) are the two measured escape hatches the
+    module docstring's WB-144 section explains. Anything left is reported:
+    this run's pin inventory does not name it, and the linked ELF proves some
+    ``-T`` file the link consumed does.
+
+    Returned in name order -- stable, and grep-able, which matters more here
+    than a ranking would: every entry is equally "go find the file".
+    """
+
+    found: list[MissingPin] = []
+    for name in sorted(elf.names()):
+        symbol = elf.symbol(name)
+        assert symbol is not None  # from elf.names()
+        if not symbol.is_absolute or name in pin_names:
+            continue
+        if not (window.contains(symbol.value) or 0 <= symbol.value < rom_extent):
+            continue
+        if _is_elf_builtin_absolute(name):
+            continue
+        map_symbol = ldmap.symbol(name)
+        if (
+            map_symbol is not None
+            and map_symbol.is_assignment
+            and _is_ld_script_boundary(name)
+        ):
+            continue
+        found.append(MissingPin(name=name, value=symbol.value, size=symbol.size))
+    return tuple(found)
+
+
+# ---------------------------------------------------------------------------
 # The report
 # ---------------------------------------------------------------------------
 
@@ -1398,6 +1589,11 @@ class ShiftAudit:
     ``--elf`` was not passed. Reported either way, because
     ``pins_shadowing=0`` with no ELF means "not asked" and with one means
     "none found"."""
+    missing_pins: tuple[MissingPin, ...] = ()
+    """WB-144: ELF absolute symbols the supplied pin inventory does not name.
+    Always empty when `elf_path` is ``None``, for the same reason
+    `pins_shadowing` is: ``pins_missing_sources=0`` with no ELF means "not
+    asked", not "complete"."""
 
     def whitelist_template(self) -> str:
         """The skeleton `--emit-whitelist` writes, from this run's evidence."""
@@ -1450,6 +1646,17 @@ class ShiftAudit:
             found[item.region] = found.get(item.region, 0) + 1
         return dict(sorted(found.items()))
 
+    @property
+    def pins_missing_sources(self) -> int:
+        """WB-144: ELF absolute symbols no supplied pin file names.
+
+        Always 0 with no `--elf`, the same as `missing_pins` being empty --
+        see that field's docstring for why 0 there means "not asked", not
+        "complete".
+        """
+
+        return len(self.missing_pins)
+
     def ranked(self) -> tuple[Hit, ...]:
         """Every hit, most confident first, then by where it sits in the ROM."""
 
@@ -1494,6 +1701,12 @@ class ShiftAudit:
         payload.update(self.consistency.as_dict())
         payload.update(self.blobs.as_dict())
         payload.update(self.pins.as_dict(limit=limit))
+        shown_missing = self.missing_pins[: max(0, limit)]
+        payload["pins_missing_sources"] = self.pins_missing_sources
+        payload["pins_missing_sources_shown"] = len(shown_missing)
+        payload["pins_missing_sources_list"] = [
+            item.as_dict() for item in shown_missing
+        ]
         return payload
 
 
@@ -1546,12 +1759,23 @@ def build_shift_audit(
     classified = reclassify_rom_offsets(
         pins, model=model, rom_extent=consistency.max_placed_extent
     )
+    missing_pins: tuple[MissingPin, ...] = ()
     if elf is not None:
         # WB-143b runs last, because its evidence outranks every window-based
         # answer the two passes above could give: "an object already defines
         # this" is a stronger statement about a pin than "it is a kseg0
         # constant", and it comes with a remediation that costs nothing.
         classified = reclassify_shadowing_pins(classified, elf=elf)
+        # WB-144 reads the same ELF for a different question: not which
+        # supplied pin an object already shadows, but which absolute symbol
+        # the link carries that no supplied pin file named at all.
+        missing_pins = find_missing_pin_sources(
+            elf=elf,
+            ldmap=ldmap,
+            window=window,
+            rom_extent=consistency.max_placed_extent,
+            pin_names=frozenset(item.name for item in classified.entries),
+        )
     return ShiftAudit(
         map_path=map_path,
         image_path=image_path,
@@ -1563,6 +1787,7 @@ def build_shift_audit(
         consistency=consistency,
         blobs=plan,
         elf_path=elf_path if elf_path is not None else (elf.path if elf else None),
+        missing_pins=missing_pins,
     )
 
 
@@ -1683,7 +1908,13 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             f"pins_rom_offset={counts[ROM_OFFSET]:,}  "
             f"pins_shadowing="
             + ("off" if found.elf_path is None else f"{counts[SHADOWING_PIN]:,}")
-            + f"  pins_unclassified={counts[UNCLASSIFIED]:,}",
+            + f"  pins_unclassified={counts[UNCLASSIFIED]:,}  "
+            + "pins_missing_sources="
+            + (
+                "off"
+                if found.elf_path is None
+                else f"{found.pins_missing_sources:,}"
+            ),
         )
     )
     for source in found.pins.sources:
@@ -1695,6 +1926,14 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             "an object's definition silently, and the surviving absolute "
             "symbol keeps the losing definition's size -- which is what makes "
             "the check exact, and free (WB-143)."
+        )
+        lines.append(
+            "  pins_missing_sources is off: pass --elf <linked ELF> to check "
+            "whether --pins/--symbol-addrs named every absolute symbol the "
+            "link actually carries. WB-144: an incomplete inventory exits "
+            "clean and reports every other number honestly about the pins "
+            "it *was* given -- this is the only check that catches a pin "
+            "file nobody handed it."
         )
     for classification, heading in (
         (SHADOWING_PIN, "shadowing pins"),
@@ -1738,6 +1977,29 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             "the script's assignment overrode that definition silently. "
             "Deleting the pin is byte-identical at this layout and the "
             "object's own definition then follows the layout for free."
+        )
+
+    if found.missing_pins:
+        shown_missing = found.missing_pins[: max(0, limit)]
+        lines.extend(
+            (
+                "",
+                "missing pin sources "
+                f"({len(shown_missing)} of {len(found.missing_pins)}, --limit)",
+            )
+        )
+        lines.extend(
+            _table(
+                ("name", "value", "size"),
+                [
+                    (item.name, f"0x{item.value:08x}", f"{item.size:,}")
+                    for item in shown_missing
+                ],
+            )
+        )
+        lines.append(
+            "  pins the link knows but your inventory does not -- read your "
+            "link's -T list; splat's auto files count."
         )
 
     lines.extend(

@@ -768,6 +768,27 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "pins in no named window and not a ROM offset either, or whose "
         "expression did not fold; reported rather than guessed",
     ),
+    Metric(
+        "pins_missing_sources",
+        "pins_missing_sources",
+        "WB-144: ELF absolute symbols inside the movable window or the map's "
+        "placed ROM extent that no supplied --pins/--symbol-addrs file names "
+        "and the map does not explain as its own cascade-script boundary "
+        "symbol -- the inventory is missing whatever -T file pinned them. "
+        "Only reported when --elf was passed",
+    ),
+    Metric(
+        "pins_missing_sources_shown",
+        "pins_missing_sources_shown",
+        "rows the missing-pin-sources list actually carries",
+    ),
+    Metric(
+        "pins_missing_sources_list",
+        "pins_missing_sources_list",
+        "the pins_missing_sources detail itself, name-sorted and capped at "
+        "--limit: read your link's own -T list against what you passed "
+        "--pins/--symbol-addrs -- splat's auto files count",
+    ),
     Metric("pins", "pins", "the ranked pin list, suspects first, capped at --limit"),
     Metric("pins_shown", "pins_shown", "rows the pin list actually carries"),
     Metric("limit", "limit", "the cap every detail list in this report was built with"),
