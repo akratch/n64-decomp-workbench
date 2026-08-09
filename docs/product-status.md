@@ -17,11 +17,13 @@ this page says what users can rely on now.
 | Identify compiler lineage | behavioral `fingerprint-toolchain`; hash-recorded `lineage` across caller-supplied objects |
 | Explain allocator decisions | `trace-webs`, `trace-source`, `trace-stack-homes`, `oracle plan/diff/force/sweep/status/export` |
 | Explain scheduler decisions | stable trace reader plus hash-pinned external profile adapter and calibration gates |
+| Audit a matched project's shiftability | `shift audit` inventory → `shift rehearse orchestrate` two-delta relink → `--census unexplained_changed=0,stale_confirmed=0` as the CI gate |
 | Automate safely | versioned success/error JSON, census exit codes, bounded streams, generated completions |
 
 Flat command names remain compatible. `decomp-workbench commands` presents the
 same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
-`cache`, `trace`, `instrument`, `pass`, `toolchain`, `oracle`, `experiment`).
+`cache`, `trace`, `instrument`, `pass`, `toolchain`, `shift`, `oracle`,
+`experiment`).
 
 ## Intentional boundaries
 
@@ -38,6 +40,17 @@ same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
   back to source and stock-project verification.
 - No silent cleanup or overwrite. Evidence is append-only or exclusive;
   cache pruning is recoverable.
+- No emulator or behavioral oracle for shifted images. `shift rehearse`
+  explains a relink word by word and names what stayed put; whether the
+  resulting ROM *runs* is a hand-off, stated on the report rather than
+  implied by it.
+- No object-level relocation scanning, and no per-game asset-format parsing.
+  The shift commands read a linker map and linked images; segmented pointers
+  inside display lists and geo layouts are a named later increment, not a
+  silent gap.
+- No verdict from a linked image alone. A linked ROM keeps no relocations, so
+  `shift audit`'s tiers rank address-likelihood and never hazard; only a
+  shifted relink separates a resolved pointer from a typed-in constant.
 
 ## Remaining research, not missing basic UX
 

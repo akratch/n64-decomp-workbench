@@ -52,6 +52,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
 | You are about to publish a proof or integration repository | [Public handoff audit](public-handoffs.md) | Exact handoff tree; optional project dependency root |
+| Your project is 100% matched and someone wants to mod it, or you need to know which words in the ROM are not explained by a symbol reference | [Shiftability](shiftability.md) | A linker map and a linked image; a relink script for the empirical half |
 | You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |
 | A command failed or returned nothing usable | [Troubleshooting](troubleshooting.md) | Command, stderr, and tool identities |
 
@@ -66,7 +67,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) |
 | Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |
 | A trace gives you `save`, `nocs`, `totalsave`, `chargeA`, or `chargeB` and you need the whole allocator formula in one place | [The p1 decision arithmetic](p1-decision-arithmetic.md) |
-| A score improved, or a lever's old price looked stable, and you want the catalogue of ways that can still be the wrong reading | [Metric traps](metric-traps.md) |
+| A score improved, a lever's old price looked stable, or a byte-identical build looked like proof the addresses are right, and you want the catalogue of ways that can still be the wrong reading | [Metric traps](metric-traps.md) |
 | You are about to blame the allocator, and want the two source questions to ask first (are these two reads the same value; where can a statement that emits nothing change the allocation), or what a fusion donor costs before building one | [Source probes](source-probes.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |

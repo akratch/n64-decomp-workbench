@@ -2,18 +2,20 @@
 
 **Read this if:** a score improved, a lever's price looked stable, or a
 catalogue told you a site was already priced — and you are about to act on
-that number without re-deriving it. Every trap below cost a real stage of
-real work in the GE007 `object_interaction` campaign (54 → 0 differing
-words), and every one of them was a **correct reading of the wrong
-quantity**, not a bug. The scorer, the catalogue, and the census all did
-exactly what they were built to do; the mistake was trusting what they did
-not measure.
+that number without re-deriving it. Every trap below was a **correct reading
+of the wrong quantity**, not a bug. The scorer, the catalogue, and the census
+all did exactly what they were built to do; the mistake was trusting what
+they did not measure. The first six each cost a real stage of real work in
+the GE007 `object_interaction` campaign (54 → 0 differing words); the seventh
+comes from one level up, where the number being misread is the matching gate
+itself.
 
-Each trap links to its compiler-law entry in
+Each trap about the compiler links to its entry in
 [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md), which carries the formal
 statement, the receipt, and the falsification history. This page is the
 narrative version — what the mistake felt like from the inside, so you
-recognize it before you repeat it.
+recognize it before you repeat it. Trap 7 is not about the compiler at all —
+it is about the linker — and links to its own page instead.
 
 ## Trap 1: a ring-quotiented score can hide a 100x-worse object
 
@@ -184,6 +186,81 @@ decompiled source is otherwise complete.
 See [L48](compiler-laws/ido-5.3.md#l48-zero-footprint-statements-can-be-load-bearing) and
 [error eleven in the campaign postmortem](postmortem-2026-08-09-ge007.md#11-zero-footprint-discarded-read).
 
+## Trap 7: byte-identity does not prove address provenance
+
+**The trap:** a build that reproduces the ROM byte-for-byte reads like proof
+that the source is right. It is proof that the *bytes* are right, at one
+layout. "100% matched," a green CI gate, and a project's own retail verifier
+all measure the same thing, and none of them measures where an address in the
+image came from.
+
+**The incident.** A one-line edit was injected into a finished, 100%-matched
+N64 decompilation — a global pointer initialized from a raw address literal
+instead of `&symbol`, with the address read out of the project's own build
+map so that it was the correct value at that layout:
+
+```c
+SoundPlayer *gSoundPlayerPtr = &gSoundPlayer;               /* before */
+SoundPlayer *gSoundPlayerPtr = (SoundPlayer *) 0x80110470;  /* after  */
+```
+
+Every existing gate passed. The bugged matching build was **byte-identical to
+the retail cartridge** — CRCs good, the project's own `Verify: OK`, and an
+independent `cmp` against the baserom. The bugged mod-mode build was
+byte-identical to the clean one. Nothing in the ecosystem had a way to say
+that this ROM now contained one address that would not survive an insertion,
+because the community runs no shiftability check in CI at all: papermario,
+zeldaret/oot and mk64 workflow files were fetched and grepped, zero hits.
+
+Relink the same objects against a script with `0x10` inserted, and the truth
+is one byte wide: the bugged shifted image differs from the clean shifted
+image in exactly **seven bytes** — six of CRC recalculation, and one byte of
+the stale pointer, `0x70` where it should read `0x80`. `shift rehearse`
+reports `stale_confirmed=1` at ROM `0x0d29dc`, value `0x80110470`, and names
+the symbol the word should have been: `gSoundPlayer`. Nothing else fires.
+Revert the line, rebuild the pair, and the same command says
+`stale_confirmed=0, findings=0`.
+
+The same project's own 2021 shift-hardening carries the harder version. Four
+of its fixes did nothing but turn a raw hex offset into `%lo(symbol)` — code
+that assembled to **byte-identical output before the shift**, because the
+literal happened to equal that symbol's low half in that one layout. There
+is no address-shaped word to scan for: the effective address is only ever
+formed at run time by combining a correctly relocated `lui` with a frozen
+16-bit offset, and in a linked image that offset is indistinguishable from a
+legitimate struct-member displacement. No single-build check, static or
+dynamic, reaches that class. A differential relink does.
+
+And one class reaches past both. The same game checksums four of its own
+functions at run time, with a post-link build step recomputing each byte-sum
+from the map. In 2021 one audio function was left off that step's allowlist;
+under a shift its bytes changed, its frozen checksum did not, the game's own
+self-check failed, and the bug was filed as "cursed audio." That word holds a
+byte-sum, not an address — neither a static address scan nor a generic
+stale-word detector has anything to key off. It needs its own stated rule:
+*if a protected function's body changed, its checksum word must have changed
+too*.
+
+**Why it happened.** A linked N64 ROM keeps no relocations. A literal
+`0x80123456` and a linker-resolved symbol that lives at `0x80123456` produce
+the same four bytes, so the finished image contains no evidence of which one
+was written. Byte identity is a point measurement, and provenance is only
+visible in a neighborhood: you have to move the layout and see which values
+move with it. Nothing about a byte-for-byte pass announces that it was never
+asked the question.
+
+**The rule:** never read byte identity — a match score, a green gate, a
+retail verifier — as a claim about where an address came from. It is a claim
+about one layout. When what you need is "every address in this image is
+explained by a reference," that is a different measurement, and it costs a
+relink: build the same objects twice against scripts that differ by an
+inserted pad, at two different deltas, and require every changed word to be
+explained and every unmoved address-shaped word to be judged.
+
+See [Shiftability](shiftability.md) for the two commands that make that
+measurement, the tier rules behind their findings, and the boundaries they
+refuse to cross.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
@@ -191,7 +268,9 @@ See [L48](compiler-laws/ido-5.3.md#l48-zero-footprint-statements-can-be-load-bea
 - [The p1 decision arithmetic](p1-decision-arithmetic.md) — the formula
   several of these traps were made while reasoning about.
 - [Postmortem: GE007 `object_interaction`](postmortem-2026-08-09-ge007.md) —
-  the full campaign these traps are drawn from.
+  the full campaign the first six traps are drawn from.
+- [Shiftability](shiftability.md) — the commands Trap 7 routes to, and the
+  worked example of a matched ROM carrying an address bug.
 - [L18, positional words are the honest metric](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric) and
   [L19, partial closure is not monotone](compiler-laws/ido-5.3.md#l19-partial-closure-is-not-monotone) —
   the two measurement laws this page's traps extend.

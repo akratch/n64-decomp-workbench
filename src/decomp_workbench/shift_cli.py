@@ -398,14 +398,19 @@ _ORCHESTRATE_DESCRIPTION = (
 
 
 def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
-    """Register the ``shift`` group and its ``audit`` operation."""
+    """Register the ``shift`` group and its ``audit`` and ``rehearse`` halves."""
 
     parser = commands.add_parser(
         "shift",
         help="inventory and rehearse a project's shiftability",
         description=(
-            "Static inventory now, empirical rehearsal when it lands. Run "
-            "`decomp-workbench shift audit --help` for the inventory."
+            "Matching proves the bytes at one layout; shiftability is whether "
+            "the addresses in them are references. `audit` is the static "
+            "inventory -- one map, one image, no build. `rehearse` is the "
+            "empirical referee -- the same objects relinked against a padded "
+            "script, with every changed word explained. Run "
+            "`decomp-workbench shift audit --help` or "
+            "`decomp-workbench shift rehearse --help`."
         ),
     )
     operations = parser.add_subparsers(dest="shift_command")

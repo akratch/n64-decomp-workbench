@@ -577,6 +577,7 @@ rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 | you need to generate the variant family, and to price the levers you inherited | [Sweeps](sweeps.md) |
 | a `schedule` residue survived `-g0` and every compiler you own | [Line-assignment probe](line-assignment-probe.md) |
 | ordinary source levers are exhausted and you have a calibrated trace | [Allocator oracle](oracle.md) |
+| your project is already matched and the next question is whether it can be modded | [Shiftability](shiftability.md) |
 | you consume reports from automation | [JSON contracts](json-contracts.md) |
 | a command failed or printed nothing usable | [Troubleshooting](troubleshooting.md) |
 | you want the reasoning behind the levers | [Final-function campaign lessons](final-function-campaigns.md) |

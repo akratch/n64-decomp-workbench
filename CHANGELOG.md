@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **`shift audit` and `shift rehearse` answer the question the match gate
+  cannot: which words in a ROM are not explained by a symbol reference.** A
+  linked N64 image keeps no relocations, so a literal `0x80123456` and a
+  linker-resolved symbol living at `0x80123456` are the same four bytes —
+  matching proves the bytes at one layout and says nothing about whether the
+  build survives an insertion. The reader layer underneath is a GNU `ld -Map`
+  parser (sections, input records, per-symbol extents, VRAM↔ROM through the
+  section's own load address) and a MIPS reference decoder that resolves
+  signed `%hi`/`%lo` pairs instead of masking them. `shift audit` is the
+  static half: it sorts the project's own linker-input pins into derived,
+  authentic-fixed, artifact-suspect and unclassified, and ranks every
+  address-shaped word in the image against five suppressors measured from
+  real false-positive families — misaligned build-machine leftovers,
+  arithmetic-progression packed fields, repeated struct constants,
+  fixed-point table values, and whatever the caller whitelisted with a
+  reason. Its tiers rank how confidently a word is a *reference*, never how
+  dangerous it is, and the report says so on every run. `shift rehearse` is
+  the empirical half: relink the same objects against a script with
+  `. += DELTA;` inserted after one named object, pair the two images with a
+  delta correction rather than positionally (2.8M differing words becomes
+  20,687 on an 11 MB ROM), classify every changed word, and require the
+  `unexplained` count to be zero. Every unmoved address-shaped word is then
+  merged with the audit's tier: high and unmoved is `stale-confirmed`, medium
+  is a review queue, low is the measured noise floor. `orchestrate` drives
+  your own relink wrapper once per delta — two deltas, because a partially
+  symbolized reference can encode correctly at one shift by coincidence — and
+  reports any class count the deltas disagree on. It also carries the
+  checksum-consistency rule for games that byte-sum their own functions at run
+  time: if a protected function's body changed, its checksum word must have
+  changed too, with a status reported for every declared pair including the
+  passes.
+
+  The validation was a controlled experiment on a finished decomp. A one-line
+  hardcoded pointer injected into a 100%-matched project produced a build that
+  was byte-identical to the retail cartridge, with the project's own
+  `Verify: OK` and an independent `cmp` agreeing — every gate the ecosystem
+  currently runs, passed, on a ROM that had just acquired an address bug.
+  Relinked at one delta, `shift rehearse` reported `stale_confirmed=1` at the
+  exact word, named the symbol it should have been, and fired nothing else;
+  reverting the line returned `stale_confirmed=0, findings=0`. Documented in
+  `docs/shiftability.md`, with `docs/metric-traps.md` Trap 7 for the
+  measurement lesson.
+
 - **`next` routes an allocation residue to the force ceiling before the source
   sweep.** Forcing a web to a colour was used mostly as a post-hoc check; used
   first, it turned an apparently 21-row construct into a 2-row one in six

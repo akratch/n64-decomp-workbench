@@ -266,6 +266,63 @@ decomp-workbench note reserve --log WORKBENCH-IMPROVEMENTS.md --count 3
 
 See [Candidate campaigns](campaigns.md) and [Shared notes](shared-notes.md).
 
+## Adding code breaks the ROM even though everything matches
+
+The match gate proves the bytes at one layout. It cannot prove that the
+addresses in those bytes are *references*, because a linked ROM keeps no
+relocations and a literal `0x80123456` and a resolved symbol at `0x80123456`
+are the same four bytes. Start with the inventory, which costs one pass over
+a map and an image and builds nothing:
+
+```sh
+decomp-workbench shift audit --map build/game.map --image build/game.z64 \
+  --pins ver/symbols/undefined_syms.txt --blob .assets
+```
+
+That says which of your pinned addresses follow the layout
+(`gMainMemoryPool = main_BSS_END`) and which are written down
+(`D_B0000574 = 0xB0000574`), and ranks every word in the image holding a
+value inside the range an insertion would move. Its tiers rank how confidently
+a word is an address reference, never how dangerous it is.
+
+To find out which of those references a shift actually moves, relink the same
+objects against a padded script and let the two images referee it:
+
+```sh
+decomp-workbench shift rehearse orchestrate --wrapper tools/relink.sh \
+  --ld-script mods/game.custom.ld --anchor-object build/src/hasm/entrypoint.s.o \
+  --deltas 0x10,0x40 --workdir .workbench/rehearsal \
+  --census unexplained_changed=0,stale_confirmed=0
+```
+
+Two deltas, not one: a partially symbolized reference can encode correctly at
+one shift by coincidence. `stale_confirmed` is a word the audit ranked high
+that the relink did not move — the strongest available evidence for a
+hardcoded pointer, with the symbol it should have been named beside it. See
+[Shiftability](shiftability.md).
+
+## A shifted or modded build boots wrong and the ROM verifies clean
+
+Same family, read from the other end. A `Verify: OK` against the retail
+cartridge says nothing about provenance — in this campaign's gate a one-line
+hardcoded pointer passed exactly that check. If the project checksums any of
+its own functions at run time, declare the pairs so the rehearsal can apply
+the consistency rule to them:
+
+```sh
+decomp-workbench shift rehearse analyze \
+  --base-map base/game.map --base-image base/game.z64 \
+  --shifted-map shifted/game.map --shifted-image shifted/game.z64 \
+  --delta 0x10 --crc-words 0x10,0x14 \
+  --checksum-pair race_check_finish=gRaceCheckFinishChecksum
+```
+
+A `checksum-stale` verdict means a protected function's body changed and its
+checksum word did not. Read it alongside whether your build runs its post-link
+patcher and whether the runtime check is even compiled into this
+configuration. See [Shiftability](shiftability.md) and
+[Trap 7](metric-traps.md#trap-7-byte-identity-does-not-prove-address-provenance).
+
 ## Late scheduling mismatch
 
 First decide which layer owns the order. If the instruction multiset and the
