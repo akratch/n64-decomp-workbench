@@ -119,6 +119,42 @@ Linker script and memory map
  .data          0x80001000     0x8000 build/blob.o
 """
 
+#: Three output sections sharing one VMA start with distinct `AT()` load
+#: addresses -- the N64 overlay-group shape (Banjo-Kazooie's `.CC`/`.GV`/
+#: `.MMM` and eleven more all start at ``0x803863f0``, each with its own
+#: load address), geometrically identical to `LOOKUP_MAP`'s
+#: ``.small_lut``/``.big_blob`` (same VMA start, different sizes) but a
+#: different real-world shape: none of these three nests inside another as a
+#: lookup table for it, and none is ever resident at the same time as
+#: another -- they are mutually exclusive runtime alternatives at one shared
+#: window.
+OVERLAY_MAP = """
+Linker script and memory map
+
+.overlay_a      0x80386000      0x100 load address 0x00100000
+ .text          0x80386000      0x100 build/a.o
+
+.overlay_b      0x80386000       0x40 load address 0x00200000
+ .text          0x80386000       0x40 build/b.o
+
+.overlay_c      0x80386000       0x10 load address 0x00300000
+ .text          0x80386000       0x10 build/c.o
+"""
+
+#: The same ambiguity, mirrored onto the ROM side: two sections whose
+#: ``AT()`` load ranges share a start (``.rom_lut`` nested inside
+#: ``.rom_blob``, the same shape as ``.small_lut``/``.big_blob`` above) so
+#: `sections_loaded_at`/`vram_for_rom` have something to disambiguate.
+OVERLAY_ROM_MAP = """
+Linker script and memory map
+
+.rom_lut        0x80400000        0x8 load address 0x00050000
+ .data          0x80400000        0x8 build/lut.o
+
+.rom_blob       0x80500000     0x1000 load address 0x00050000
+ .data          0x80500000     0x1000 build/blob.o
+"""
+
 #: Four input-section records: a.o/b.o leave a real gap, b.o/c.o tile
 #: exactly (no finding), c.o/d.o overlap, and e.o is zero-size (excluded).
 TILING_MAP = """
@@ -426,6 +462,67 @@ class TranslationTests(unittest.TestCase):
         self.assertIsNone(parsed.vram_for_rom(0x50000))
 
 
+class OverlayAmbiguityTests(unittest.TestCase):
+    """WB-139: `sections_containing`/`sections_loaded_at` hand back every
+    candidate for a shared start address instead of picking one -- the
+    honest version of what `section_containing`/`rom_for_vram`/
+    `vram_for_rom` still only answer partially (unchanged on purpose: see
+    those tests below)."""
+
+    def test_sections_containing_returns_every_overlay_candidate(self) -> None:
+        parsed = parse_ld_map(OVERLAY_MAP)
+        candidates = parsed.sections_containing(0x80386000)
+        self.assertEqual(
+            [item.name for item in candidates],
+            [".overlay_c", ".overlay_b", ".overlay_a"],
+        )
+
+    def test_sections_containing_is_smallest_first_matching_the_single_answer(
+        self,
+    ) -> None:
+        parsed = parse_ld_map(OVERLAY_MAP)
+        candidates = parsed.sections_containing(0x80386000)
+        self.assertEqual(candidates[0], parsed.section_containing(0x80386000))
+
+    def test_sections_containing_outside_every_extent_is_empty(self) -> None:
+        parsed = parse_ld_map(OVERLAY_MAP)
+        self.assertEqual(parsed.sections_containing(0x90000000), ())
+
+    def test_section_containing_still_only_answers_the_smallest_for_an_overlay_group(
+        self,
+    ) -> None:
+        """Documented as arbitrary for this shape, not fixed to refuse: an
+        existing caller (`shift rehearse`) depends on this method's return
+        type staying `OutputSection | None`."""
+
+        parsed = parse_ld_map(OVERLAY_MAP)
+        section = parsed.section_containing(0x80386000)
+        assert section is not None
+        self.assertEqual(section.name, ".overlay_c")
+
+    def test_rom_for_vram_resolves_through_the_smallest_overlay_candidate(self) -> None:
+        parsed = parse_ld_map(OVERLAY_MAP)
+        # `.overlay_c` (size 0x10) is the smallest of the three candidates at
+        # this VMA, so its load address answers -- the same arbitrary pick
+        # `section_containing` makes, not a refusal.
+        self.assertEqual(parsed.rom_for_vram(0x80386000), 0x00300000)
+
+    def test_sections_loaded_at_returns_every_rom_side_candidate(self) -> None:
+        parsed = parse_ld_map(OVERLAY_ROM_MAP)
+        candidates = parsed.sections_loaded_at(0x00050004)
+        self.assertEqual([item.name for item in candidates], [".rom_lut", ".rom_blob"])
+
+    def test_sections_loaded_at_is_smallest_first_matching_vram_for_rom(self) -> None:
+        parsed = parse_ld_map(OVERLAY_ROM_MAP)
+        candidates = parsed.sections_loaded_at(0x00050004)
+        self.assertEqual(candidates[0].name, ".rom_lut")
+        self.assertEqual(parsed.vram_for_rom(0x00050004), 0x80400004)
+
+    def test_sections_loaded_at_outside_every_load_range_is_empty(self) -> None:
+        parsed = parse_ld_map(OVERLAY_ROM_MAP)
+        self.assertEqual(parsed.sections_loaded_at(0x00090000), ())
+
+
 class TilingAuditTests(unittest.TestCase):
     def test_a_real_gap_is_reported(self) -> None:
         findings = audit_tiling(parse_ld_map(TILING_MAP))
@@ -640,6 +737,13 @@ class DkrConformanceTests(unittest.TestCase):
         self.assertEqual(self.base.rom_for_vram(0x80122610), 0x000E1240)
         self.assertEqual(self.base.vram_for_rom(0x000E1240), 0x80122610)
 
+    def test_sections_containing_is_exactly_the_nested_pair(self) -> None:
+        """DKR's own shared-VMA case is real nesting, not an overlay group:
+        exactly two candidates, `.assets_lut` inside `.assets`."""
+
+        candidates = self.base.sections_containing(0x80122650)
+        self.assertEqual([item.name for item in candidates], [".assets_lut", ".assets"])
+
 
 @unittest.skipUnless(
     BASE_MAP_PATH.is_file() and SHIFT_40_MAP_PATH.is_file(),
@@ -656,6 +760,62 @@ class DkrSecondDeltaConformanceTest(unittest.TestCase):
         deltas = {item.delta for item in audit.movements}
         self.assertEqual(deltas, {0, 0x40})
         self.assertEqual(audit.anomalies, ())
+
+
+# --------------------------------------------------------------------------
+# Banjo-Kazooie conformance (S5's first real-patient `shift audit` run) --
+# skips gracefully when the sibling decomp_playground checkout is absent.
+# --------------------------------------------------------------------------
+
+BK_MAP_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "decomp_playground"
+    / "banjo-kazooie"
+    / "build"
+    / "us.v10"
+    / "banjo.us.v10.map"
+)
+
+_HAVE_BK = BK_MAP_PATH.is_file()
+
+
+@unittest.skipUnless(_HAVE_BK, f"Banjo-Kazooie map not found at {BK_MAP_PATH}")
+class BkOverlayAmbiguityConformanceTest(unittest.TestCase):
+    """WB-139's real evidence: BK's map places fourteen overlay sections at
+    one shared VMA, ``0x803863f0``, each with its own distinct ``AT()`` load
+    address -- the real-world shape `OverlayAmbiguityTests` synthesizes small.
+    """
+
+    def test_sections_containing_returns_every_real_overlay_candidate(self) -> None:
+        ldmap = read_ld_map(BK_MAP_PATH)
+        candidates = ldmap.sections_containing(0x803863F0)
+        names = {item.name for item in candidates}
+        overlay_names = {
+            ".CC",
+            ".GV",
+            ".MMM",
+            ".TTC",
+            ".MM",
+            ".BGS",
+            ".RBB",
+            ".FP",
+            ".SM",
+            ".cutscenes",
+            ".lair",
+            ".fight",
+            ".CCW",
+            ".emptyLvl",
+        }
+        self.assertLessEqual(overlay_names, names)
+        # `.assets`, BK's own DMA'd asset blob (DKR calls its version by the
+        # same name), also legitimately contains this address: it is a huge
+        # section spanning most of the address space, not a fifteenth
+        # overlay -- present here for the same reason DKR's `.assets` shows
+        # up in `DkrConformanceTests`'s own `sections_containing` test.
+        self.assertEqual(names - overlay_names, {".assets"})
+        self.assertEqual(len(candidates), 15)
+        # Smallest first, matching `section_containing`'s single answer.
+        self.assertEqual(candidates[0], ldmap.section_containing(0x803863F0))
 
 
 if __name__ == "__main__":

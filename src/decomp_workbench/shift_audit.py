@@ -53,6 +53,64 @@ the ``.assets`` segment came back labelled ``gAudioHeapStack+0x...``. They are
 asset bytes. This module attributes residence per region, through that
 region's own ``AT()`` placement, and refuses to name a symbol inside a blob at
 all -- a DMA'd segment's VMA is a load target, not a place code lives.
+
+Two more corrections, from S5's first real-patient run (``shift audit``
+against Banjo-Kazooie's ``us.v10``, which has neither of DKR's simplifying
+properties: it carries debug-info sections and it links overlays).
+
+* **A section with no bytes in the running image is not a region.** GNU ld
+  still prints ``.mdebug`` (and its non-``SHF_ALLOC`` kin: ``.pdr``,
+  ``.comment``, ``.gptab*``, ``.reginfo``, ``.options``, ``.debug*``,
+  ``.line``, ``.rel.*``) in the map's section-by-section body as though it
+  were ordinary output, VMA and all -- BK's carries 706 per-object
+  ``.mdebug`` records starting at VMA ``0``. Undetected, that VMA-0 section
+  became a 762,123-word ``data`` region read at ``rom_source=vma-as-rom``
+  (ROM offset == VMA, since it declares no ``AT()``) -- and, because
+  ``movable_window`` also saw a ``kind="data"`` region starting at ``0``, the
+  whole movable window's low bound followed it there too.
+  `NON_ALLOC_SECTION_FAMILIES` is the name-pattern list `build_region_table`
+  checks a section against *before* it ever becomes a region: a match
+  becomes one ``kind="non-alloc"`` region carrying no ROM placement at all
+  (``rom=None``, ``rom_source="excluded-non-alloc"``) -- visible in every
+  region listing, excluded from scanning by construction (`SCANNED_KINDS`
+  does not name ``"non-alloc"``) and from `movable_window` the same way. Name
+  matching is the only signal available: a text ``ld -Map`` carries no
+  ``SHF_ALLOC`` flag column. A section that matches by name but declares an
+  explicit ``AT()`` load address is *not* excluded -- consistent with this
+  whole module's rule (see :mod:`decomp_workbench.ldmap`) that an explicit
+  placement always outranks an inferred one.
+
+* **Region ROM placement was never the ambiguous half.** BK's map places
+  fourteen overlay sections (``.CC``, ``.GV``, ``.MMM``, and eleven more) at
+  one shared VMA, ``0x803863f0``, each with its own distinct ``AT()`` load
+  address -- the filed hypothesis was that `build_region_table` resolved
+  each one's ROM placement by looking that shared VMA up (ambiguous, by
+  construction, across fourteen candidates). It does not: every region's
+  ``(kind, start, end)`` run is already keyed off the *specific*
+  `.OutputSection` object the parser positionally attached its input records
+  to (`.ldmap.LdMap` groups `.InputSection` records by the output-section
+  name in effect when the parser read them, never by address), and
+  `_placement` reads that object's own ``load_address`` directly. Rerunning
+  the audit against BK confirms it: every overlay region and ``.core2``'s
+  ``data`` subregion resolve to ``rom_source="load-address"`` with the
+  correct ROM value with zero change to this function. The bad first run's
+  ``rom_source=unplaced`` on those same regions had a different cause
+  entirely -- the image handed to the scan was the compressed, 16 MiB
+  retail ``.z64``, but BK's ``AT()`` load addresses describe positions in
+  the *uncompressed* linked layout (which runs to ~16.74 MiB, since overlay
+  code is compressed by a post-link build step); any placement past 16 MiB
+  read as out-of-bounds and was honestly reported ``unplaced``, exactly as
+  it should be for whatever image is actually handed in. The real,
+  standing gap this stage found is one level down, in
+  :mod:`decomp_workbench.ldmap`: :meth:`~decomp_workbench.ldmap.LdMap.rom_for_vram`
+  and friends resolve a *bare address* against every section that contains
+  it, and a shared-VMA overlay group is exactly the shape that makes that
+  resolution ambiguous (never exercised by this module's own region
+  derivation, which keys off section identity, not address -- but real for
+  any caller, such as ``shift rehearse``, that resolves an address inside an
+  overlay window through those methods). See that module's docstring and
+  :meth:`~decomp_workbench.ldmap.LdMap.sections_containing` for the honest
+  version.
 """
 
 from __future__ import annotations
@@ -74,6 +132,9 @@ from .pins import (
 
 __all__ = [
     "CLUSTER_MINIMUM",
+    "NON_ALLOC_KIND",
+    "NON_ALLOC_ROM_SOURCE",
+    "NON_ALLOC_SECTION_FAMILIES",
     "REPEAT_MINIMUM",
     "RESIDENCE_SCORES",
     "SCANNED_KINDS",
@@ -98,8 +159,58 @@ SHIFT_AUDIT_SCHEMA = "decomp-workbench-shift-audit-v1"
 #: Region kinds whose bytes are read word by word. ``"text"`` is placed and
 #: counted but never scanned -- an instruction word's address arithmetic is
 #: split across a ``lui``/``%lo`` pair and only a relink resolves it, which is
-#: the rehearsal's question and not this command's.
+#: the rehearsal's question and not this command's. ``"non-alloc"`` is placed
+#: and counted the same way "text" is -- never scanned, because it carries no
+#: bytes that are ever really in the running image at all (see
+#: `NON_ALLOC_SECTION_FAMILIES`).
 SCANNED_KINDS: tuple[str, ...] = ("data", "blob", "header")
+
+#: The `Region.kind` a section from `NON_ALLOC_SECTION_FAMILIES` is given.
+#: Deliberately absent from `SCANNED_KINDS` and from `movable_window`'s
+#: movable-kind set (``"text"``, ``"data"``, ``"bss"``) -- excluded from both
+#: by construction, not by a second check that could drift from the first.
+NON_ALLOC_KIND = "non-alloc"
+
+#: The `Region.rom_source` a `NON_ALLOC_KIND` region always carries. Never
+#: derived through `_placement` -- a non-alloc section's VMA is not a ROM
+#: offset candidate at all, so this never contributes a ``vma-as-rom`` guess
+#: the way an ordinary unplaced section without ``AT()`` would.
+NON_ALLOC_ROM_SOURCE = "excluded-non-alloc"
+
+#: Section-name families GNU ld emits without ``SHF_ALLOC`` set -- debug
+#: info and symbol-table metadata the linker prints in the map's
+#: section-by-section body, VMA and all, exactly like a real output section,
+#: but which is never resident in the running image no matter what VMA it
+#: prints (BK's ``.mdebug`` prints VMA ``0`` -- indistinguishable, by extent
+#: alone, from a genuine section placed at the ROM's own base). A text
+#: ``ld -Map`` carries no ``SHF_ALLOC`` flag column, so name is the only
+#: signal available; this list is data (checked by `_is_non_alloc_section`,
+#: not spelled out as a chain of `if`s) so a caller can see exactly which
+#: patterns this module knows about, and a new one is one entry, not a new
+#: code path. Each entry is ``(pattern, "exact" | "prefix")``.
+NON_ALLOC_SECTION_FAMILIES: tuple[tuple[str, str], ...] = (
+    (".mdebug", "prefix"),  # .mdebug, .mdebug.abi32
+    (".pdr", "exact"),
+    (".comment", "exact"),
+    (".gptab", "prefix"),  # .gptab.sdata, .gptab.rodata, ...
+    (".reginfo", "exact"),
+    (".options", "exact"),
+    (".debug", "prefix"),  # .debug_info, .debug_line, .debug_abbrev, ...
+    (".line", "exact"),
+    (".rel.", "prefix"),  # .rel.text, .rel.data, ... (pre-final-link relocs)
+)
+
+
+def _is_non_alloc_section(name: str) -> bool:
+    """Whether `name` matches a family `NON_ALLOC_SECTION_FAMILIES` names."""
+
+    for pattern, kind in NON_ALLOC_SECTION_FAMILIES:
+        if kind == "exact":
+            if name == pattern:
+                return True
+        elif name.startswith(pattern):
+            return True
+    return False
 
 #: How many hits at one constant stride, in arithmetic progression, make a
 #: packed-field family rather than three coincidences.
@@ -205,7 +316,8 @@ class Region:
 
     output_section: str
     kind: str
-    """``"text"``, ``"data"``, ``"blob"``, ``"header"``, or ``"bss"``."""
+    """``"text"``, ``"data"``, ``"blob"``, ``"header"``, ``"bss"``, or
+    `NON_ALLOC_KIND` (``"non-alloc"``)."""
 
     vram: int
     size: int
@@ -213,8 +325,10 @@ class Region:
     rom_source: str
     """``"load-address"`` (the section declared ``AT()``), ``"vma-as-rom"``
     (it did not, and its VMA is a plausible offset into this image),
-    ``"unplaced"`` (it did not, and its VMA is not), or ``"not-resident"``
-    (bss owns no image bytes)."""
+    ``"unplaced"`` (it did not, and its VMA is not), ``"not-resident"`` (bss
+    owns no image bytes), or `NON_ALLOC_ROM_SOURCE` (a
+    `NON_ALLOC_SECTION_FAMILIES` name match: never resident, regardless of
+    what VMA the map printed for it)."""
 
     @property
     def words(self) -> int:
@@ -278,6 +392,17 @@ def build_region_table(
     *only* when that VMA is a plausible offset into this image (DKR's
     ``.header`` at 0 and ``.boot`` at 0x40 are), and is reported ``unplaced``
     otherwise rather than read from somewhere arbitrary.
+
+    A section matching `NON_ALLOC_SECTION_FAMILIES` (BK's ``.mdebug`` and
+    kin) is excluded before any of that: it becomes one `NON_ALLOC_KIND`
+    region covering the whole section, with no ROM placement derived for it
+    at all -- never a ``vma-as-rom`` guess at whatever VMA the map happened
+    to print (``.mdebug`` prints ``0``, and an undetected VMA-0 ``data``
+    region is indistinguishable from a real one at the ROM's own base). A
+    section that matches by name but declares an explicit ``AT()`` is *not*
+    excluded: an explicit placement always outranks the name-based
+    inference, the same rule :mod:`decomp_workbench.ldmap` applies to every
+    address it resolves.
     """
 
     blob_names = frozenset(blobs)
@@ -288,6 +413,19 @@ def build_region_table(
 
     regions: list[Region] = []
     for section in ldmap.sections_sorted():
+        if section.load_address is None and _is_non_alloc_section(section.name):
+            regions.append(
+                Region(
+                    output_section=section.name,
+                    kind=NON_ALLOC_KIND,
+                    vram=section.vma,
+                    size=section.size,
+                    rom=None,
+                    rom_source=NON_ALLOC_ROM_SOURCE,
+                )
+            )
+            continue
+
         records = sorted(
             (item for item in by_output.get(section.name, ()) if item.size),
             key=lambda item: item.vma,
@@ -381,7 +519,12 @@ def movable_window(regions: Sequence[Region]) -> MovableWindow:
     VMA is the address it is copied *to* at run time, not an address anything
     is linked at -- DKR's ``.assets`` starts at the same VMA as
     ``.assets_lut`` and runs 10 MB past the end of RAM, which would make a
-    nonsense of any window that believed it.
+    nonsense of any window that believed it. `NON_ALLOC_KIND` regions are
+    excluded the same way, for a sharper reason: they hold no bytes that are
+    ever in the running image at all, so whatever VMA the map printed for one
+    (BK's ``.mdebug`` prints ``0``) is not a movable address either -- this
+    needs no separate check because ``"non-alloc"`` was never in the movable
+    kind set below to begin with.
 
     Both bounds name the section that set them, because a window derived from
     the wrong sections is the one way this whole scan can be quietly wrong,

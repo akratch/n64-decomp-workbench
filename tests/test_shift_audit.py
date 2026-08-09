@@ -38,6 +38,9 @@ from decomp_workbench.schema import (
 )
 from decomp_workbench.shift_audit import (
     CLUSTER_MINIMUM,
+    NON_ALLOC_KIND,
+    NON_ALLOC_ROM_SOURCE,
+    NON_ALLOC_SECTION_FAMILIES,
     REPEAT_MINIMUM,
     RESIDENCE_SCORES,
     TIER_RULES,
@@ -115,6 +118,82 @@ SYNTHETIC_WORDS: tuple[int, ...] = (
 )
 
 SYNTHETIC_IMAGE = b"".join(struct.pack(">I", word) for word in SYNTHETIC_WORDS)
+
+
+#: WB-138's shape: every family `NON_ALLOC_SECTION_FAMILIES` names, each
+#: represented once, plus one ordinary `.main`/`.main_bss` pair to derive a
+#: movable window against. `.mdebug` prints VMA ``0`` -- BK's own does too --
+#: which is exactly what let it through as a bogus ``vma-as-rom`` region
+#: before this fix.
+NON_ALLOC_MAP = """
+Linker script and memory map
+
+.main           0x80000400       0x40 load address 0x00000100
+ .text          0x80000400       0x40 build/code.o
+
+.main_bss       0x80000440       0x40 load address 0x00000140
+ .bss           0x80000440       0x40 build/code.o
+
+.mdebug         0x00000000       0x20
+ .mdebug        0x00000000       0x10 build/code.o
+ .mdebug        0x00000010       0x10 build/other.o
+
+.mdebug.abi32   0x00000020        0x8
+ .mdebug.abi32  0x00000020        0x8 build/code.o
+
+.pdr            0x00000028       0x10
+ .pdr           0x00000028       0x10 build/code.o
+
+.comment        0x00000038        0x8
+ .comment       0x00000038        0x8 build/code.o
+
+.gptab.sdata    0x00000040        0x8
+ .gptab.sdata   0x00000040        0x8 build/code.o
+
+.reginfo        0x00000048       0x18
+ .reginfo       0x00000048       0x18 build/code.o
+
+.options        0x00000060        0x8
+ .options       0x00000060        0x8 build/code.o
+
+.debug_info     0x00000068       0x10
+ .debug_info    0x00000068       0x10 build/code.o
+
+.line           0x00000078        0x8
+ .line          0x00000078        0x8 build/code.o
+
+.rel.text       0x00000080        0x8
+ .rel.text      0x00000080        0x8 build/code.o
+"""
+
+#: The safety valve: a section named exactly like a known non-alloc family
+#: member, but that declares an explicit `AT()` -- an explicit placement
+#: always outranks the name-based inference.
+NON_ALLOC_WITH_AT_MAP = """
+Linker script and memory map
+
+.main           0x80000400       0x10 load address 0x00000100
+
+.comment        0x00000000       0x10 load address 0x00000200
+ .comment       0x00000000       0x10 build/code.o
+"""
+
+#: WB-139's shape: two output sections sharing one VMA start, each with its
+#: own distinct `AT()` load address -- the N64 overlay-group pattern BK's
+#: map has fourteen of (`.CC`/`.GV`/`.MMM`/... all starting at
+#: ``0x803863f0``). `.overlay_a` also carries two runs (`text` then `data`)
+#: so its second run's placement has to walk forward from the *section's*
+#: load address, not the record's own VMA read straight through.
+OVERLAY_SIBLING_MAP = """
+Linker script and memory map
+
+.overlay_a      0x80386000       0x20 load address 0x00100000
+ .text          0x80386000       0x10 build/a.o
+ .data          0x80386010       0x10 build/a.o
+
+.overlay_b      0x80386000       0x10 load address 0x00200000
+ .text          0x80386000       0x10 build/b.o
+"""
 
 
 def synthetic_map() -> LdMap:
@@ -244,6 +323,120 @@ class MovableWindowTests(unittest.TestCase):
         )
         window = movable_window(regions)
         self.assertEqual(window.lo, 0x80000400)
+
+
+class NonAllocSectionTests(unittest.TestCase):
+    """WB-138: a non-alloc section (debug info, symbol-table metadata GNU ld
+    still prints VMA and all) must never become a scannable region, must
+    never enter the movable window, and must never contribute a
+    ``vma-as-rom`` placement at whatever VMA it happens to print -- but it
+    must still show up in the region table, not vanish silently."""
+
+    NAMES = (
+        ".mdebug",
+        ".mdebug.abi32",
+        ".pdr",
+        ".comment",
+        ".gptab.sdata",
+        ".reginfo",
+        ".options",
+        ".debug_info",
+        ".line",
+        ".rel.text",
+    )
+
+    def setUp(self) -> None:
+        self.regions = build_region_table(
+            parse_ld_map(NON_ALLOC_MAP), image_size=0x200, blobs=()
+        )
+        self.by_section = {item.output_section: item for item in self.regions}
+
+    def test_every_known_family_member_is_recognized(self) -> None:
+        self.assertEqual(
+            {name for name, _ in NON_ALLOC_SECTION_FAMILIES},
+            {".mdebug", ".pdr", ".comment", ".gptab", ".reginfo", ".options",
+             ".debug", ".line", ".rel."},
+        )
+
+    def test_every_known_family_member_is_excluded(self) -> None:
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                region = self.by_section[name]
+                self.assertEqual(region.kind, NON_ALLOC_KIND)
+                self.assertIsNone(region.rom)
+                self.assertEqual(region.rom_source, NON_ALLOC_ROM_SOURCE)
+                self.assertFalse(region.scanned)
+
+    def test_excluded_regions_never_contribute_a_vma_as_rom_placement(self) -> None:
+        """`.mdebug` really does print VMA 0 -- the shape that let it become
+        a bogus `rom_source=vma-as-rom` region at ROM offset 0 before this
+        fix, indistinguishable from the ROM's own base."""
+
+        mdebug = self.by_section[".mdebug"]
+        self.assertEqual(mdebug.vram, 0)
+        self.assertIsNone(mdebug.rom)
+        self.assertNotEqual(mdebug.rom_source, "vma-as-rom")
+
+    def test_excluded_regions_are_still_visible_in_the_region_table(self) -> None:
+        """Never a silent drop: every excluded section keeps its own row,
+        with the reason machine-readable in `kind`/`rom_source`."""
+
+        present = {item.output_section for item in self.regions}
+        for name in self.NAMES:
+            self.assertIn(name, present)
+
+    def test_the_window_ignores_every_excluded_section(self) -> None:
+        window = movable_window(self.regions)
+        self.assertEqual(window.lo, 0x80000400)
+        self.assertEqual(window.lo_section, ".main")
+
+    def test_a_family_match_with_an_explicit_load_address_is_not_excluded(self) -> None:
+        """An explicit `AT()` always outranks the name-based inference --
+        the same rule `decomp_workbench.ldmap` applies to every address it
+        resolves."""
+
+        regions = build_region_table(
+            parse_ld_map(NON_ALLOC_WITH_AT_MAP), image_size=0x300, blobs=()
+        )
+        comment = next(item for item in regions if item.output_section == ".comment")
+        self.assertNotEqual(comment.kind, NON_ALLOC_KIND)
+        self.assertEqual(comment.rom, 0x200)
+        self.assertEqual(comment.rom_source, "load-address")
+
+
+class OverlaySiblingRegionTests(unittest.TestCase):
+    """WB-139 regression: several output sections sharing one VMA (an N64
+    overlay group) must each resolve their own ROM placement from their own
+    section's own load address -- never another sibling's, and never by
+    looking the shared VMA back up. Confirms `build_region_table` was
+    already positional (keyed off the specific `OutputSection` object the
+    parser attached each input record to), not the address-lookup the
+    original hypothesis suspected."""
+
+    def setUp(self) -> None:
+        self.regions = build_region_table(
+            parse_ld_map(OVERLAY_SIBLING_MAP), image_size=0x300000, blobs=()
+        )
+        self.by_key = {(item.output_section, item.kind): item for item in self.regions}
+
+    def test_each_sibling_resolves_through_its_own_load_address(self) -> None:
+        a_text = self.by_key[(".overlay_a", "text")]
+        b_text = self.by_key[(".overlay_b", "text")]
+        self.assertEqual(a_text.rom, 0x100000)
+        self.assertEqual(b_text.rom, 0x200000)
+        self.assertEqual(a_text.rom_source, "load-address")
+        self.assertEqual(b_text.rom_source, "load-address")
+
+    def test_a_later_run_in_the_same_section_walks_from_that_sections_load_address(
+        self,
+    ) -> None:
+        """`.overlay_a`'s `.data` run starts mid-section: its placement is
+        `.overlay_a`'s own load address plus its own offset into the
+        section, not `.overlay_b`'s address at all."""
+
+        a_data = self.by_key[(".overlay_a", "data")]
+        self.assertEqual(a_data.rom, 0x100010)
+        self.assertEqual(a_data.rom_source, "load-address")
 
 
 class ScanFeatureTests(unittest.TestCase):
@@ -929,6 +1122,138 @@ class DkrCommandConformanceTest(unittest.TestCase):
         self.assertEqual(payload["scan_medium"], 657)
         self.assertEqual(payload["scan_low"], 2_748)
         self.assertEqual(payload["text_words"], 213_560)
+
+
+# --------------------------------------------------------------------------
+# Banjo-Kazooie conformance (S5's first real-patient `shift audit` run,
+# WB-138 and WB-139) -- skips gracefully when the sibling decomp_playground
+# checkout is absent.
+# --------------------------------------------------------------------------
+
+BK_ROOT = PLAYGROUND / "banjo-kazooie" / "build" / "us.v10"
+BK_MAP = BK_ROOT / "banjo.us.v10.map"
+#: The *uncompressed* linked image, not the 16 MiB retail `.z64` alongside
+#: it. BK compresses each segment via a post-link build step; the map's
+#: `AT()` load addresses describe positions in this larger, pre-compression
+#: layout (~16.74 MiB), and any overlay or `.core2` placement past 16 MiB
+#: reads as out-of-bounds against the retail image -- honestly reported
+#: `unplaced`, which is what the original bad `shift audit` run (WB-139)
+#: actually measured. Confirming the fix means reading the image the map
+#: really describes.
+BK_IMAGE = BK_ROOT / "banjo.us.v10.uncompressed.z64"
+
+_HAVE_BK = BK_MAP.is_file() and BK_IMAGE.is_file()
+
+#: All fourteen of BK's overlay output sections. Every one starts at VMA
+#: ``0x803863f0``, each with its own distinct `AT()` load address.
+BK_OVERLAY_SECTIONS = (
+    ".CC",
+    ".GV",
+    ".MMM",
+    ".TTC",
+    ".MM",
+    ".BGS",
+    ".RBB",
+    ".FP",
+    ".SM",
+    ".cutscenes",
+    ".lair",
+    ".fight",
+    ".CCW",
+    ".emptyLvl",
+)
+
+
+@unittest.skipUnless(
+    _HAVE_BK, f"Banjo-Kazooie build artifacts not found under {BK_ROOT}"
+)
+class BkAuditConformanceTests(unittest.TestCase):
+    """S5's real-patient run, replayed. Confirms both filed defects against
+    the actual project rather than only a synthetic fixture.
+
+    WB-138: the bad run scanned ``.mdebug`` (vram 0x0, 3,048,492 bytes /
+    762,123 words) as a ``data`` region at ``rom_source=vma-as-rom``, and the
+    movable window's low bound followed it to VMA 0. WB-139: the bad run
+    reported every overlay region and ``.core2``'s ``data`` subregion
+    ``rom_source=unplaced``. The filed hypothesis was address-lookup
+    ambiguity across the fourteen overlay sections sharing one VMA; this
+    module's own `build_region_table` was already positional and needed no
+    change (see `OverlaySiblingRegionTests` and the module docstring) -- the
+    real cause was that the bad run read the compressed 16 MiB retail image
+    against a map whose `AT()` addresses describe the larger, uncompressed
+    linked layout.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(BK_MAP),
+            image=BK_IMAGE.read_bytes(),
+            pins=PinCatalogue(entries=(), sources=()),
+            model=default_pin_model(),
+            map_path=str(BK_MAP),
+            image_path=str(BK_IMAGE),
+        )
+
+    def test_mdebug_is_excluded_from_scanning_and_the_window(self) -> None:
+        mdebug = next(
+            item for item in self.audit.regions if item.output_section == ".mdebug"
+        )
+        self.assertEqual(mdebug.kind, "non-alloc")
+        self.assertFalse(mdebug.scanned)
+        self.assertIsNone(mdebug.rom)
+        self.assertNotEqual(self.audit.window.lo_section, ".mdebug")
+
+    def test_the_window_starts_at_the_true_first_movable_section(self) -> None:
+        """`.entry`, BK's real entrypoint, is the lowest VMA of any
+        `text`/`data`/`bss` region once `.mdebug`'s bogus VMA-0 `data`
+        region no longer competes for the window's low bound."""
+
+        window = self.audit.window
+        self.assertEqual(window.lo, 0x80000400)
+        self.assertEqual(window.lo_section, ".entry")
+
+    def test_the_region_count(self) -> None:
+        self.assertEqual(len(self.audit.regions), 62)
+
+    def test_the_scanned_word_count(self) -> None:
+        self.assertEqual(self.audit.scanned_words, 3_994_336)
+
+    def test_every_overlay_region_resolves_through_its_own_load_address(self) -> None:
+        overlay_regions = [
+            item
+            for item in self.audit.regions
+            if item.output_section in BK_OVERLAY_SECTIONS
+        ]
+        # Every overlay section tiles into exactly one `text` run and one
+        # `data` run.
+        self.assertEqual(len(overlay_regions), 2 * len(BK_OVERLAY_SECTIONS))
+        for item in overlay_regions:
+            with self.subTest(section=item.output_section, kind=item.kind):
+                self.assertEqual(item.rom_source, "load-address")
+                self.assertIsNotNone(item.rom)
+
+    def test_cc_text_resolves_to_its_known_rom_offset(self) -> None:
+        """Spot check: `.CC`'s map header line prints
+        ``load address 0x01048560``, and this is that value, unmodified."""
+
+        cc_text = next(
+            item
+            for item in self.audit.regions
+            if item.output_section == ".CC" and item.kind == "text"
+        )
+        self.assertEqual(cc_text.rom, 0x01048560)
+
+    def test_core2_data_is_placed(self) -> None:
+        core2_data = next(
+            item
+            for item in self.audit.regions
+            if item.output_section == ".core2" and item.kind == "data"
+        )
+        self.assertEqual(core2_data.rom_source, "load-address")
+        self.assertIsNotNone(core2_data.rom)
 
 
 if __name__ == "__main__":

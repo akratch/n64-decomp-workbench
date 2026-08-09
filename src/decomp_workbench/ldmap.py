@@ -31,6 +31,19 @@ scan does not:
   :meth:`LdMap.rom_for_vram` / :meth:`LdMap.vram_for_rom` only resolve
   addresses inside a section that declared ``AT()`` explicitly, and return
   ``None`` rather than guess elsewhere.
+* **A shared VMA start is not always the same shape.** DKR's
+  ``.assets_lut``/``.assets`` pair (above) is one section genuinely nested
+  inside another. An N64 overlay group -- several output sections a cascade
+  script places at *one* shared VMA as mutually exclusive runtime
+  alternatives, never resident together (Banjo-Kazooie's
+  ``.CC``/``.GV``/``.MMM`` and eleven more all start at ``0x803863f0``, each
+  with its own distinct ``AT()`` load address) -- looks identical from
+  extents alone. :meth:`LdMap.section_containing` / :meth:`LdMap.rom_for_vram`
+  / :meth:`LdMap.vram_for_rom` cannot tell the two apart and always resolve
+  through the smallest candidate, correct for nesting and arbitrary for an
+  overlay group; :meth:`LdMap.sections_containing` /
+  :meth:`LdMap.sections_loaded_at` hand back every candidate instead of
+  picking one, for a caller that needs the honest answer.
 * **A symbol name is not unique across a map.** The cascade script
   reassigns ``__romPos`` once per segment as it walks the image, so the raw
   symbol stream holds it dozens of times at different addresses. A caller
@@ -287,6 +300,34 @@ class LdMap:
 
         return tuple(sorted(self.sections, key=lambda item: item.vma))
 
+    def sections_containing(self, address: int) -> tuple[OutputSection, ...]:
+        """Return every output section whose extent holds ``address``.
+
+        Smallest first -- the same tie-break `section_containing` picks its
+        one answer from -- so ``sections_containing(address)[0] ==
+        section_containing(address)`` always.
+
+        This is the honest form of the question `section_containing` only
+        answers partially. DKR's ``.assets_lut`` and ``.assets`` share a VMA
+        start, and so do the two shapes that address the same thing: a small
+        section genuinely *nested* inside a bigger one (``.assets_lut`` is a
+        lookup table for exactly the blob ``.assets`` DMAs in) versus an N64
+        overlay group, several output sections a cascade script places at one
+        shared VMA as mutually exclusive runtime alternatives -- never
+        resident together -- because only one is loaded at a time (Banjo-
+        Kazooie's ``.CC``/``.GV``/``.MMM``/... and eleven more all start at
+        ``0x803863f0``). Both shapes look identical from extents alone: two
+        or more sections sharing a start address, ordered smallest first.
+        `section_containing` (and `rom_for_vram`/`vram_for_rom`, built on the
+        same candidate set) cannot tell them apart and always returns the
+        smallest -- correct for the nested case, an arbitrary pick for the
+        overlay case. A caller that cares which shape it has needs the whole
+        candidate list this method returns, not the one answer.
+        """
+
+        candidates = [item for item in self.sections if item.contains(address)]
+        return tuple(sorted(candidates, key=lambda item: (item.size, item.vma)))
+
     def section_containing(self, address: int) -> OutputSection | None:
         """Return the smallest output section whose extent holds ``address``.
 
@@ -294,12 +335,17 @@ class LdMap:
         segments are DMA targets, not both link-time resident at once), so
         more than one output section can legitimately contain the same
         address. The smallest -- the more specific placement -- wins.
+
+        That is the right answer for a section nested inside a bigger one.
+        It is not a meaningful answer for an N64 overlay group, where several
+        sections share one VMA as alternatives rather than one being "more
+        specific" than another -- see `sections_containing` for the honest
+        version of this question, which hands back every candidate instead
+        of picking one.
         """
 
-        candidates = [item for item in self.sections if item.contains(address)]
-        if not candidates:
-            return None
-        return min(candidates, key=lambda item: (item.size, item.vma))
+        candidates = self.sections_containing(address)
+        return candidates[0] if candidates else None
 
     def input_sections_sorted(self) -> tuple[InputSection, ...]:
         """Every input-section record, in ascending VMA order."""
@@ -321,24 +367,38 @@ class LdMap:
         an explicit ``AT()`` load address -- see the module docstring for
         why a section without one is not assumed to have ROM offset == VRAM
         address.
+
+        When more than one ``AT()``'d section contains ``address`` (see
+        `sections_containing`), this resolves through the smallest one, the
+        same tie-break `section_containing` uses -- a real answer if that
+        section nests inside a bigger one, an arbitrary one if the two are
+        siblings in an overlay group. A caller inside a known overlay window
+        that needs the *other* candidates' answers should call
+        `sections_containing` itself and derive each one's placement by hand
+        (``section.load_address + (address - section.vma)``); this method
+        only ever returns the smallest section's.
         """
 
         candidates = [
             item
-            for item in self.sections
-            if item.load_address is not None and item.contains(address)
+            for item in self.sections_containing(address)
+            if item.load_address is not None
         ]
         if not candidates:
             return None
-        section = min(candidates, key=lambda item: (item.size, item.vma))
+        section = candidates[0]
         assert section.load_address is not None  # filtered above
         return section.load_address + (address - section.vma)
 
-    def vram_for_rom(self, offset: int) -> int | None:
-        """Translate a ROM offset to its VRAM address.
+    def sections_loaded_at(self, offset: int) -> tuple[OutputSection, ...]:
+        """Return every output section whose ``AT()`` load range holds ``offset``.
 
-        ``None`` when ``offset`` falls outside every section that declared
-        an explicit ``AT()`` load address.
+        Smallest first, the ROM-offset mirror of `sections_containing`: the
+        same "nested section vs. overlay group" ambiguity applies here, just
+        measured against `OutputSection.load_address` instead of `.vma`. A
+        zero-size section's load "range" is the single ``offset ==
+        load_address`` point, the same convention `OutputSection.contains`
+        uses for a zero-size VMA extent.
         """
 
         candidates = []
@@ -351,9 +411,25 @@ class LdMap:
                 continue
             if item.load_address <= offset < item.load_address + item.size:
                 candidates.append(item)
+        return tuple(
+            sorted(candidates, key=lambda item: (item.size, item.load_address))
+        )
+
+    def vram_for_rom(self, offset: int) -> int | None:
+        """Translate a ROM offset to its VRAM address.
+
+        ``None`` when ``offset`` falls outside every section that declared
+        an explicit ``AT()`` load address. See `rom_for_vram` for what
+        happens when more than one section's load range holds ``offset``:
+        the same smallest-wins tie-break, honest for nesting and arbitrary
+        for an overlay group -- `sections_loaded_at` hands back every
+        candidate for a caller that needs to tell the two apart.
+        """
+
+        candidates = self.sections_loaded_at(offset)
         if not candidates:
             return None
-        section = min(candidates, key=lambda item: (item.size, item.load_address))
+        section = candidates[0]
         assert section.load_address is not None  # filtered above
         return section.vma + (offset - section.load_address)
 
