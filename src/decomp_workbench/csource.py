@@ -31,8 +31,10 @@ from dataclasses import dataclass
 
 __all__ = [
     "CSourceError",
+    "Declaration",
     "Statement",
     "declaration_line",
+    "declarations",
     "defines",
     "definition_lines",
     "identifiers",
@@ -209,6 +211,131 @@ def takes_address(lines: list[str], name: str) -> list[int]:
 
     pattern = re.compile(ADDRESS_TEMPLATE % re.escape(name))
     return [number for number, line in enumerate(lines, 1) if pattern.search(line)]
+
+
+#: A local declaration in the dialect this reads: type words, optional stars,
+#: then one or more declarators, then `;`. The type half is deliberately loose
+#: (a project's own typedefs are types too) and the exclusions below carry the
+#: weight: a line whose first word is a keyword, or whose declarator half opens
+#: a parenthesis, is not a local declaration.
+_DECLARATION_RE = re.compile(
+    r"^(?P<indent>\s*)"
+    r"(?P<type>(?:(?:const|static|volatile|register|unsigned|signed|struct|"
+    r"union|enum|long|short)\s+)*[A-Za-z_]\w*(?:\s+(?:long|int|char|double))*"
+    r"(?:\s*\*)*)"
+    r"\s+(?P<declarators>[^;]+);\s*$"
+)
+
+#: Words that open a statement, never a declaration.
+_NOT_A_TYPE = frozenset(
+    """
+    break case continue default do else for goto if return sizeof switch while
+    """.split()
+)
+
+_DECLARATOR_RE = re.compile(
+    r"^\s*(?P<stars>\**)\s*(?P<name>[A-Za-z_]\w*)\s*"
+    r"(?P<array>(?:\[[^\]]*\])*)\s*(?:=\s*(?P<initializer>.+))?$"
+)
+
+
+@dataclass(frozen=True)
+class Declaration:
+    """One declared local: where, what type, and in what order.
+
+    The declaration *index* is carried because it is load-bearing. One
+    campaign measured two entirely different cost deltas at one source line
+    depending only on which declaration the carrier came from -- the compiler
+    lays the frame out in declaration order, so the index selects the slot,
+    and a sweep keyed by site alone cannot tell the two apart.
+    """
+
+    line: int
+    index: int
+    type_text: str
+    name: str
+    array: str = ""
+    initializer: str | None = None
+
+    @property
+    def initialized(self) -> bool:
+        return self.initializer is not None
+
+    @property
+    def is_array(self) -> bool:
+        return bool(self.array)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "line": self.line,
+            "index": self.index,
+            "type": self.type_text,
+            "name": self.name,
+            "array": self.array,
+            "initializer": self.initializer,
+        }
+
+
+def declarations(lines: list[str]) -> list[Declaration]:
+    """Return every local declaration, in declaration order.
+
+    Reads the dialect, not C: one declaration statement per line, the type
+    first, commas separating declarators. A declarator that opens a
+    parenthesis (a prototype, a function pointer) is skipped rather than
+    guessed at, because a wrong entry here becomes a wrong carrier later.
+    """
+
+    found: list[Declaration] = []
+    for number, line in enumerate(lines, 1):
+        match = _DECLARATION_RE.match(line)
+        if match is None:
+            continue
+        type_text = " ".join(match.group("type").split())
+        first = type_text.split()[0] if type_text.split() else ""
+        if first in _NOT_A_TYPE or first in {"typedef", "extern"}:
+            continue
+        declarators = match.group("declarators")
+        if "(" in declarators or "?" in declarators:
+            continue
+        for part in _split_declarators(declarators):
+            piece = _DECLARATOR_RE.match(part)
+            if piece is None:
+                continue
+            found.append(
+                Declaration(
+                    line=number,
+                    index=len(found),
+                    type_text=(type_text + " " + piece.group("stars")).strip(),
+                    name=piece.group("name"),
+                    array=piece.group("array") or "",
+                    initializer=(
+                        piece.group("initializer").strip()
+                        if piece.group("initializer")
+                        else None
+                    ),
+                )
+            )
+    return found
+
+
+def _split_declarators(text: str) -> list[str]:
+    """Split `a, b[2], c = 1` on the commas that separate declarators."""
+
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in text:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    parts.append("".join(current))
+    return [item for item in parts if item.strip()]
 
 
 @dataclass(frozen=True)
