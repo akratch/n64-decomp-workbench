@@ -10,9 +10,12 @@ import json
 import math
 import re
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .coverage import SweepCoverage
 
 COMPOSITION_SCHEMA = "decomp-workbench-composition-v1"
 SOURCE_INSPECTION_SCHEMA = "decomp-workbench-source-inspection-v1"
@@ -211,21 +214,36 @@ def compose_sources(
     *,
     max_order: int | None = None,
     max_candidates: int | None = None,
+    step: int = 1,
     write: bool = True,
 ) -> dict[str, Any]:
-    """Generate a bounded interaction set and a campaign-compatible manifest."""
+    """Generate a bounded interaction set and a campaign-compatible manifest.
+
+    ``step`` samples the combination space, visiting every ``step``-th
+    combination. It exists so a space larger than the cap can be *sampled*
+    rather than abandoned -- and, because the record it produces carries the
+    stride and the covered fraction, so nobody can later read a sampled
+    negative result as a proof about the whole space. One campaign closed a
+    family on a one-in-eight sweep whose record said nothing about the other
+    seven eighths.
+    """
 
     order = spec.max_order if max_order is None else max_order
     cap = spec.max_candidates if max_candidates is None else max_candidates
     if not 1 <= order <= len(spec.transformations):
         raise ValueError("--max-order must be between 1 and transform count")
+    if step < 1:
+        raise ValueError(f"--step must be at least 1, got {step}")
     planned = sum(
         math.comb(len(spec.transformations), size) for size in range(1, order + 1)
     )
-    if planned > cap:
+    sampled = len(range(0, planned, step))
+    if sampled > cap:
         raise ValueError(
-            f"composition plans {planned} combinations, above cap {cap}; "
-            "lower --max-order or raise --max-candidates explicitly"
+            f"composition plans {planned} combinations"
+            + (f" ({sampled} at step {step})" if step > 1 else "")
+            + f", above cap {cap}; lower --max-order, raise --step to sample "
+            "the space, or raise --max-candidates explicitly"
         )
     output_path = Path(output).expanduser().resolve()
     if write and output_path.exists():
@@ -238,10 +256,12 @@ def compose_sources(
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     excluded = 0
-    combinations = itertools.chain.from_iterable(
+    combinations: Iterator[tuple[Transformation, ...]] = itertools.chain.from_iterable(
         itertools.combinations(spec.transformations, size)
         for size in range(1, order + 1)
     )
+    if step > 1:
+        combinations = itertools.islice(combinations, 0, None, step)
     for items in combinations:
         if not _valid_combination(items):
             excluded += 1
@@ -308,7 +328,18 @@ def compose_sources(
             encoding="utf-8",
         )
     cross_family = sum(len(item["families"]) > 1 for item in candidates)
+    coverage = SweepCoverage(
+        basis=(
+            f"subsets of {len(spec.transformations)} transformation(s) up to "
+            f"order {order}"
+        ),
+        space=planned,
+        covered=len(candidates) + len(rejected),
+        step=step,
+        excluded=excluded,
+    )
     return {
+        "coverage": coverage.as_dict(),
         "schema": COMPOSITION_SCHEMA,
         "spec": str(spec.path),
         "baseline": str(spec.baseline),

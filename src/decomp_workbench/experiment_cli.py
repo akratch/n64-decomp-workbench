@@ -61,6 +61,7 @@ def experiment_compose_command(args: argparse.Namespace) -> int:
             args.output,
             max_order=args.max_order,
             max_candidates=args.max_candidates,
+            step=args.step,
             write=not args.dry_run,
         )
     except (OSError, ValueError) as error:
@@ -75,6 +76,7 @@ def experiment_compose_command(args: argparse.Namespace) -> int:
             f"cross-family={report['cross_family_candidates']} "
             f"rejected={len(report['rejected_combinations'])}"
         )
+        print(report["coverage"]["sentence"])
         if report["output"]:
             print(f"experiment: {report['output']}/experiment.json")
         for item in report["rejected_combinations"][:5]:
@@ -222,6 +224,19 @@ def register_experiment_commands(
     compose.add_argument("output")
     compose.add_argument("--max-order", type=int)
     compose.add_argument("--max-candidates", type=int)
+    compose.add_argument(
+        "--step",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "visit every Nth combination, sampling a space too large to "
+            "enumerate instead of failing the cap. The record says so: a "
+            "sampled sweep reports the stride and the points it never "
+            "visited, because a negative result over one point in eight is "
+            "not a proof about the other seven (default: 1, exhaustive)"
+        ),
+    )
     compose.add_argument(
         "--dry-run", action="store_true", help="validate and plan without writing"
     )
