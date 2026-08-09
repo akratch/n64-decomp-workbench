@@ -985,12 +985,32 @@ def _detail_lines(report: PhaseReport) -> list[str]:
         )
     if report.baseline_name:
         lines.append("")
-        lines.append("healed and broken rows by slot:")
+        lines.append("healed and broken rows by slot, collapsed into runs:")
         for item in report.slots:
             if not item.healed_rows and not item.broken_rows:
                 continue
             lines.append(
-                f"  {item.slot.name}: healed {list(item.healed_rows)} "
-                f"broke {list(item.broken_rows)}"
+                f"  {item.slot.name}: healed {_runs(item.healed_rows)}; "
+                f"broke {_runs(item.broken_rows)}"
             )
     return lines
+
+
+def _runs(rows: Sequence[int]) -> str:
+    """Render row numbers as bounded, collapsed runs.
+
+    A healed set can be a thousand rows wide, and a thousand row numbers on a
+    terminal is not evidence anybody reads. The count leads, the first runs
+    locate the work, and `--json` carries every number.
+    """
+
+    if not rows:
+        return "none"
+    ranges = mismatch_ranges(list(rows))
+    rendered = ", ".join(
+        f"{start}" if start == stop else f"{start}..{stop}"
+        for start, stop in ranges[:DETAIL_RUNS]
+    )
+    if len(ranges) > DETAIL_RUNS:
+        rendered += f", ... {len(ranges) - DETAIL_RUNS} more run(s)"
+    return f"{len(rows)} row(s): {rendered}"

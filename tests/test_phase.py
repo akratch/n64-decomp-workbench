@@ -300,6 +300,29 @@ class ShiftAndGuardTests(unittest.TestCase):
         self.assertEqual(item.healed, 2)
         self.assertEqual(item.broken, 1)
 
+    def test_detail_bounds_the_healed_and_broken_row_lists(self) -> None:
+        """A thousand row numbers on a terminal is not evidence anybody reads."""
+
+        from decomp_workbench.phase import phase_lines
+
+        traffic = float_traffic(24)
+        target = body(*traffic)
+        previous = [
+            line.replace("f4,", "f8,") if "f4," in line else line for line in target
+        ]
+        item = report(
+            target,
+            target,
+            baseline=rows(previous),
+            baseline_shift=build_shift_diff(rows(target), rows(previous)),
+            baseline_name="previous.o",
+        )
+        text = "\n".join(phase_lines(item, detail=True))
+
+        self.assertIn("collapsed into runs", text)
+        self.assertIn("broke none", text)
+        self.assertRegex(text, r"healed \d+ row\(s\):")
+
 
 class PhaseCommandTests(unittest.TestCase):
     def setUp(self) -> None:
