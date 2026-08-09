@@ -482,3 +482,27 @@ class PhaseCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BlindTotalTests(unittest.TestCase):
+    """When every slot is no-evidence the total row must not read 'identity'.
+
+    Regression: an integer-only function scored against the float ring
+    printed per-slot no-evidence but a total labelled identity, which reads
+    as a measured identity phase (ge007-mp-watch-menu campaign).
+    """
+
+    def test_all_blind_slots_make_the_total_no_evidence(self) -> None:
+        from decomp_workbench.phase import phase_lines
+
+        target = body(*[f"addiu t0,t0,{index}" for index in range(12)])
+        item = report(target, target)
+        (slot,) = item.slots
+        self.assertEqual(slot.coset_evidence, "no-evidence")
+
+        text = "\n".join(phase_lines(item))
+        total_line = next(
+            line for line in text.splitlines() if line.startswith("total")
+        )
+        self.assertIn("no-evidence", total_line)
+        self.assertNotIn("identity", total_line)

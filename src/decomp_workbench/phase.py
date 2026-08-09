@@ -877,11 +877,19 @@ def phase_lines(report: PhaseReport, *, detail: bool = False) -> list[str]:
         if report.baseline_name:
             row += f" {item.healed:7d} {item.broken:7d}"
         lines.append(row)
+    every_slot_blind = all(
+        item.coset_evidence == "no-evidence" for item in report.slots
+    )
+    total_label = (
+        "no-evidence"
+        if every_slot_blind
+        else ("identity" if report.quotiented_is_bare else "MIXED")
+    )
     total = (
         f"{'total'.ljust(name_width)}  {report.target_rows:6d} "
         f"{sum(item.masked for item in report.slots):6d} "
         f"{sum(item.informative for item in report.slots):6d}  "
-        f"{('identity' if report.quotiented_is_bare else 'MIXED').ljust(coset_width)}  "
+        f"{total_label.ljust(coset_width)}  "
         f"{report.quotiented:10d} {report.positional:10d}"
     )
     if report.baseline_name:
