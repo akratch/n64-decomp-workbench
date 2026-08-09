@@ -69,6 +69,8 @@ SCHEMAS: dict[str, str] = {
     "window-dumps": "decomp-workbench-window-v1",
     "relocation-aliases": "decomp-workbench-relocation-aliases-v1",
     "pass-diff": "decomp-workbench-original-pass-diff-v1",
+    "phase": "decomp-workbench-phase-v1",
+    "phase-dumps": "decomp-workbench-phase-v1",
     "replay-as1": "decomp-workbench-pass-replay-v1",
     "score": "decomp-workbench-score-v1",
     "trace-alias": "decomp-workbench-trace-alias-v1",

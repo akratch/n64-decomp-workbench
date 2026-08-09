@@ -103,6 +103,7 @@ from .object_cli import (
 from .oracle_cli import register_oracle_commands
 from .pass_adapter_cli import register_pass_adapter_command
 from .pass_replay import ListingEdit, replay_as1
+from .phase_cli import register_phase_commands
 from .preflight import compile_preflight
 from .relocation_cli import register_relocation_command
 from .reporting import SCHEMAS, error_report, render_json, run_json_handler
@@ -1776,6 +1777,9 @@ def build_parser() -> argparse.ArgumentParser:
     # before every metric `compare` reports: are these two streams even the
     # same length, and if not, what did the candidate add?
     register_align_commands(commands)
+    # `phase` reads the rows `align` paired, and answers the question that
+    # follows: of the rows that differ, how many are a ring rotation?
+    register_phase_commands(commands)
     register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)
