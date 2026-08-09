@@ -250,3 +250,31 @@ class AlignCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EditBlockElisionTests(unittest.TestCase):
+    """A block longer than the quote budget must say rows were hidden.
+
+    Regression: the ge007-mp-watch-menu campaign read a 12-row deleted block
+    that quoted 3 rows and simply ended, and the missing nine rows were the
+    ones carrying the finding.
+    """
+
+    def test_a_long_deleted_block_marks_its_hidden_rows(self) -> None:
+        from decomp_workbench.shift_align import shift_diff_lines
+
+        lines = body(*stream(30))
+        shorter = lines[:12] + lines[24:]  # delete a 12-row block
+        diff = build_shift_diff(rows(lines), rows(shorter), context=3)
+        report = "\n".join(shift_diff_lines(diff, blocks=50))
+        self.assertIn("more row(s) in this block", report)
+        self.assertIn("--context-rows", report)
+
+    def test_a_fully_quoted_block_has_no_elision_line(self) -> None:
+        from decomp_workbench.shift_align import shift_diff_lines
+
+        lines = body(*stream(30))
+        shorter = lines[:12] + lines[14:]  # delete a 2-row block, under budget
+        diff = build_shift_diff(rows(lines), rows(shorter), context=3)
+        report = "\n".join(shift_diff_lines(diff, blocks=50))
+        self.assertNotIn("more row(s) in this block", report)

@@ -531,10 +531,26 @@ def shift_diff_lines(diff: ShiftDiff, *, blocks: int = 20) -> list[str]:
                 f"      target    {block.target_start + offset:5d}  {text}"
                 for offset, text in enumerate(block.target_text)
             )
+            target_hidden = (block.target_stop - block.target_start) - len(
+                block.target_text
+            )
+            if target_hidden > 0:
+                lines.append(
+                    f"      target    ... {target_hidden} more row(s) in this "
+                    "block; raise --context-rows to quote them"
+                )
             lines.extend(
                 f"      candidate {block.candidate_start + offset:5d}  {text}"
                 for offset, text in enumerate(block.candidate_text)
             )
+            candidate_hidden = (block.candidate_stop - block.candidate_start) - len(
+                block.candidate_text
+            )
+            if candidate_hidden > 0:
+                lines.append(
+                    f"      candidate ... {candidate_hidden} more row(s) in this "
+                    "block; raise --context-rows to quote them"
+                )
         if len(diff.blocks) > blocks:
             lines.append(
                 f"  ... {len(diff.blocks) - blocks} more block(s); raise "
