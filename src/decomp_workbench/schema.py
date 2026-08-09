@@ -567,13 +567,14 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("count", "count", "number of sites"),
 )
 
-# Shiftability inventory keys (``shift audit``). A third namespace, for the
-# same reason the view has a second: these count *words in an image* and
-# *pins in a linker script*, and a spelling shared with either registry above
-# (``value``, ``reason``, ``window``, ``score``) means something else entirely
-# here. Nested keys -- the fields inside `regions`, `pins`, `hits` and
-# `rules` -- are listed with the rest, because a key nobody explains is the
-# defect this registry exists to prevent.
+# Shiftability keys (``shift audit`` and ``shift rehearse``). A third
+# namespace, for the same reason the view has a second: these count *words in
+# an image*, *pins in a linker script*, and *what a relink changed or left
+# unmoved*, and a spelling shared with either registry above (``value``,
+# ``reason``, ``window``, ``score``) means something else entirely here.
+# Nested keys -- the fields inside `regions`, `pins`, `hits`, `rules`,
+# `checksums` and `runs` -- are listed with the rest, because a key nobody
+# explains is the defect this registry exists to prevent.
 SHIFT_METRICS: tuple[Metric, ...] = (
     Metric("schema", "schema", "report schema identity"),
     Metric("map", "map", "the linked `ld -Map` file the report was read from"),
@@ -1215,13 +1216,14 @@ def explain_keys_text() -> str:
             separator,
             *format_rows(view_rows),
             "",
-            "Shiftability inventory keys (shift audit). A third namespace: "
-            "these count words in",
-            "a linked image and pins in a linker script, so a spelling shared "
-            "with either registry",
-            "above is a different thing. Nested keys (regions, pins, hits, "
-            "rules) are listed with",
-            "the rest.",
+            "Shiftability keys (shift audit and shift rehearse). A third "
+            "namespace: these count",
+            "words in a linked image, pins in a linker script, and what a "
+            "relink changed or left",
+            "unmoved, so a spelling shared with either registry above is a "
+            "different thing. Nested",
+            "keys (regions, pins, hits, rules, checksums, runs) are listed "
+            "with the rest.",
             "",
             format_columns(titles),
             separator,

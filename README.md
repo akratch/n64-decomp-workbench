@@ -100,7 +100,10 @@ Use it when:
 - a function already matches and you want to remove fake-match machinery
   without losing exactness;
 - you need to test whether uopt, ugen, or as1 (IDO's optimizer, code
-  generator, and final assembler pass) owns a difference.
+  generator, and final assembler pass) owns a difference;
+- your project is 100% matched and you need to know whether it is safe to
+  shift, insert, or resize code and data without a hardcoded address quietly
+  surviving the move.
 
 You do not need a ROM or compiler to try the included fixtures. Real object
 comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
@@ -239,6 +242,24 @@ decomp-workbench handoff audit /path/to/public-proof-repo \
 This catches missing references and dependencies that exist locally but were
 never tracked. See [public handoff audits][public-handoffs].
 
+A matched build proves the bytes at one layout; it says nothing about whether
+the addresses in them are references that survive a resize. Inventory a
+matched project's pinned and in-image addresses without building anything,
+then let a real padded relink referee which ones actually move:
+
+```sh
+decomp-workbench shift audit --map build/game.map --image build/game.z64 \
+  --pins ver/symbols/undefined_syms.txt --blob .assets
+decomp-workbench shift rehearse orchestrate --wrapper tools/relink.sh \
+  --ld-script mods/game.custom.ld --anchor-object build/src/hasm/entrypoint.s.o \
+  --deltas 0x10,0x40 --workdir .workbench/rehearsal \
+  --census unexplained_changed=0,stale_confirmed=0
+```
+
+In this campaign's gate, a one-line hardcoded pointer in a 100%-matched
+project passed the project's own retail-cartridge verifier and was still
+convicted by `shift rehearse`, by name. See [shiftability][shiftability].
+
 Install the campaign skill for your preferred agent — optional, and it runs the
 same commands you would:
 
@@ -346,6 +367,7 @@ The three narrative pages first, then the focused guides:
 - [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
 - [Public handoff audits][public-handoffs]
+- [Shiftability][shiftability] — is a matched project safe to insert, remove, or resize code and data in
 - [Lessons from final-function campaigns][final-function-campaigns]
 - [Alternate authentic frontends][alternate-frontends] — when the compiler itself is the variable
 - [Portable Codex and Claude Code skill][agent-skill]
@@ -433,3 +455,4 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [json-contracts]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/json-contracts.md
 [product-status]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/product-status.md
 [public-handoffs]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/public-handoffs.md
+[shiftability]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/shiftability.md
