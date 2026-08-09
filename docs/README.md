@@ -53,6 +53,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
 | You are about to publish a proof or integration repository | [Public handoff audit](public-handoffs.md) | Exact handoff tree; optional project dependency root |
 | Your project is 100% matched and someone wants to mod it, or you need to know which words in the ROM are not explained by a symbol reference | [Shiftability](shiftability.md) | A linker map and a linked image; a relink script for the empirical half |
+| You want to actually make your matched project shiftable, start to finish | [The shiftability campaign](shiftability-campaign.md) | The same, plus the ability to edit your linker configuration and relink |
 | You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |
 | A command failed or returned nothing usable | [Troubleshooting](troubleshooting.md) | Command, stderr, and tool identities |
 

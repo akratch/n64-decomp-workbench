@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+- **The shift family is four commands, and it was driven by making a real
+  matched project shiftable rather than by imagining one.** The experiment:
+  pilotwings64, 100% matched and never designed for a shift, was given a
+  shift-capable linker configuration out of tree, relinked byte-identically to
+  the retail cartridge, and rehearsed at two deltas — `unexplained_changed=0`
+  both times, with exactly one high-confidence stale word. That word was not a
+  pointer Nintendo baked into the cartridge but a pin in the decompilation's
+  own generated `undefined_syms_auto.txt`, silently shadowing an object's `bss`
+  definition; ablating it left the ROM's `sha1` unchanged, which inverts the
+  community-facing claim into a stronger one — a matched decomp's shift surface
+  is configuration, and it is enumerable.
+
+  Three things the experiment demanded then landed. `shift audit` grew
+  `--blobs auto` (adopt the blob set the map's own input records imply, printed
+  as a suggestion either way), `--emit-whitelist` (a skeleton drafted from the
+  run's evidence, every entry commented out and carrying its reason), a
+  `rom-offset` pin class for values that address the cartridge rather than
+  memory, and `--elf`, which reads the `shadowing-pin` class off the link
+  itself: GNU `ld` lets a script assignment override an object's definition
+  silently and keeps the losing definition's size on the surviving absolute
+  symbol, so the check is exact and needs no shift. `shift rehearse` gained
+  `--base-elf`/`--shifted-elf`, the symbol-side census — every symbol above the
+  insertion must move by the delta — because a reference consumed only from a
+  `lui`/`%lo` pair in text is structurally invisible to a value test, and on
+  pilotwings64 the symbol side found thirteen blockers where the data side
+  found one. Its `--anchor auto` now ignores assignment symbols, which is what
+  made it work on splat projects at all: `<segment>_ROM_START` is numerically
+  low, VRAM-shaped, and moves by the delta.
+
+  Two new commands close the loop. `shift config verify` is the gate a linker
+  configuration edit must pass before any rehearsal number means anything —
+  every shared symbol at the same address, every section at the same VMA, size
+  and `AT()`, and optionally the images byte-identical; three checks rather
+  than one, because a byte-identical image can coexist with a symbol that moved
+  into a hole. `shift plan` merges the reports into one ranked, gated queue,
+  merged by subject rather than concatenated by report, ordered by what the
+  evidence cost and then by what the fix costs, with `--markdown` writing a
+  work order a person can hold. A plan from the audit alone is a plan of
+  suspicions and says so: banjo-kazooie plans 314 items with zero convictions,
+  pilotwings64 with two rehearsals plans 107 of which 14 are convictions and 10
+  are free wins. `docs/shiftability-campaign.md` is the playbook — five phases,
+  every transcript taken from those live patients, including the rules that
+  cost the live run an afternoon: audit the *uncompressed* linked image on a
+  compressed game, pass every `-T` file your link consumes because splat's
+  generated ones are the shift surface, count the absolute addresses in the
+  *generated* script rather than the `vram:` keys in the YAML, and never point
+  `splat split --modes ld` at your in-tree paths, because it silently truncates
+  `undefined_syms_auto.txt` to zero bytes.
+
 - **`shift audit` and `shift rehearse` answer the question the match gate
   cannot: which words in a ROM are not explained by a symbol reference.** A
   linked N64 image keeps no relocations, so a literal `0x80123456` and a

@@ -258,7 +258,10 @@ decomp-workbench shift rehearse orchestrate --wrapper tools/relink.sh \
 
 In this campaign's gate, a one-line hardcoded pointer in a 100%-matched
 project passed the project's own retail-cartridge verifier and was still
-convicted by `shift rehearse`, by name. See [shiftability][shiftability].
+convicted by `shift rehearse`, by name. `shift config verify` gates the linker
+edit that gets you there and `shift plan` turns the reports into a finite,
+gated queue. See [shiftability][shiftability] for the reference, and
+[the shiftability campaign][shiftability-campaign] for the phases in order.
 
 Install the campaign skill for your preferred agent — optional, and it runs the
 same commands you would:
@@ -368,6 +371,7 @@ The three narrative pages first, then the focused guides:
 - [Scratch bundles][scratch-bundles]
 - [Public handoff audits][public-handoffs]
 - [Shiftability][shiftability] — is a matched project safe to insert, remove, or resize code and data in
+- [The shiftability campaign][shiftability-campaign] — the five phases that make one safe, run live on a 100% decomp
 - [Lessons from final-function campaigns][final-function-campaigns]
 - [Alternate authentic frontends][alternate-frontends] — when the compiler itself is the variable
 - [Portable Codex and Claude Code skill][agent-skill]
@@ -456,3 +460,4 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [product-status]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/product-status.md
 [public-handoffs]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/public-handoffs.md
 [shiftability]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/shiftability.md
+[shiftability-campaign]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/shiftability-campaign.md

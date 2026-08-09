@@ -1,14 +1,21 @@
 # Shiftability
 
-Two commands for the question that only starts once a project is matched:
+Four commands for the question that only starts once a project is matched:
 **which words in this ROM are not explained by a symbol reference?**
 `shift audit` is the static inventory — one map, one image, one pass, no
 build. `shift rehearse` is the empirical referee — the same objects linked
 twice against linker scripts that differ by an inserted pad, with every byte
-of the difference explained.
+of the difference explained. `shift config verify` is the gate the linker
+configuration edit between those two has to pass. `shift plan` merges the
+reports into one ranked, gated remediation queue.
 
 They exist because the matching gate cannot answer that question, and cannot
 be made to.
+
+This page is the reference: what each command measures, what its options mean,
+and what it refuses to claim. For the campaign — the ordered phases a
+maintainer actually runs, with the traps that cost a live one an afternoon —
+see **[The shiftability campaign](shiftability-campaign.md)**.
 
 ## Matching is a point property; shiftability is a neighborhood property
 
@@ -50,14 +57,21 @@ and periodic bug-hunting.
 |---|---|---|
 | Where do my project's pinned addresses come from — the layout, or a number somebody typed? | `shift audit` | one `ld -Map`, one linked image, the project's own symbol files |
 | Which words in the image are shaped like an address into the region an insertion would move? | `shift audit` | the same; no build, no ROM re-link |
+| Which pins does an object in the link already define? | `shift audit --elf` | the linked ELF as well; no shift needed |
+| Did my linker-configuration edit change the build it was not supposed to change? | `shift config verify` | the shipped link's map and the candidate link's map; images optional and paired |
 | Which of those references does a real shift actually move? | `shift rehearse` | two links of the *same objects*, or a relink script |
 | Did anything change that no class explains? | `shift rehearse` | the same |
+| Which *symbols* above the insertion failed to move? | `shift rehearse --base-elf --shifted-elf` | both links' ELFs |
 | Did a checksum-protected function's body change without its checksum? | `shift rehearse --checksum-pair` | the pairs your build patches |
+| What is the finite, ranked, gated list of work all of that implies? | `shift plan` | the `--json` reports from the commands above |
 
 The division is the point. The audit ranks **how confidently a word is an
 address reference**. It never ranks how dangerous a word is, because from one
 image it cannot: a resolved pointer and a typed-in constant are the same
 bytes. Only a relink separates them, and that is the rehearsal's whole job.
+`config verify` is upstream of both — it answers whether the two links you are
+comparing differ *only* in the thing you meant to change — and `plan` is
+downstream of all of them, turning rows into jobs.
 
 ## `shift audit` — the static inventory
 
@@ -65,8 +79,9 @@ bytes. Only a relink separates them, and that is the rehearsal's whole job.
 decomp-workbench shift audit \
   --map build/us/v77/dkr.us.v77.map \
   --image build/us/v77/dkr.us.v77.z64 \
+  --elf build/us/v77/dkr.us.v77.elf \
   --pins ver/symbols/undefined_syms.txt \
-  --blob .boot --blob .assets_lut --blob .assets \
+  --blobs auto \
   --whitelist boot-globals.txt
 ```
 
@@ -82,7 +97,26 @@ every assignment into five classes:
 | `authentic-fixed` | an absolute address the console fixes, not the project — a `kseg1` hardware register, or an address on your whitelist |
 | `artifact-suspect` | an absolute address in a window the project itself owns: a bare `kseg0` RAM address, or the `0xB0000000` cart domain |
 | `rom-offset` | a value below every run-time RAM window and inside the extent the map places: a raw cartridge offset (`boot_core1_rzip_ROM_START = 0xF19250`). Remediable — symbolize it against the linker's own `<segment>_ROM_START`/`_ROM_END` |
+| `shadowing-pin` | an object in the link already defines this symbol, and the script's assignment silently overrode it. Needs `--elf`; free to delete |
 | `unclassified` | an absolute value in no window the model names and no ROM offset either, or an expression the reader could not fold. Reported as itself rather than guessed |
+
+`shadowing-pin` is exact rather than heuristic, and it needs no shift. GNU `ld`
+lets a linker-script assignment override an object's definition of the same
+name with no warning, and keeps the losing definition's *size* on the
+surviving absolute symbol; `--elf` reads that residue directly. Deleting such
+a pin is byte-identical at the current layout, and the object's own definition
+then follows the layout for free. On pilotwings64 there are ten, all written
+by splat into `undefined_syms_auto.txt`, and deleting all ten reproduced the
+retail ROM's `sha1` exactly.
+
+**Pass every symbol file your link consumes.** The pin inventory is only as
+complete as the `-T` list you hand it, and an inventory missing a file is not
+wrong-looking, just quietly smaller — omitting pilotwings64's two generated
+`splat_out` files reports `pins_shadowing=7` where the full set reports 17.
+`--symbol-addrs` reads splat `symbol_addrs` files with the same grammar plus
+the `key:value` attributes splat writes in the trailing comment; those are
+disassembly hints rather than linker inputs, so they belong in the inventory
+and not in a remediation queue.
 
 The whitelist is a file, it is yours, and every entry needs a reason:
 
@@ -99,6 +133,14 @@ are as fixed as a hardware register, and are distinguishable from an artifact
 only by somebody saying so — an address with no reason attached is one
 somebody has to re-derive later, so the parser refuses it.
 
+`--emit-whitelist FILE` drafts the first one from this run's own evidence —
+hardware-window pins, and kseg0 pins below the movable window's own floor.
+Every entry is commented out, marked `# REVIEW:`, and carries the pin it came
+from, because a whitelist entry is a claim your project makes about its own
+addresses and reading a map does not entitle the command to make it for you.
+It refuses to overwrite an existing file, and the audit runs and reports
+normally either way.
+
 **The scan half** reads the image's data, blob and header regions word by
 word and reports every value that lands inside the *movable window* — the
 VRAM range an insertion would push. Text is placed and counted but never
@@ -111,6 +153,12 @@ segments and boot code, whose VMA is a load target rather than a place code
 lives. That refusal is a correction the campaign paid for — the hand-rolled
 spike attributed every ROM offset through `.main`'s VRAM mapping and came
 back naming asset bytes `gAudioHeapStack+0x...`, which they are not.
+
+You do not have to know your blob set. `--blobs auto` adopts the one the map's
+own input records imply — every output section all of whose objects are raw
+binaries — and the suggestion is printed whether or not you take it. `--blob`
+still adds on top and `--no-blob` subtracts; naming a section with both is
+refused rather than resolved by precedence.
 
 ### Tiers rank address-likelihood, never hazard
 
@@ -138,6 +186,37 @@ Calibrated rather than asserted: run against the reference project and then
 checked against a real shift, all 38 `high` hits and 650 of the 657 `medium`
 ones are words the shift actually moved — real references, every one. The
 `low` tier is where the ambiguity lives, which is what a suppressor is for.
+
+## `shift config verify` — the faithful-cascade gate
+
+Making a project shiftable means editing its linker configuration, and the one
+thing that edit must not do is change the build. Every number the rehearsal
+reports is attributed to the *shift*; an unnoticed layout change introduced
+one phase earlier would be attributed to it too.
+
+```sh
+decomp-workbench shift config verify \
+  --pinned-map build/game.map --candidate-map scratch/symbolic.map \
+  --pinned-image build/game.z64 --candidate-image scratch/symbolic.z64
+```
+
+Three checks, deliberately, and the cheapest is the weakest:
+
+| Check | What it catches that the others do not |
+|---|---|
+| symbols | every symbol both maps define is at the same address. A byte-identical image can still coexist with a symbol that moved into a hole |
+| sections | every output section both maps place lands at the same VMA, with the same size and the same `AT()` load address. Two layouts can share a symbol table and place their sections differently |
+| image | the two linked images are byte-identical. Optional, because a config experiment compares maps before it has images |
+
+The images are optional **and paired**: naming one and not the other is
+refused, because an identity check that silently did not run is worse than one
+that says so.
+
+A faithful pair reports `faithful=yes differences=0` and exits 0. Anything else
+exits 3 and names the first divergent symbol and the first divergent section,
+because the first one is the one you debug. Note what this does *not* answer:
+a genuinely shifted pair fails all three checks by construction, and that is
+`shift rehearse`'s question.
 
 ## `shift rehearse` — the empirical referee
 
@@ -183,6 +262,36 @@ own tiers. The merge is the whole reason to run both halves:
 A word that changed by something other than the delta is `changed-other` at
 any tier: an address-shaped word that moved by the wrong amount is a third
 question, and no tier makes it benign.
+
+### The symbol side: `--base-elf` and `--shifted-elf`
+
+Everything above is a *value* test, and a value test can only judge words the
+static scan read. The scan does not read text — a MIPS address is split across
+a `lui`/`%lo` pair and never exists as one word — so a reference consumed only
+from code is structurally invisible to `stale_confirmed`.
+
+Hand the rehearsal both links' ELFs and it runs the other half: every symbol
+naming an address above the insertion must have moved by `--delta`. One ELF
+alone is refused, because movement is a question about two links.
+
+```sh
+decomp-workbench shift rehearse analyze \
+  --base-map base/game.map --base-image base/game.z64 \
+  --shifted-map shifted/game.map --shifted-image shifted/game.z64 \
+  --base-elf base/game.elf --shifted-elf shifted/game.elf \
+  --delta 0x10 --census unexplained_changed=0,symbol_stale=0
+```
+
+Two new headline numbers. `symbol_stale` counts symbols inside the shifted
+range that did not move by the delta — every reference resolved through one
+now points at whatever the relink put in its place. `shadowing_pins` counts
+absolute symbols carrying a non-zero `st_size`, the same exact signal
+`shift audit --elf` reads, confirmed here against a real relink.
+
+**Neither side subsumes the other.** On pilotwings64 the data side convicted
+one word and the symbol side found thirteen — the seven RSP-microcode pins and
+the boot stack pointer among them, all consumed from `%hi`/`%lo` pairs in text
+and therefore unreachable by any value test. Run both, every time.
 
 ### `orchestrate` and the wrapper contract
 
@@ -261,6 +370,52 @@ should run the project's full post-link chain, or expect and explain this
 class. With the patcher run post-link, the same four pairs come back
 `pass`/`tracked` with bodies that changed 71, 90, 11 and 6 words.
 
+## `shift plan` — the remediation queue
+
+The deliverable a shiftability campaign needs is not ten thousand
+address-shaped words; it is a finite queue somebody can finish.
+
+```sh
+decomp-workbench shift plan \
+  --audit audit.json \
+  --rehearse rehearse-0x10.json --rehearse rehearse-0x40.json \
+  --markdown WORK-ORDER.md \
+  --census plan_convictions=0
+```
+
+**Merged by subject, not concatenated by report.** A pin that four reports
+mention is one job, carrying all four lines of evidence. Ranked by what the
+evidence cost and then by what the fix costs: convictions a relink
+demonstrated, then the free wins an object already defines, then the
+mechanical symbolizations, then the real migrations grouped by owning section,
+with the structural classes named and parked at the bottom.
+
+Every item carries a remediation class, and every class carries a gate:
+
+| Class | Kind | Gate |
+|---|---|---|
+| `delete-redundant-pin` | match-preserving | rebuild, `shift config verify`, re-audit and watch `pins_shadowing` fall by one |
+| `derive-pin` | match-preserving | rebuild, `shift config verify`, re-audit and watch `pins_rom_offset` fall by one |
+| `migrate-symbol` | match-preserving | rebuild, `shift config verify`, re-rehearse and watch `symbol_stale` fall by one |
+| `investigate` | conviction | re-run the rehearsal at two independent deltas |
+| `dual-spelling-risk` | conviction | run the symbol-side census, which does not read text at all |
+| `whitelist-candidate` | declaration | add the line to your whitelist and re-audit; `pins_authentic` rises by one |
+| `structural` | parked | none. Named with a reason and set aside on purpose |
+
+`--rehearse` is optional and repeatable, one report per delta. **A plan from
+the audit alone is a plan of suspicions**, and every item a rehearsal
+contributes outranks all of them: banjo-kazooie, which has no shift-capable
+linker configuration yet, plans 314 items with zero convictions, while
+pilotwings64 with two rehearsals plans 107 of which 14 are convictions and 10
+are free wins.
+
+`--markdown FILE` writes the queue as a work order a person can hold: the loop
+stated at the top, a checkbox per item grouped by class, evidence and gate
+commands beside each, and every item exported regardless of the terminal
+`--limit`. A plan built from capped reports says `plan_capped` and names which
+list stopped where, because a detail list that stopped at `--limit` cannot
+describe what came after it and neither can the queue.
+
 ## A worked walkthrough: catching a bug the retail verifier could not
 
 The campaign's gate was a controlled experiment on a finished decomp — Diddy
@@ -296,7 +451,10 @@ had a way to say so.
 **What the audit said.** The pin half reconciles the project exactly — 66
 pins, 7 derived, 57 authentic once the boot globals are whitelisted, and
 exactly 2 artifact-suspect, which are the two cart-domain fakes the project's
-own file labels as fakes in a comment. The scan half ranks 3,443 hits: 38
+own file labels as fakes in a comment. (Add `--elf` and the same 66 read 7
+derived, 56 authentic, 2 artifact-suspect and 1 `shadowing-pin`: `entrypoint`,
+which an object in the link also defines, and which the whitelist range was
+covering.) The scan half ranks 3,443 hits: 38
 `high`, 657 `medium`, 2,748 `low`. The injected word is in the `high` list,
 by name:
 
@@ -363,7 +521,7 @@ That is the demonstration you can run on your own tree.
 carries `tier_rules`, `tier_thresholds`, `residence_scores` and `merge_tiers`
 beside the counts. When a hit is ranked somewhere you disagree with, read the
 rule that ranked it rather than arguing with the label. Every reported metric
-is in `--explain-keys` for both commands.
+is in `--explain-keys`, for every command in the family.
 
 **`stale-review` is a queue, not a headline.** The seven medium-tier unmoved
 words in the walkthrough are identical in the bugged run and the clean
@@ -396,8 +554,8 @@ absorbed into a nicer number.
 | Absolute symbol pins in linker inputs | `shift audit`, pin half — and the rehearsal converts them mechanically: an absolutely-defined symbol cannot track a shift, so every reference through one self-identifies |
 | Raw address literals in C and in data | `shift audit` scan ranks them; `shift rehearse` convicts or clears them |
 | Pointer values inside `incbin` blobs | scanned as blob residents (never symbol-named); the rehearsal is the only thing that can convict one |
-| Unmigrated asm `.word`s and split `%hi`/literal-`%lo` pairs | `shift rehearse` only. A bare 16-bit offset is indistinguishable from a legitimate struct-member offset in a linked image, and the effective address never exists as one word |
-| Hardcoded ROM offsets in DMA/asset tables | not a value class either command models — a ROM offset is not inside the movable VRAM window |
+| Unmigrated asm `.word`s and split `%hi`/literal-`%lo` pairs | `shift rehearse` only, and only its symbol side when the reference is consumed from text: `--base-elf`/`--shifted-elf`. A bare 16-bit offset is indistinguishable from a legitimate struct-member offset in a linked image, and the effective address never exists as one word |
+| Hardcoded ROM offsets in DMA/asset tables | `shift audit`, pin half, as the `rom-offset` class when they are written down as pins — a ROM offset is not inside the movable VRAM window, so the scan half never sees one. `shift plan` classes them `derive-pin`: the linker already computes that boundary |
 | Segmented pointers inside assets (display lists, geo layouts) | nothing here reaches them; see the boundaries below |
 
 The fourth row is the one the archaeology argued hardest for. In 2021 the
@@ -433,14 +591,22 @@ classifies `lo16` and `j26` movement separately, and why it wants two deltas.
   words as pointers and emitted spurious relocations that themselves broke
   shifted builds. Findings carry evidence and a rule; empirical movement
   outranks every static signal.
-- **No fixes.** The tools inventory and verify. Migrating data, placing
-  symbols and removing pins is real decomp work. The promise is a complete,
-  honest, finite queue — not automatic shiftability.
+- **No fixes.** The tools inventory, verify and rank. Migrating data, placing
+  symbols and removing pins is real decomp work. `shift plan` names the class,
+  the evidence and the gate for each job; it does not do the job. The promise
+  is a complete, honest, finite queue — not automatic shiftability.
+- **No plan is bigger than its inputs.** The queue is built from `--json`
+  reports, and a report that stopped at `--limit` cannot describe what came
+  after it. The plan says `plan_capped` and names the truncated list rather
+  than presenting a partial queue as a whole one.
 - **No object-level relocation scanning yet**, and no per-game asset format
   parsing. Both are named increments, not silent gaps.
 
 ## See also
 
+- [The shiftability campaign](shiftability-campaign.md) — the ordered phases
+  for making your own matched project shiftable, written from a live run on a
+  100% decomp that had never planned for one.
 - [Trap 7: byte-identity does not prove address provenance](metric-traps.md#trap-7-byte-identity-does-not-prove-address-provenance)
   — the same finding as a measurement trap, with the incident.
 - [Shift-tolerant diffs and the ring phase](shift-and-phase.md) — the

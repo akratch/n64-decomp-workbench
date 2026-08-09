@@ -298,8 +298,32 @@ decomp-workbench shift rehearse orchestrate --wrapper tools/relink.sh \
 Two deltas, not one: a partially symbolized reference can encode correctly at
 one shift by coincidence. `stale_confirmed` is a word the audit ranked high
 that the relink did not move — the strongest available evidence for a
-hardcoded pointer, with the symbol it should have been named beside it. See
-[Shiftability](shiftability.md).
+hardcoded pointer, with the symbol it should have been named beside it. Pass
+`--base-elf` and `--shifted-elf` too: the data-side referee cannot read text,
+and on one live patient the symbol-side census found thirteen times more
+blockers than it did. See [Shiftability](shiftability.md) for what each number
+means.
+
+## My project has never been shifted and I do not know where to start
+
+That is a campaign, not a command, and it has an order that saves an
+afternoon. Diagnose first — `grep -cE '0x[0-9A-Fa-f]{4,}' your.ld` and one
+`shift audit` — before you touch a linker script, because your blocker is
+probably two lines rather than the hundreds the YAML implies. Then the
+shift-capable configuration, gated by `shift config verify`; then the
+rehearsal; then the queue:
+
+```sh
+decomp-workbench shift plan --audit audit.json \
+  --rehearse rehearse-0x10.json --rehearse rehearse-0x40.json \
+  --markdown WORK-ORDER.md
+```
+
+[The shiftability campaign](shiftability-campaign.md) is the whole thing in
+five phases, written from a live run on a 100% decomp: which image to audit on
+a compressed game, where splat hides its generated pins, the `--modes ld`
+footgun that silently empties `undefined_syms_auto.txt`, and the per-fix loop
+with its gate.
 
 ## A shifted or modded build boots wrong and the ROM verifies clean
 
@@ -322,6 +346,24 @@ checksum word did not. Read it alongside whether your build runs its post-link
 patcher and whether the runtime check is even compiled into this
 configuration. See [Shiftability](shiftability.md) and
 [Trap 7](metric-traps.md#trap-7-byte-identity-does-not-prove-address-provenance).
+
+## My linker-configuration edit was supposed to change nothing
+
+Prove it before you trust anything downstream, because every number a
+rehearsal reports is attributed to the shift and a layout change you
+introduced one phase earlier would be attributed to it too:
+
+```sh
+decomp-workbench shift config verify \
+  --pinned-map build/game.map --candidate-map scratch/symbolic.map \
+  --pinned-image build/game.z64 --candidate-image scratch/symbolic.z64
+```
+
+Three checks, not one: every shared symbol at the same address, every section
+at the same VMA and size and `AT()`, and — the weakest of the three — the
+images byte-identical. A faithful pair exits 0; anything else exits 3 and
+names the first divergent symbol and the first divergent section. See
+[The shiftability campaign](shiftability-campaign.md#phase-2--the-shift-capable-config).
 
 ## Late scheduling mismatch
 

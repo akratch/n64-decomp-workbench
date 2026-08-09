@@ -257,9 +257,11 @@ relink: build the same objects twice against scripts that differ by an
 inserted pad, at two different deltas, and require every changed word to be
 explained and every unmoved address-shaped word to be judged.
 
-See [Shiftability](shiftability.md) for the two commands that make that
+See [Shiftability](shiftability.md) for the four commands that make that
 measurement, the tier rules behind their findings, and the boundaries they
-refuse to cross.
+refuse to cross, and
+[The shiftability campaign](shiftability-campaign.md) for the order to run
+them in on a project that has never been shifted.
 
 ## See also
 

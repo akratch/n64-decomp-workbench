@@ -18,6 +18,7 @@ this page says what users can rely on now.
 | Explain allocator decisions | `trace-webs`, `trace-source`, `trace-stack-homes`, `oracle plan/diff/force/sweep/status/export` |
 | Explain scheduler decisions | stable trace reader plus hash-pinned external profile adapter and calibration gates |
 | Audit a matched project's shiftability | `shift audit` inventory → `shift rehearse orchestrate` two-delta relink → `--census unexplained_changed=0,stale_confirmed=0` as the CI gate |
+| Make a matched project shiftable | `shift audit --blobs auto --elf` → linker-config edit gated by `shift config verify` → `shift rehearse` with `--base-elf/--shifted-elf` at two deltas → `shift plan --markdown` work order → per-fix loop, `--census` in CI |
 | Automate safely | versioned success/error JSON, census exit codes, bounded streams, generated completions |
 
 Flat command names remain compatible. `decomp-workbench commands` presents the
@@ -51,6 +52,11 @@ same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
 - No verdict from a linked image alone. A linked ROM keeps no relocations, so
   `shift audit`'s tiers rank address-likelihood and never hazard; only a
   shifted relink separates a resolved pointer from a typed-in constant.
+- No fixes applied. `shift plan` merges the reports into a ranked queue with a
+  remediation class, the evidence and a gate command per item; editing linker
+  configuration, migrating data and placing symbols stays the maintainer's
+  work. A plan built from capped reports says `plan_capped` rather than
+  presenting part of a queue as the whole one.
 
 ## Remaining research, not missing basic UX
 
