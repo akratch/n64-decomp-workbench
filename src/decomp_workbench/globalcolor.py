@@ -24,11 +24,46 @@ COLOR_REGISTERS: dict[int, str] = {
     23: "ra",
 }
 
+#: Color to floating-point register, class 2 of the same color space.
+#:
+#: The instrumented pass prints ``bestreg=?`` for every one of these -- its own
+#: decode table is the integer table above -- so a reader has to supply the
+#: names, and one campaign supplied them wrongly for four consecutive stages:
+#: `c24=$f8 c25=$f10`, correct only from c26 upward. From that map a stage
+#: inferred that landing a web on c26 required first occupying c24/c25 and
+#: spent four more stages hunting an "occupancy" lever that does not exist.
+#: The map below is the corrected one, T1 (four independent forced-color
+#: object receipts): see docs/compiler-laws/ido-5.3.md L27. Colors 30-32 are
+#: observed in real traces but never confirmed to a register, so they stay
+#: numeric here rather than joining the campaign's habit of guessing.
+FP_COLOR_REGISTERS: dict[int, str] = {
+    24: "$f0",
+    25: "$f2",
+    26: "$f12",
+    27: "$f14",
+    28: "$f16",
+    29: "$f18",
+}
+
+#: ugen's local scratch rotation. p1 never colors into it in either direction
+#: (L38), so a tool that names one of these as a p1 color has the map wrong --
+#: which is exactly how the four-stage error above announced itself.
+FP_LOCAL_RING: tuple[str, ...] = ("$f4", "$f6", "$f8", "$f10")
+
+#: The one table every trace reader looks a color up in. The two halves are
+#: disjoint (integer colors stop at 23, float colors start at 24), so one
+#: lookup cannot confuse them, and there is no second hard-coded dict in any
+#: command for the fix to fail to reach.
+ALLOCATOR_COLOR_REGISTERS: dict[int, str] = {
+    **COLOR_REGISTERS,
+    **FP_COLOR_REGISTERS,
+}
+
 
 def register_for_color(color: int | None) -> str | None:
     """Name a color's machine register where the pinned profile confirms it."""
 
-    return None if color is None else COLOR_REGISTERS.get(color)
+    return None if color is None else ALLOCATOR_COLOR_REGISTERS.get(color)
 
 
 def color_for_register(register: str) -> int | None:
@@ -36,7 +71,11 @@ def color_for_register(register: str) -> int | None:
 
     normalized = register.removeprefix("$").lower()
     return next(
-        (color for color, name in COLOR_REGISTERS.items() if name == normalized),
+        (
+            color
+            for color, name in ALLOCATOR_COLOR_REGISTERS.items()
+            if name.removeprefix("$") == normalized
+        ),
         None,
     )
 

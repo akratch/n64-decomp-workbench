@@ -85,12 +85,15 @@ class AllocatorAnalysisTests(unittest.TestCase):
         report = web_report(trace, proc=2)
         item = report["webs"][0]
         self.assertEqual(item["mincost_tie_colors"], [27, 28, 29])
+        # WB-80: the float half of the colour map is named from the one shared
+        # table, so a class-2 tie set reads as registers here exactly as an
+        # integer one does. The pass itself prints `bestreg=?` for these.
         self.assertEqual(
             item["mincost_tie_registers"],
             [
-                {"color": 27, "register": None},
-                {"color": 28, "register": None},
-                {"color": 29, "register": None},
+                {"color": 27, "register": "$f14"},
+                {"color": 28, "register": "$f16"},
+                {"color": 29, "register": "$f18"},
             ],
         )
 

@@ -76,7 +76,16 @@ def parse_force_specification(value: str) -> list[ForceEntry]:
 
 
 def color_register_table() -> str:
-    """Render the color decode table as C, from the one Python mapping."""
+    """Render the color decode table as C, from the one Python mapping.
+
+    Deliberately the integer table alone, not
+    :data:`~decomp_workbench.globalcolor.ALLOCATOR_COLOR_REGISTERS`. This
+    function's output is compiled *into* the instrumented pass, so widening it
+    changes what a pinned instrument build emits; the float names belong to
+    the reader side, where they can be corrected without rebuilding a
+    compiler. `bestreg=?` in a trace is therefore expected for a class-2 web,
+    and every workbench reader supplies the name from the shared table.
+    """
 
     highest = max(COLOR_REGISTERS)
     values = ", ".join(

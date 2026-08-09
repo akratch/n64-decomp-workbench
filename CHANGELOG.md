@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **One float colour map, corrected, and only one.** `c24=$f0 c25=$f2 c26=$f12
+  c27=$f14 c28=$f16 c29=$f18` (L27, four independent forced-colour receipts).
+  The instrumented pass prints `bestreg=?` for every float colour because its
+  own decode table is the integer one, so the reader has to supply the names —
+  and one campaign supplied `c24=$f8 c25=$f10` for four consecutive stages,
+  then wrote a *new* tool after correcting it that still carried the old dict.
+  `register_for_color` now answers for both halves of the colour space from one
+  table, so every trace report — `trace-webs`, `trace-globalcolor`, the cascade
+  family — names a float web's register and its min-cost tie set. `$f4`-`$f10`
+  are ugen's scratch ring and are never a p1 colour in either direction;
+  colours the profile has not confirmed to a register stay numeric rather than
+  being guessed. The table compiled into the instrumented pass is unchanged.
+
 - **`align` reports the edit script, not what the shift cost.** `compare` and
   `score` index by position, so an object that is byte-exact apart from one
   extra instruction reports a four-figure mismatch count and reads as garbage;

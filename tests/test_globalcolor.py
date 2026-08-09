@@ -6,6 +6,10 @@ import json
 import unittest
 
 from decomp_workbench.globalcolor import (
+    ALLOCATOR_COLOR_REGISTERS,
+    COLOR_REGISTERS,
+    FP_LOCAL_RING,
+    color_for_register,
     parse_globalcolor_trace,
     register_for_color,
 )
@@ -324,6 +328,29 @@ class GlobalColorTests(unittest.TestCase):
         self.assertIsNone(register_for_color(None))
         self.assertEqual(register_for_color(12), "t5")
         self.assertEqual(register_for_color(23), "ra")
+
+    def test_the_float_color_map_is_the_corrected_one(self) -> None:
+        # WB-80: four campaign stages ran on `c24=$f8 c25=$f10`, correct only
+        # from c26 up, and a tool written *after* the correction still carried
+        # the old dict. One shared table, so there is no second copy to miss.
+        self.assertEqual(register_for_color(24), "$f0")
+        self.assertEqual(register_for_color(25), "$f2")
+        self.assertEqual(register_for_color(26), "$f12")
+        self.assertEqual(register_for_color(29), "$f18")
+        # `$f4`-`$f10` are ugen's local ring and are never a p1 colour (L38),
+        # in either direction: naming one of them proves the map is wrong.
+        for ring_register in FP_LOCAL_RING:
+            self.assertIsNone(color_for_register(ring_register))
+            self.assertNotIn(ring_register, ALLOCATOR_COLOR_REGISTERS.values())
+        self.assertEqual(color_for_register("$f14"), 27)
+        self.assertEqual(color_for_register("f14"), 27)
+
+    def test_the_generated_instrument_table_stays_integer_only(self) -> None:
+        # The float names are a reader-side correction. Widening the table
+        # compiled into the pass would change what a pinned instrument build
+        # emits, for names the pass has no way to check.
+        self.assertEqual(max(COLOR_REGISTERS), 23)
+        self.assertNotIn(24, COLOR_REGISTERS)
 
     def test_ranks_nan_save_last(self) -> None:
         report = parse_globalcolor_trace(
