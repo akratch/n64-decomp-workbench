@@ -95,9 +95,16 @@ class ScreenLine:
 
     @property
     def rotated(self) -> bool:
-        """Whether this object's ring sits away from the target's."""
+        """Whether this object's ring sits away from the target's.
 
-        return self.coset is not None and self.coset != "id"
+        `?` is not a rotation. It is the reading for an object holding no
+        ring-carrying row at all -- an integer function, a fixture, a
+        candidate whose float work is entirely in another slot -- and treating
+        it as a rotation printed the coset caution over whole sweeps of
+        objects that had no ring to rotate.
+        """
+
+        return self.coset is not None and self.coset not in {"id", "?"}
 
     def render(self) -> str:
         suffix = "" if self.slot is None else str(self.slot)

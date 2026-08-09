@@ -125,6 +125,23 @@ class ScreenLineTests(unittest.TestCase):
         self.assertIsNone(line.caution())
         self.assertIn("coset=id", line.render())
 
+    def test_an_object_with_no_ring_row_is_not_reported_as_rotated(self) -> None:
+        """`?` is "nothing to read", not "the ring moved".
+
+        An object holding no ring-carrying row reads `coset=?`, and treating
+        that as a rotation printed the coset caution over whole sweeps of
+        integer objects that had no ring to rotate. Found by the sweep-ingest
+        report, which prints one caution for a whole family.
+        """
+
+        target = rows(body("sw ra,8(sp)", "lw ra,8(sp)"))
+
+        line = build_screen_line(target, label=SYMBOL, target=target)
+
+        self.assertEqual(line.coset, "?")
+        self.assertFalse(line.rotated)
+        self.assertIsNone(line.caution())
+
     def test_without_a_target_the_coset_is_declared_unmeasured(self) -> None:
         line = build_screen_line(rows(body(*TRAFFIC)), label=SYMBOL)
 
