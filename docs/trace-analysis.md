@@ -3,6 +3,17 @@
 Trace analysis answers a narrower question than disassembly: which compiler
 events produced an otherwise-correct register or scheduling pattern?
 
+## Read one site's whole decision cascade
+
+```sh
+decomp-workbench trace-cascade examples/traces/cascade.log --frame-offset 0xfffffdf8
+```
+
+Every round of one web family's `f_split` cascade, the colour it actually
+received, and the decision as one inequality. `trace-order` ranks the whole
+colouring order with its ties, and `trace-blocks` intersects two webs'
+occurrence-block sets. See [the allocator decision cascade](cdx-cascade.md).
+
 ## Summarize an unfamiliar trace
 
 ```sh

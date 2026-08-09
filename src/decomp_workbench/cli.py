@@ -41,6 +41,7 @@ from .campaign_state import (
     finish_manifest,
     initialize_manifest,
 )
+from .cascade_cli import register_cascade_commands
 from .cli_options import (
     SYMBOL_OPTION_DEST,
     add_explain_keys_argument,
@@ -1787,6 +1788,10 @@ def build_parser() -> argparse.ArgumentParser:
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
     register_allocator_commands(commands)
+    # The cascade family reads the same instrumented build the `trace`
+    # commands read, and answers the question they leave open: what
+    # happened at one site, in every round, and what colour it really got.
+    register_cascade_commands(commands)
     # `force-rows` reads objects but speaks the allocator's vocabulary: its
     # input is a force control, and it answers the question the allocator
     # journey leaves open -- which rows that control actually owns.

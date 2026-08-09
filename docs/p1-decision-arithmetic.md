@@ -4,8 +4,9 @@
 `totalsave`, `chargeA`, or `chargeB` for a web and you are not sure which of
 them is the actual decision, which are just rank, and which source edit moves
 which one. This page is the whole formula, worked end to end on one real
-kill, with the `uopt.c` line for every term. It is the specification for
-`workbench cascade`/`occmap` (WB-110), and the detail behind
+kill, with the `uopt.c` line for every term. It is the specification
+`decomp-workbench trace-cascade` reports against (see
+[the allocator decision cascade](cdx-cascade.md)), and the detail behind
 [compiler laws L28–L37](compiler-laws/ido-5.3.md#p1-the-global-colour-allocator).
 
 Everything here is IDO 5.3's `f_compute_save` / `f_globalcolor` / `f_split`,

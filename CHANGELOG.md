@@ -15,6 +15,33 @@
   colours the profile has not confirmed to a register stay numeric rather than
   being guessed. The table compiled into the instrumented pass is unchanged.
 
+- **`trace-cascade` prints every round of one allocator site, and the colour it
+  really got.** Five hand-rolled versions of this dump existed in one campaign
+  and three were wrong: one printed only the last `p1dec` for a symbol, when the
+  site's residue was the tail of a four-round `f_split` cascade whose parent had
+  already declined on cost; one located the web by a hard-coded `sym=1042` that a
+  rebase renumbered to `1039`, so it printed `WEB-ABSENT` — indistinguishable
+  from the kill the stage was hoping for — and seven stages re-reported that one
+  bug; one printed `bestcolor`, the pre-resolution field, which on a forced run
+  shows the *unforced* colour and on a split web shows the parent's.
+  `decomp-workbench trace-cascade build.ilog --frame-offset 0xfffffdf8` locates
+  the site by frame offset, the only identity in the grammar a renumbering does
+  not move, and prints every round: the decision as the one inequality it is
+  (`net 4.000 <= bestcost 0.000 ? NO -> colour it`), the natural colour beside
+  the colour `p1color` records, the forbidden set and min-cost tie set with
+  their register names, and each split's memory-resident pieces. `--occurrences`
+  adds the per-occurrence table with the `chargeB` gate marked, checked against
+  the pass's own recorded charge before it is reported. `--kill` is the one-line
+  signal that turned a 946-variant sweep into one column; `--against` diffs the
+  same site in two builds; `--rom OBJECT` names the float colours a reference
+  object never uses, so a forbidden set can be checked against the allocation
+  the reference actually made; `--object` adds the screen line with stores
+  counted apart from loads. `trace-order` ranks the whole colouring order with
+  its same-`save` tie groups (`--class 2` is the float-web census), and
+  `trace-blocks` intersects webs' occurrence-block sets — the question five
+  stages argued from `numintf` deltas. `--grammar` prints the record grammar and
+  marks which records the shipped `instrument-uopt` profile emits and which come
+  from a campaign-local `uopt.c` patch. Documented in `docs/cdx-cascade.md`.
 - **`align` reports the edit script, not what the shift cost.** `compare` and
   `score` index by position, so an object that is byte-exact apart from one
   extra instruction reports a four-figure mismatch count and reads as garbage;
