@@ -39,7 +39,7 @@ from .screen import ScreenLine, build_screen_line
 from .shift_align import build_shift_diff
 from .sweep import INGEST_SCHEMA, SweepError, SweepManifest, VariantKey
 
-__all__ = ["IngestResult", "VariantResult", "ingest_sweep", "ingest_lines"]
+__all__ = ["IngestResult", "VariantResult", "ingest_lines", "ingest_sweep"]
 
 #: The manifest site that names the control: the base, unedited, built in the
 #: same run. A price is a difference and needs both terms measured together.
@@ -286,26 +286,15 @@ def ingest_lines(result: IngestResult, *, limit: int = 20) -> list[str]:
         "",
     ]
     if result.control is not None:
+        screen = result.control.screen
         lines.append(
             f"control (the base, unedited): rows_away="
-            f"{result.control.rows_away}  {result.control.screen.render() if result.control.screen else ''}"
+            f"{result.control.rows_away}  {screen.render() if screen else ''}"
         )
         lines.append("")
-    header = " rows  price  ni    frame  coset  class site                 carrier"
-    lines.append(header)
-    shown = result.ranked[:limit]
-    for item in shown:
-        screen = item.screen
-        price = result.price(item)
-        lines.append(
-            f" {str(item.rows_away).rjust(4)}  "
-            f"{('+' + str(price) if price and price > 0 else str(price) if price is not None else '-').rjust(5)}  "
-            f"{str(screen.instructions if screen else '-').ljust(5)} "
-            f"{str(screen.frame if screen and screen.frame is not None else '-').ljust(6)} "
-            f"{(screen.coset or '-') if screen else '-':<6} "
-            f"{item.key.generator_class:<5} {item.key.site[:20]:<20} "
-            f"{item.key.carrier}"
-        )
+    lines.append(" rows  price  ni    frame  coset  class site                 carrier")
+    for item in result.ranked[:limit]:
+        lines.append(_result_row(item, price=result.price(item)))
     if len(result.ranked) > limit:
         lines.append(
             f" ... {len(result.ranked) - limit} more scored variant(s); "
@@ -339,6 +328,29 @@ def ingest_lines(result: IngestResult, *, limit: int = 20) -> list[str]:
     return lines
 
 
+def _price_row(price: int | None) -> str:
+    """The price column: `+3`, `0`, `-2`, or `-` when there is no control."""
+
+    if price is None:
+        return "-"
+    return f"+{price}" if price > 0 else str(price)
+
+
+def _result_row(item: VariantResult, *, price: int | None) -> str:
+    """One ranked row: the distance, the price, and the gate line's four facts."""
+
+    screen = item.screen
+    instructions = str(screen.instructions) if screen else "-"
+    frame = str(screen.frame) if screen and screen.frame is not None else "-"
+    coset = (screen.coset or "-") if screen else "-"
+    return (
+        f" {str(item.rows_away).rjust(4)}  {_price_row(price).rjust(5)}  "
+        f"{instructions:<5} {frame:<6} {coset:<6} "
+        f"{item.key.generator_class:<5} {item.key.site[:20]:<20} "
+        f"{item.key.carrier}"
+    )
+
+
 def _price_lines(result: IngestResult) -> list[str]:
     """The null-hypothesis answer: what each construct costs on this base."""
 
@@ -351,7 +363,7 @@ def _price_lines(result: IngestResult) -> list[str]:
         if item.key.site != CONTROL_SITE and "+" not in item.key.site
     ]
     if not singles:
-        return lines + ["  (no single-construct removal scored)"]
+        return [*lines, "  (no single-construct removal scored)"]
     for item in sorted(singles, key=lambda entry: entry.key.site):
         price = result.price(item)
         if price is None:

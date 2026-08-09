@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from .campaign import run_campaign
-from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
 from .campaign_state import (
     build_status,
     export_status,
@@ -20,6 +19,7 @@ from .campaign_state import (
     update_hypothesis,
     validate_resume,
 )
+from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
 from .experiments import EXPERIMENT_SCHEMA, RegionConstraint
 
 

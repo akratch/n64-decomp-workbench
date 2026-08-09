@@ -200,7 +200,9 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
-def _in_frozen(line: int, frozen: tuple[tuple[int, int], ...]) -> tuple[int, int] | None:
+def _in_frozen(
+    line: int, frozen: tuple[tuple[int, int], ...]
+) -> tuple[int, int] | None:
     for low, high in frozen:
         if low <= line <= high:
             return low, high

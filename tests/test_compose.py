@@ -46,7 +46,13 @@ class ComposeTests(unittest.TestCase):
         fields: dict[str, object] = {
             "base": self.path,
             "base_sha256": self.sha,
-            "edits": (Edit(line=5, expect="    lead = 1.0f;", replace="    lead = 3.0f;"),),
+            "edits": (
+                Edit(
+                    line=5,
+                    expect="    lead = 1.0f;",
+                    replace="    lead = 3.0f;",
+                ),
+            ),
         }
         fields.update(overrides)
         return EditPlan(**fields)  # type: ignore[arg-type]

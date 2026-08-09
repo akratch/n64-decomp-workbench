@@ -21,7 +21,6 @@ from .notes import (
     merge_notes,
     merged_view,
     notes_directory,
-    reservations_directory,
     reserve_identifiers,
 )
 

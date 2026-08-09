@@ -145,7 +145,9 @@ def read_stamp(path: str | Path) -> dict[str, Any]:
     try:
         payload = json.loads(location.read_text(encoding="utf-8"))
     except OSError as error:
-        raise InstrumentGateError(f"cannot read the stamp {location}: {error}") from None
+        raise InstrumentGateError(
+            f"cannot read the stamp {location}: {error}"
+        ) from None
     except ValueError as error:
         raise InstrumentGateError(f"{location} is not valid JSON: {error}") from None
     if payload.get("schema") != GATE_SCHEMA:

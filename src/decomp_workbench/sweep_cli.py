@@ -15,7 +15,13 @@ from typing import Any
 from .cli_options import add_list_file_argument, add_symbol_argument
 from .compose import ComposeError, parse_zone
 from .csource import CSourceError
-from .sweep import GENERATOR_CLASSES, SweepError, SweepManifest, read_manifest, write_family
+from .sweep import (
+    GENERATOR_CLASSES,
+    SweepError,
+    SweepManifest,
+    read_manifest,
+    write_family,
+)
 from .sweep_generators import (
     carrier_pool,
     commutative_family,
@@ -69,7 +75,7 @@ def _emit_manifest(args: argparse.Namespace, manifest: SweepManifest) -> int:
             placed.coverage.sentence(),
             "",
             "next: build each source with the project's compile-one wrapper, "
-            f"writing OBJDIR/<name>.o, then",
+            "writing OBJDIR/<name>.o, then",
             f"      decomp-workbench sweep ingest {placed.directory} "
             "--objects OBJDIR --target target.o",
         )

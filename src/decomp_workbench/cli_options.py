@@ -189,7 +189,7 @@ class ListFileAction(argparse.Action):
             text = (
                 sys.stdin.read()
                 if path == "-"
-                else open(path, encoding="utf-8").read()  # noqa: SIM115
+                else open(path, encoding="utf-8").read()
             )
         except OSError as error:
             raise argparse.ArgumentError(self, f"cannot read {path}: {error}") from None

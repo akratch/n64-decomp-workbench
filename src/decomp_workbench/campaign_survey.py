@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-__all__ = ["SURVEY_SCHEMA", "CampaignSurveyError", "survey_lines", "survey_campaign"]
+__all__ = ["SURVEY_SCHEMA", "CampaignSurveyError", "survey_campaign", "survey_lines"]
 
 SURVEY_SCHEMA = "decomp-workbench-campaign-survey-v1"
 
@@ -194,7 +194,9 @@ def _findings_logs(root: Path, budget: int) -> list[dict[str, Any]]:
     return found
 
 
-def _documents(root: Path, schema: str, fields: tuple[str, ...]) -> list[dict[str, Any]]:
+def _documents(
+    root: Path, schema: str, fields: tuple[str, ...]
+) -> list[dict[str, Any]]:
     """Every JSON document under `root` carrying `schema`, reduced to `fields`."""
 
     import json
@@ -317,7 +319,8 @@ def survey_lines(report: dict[str, Any], *, limit: int = 20) -> list[str]:
                 f"modified {report['base']['modified']}",
             )
         )
-    lines.extend(("", " modified              stage           files  src   obj   notes"))
+    lines.append("")
+    lines.append(" modified              stage           files  src   obj   notes")
     for stage in report["stages"][:limit]:
         notes = ",".join(stage["notes"][:2]) or "-"
         lines.append(

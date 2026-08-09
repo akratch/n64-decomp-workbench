@@ -34,11 +34,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .compose import Anchor, ComposeError, Edit, EditPlan, apply_plan, source_sha256
+from .compose import ComposeError, Edit, EditPlan, apply_plan, source_sha256
 from .coverage import SweepCoverage
 from .csource import (
     CSourceError,
-    Declaration,
     Statement,
     declarations,
     defines,
@@ -179,7 +178,7 @@ def carrier_pool(
     carry the old value back to a read that textually precedes the write.
     """
 
-    raw, code = _read_source(path)
+    code = _read_source(path)[1]
     if not 1 <= at <= len(code):
         raise CSourceError(f"{path} has {len(code)} line(s); --at names line {at}")
     statements = scan_statements(code)
@@ -309,7 +308,9 @@ class Construct:
 
     @property
     def site(self) -> str:
-        return f"L{self.first}" if self.first == self.last else f"L{self.first}-{self.last}"
+        if self.first == self.last:
+            return f"L{self.first}"
+        return f"L{self.first}-{self.last}"
 
 
 def parse_construct(text: str) -> Construct:
@@ -372,7 +373,9 @@ def removal_family(
             key=VariantKey(site="control", generator_class="N", carrier="-"),
             filename=f"{stem}.N.control.c",
             text="".join(f"{line}\n" for line in raw),
-            description="the base, unedited: the control every price is measured against",
+            description=(
+                "the base, unedited: the control every price is measured against"
+            ),
             detail={"removed": [], "control": True},
         )
     ]
@@ -490,7 +493,7 @@ def hoist_family(
     produced two entirely different cost deltas.
     """
 
-    raw, code = _read_source(path)
+    raw, _code = _read_source(path)
     if not 1 <= line <= len(raw):
         raise SweepError(f"{path} has {len(raw)} line(s); --line names line {line}")
     for letter in classes:
@@ -509,7 +512,8 @@ def hoist_family(
             "declared local was refused; a fresh declaration is not an answer, "
             "because it mints a frame slot the gate rejects."
         )
-    unknown = [name for name in names if name not in {item.name for item in pool.carriers}]
+    declared = {item.name for item in pool.carriers}
+    unknown = [name for name in names if name not in declared]
     if unknown:
         raise SweepError(
             f"{path} does not declare {', '.join(unknown)}; a carrier must be "
@@ -627,7 +631,13 @@ def _hoist_proposals(statement: str, *, classes: tuple[str, ...]) -> list[_Hoist
             if split is not None:
                 left, right = rhs[: split.start()], rhs[split.end() :]
                 found.append(
-                    _Hoist("H", "lhs", left.strip(), statement[:offset], rhs[split.start() :] + ";")
+                    _Hoist(
+                        "H",
+                        "lhs",
+                        left.strip(),
+                        statement[:offset],
+                        rhs[split.start() :] + ";",
+                    )
                 )
                 found.append(
                     _Hoist(
@@ -656,7 +666,7 @@ def _hoist_proposals(statement: str, *, classes: tuple[str, ...]) -> list[_Hoist
     if "A" in classes:
         for index, (start, end) in enumerate(_call_arguments(statement)):
             argument = statement[start:end].strip()
-            if not argument or _LEAF_RE.fullmatch(argument) and "." not in argument:
+            if not argument or (_LEAF_RE.fullmatch(argument) and "." not in argument):
                 continue
             found.append(
                 _Hoist("A", f"a{index}", argument, statement[:start], statement[end:])
@@ -804,7 +814,10 @@ def commutative_family(
                                 line=number,
                                 expect=source_line,
                                 replace=replaced,
-                                label=f"exchange {left.strip()} {operator} {right.strip()}",
+                                label=(
+                                    f"exchange {left.strip()} {operator} "
+                                    f"{right.strip()}"
+                                ),
                             ),
                         ),
                         frozen=frozen,
@@ -827,9 +840,13 @@ def commutative_family(
                 )
             )
     if not variants and not dropped:
+        where = (
+            f" on line(s) {', '.join(str(item) for item in sorted(wanted))}"
+            if wanted
+            else ""
+        )
         raise SweepError(
-            f"{path} has no exchangeable commutative operand pair"
-            + (f" on line(s) {', '.join(str(item) for item in sorted(wanted))}" if wanted else "")
+            f"{path} has no exchangeable commutative operand pair{where}"
         )
     return SweepManifest(
         generator="commute",
@@ -1058,7 +1075,9 @@ def _contains_at_top_level(region: str, marker: str) -> bool:
 # K -- copy elimination
 # --------------------------------------------------------------------------
 
-_COPY_RE = re.compile(r"^\s*(?P<target>[A-Za-z_]\w*)\s*=\s*(?P<source>[A-Za-z_]\w*)\s*;\s*$")
+_COPY_RE = re.compile(
+    r"^\s*(?P<target>[A-Za-z_]\w*)\s*=\s*(?P<source>[A-Za-z_]\w*)\s*;\s*$"
+)
 
 
 def copy_family(
@@ -1098,7 +1117,13 @@ def copy_family(
         if reason is not None:
             dropped.append({"site": site, "reason": reason})
             continue
-        edits = [Edit(line=number, expect=raw[number - 1], label=f"drop {target} = {origin}")]
+        edits = [
+            Edit(
+                line=number,
+                expect=raw[number - 1],
+                label=f"drop {target} = {origin}",
+            )
+        ]
         rehosted: list[int] = []
         for other in range(number + 1, len(code) + 1):
             if not reads(code[other - 1], target):
@@ -1256,7 +1281,7 @@ def fusion_donors(path: str | Path, *, target: str) -> tuple[Donor, ...]:
     half -- how many rows touch the donor's slot, which is its price.
     """
 
-    _raw, code = _read_source(path)
+    code = _read_source(path)[1]
     declared = {item.name: item for item in declarations(code)}
     if target not in declared:
         raise CSourceError(
@@ -1276,7 +1301,8 @@ def fusion_donors(path: str | Path, *, target: str) -> tuple[Donor, ...]:
             continue
         first, last = donor_span
         if takes_address(code, declaration.name):
-            disjoint, reason = False, "its address is taken; a callee may hold a pointer"
+            disjoint = False
+            reason = "its address is taken; a callee may hold a pointer"
         elif declaration.type_text != declared[target].type_text:
             disjoint, reason = (
                 False,
@@ -1284,9 +1310,11 @@ def fusion_donors(path: str | Path, *, target: str) -> tuple[Donor, ...]:
                 f"{declared[target].type_text}",
             )
         elif last < low:
-            disjoint, reason = True, f"dies at line {last}, before the target lives at {low}"
+            disjoint = True
+            reason = f"dies at line {last}, before the target lives at {low}"
         elif first > high:
-            disjoint, reason = True, f"lives from line {first}, after the target dies at {high}"
+            disjoint = True
+            reason = f"lives from line {first}, after the target dies at {high}"
         else:
             disjoint, reason = (
                 False,

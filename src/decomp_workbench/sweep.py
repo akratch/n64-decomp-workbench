@@ -372,7 +372,9 @@ def read_manifest(path: str | Path) -> SweepManifest:
     try:
         payload = json.loads(location.read_text(encoding="utf-8"))
     except OSError as error:
-        raise SweepError(f"cannot read the sweep manifest {location}: {error}") from None
+        raise SweepError(
+            f"cannot read the sweep manifest {location}: {error}"
+        ) from None
     except ValueError as error:
         raise SweepError(f"{location} is not valid JSON: {error}") from None
     if payload.get("schema") != SWEEP_SCHEMA:

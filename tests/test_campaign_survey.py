@@ -108,8 +108,8 @@ class SurveyTests(SurveyCase):
         self.assertEqual(report["findings_logs"][0]["pending"], 1)
 
     def test_a_sweep_manifest_is_reported_with_its_coverage(self) -> None:
-        from decomp_workbench.sweep_generators import parse_construct, removal_family
         from decomp_workbench.sweep import write_family
+        from decomp_workbench.sweep_generators import parse_construct, removal_family
 
         source = self.root / "late" / "late.c"
         source.write_text("int demo(void) {\n    return 1;\n}\n", encoding="utf-8")

@@ -137,7 +137,9 @@ def register_instrument_gate_command(
             "--instrumented cdx.o --profile uopt-cdx --stamp gates/uopt-cdx.json"
         ),
     )
-    parser.add_argument("--stock", metavar="OBJ", help="object from the stock toolchain")
+    parser.add_argument(
+        "--stock", metavar="OBJ", help="object from the stock toolchain"
+    )
     parser.add_argument(
         "--instrumented",
         metavar="OBJ",
