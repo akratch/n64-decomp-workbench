@@ -9,6 +9,32 @@ It is the last step in the evidence staircase, after ordinary object diagnosis,
 source-level levers, and pass ownership. A forced object is never a source
 match and must never be shipped.
 
+## Force first, then edit the source
+
+"Last in the staircase" is about *evidence*, not about the order to spend
+builds in. Once a residue is allocation-shaped and a focused trace exists, the
+force sweep is the **first** move at that site, not the confirmation you run
+afterwards.
+
+One campaign used forcing mostly post hoc, and the one time it forced first:
+forcing a single colour turned an apparently 21-row construct into a 2-row one
+and showed that its extra instruction was a symptom rather than a cost — six
+builds, against a source sweep that had not answered the question in hundreds.
+
+The reason is that **the best forced object is the construct's ceiling.** A
+source edit can only ever move the allocator into a state that forcing can
+already reach, so:
+
+- if the ceiling reaches the target, the construct is worth sweeping, and you
+  know which colour you are aiming at;
+- if the ceiling does *not* reach the target, no source spelling of that
+  construct will either, and the whole family is ruled out in a handful of
+  builds rather than a stage.
+
+Record the best forced object beside the construct. `decomp-workbench next`
+routes to `oracle plan` at family rank for an allocation-shaped verdict, ahead
+of the region attribution, for this reason.
+
 ## 1. Plan before compiling
 
 Start from one focused globalcolor trace:

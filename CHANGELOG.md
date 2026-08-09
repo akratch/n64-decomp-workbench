@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **`next` routes an allocation residue to the force ceiling before the source
+  sweep.** Forcing a web to a colour was used mostly as a post-hoc check; used
+  first, it turned an apparently 21-row construct into a 2-row one in six
+  builds and showed its extra instruction was a symptom rather than a cost. The
+  reason it belongs first is that the best forced object is the construct's
+  *ceiling*: a source edit can only reach a state forcing can already reach, so
+  a ceiling that misses the target rules out every spelling of the construct at
+  once. `next` now names `oracle plan` at family rank for an allocation-shaped
+  verdict, ahead of the region attribution, and `docs/oracle.md` says why.
+
+- **No option that selects data to read may default to a directory, and a test
+  says so.** One campaign's batch scorer carried a *different, later* stage's
+  object directory as its default, so a stage that copied it and retargeted its
+  own objects silently scored the previous stage's and printed a plausible
+  wrong number — six independent reports of that shape. A default directory is
+  now allowed only when it is the workbench's own state under
+  `.decomp-workbench`.
+
 - **Every list-valued option takes `--OPTION-from FILE`, and a test keeps the
   shipped shell safe.** A driver that builds a list in a shell variable and
   expands it unquoted works under `bash` and silently does not under `zsh`,

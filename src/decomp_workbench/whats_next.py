@@ -150,6 +150,13 @@ VERDICT_ROUTES: dict[str, tuple[str, str]] = {
     ),
 }
 
+#: Verdicts whose residue the allocator owns, and for which the force sweep is
+#: a *first* move rather than a post-hoc check. One campaign used `CDX_FORCE`
+#: mostly to confirm conclusions it had already reached by editing source; used
+#: first, it answered in six builds what a source sweep had not answered in
+#: hundreds.
+ALLOCATION_VERDICTS = frozenset({"allocation-mismatch", "frame-layout-mismatch"})
+
 #: Where a verdict with no route of its own is sent.
 FALLBACK_ROUTE = (
     "diagnose {target} {candidate}",
@@ -267,6 +274,26 @@ def plan_next_steps(
                     template.format(target=quoted_target, candidate=quoted_candidate)
                 ),
                 f"verdict={item.verdict}: {why}",
+            )
+        )
+
+    if item.verdict in ALLOCATION_VERDICTS:
+        # The step campaigns take last and should take first. Forcing one web
+        # to a colour turned an apparently 21-row construct into a 2-row one
+        # and showed its extra instruction was a symptom rather than a cost --
+        # in six builds, against a source sweep that would have taken
+        # hundreds. The best forced object is the construct's ceiling: if
+        # forcing cannot reach the target, no source spelling of this
+        # construct will either.
+        steps.append(
+            Step(
+                RANK_FAMILY,
+                _command("oracle", "plan", "TRACE.log", "--proc", "N"),
+                "before spending builds on source variants: sweep the forced "
+                "colours over the webs this residue names, and record the "
+                "best forced object as the construct's ceiling. A ceiling "
+                "that does not reach the target rules out every source "
+                "spelling of the construct at once.",
             )
         )
 

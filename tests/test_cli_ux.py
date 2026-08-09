@@ -851,5 +851,82 @@ class ViewShowAllFlagTest(unittest.TestCase):
                 self.assertNotIn("--view", help_text)
 
 
+class DefaultDirectoryTests(unittest.TestCase):
+    """No option that selects data to read may default to a directory.
+
+    One campaign's batch scorer carried `DIR = 'b4t/o'` as its default object
+    directory -- a *different, later* stage's -- so a stage that copied the
+    script and retargeted its own objects silently scored the previous stage's
+    and printed a plausible wrong number. Six independent reports of the same
+    shape across one campaign.
+
+    The line drawn here: a default directory is allowed only when it is the
+    workbench's own state, which is always under `.decomp-workbench`. Anything
+    that names where the reader's data lives is required or absent.
+    """
+
+    #: Options that select input data. A default on any of these is the defect.
+    INPUT_DIRECTORY_OPTIONS = frozenset(
+        {
+            "--objects",
+            "--objdir",
+            "--dir",
+            "--disassembly-cache",
+            "--source-dir",
+            "--dump-dir",
+        }
+    )
+
+    #: The one prefix a default directory may sit under.
+    STATE_PREFIX = ".decomp-workbench"
+
+    def subparsers(self) -> dict[str, argparse.ArgumentParser]:
+        parser = build_parser()
+        action = next(
+            item
+            for item in parser._actions
+            if isinstance(item, argparse._SubParsersAction)
+        )
+        return dict(action.choices)
+
+    def test_no_input_directory_option_carries_a_default(self) -> None:
+        failures: list[str] = []
+        for name, subparser in self.subparsers().items():
+            for action in subparser._actions:
+                if not set(action.option_strings) & self.INPUT_DIRECTORY_OPTIONS:
+                    continue
+                if action.default not in (None, [], ()):
+                    failures.append(
+                        f"{name} {action.option_strings} defaults to "
+                        f"{action.default!r}"
+                    )
+        self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_every_default_directory_is_workbench_state(self) -> None:
+        failures: list[str] = []
+        for name, subparser in self.subparsers().items():
+            for action in subparser._actions:
+                default = action.default
+                if not isinstance(default, str) or "/" not in default:
+                    continue
+                if not any(
+                    token in option
+                    for option in action.option_strings
+                    for token in ("dir", "cache", "path")
+                ):
+                    continue
+                if not default.startswith(self.STATE_PREFIX):
+                    failures.append(
+                        f"{name} {action.option_strings} defaults to "
+                        f"{default!r}, which is not under {self.STATE_PREFIX}"
+                    )
+        self.assertEqual(
+            failures,
+            [],
+            "A default directory may only be the workbench's own state.\n"
+            + "\n".join(failures),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

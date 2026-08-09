@@ -138,6 +138,33 @@ class CommandContentTests(unittest.TestCase):
         self.assertIn("--by-region SRC.c", region[0].command)
         self.assertIn("--src", region[0].why)
 
+    def test_an_allocation_residue_routes_to_the_force_ceiling_first(self) -> None:
+        """The step campaigns take last and should take first.
+
+        Forcing one web to a colour answered in six builds what a source
+        sweep had not answered in hundreds, and the best forced object is the
+        construct's ceiling: if forcing cannot reach the target, no source
+        spelling of the construct will either.
+        """
+
+        plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
+        self.assertEqual(plan.verdict, "allocation-mismatch")
+        force = [step for step in plan.steps if "oracle plan" in step.command]
+        self.assertEqual(len(force), 1)
+        self.assertIn("before spending builds on source variants", force[0].why)
+        self.assertIn("ceiling", force[0].why)
+        commands = [step.command for step in plan.steps]
+        self.assertLess(
+            commands.index(force[0].command),
+            next(index for index, item in enumerate(commands) if "--by-region" in item),
+        )
+
+    def test_a_structural_residue_is_not_sent_to_the_allocator(self) -> None:
+        plan = plan_of(
+            body("addu v0,a0,a1"), body("addu v0,a0,a1", "nop", "nop")
+        )
+        self.assertNotIn("oracle plan", " ".join(step.command for step in plan.steps))
+
     def test_a_match_routes_to_the_whole_object_gate(self) -> None:
         rows = body("addu v0,a0,a1")
         plan = plan_of(rows, rows)
