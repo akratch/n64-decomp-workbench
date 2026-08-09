@@ -28,6 +28,7 @@ below them is reference you consult when you need it.
 | A linked-function match still has a decomp.me score, or one visible register swap hides several allocator webs | **[Case study: SSSV func_802963D0](../case-studies/sssv-func-802963D0.md)** |
 | An exact source still contains suspicious fake-match scaffolding | **[Bounded carrier-substitution example](../examples/experiments/carrier-substitution/README.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
+| You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](postmortem-2026-08-09-ge007.md)** |
 
 New here? [Start here](START_HERE.md) takes ten minutes, and every command in
 it runs against shipped fixtures — no ROM, no compiler, no toolchain.
@@ -62,6 +63,9 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
 | You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
 | You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) |
+| Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |
+| A trace gives you `save`, `nocs`, `totalsave`, `chargeA`, or `chargeB` and you need the whole allocator formula in one place | [The p1 decision arithmetic](p1-decision-arithmetic.md) |
+| A score improved, or a lever's old price looked stable, and you want the catalogue of ways that can still be the wrong reading | [Metric traps](metric-traps.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
 | You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |
@@ -84,8 +88,11 @@ traces, and three functions have been matched without ever reading one.
 The dated field notes, skill feed, postmortem, review, and UX vision preserve
 the evidence as it looked on the day each was written — 2026-07-29 for the
 dp64 set, [2026-07-30](field-notes-2026-07-30-ssb64.md) for the SSB64
-frontend-lineage campaign. Use [Product status](product-status.md) for current
-syntax and support claims.
+frontend-lineage campaign, and
+[2026-08-09](postmortem-2026-08-09-ge007.md) for the GE007
+`object_interaction` campaign that produced this page's newest compiler laws.
+Use [Product status](product-status.md) for current syntax and support
+claims.
 
 Every command has `--help`. `decomp-workbench --explain-keys` prints the one
 registry of printed labels, JSON keys, and their meanings; reporting commands

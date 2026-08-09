@@ -709,7 +709,7 @@ to a zero-cost plant at such a site, because the register a plant would need
 to reuse is never actually a colour. A zero-cost route at such a site is
 therefore always evidence of a **missing temp in the decompiled C**, not a
 free lever — see the campaign postmortem's
-["split machine temp" and "missing local" error classes](postmortem-2026-08-09-ge007.md).
+["split machine temp" and "missing local" error classes](../postmortem-2026-08-09-ge007.md).
 
 **Receipt — T1**, consistent with L13's and L27's independent measurements
 of the same ring.
