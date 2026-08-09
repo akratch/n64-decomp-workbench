@@ -34,6 +34,12 @@ from .model import Comparison
 
 #: Ranks, low first. Named rather than numbered at the call sites so the
 #: ordering rule stays legible when a new route is added.
+#: Floating-point register rows above which a residual is worth reading as a
+#: possible scratch-ring rotation rather than a list of mistakes. Three stages
+#: of one campaign scored ring-flipped objects as wins; one row is noise, but a
+#: run of them has a shape, and `phase` is the command that names it.
+RING_ROTATION_THRESHOLD = 4
+
 RANK_BLOCKER = 0
 RANK_FAMILY = 1
 RANK_ATTRIBUTION = 2
@@ -199,16 +205,31 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_BLOCKER,
-                _command("view", quoted_target, quoted_candidate),
+                _command("align", quoted_target, quoted_candidate),
                 f"the candidate emits {abs(delta)} {direction} instruction(s) "
                 "than the target, so every word after the first count "
-                "difference is shifted rather than wrong; find where the "
-                "counts diverge before reading anything downstream of it.",
+                "difference is shifted rather than wrong; this names the "
+                "inserted and deleted instructions and says how many "
+                "instructions away the candidate really is, instead of what "
+                "the shift costs positionally.",
             )
         )
         blocked.append(
             "allocator and scheduler experiments: their residue is not "
             "measurable across an instruction-count difference."
+        )
+
+    if item.fp_register_mismatches >= RING_ROTATION_THRESHOLD:
+        steps.append(
+            Step(
+                RANK_FAMILY,
+                _command("phase", quoted_target, quoted_candidate),
+                f"{item.fp_register_mismatches} row(s) differ in a "
+                "floating-point register, which is the shape a rotated "
+                "scratch ring makes: read whether the residual is a renaming "
+                "before treating it as a mistake, and read the positional "
+                "count beside it so a rotation is never recorded as a win.",
+            )
         )
 
     if (

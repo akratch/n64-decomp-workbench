@@ -67,6 +67,30 @@ class OrderingTests(unittest.TestCase):
         self.assertTrue(plan.blocked)
         self.assertIn("not measurable", " ".join(plan.blocked))
 
+    def test_the_count_blocker_routes_to_the_shift_tolerant_diff(self) -> None:
+        """ "4640 != 4641" is a shape question, and `align` answers it."""
+
+        plan = plan_of(
+            body("addu v0,a0,a1"),
+            body("addu v0,a0,a1", "addu v1,a0,a2"),
+        )
+        self.assertIn("align target.o candidate.o", plan.steps[0].command)
+        self.assertIn("how many instructions away", plan.steps[0].why)
+
+    def test_a_run_of_float_register_rows_routes_to_the_ring_phase(self) -> None:
+        """A rotated scratch ring is a renaming, not a list of mistakes."""
+
+        target = body(
+            *[f"lwc1 f{4 + 2 * (index % 4)},{index * 4}(sp)" for index in range(8)]
+        )
+        candidate = body(
+            *[f"lwc1 f{8 - 2 * (index % 4) + 2},{index * 4}(sp)" for index in range(8)]
+        )
+        plan = plan_of(target, candidate)
+
+        commands = [step.command for step in plan.steps]
+        self.assertTrue(any("phase target.o candidate.o" in item for item in commands))
+
     def test_without_a_blocker_the_family_step_leads(self) -> None:
         plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
         self.assertNotEqual(plan.steps[0].rank, RANK_BLOCKER)
