@@ -87,6 +87,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("restore", "restore a prune without overwriting entries"),
     ),
     "note": (
+        ("reserve", "claim the next unused identifiers before filing under them"),
         ("add", "record a finding that a concurrent writer cannot lose"),
         ("list", "render the log's entries plus the pending sidecar notes"),
         ("merge", "append pending notes to the log under an exclusive lock"),
@@ -185,6 +186,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("campaign", "note"): "campaign-note",
     ("campaign", "export"): "campaign-export",
     ("note", "add"): "note-add",
+    ("note", "reserve"): "note-reserve",
     ("note", "list"): "note-list",
     ("note", "merge"): "note-merge",
     ("trace", "blocks"): "trace-blocks",
@@ -238,6 +240,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "note-add",
         "note-list",
         "note-merge",
+        "note-reserve",
         "sweep-carriers",
         "sweep-commute",
         "sweep-copies",

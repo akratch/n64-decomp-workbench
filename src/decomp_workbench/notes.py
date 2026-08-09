@@ -58,6 +58,18 @@ NOTES_SUFFIX = ".notes.d"
 #: stays true only while the file still exists.
 MERGED_DIRECTORY = "merged"
 
+#: Sidecar subdirectory holding identifier reservations. One file per
+#: identifier, named for it, created with ``O_EXCL`` -- which is the whole
+#: mechanism: two agents reserving at the same instant cannot both create
+#: ``WB-122.json``, so the loser takes ``WB-123`` and neither has to be told.
+RESERVED_DIRECTORY = "reserved"
+
+#: Schema written into every reservation file.
+RESERVATION_SCHEMA = "decomp-workbench-note-reservation-v1"
+
+#: An identifier that carries a number a reservation can count from.
+_NUMBERED_ID_RE = re.compile(r"^(?P<prefix>[A-Za-z][A-Za-z0-9_.]*)-(?P<number>\d+)$")
+
 #: A log heading that introduces an entry, e.g. ``## WB-54 — title``. The
 #: identifier is required to carry a digit so ordinary prose headings such as
 #: ``## Recovery notice`` are not mistaken for entries.
@@ -147,6 +159,20 @@ class MergedNotes:
     entries: tuple[LogEntry, ...]
     pending: tuple[Note, ...]
     merged: tuple[Note, ...]
+    reserved: tuple[Reservation, ...] = ()
+
+    @property
+    def unfiled_reservations(self) -> tuple[Reservation, ...]:
+        """Identifiers claimed but not yet written under.
+
+        A satisfied reservation is not interesting; an outstanding one is,
+        because it is the next filer's answer to "which number is free".
+        """
+
+        filed = {entry.identifier for entry in self.entries}
+        filed.update(note.identifier for note in self.pending)
+        filed.update(note.identifier for note in self.merged)
+        return tuple(item for item in self.reserved if item.identifier not in filed)
 
     @property
     def duplicate_ids(self) -> tuple[str, ...]:
@@ -172,6 +198,10 @@ class MergedNotes:
             "entries": [entry.as_dict() for entry in self.entries],
             "pending": [note.as_dict() for note in self.pending],
             "merged": [note.as_dict() for note in self.merged],
+            "reserved": [item.as_dict() for item in self.reserved],
+            "unfiled_reservations": [
+                item.as_dict() for item in self.unfiled_reservations
+            ],
             "pending_count": len(self.pending),
             "duplicate_ids": list(self.duplicate_ids),
         }
@@ -206,6 +236,180 @@ def _note_filename(identifier: str) -> str:
     return f"{stamp}-{safe}-{secrets.token_hex(4)}.json"
 
 
+@dataclass(frozen=True)
+class Reservation:
+    """One identifier claimed before anybody wrote the finding under it."""
+
+    identifier: str
+    author: str | None
+    purpose: str
+    recorded: str
+    path: Path
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.identifier,
+            "author": self.author,
+            "purpose": self.purpose,
+            "recorded": self.recorded,
+            "path": str(self.path),
+        }
+
+
+def reservations_directory(log: str | Path) -> Path:
+    """Return the reservation directory for ``log``."""
+
+    return notes_directory(log) / RESERVED_DIRECTORY
+
+
+def read_reservations(log: str | Path) -> tuple[Reservation, ...]:
+    """Read every identifier reservation for ``log``."""
+
+    directory = reservations_directory(log)
+    if not directory.is_dir():
+        return ()
+    found: list[Reservation] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, dict) or payload.get("schema") != RESERVATION_SCHEMA:
+            continue
+        author = payload.get("author")
+        found.append(
+            Reservation(
+                identifier=str(payload.get("id", "")),
+                author=str(author) if author else None,
+                purpose=str(payload.get("purpose", "")),
+                recorded=str(payload.get("recorded", "")),
+                path=path,
+            )
+        )
+    return tuple(sorted(found, key=lambda item: _sort_key(item.identifier)))
+
+
+def _sort_key(identifier: str) -> tuple[str, int, str]:
+    match = _NUMBERED_ID_RE.match(identifier)
+    if match is None:
+        return (identifier, 0, identifier)
+    return (match.group("prefix"), int(match.group("number")), identifier)
+
+
+def taken_identifiers(log: str | Path, *, prefix: str) -> set[int]:
+    """Every number already used under ``prefix``, wherever it is recorded.
+
+    The log's own entries, the pending sidecar notes, the merged ones, and the
+    reservations. A number that appears in any of them is spoken for; the
+    campaign that lost three identifiers in one night had three agents each
+    reading only one of those four places.
+    """
+
+    view = merged_view(log)
+    identifiers = [
+        *(entry.identifier for entry in view.entries),
+        *(note.identifier for note in view.pending),
+        *(note.identifier for note in view.merged),
+        *(item.identifier for item in read_reservations(log)),
+    ]
+    numbers: set[int] = set()
+    for identifier in identifiers:
+        match = _NUMBERED_ID_RE.match(identifier.strip())
+        if match is not None and match.group("prefix") == prefix:
+            numbers.add(int(match.group("number")))
+    return numbers
+
+
+def reserve_identifiers(
+    log: str | Path,
+    *,
+    prefix: str = "WB",
+    count: int = 1,
+    author: str | None = None,
+    purpose: str = "",
+    start: int | None = None,
+) -> tuple[Reservation, ...]:
+    """Claim ``count`` unused identifiers under ``prefix``, atomically.
+
+    The claim is the file. Each identifier's reservation is created with
+    ``O_EXCL`` under its own name, so two agents reserving in the same instant
+    cannot both take ``WB-122``: one create succeeds, the other raises
+    ``FileExistsError`` and the loser moves to ``WB-123`` without either of
+    them having to coordinate.
+
+    Reading the high-water mark first is only an optimisation. The correctness
+    is entirely in the exclusive create, because a scan is a read and every
+    scheme built on a read has already lost a race by the time it writes.
+    """
+
+    prefix = prefix.strip()
+    if not prefix or not _NUMBERED_ID_RE.match(f"{prefix}-1"):
+        raise NoteError(
+            f"{prefix!r} is not an identifier prefix. Write the part before the "
+            "number, e.g. --prefix WB for WB-122."
+        )
+    if count < 1:
+        raise NoteError("--count must be at least 1")
+    directory = reservations_directory(log)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise NoteError(
+            f"could not create the reservation directory {directory}: {error}"
+        ) from error
+
+    taken = taken_identifiers(log, prefix=prefix)
+    candidate = max(taken, default=0) if start is None else start - 1
+    claimed: list[Reservation] = []
+    attempts = 0
+    while len(claimed) < count:
+        candidate += 1
+        attempts += 1
+        if attempts > count + len(taken) + 1000:
+            raise NoteError(
+                f"could not claim {count} identifier(s) under {prefix}: "
+                f"stopped after {attempts} attempts"
+            )
+        if candidate in taken:
+            continue
+        identifier = f"{prefix}-{candidate}"
+        recorded = _utc_now()
+        payload = {
+            "schema": RESERVATION_SCHEMA,
+            "id": identifier,
+            "author": author,
+            "purpose": purpose,
+            "recorded": recorded,
+        }
+        target = directory / f"{identifier}.json"
+        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        try:
+            descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            # Somebody else claimed it between the scan and now. That is the
+            # race this exists to lose safely.
+            taken.add(candidate)
+            continue
+        except OSError as error:
+            raise NoteError(
+                f"could not write the reservation {target}: {error}"
+            ) from error
+        try:
+            os.write(descriptor, text.encode("utf-8"))
+        finally:
+            os.close(descriptor)
+        claimed.append(
+            Reservation(
+                identifier=identifier,
+                author=author,
+                purpose=purpose,
+                recorded=recorded,
+                path=target,
+            )
+        )
+    return tuple(claimed)
+
+
 def add_note(
     log: str | Path,
     *,
@@ -214,16 +418,43 @@ def add_note(
     status: str = "LOGGED",
     body: str = "",
     author: str | None = None,
+    force: bool = False,
 ) -> Note:
     """Write one note to the log's sidecar directory and return it.
 
     The log itself is never opened. That is the whole mechanism: a note that
     is not in the shared file cannot be lost when the shared file is replaced.
+
+    Filing under an identifier somebody else reserved is refused rather than
+    warned about: the collision this prevents is not a lost note but two
+    different findings under one number, which is only discovered later, by a
+    reader, when both are wrong.
     """
 
     identifier = identifier.strip()
     if not identifier:
         raise NoteError("a note needs a non-empty --id, e.g. --id WB-54")
+    if not force:
+        reserved = next(
+            (
+                item
+                for item in read_reservations(log)
+                if item.identifier == identifier
+            ),
+            None,
+        )
+        if reserved is not None and (reserved.author or None) != (author or None):
+            owner = reserved.author or "an unnamed filer"
+            match = _NUMBERED_ID_RE.match(identifier)
+            prefix = match.group("prefix") if match else "WB"
+            purpose = f": {reserved.purpose}" if reserved.purpose else ""
+            raise NoteError(
+                f"{identifier} is reserved by {owner} ({reserved.recorded})"
+                f"{purpose}.\n"
+                f"Claim your own with `note reserve --prefix {prefix}`, pass "
+                "--author to file under your own reservation, or --force if "
+                "you really mean to write under this one."
+            )
     directory = notes_directory(log)
     try:
         directory.mkdir(parents=True, exist_ok=True)
@@ -349,6 +580,7 @@ def merged_view(log: str | Path) -> MergedNotes:
         entries=parse_log_entries(text),
         pending=read_notes(path),
         merged=read_notes(path, merged=True),
+        reserved=read_reservations(path),
     )
 
 

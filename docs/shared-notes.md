@@ -44,7 +44,61 @@ The sidecar directory is derived from the log's path, never configured: the
 guarantee holds only while every writer of one log agrees on one sidecar, and
 agreement by convention is what failed the first time.
 
-## The three commands
+## Reading is not claiming
+
+The mechanism above makes a note impossible to lose. It does nothing about the
+other collision: two agents filing *different findings under the same number*.
+One campaign did that three times in a single night, and every agent involved
+had honestly read the log first — because between the read and the write,
+somebody else takes the number, and both filings are correct about a file that
+no longer says what they read.
+
+So the claim has to be a write, and it has to be exclusive:
+
+```sh
+decomp-workbench note reserve --log WORKBENCH-IMPROVEMENTS.md \
+    --prefix WB --count 3 --author W4 --purpose "sweep defects"
+```
+
+```text
+reserved: WB-122, WB-123, WB-124
+```
+
+Each identifier gets its own file under `…notes.d/reserved/`, created with
+`O_EXCL`. Two agents reserving in the same instant cannot both create
+`WB-122.json`: one create succeeds, the other raises, and the loser silently
+takes `WB-123`. Scanning for the highest number in use — across the log's own
+entries, the pending notes, the merged notes, and the existing reservations —
+is only an optimisation. The correctness is entirely in the exclusive create,
+because every scheme whose last step is a read has already lost the race by the
+time it writes.
+
+`note add` then refuses an identifier somebody else reserved:
+
+```text
+error: WB-122 is reserved by W4 (2026-08-09T09:37:13Z): sweep defects.
+Claim your own with `note reserve --prefix WB`, pass --author to file under
+your own reservation, or --force if you really mean to write under this one.
+```
+
+Pass `--author` matching the reservation to file under your own claim. Nothing
+changes for an unreserved identifier, so a log nobody reserves against behaves
+exactly as before.
+
+## The filing workflow
+
+1. **`note reserve`** — claim your numbers before you write anything. Do it
+   once, at the start, for as many as you expect to file; an unused reservation
+   costs nothing and is visible to everyone else.
+2. **`note add`** — one call per finding, under a number you hold.
+3. **`note list`** — check what is pending, and what is still claimed but
+   unfiled.
+4. **`note merge`** — fold the pending notes into the log.
+
+Steps 1 and 4 are the ones that get skipped, and they are the two that make the
+other two safe.
+
+## The commands
 
 ```sh
 decomp-workbench note add --log WORKBENCH-IMPROVEMENTS.md \
@@ -60,10 +114,11 @@ decomp-workbench note list --log WORKBENCH-IMPROVEMENTS.md
 ```
 
 `list` renders the merged view: the entries the log document itself carries,
-then the sidecar notes not yet folded in. Pending notes are visible, so the
-sidecar is a staging area rather than a directory that quietly fills up.
-`--verbose` adds full titles and pending bodies; `--json` emits
-`decomp-workbench-note-list-v1`.
+the identifiers claimed but not yet filed under, then the sidecar notes not yet
+folded in. Pending notes are visible, so the sidecar is a staging area rather
+than a directory that quietly fills up. `--verbose` adds full titles and pending
+bodies; `--json` emits `decomp-workbench-note-list-v1`, which carries
+`reserved` and `unfiled_reservations` beside `pending`.
 
 ```sh
 decomp-workbench note merge --log WORKBENCH-IMPROVEMENTS.md

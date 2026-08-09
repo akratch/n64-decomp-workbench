@@ -59,6 +59,7 @@ SCHEMAS: dict[str, str] = {
     "note-add": "decomp-workbench-note-add-v1",
     "note-list": "decomp-workbench-note-list-v1",
     "note-merge": "decomp-workbench-note-merge-v1",
+    "note-reserve": "decomp-workbench-note-reserve-v1",
     "oracle-diff": "decomp-workbench-oracle-diff-v1",
     "oracle-export": "decomp-workbench-oracle-export-v1",
     "oracle-plan": "decomp-workbench-oracle-plan-v1",

@@ -21,6 +21,8 @@ from .notes import (
     merge_notes,
     merged_view,
     notes_directory,
+    reservations_directory,
+    reserve_identifiers,
 )
 
 
@@ -77,7 +79,51 @@ def add_note_from_args(args: argparse.Namespace) -> Note:
         status=args.status,
         body=_read_body(args),
         author=args.author,
+        force=getattr(args, "force", False),
     )
+
+
+def note_reserve_command(args: argparse.Namespace) -> int:
+    try:
+        claimed = reserve_identifiers(
+            args.log,
+            prefix=args.prefix,
+            count=args.count,
+            author=args.author,
+            purpose=args.purpose,
+            start=args.start,
+        )
+    except (NoteError, OSError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "schema": "decomp-workbench-note-reserve-v1",
+                    "log": str(args.log),
+                    "reserved": [item.as_dict() for item in claimed],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    print(f"reserved: {', '.join(item.identifier for item in claimed)}")
+    for item in claimed:
+        print(f"file: {item.path}")
+    # The reassurance is the product, again. A reservation that only asked
+    # other filers to be careful would be the mechanism that already failed.
+    print(
+        "safe: each identifier's file was created exclusively; a concurrent "
+        "reserver cannot have taken the same one"
+    )
+    first = claimed[0].identifier
+    print(
+        f'next: decomp-workbench note add --log {args.log} --id {first} '
+        f'--title "..."'
+    )
+    return 0
 
 
 def render_note_list(view: MergedNotes, *, verbose: bool) -> list[str]:
@@ -102,6 +148,17 @@ def render_note_list(view: MergedNotes, *, verbose: bool) -> list[str]:
             title = entry.title if verbose else entry.title[:56]
             lines.append(
                 f"  {entry.identifier.ljust(width)}  [{status}]  {title}".rstrip()
+            )
+    outstanding = view.unfiled_reservations
+    if outstanding:
+        lines.append("")
+        lines.append("reserved (claimed, nothing filed under it yet):")
+        width = max(len(item.identifier) for item in outstanding)
+        for item in outstanding:
+            author = f" by {item.author}" if item.author else ""
+            purpose = f"  {item.purpose}" if item.purpose else ""
+            lines.append(
+                f"  {item.identifier.ljust(width)}  {item.recorded}{author}{purpose}"
             )
     if view.pending:
         lines.append("")
@@ -226,8 +283,53 @@ def register_note_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "--body-file", metavar="FILE", help="read the body from FILE, or - for stdin"
     )
     add.add_argument("--author", help="who recorded it")
+    add.add_argument(
+        "--force",
+        action="store_true",
+        help="file under an identifier somebody else reserved",
+    )
     add.add_argument("--json", action="store_true", help="emit JSON")
     add.set_defaults(handler=note_add_command)
+
+    reserve = commands.add_parser(
+        "note-reserve",
+        help=argparse.SUPPRESS,
+        description=(
+            "Claim the next unused identifiers before writing anything under "
+            "them. Three findings collided on one number in a single night of "
+            "one campaign, each filed by an agent that had honestly read the "
+            "log first -- because reading is not claiming. The claim here is "
+            "the file: each identifier gets its own file created with O_EXCL, "
+            "so two agents reserving in the same instant cannot both take "
+            "WB-122. The loser takes WB-123 and neither has to be told."
+        ),
+        epilog=(
+            "example: decomp-workbench note reserve --log FINDINGS.md "
+            "--prefix WB --count 3 --author W4"
+        ),
+    )
+    _add_log_argument(reserve)
+    reserve.add_argument(
+        "--prefix",
+        default="WB",
+        metavar="WB",
+        help="the part before the number (default: WB)",
+    )
+    reserve.add_argument(
+        "--count", type=int, default=1, metavar="N", help="how many to claim"
+    )
+    reserve.add_argument("--author", help="who is claiming them")
+    reserve.add_argument(
+        "--purpose", default="", help="one line about what they are for"
+    )
+    reserve.add_argument(
+        "--start",
+        type=int,
+        metavar="N",
+        help="begin counting here instead of after the highest number in use",
+    )
+    reserve.add_argument("--json", action="store_true", help="emit JSON")
+    reserve.set_defaults(handler=note_reserve_command)
 
     listing = commands.add_parser(
         "note-list",

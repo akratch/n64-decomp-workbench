@@ -47,7 +47,7 @@ it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
 | You are wiring an external compiler tree safely | [Toolchain calibration](toolchain-calibration.md) | User-supplied toolchain and fidelity cells |
 | You need to know which source lines own the differing rows | [Region attribution](region-attribution.md) | The candidate's C source |
-| Several people or agents append findings to one shared log | [Shared notes](shared-notes.md) | A findings file anyone may rewrite |
+| Several people or agents append findings to one shared log, or keep filing different findings under the same number | [Shared notes](shared-notes.md) | A findings file anyone may rewrite |
 | You consume reports from scripts or CI | [JSON contracts](json-contracts.md) | `--json` |
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |

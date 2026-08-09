@@ -25,6 +25,10 @@ from decomp_workbench.notes import (
     notes_directory,
     parse_log_entries,
     read_notes,
+    read_reservations,
+    reservations_directory,
+    reserve_identifiers,
+    taken_identifiers,
 )
 
 LOG = """# Findings
@@ -231,6 +235,194 @@ class NoteCommandTests(unittest.TestCase):
         self.addCleanup(os.chmod, directory, 0o700)
         with self.assertRaises(NoteError):
             add_note(self.log, identifier="WB-54")
+
+
+class IdentifierReservationTests(unittest.TestCase):
+    """Three findings collided on one number in a single night.
+
+    Every agent involved had honestly read the log first. Reading is not
+    claiming: between the read and the write, another agent takes the number,
+    and both filings are correct about a file that no longer says what they
+    read. The claim has to be a write, and it has to be exclusive.
+    """
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.log = self.root / "FINDINGS.md"
+        self.log.write_text(LOG, encoding="utf-8")
+
+    def test_a_reservation_starts_after_the_highest_number_in_use(self) -> None:
+        claimed = reserve_identifiers(self.log, prefix="WB", count=2, author="W4")
+        self.assertEqual([item.identifier for item in claimed], ["WB-3", "WB-4"])
+
+    def test_the_scan_counts_the_log_the_pending_and_the_merged(self) -> None:
+        add_note(self.log, identifier="WB-9", title="pending")
+        self.assertEqual(taken_identifiers(self.log, prefix="WB"), {1, 2, 9})
+        claimed = reserve_identifiers(self.log, prefix="WB", count=1)
+        self.assertEqual(claimed[0].identifier, "WB-10")
+
+    def test_a_second_reserver_starting_at_the_same_number_takes_the_next(
+        self,
+    ) -> None:
+        """The race, made deterministic: both scans agreed, one create wins."""
+
+        first = reserve_identifiers(self.log, prefix="WB", count=1, start=20)
+        second = reserve_identifiers(self.log, prefix="WB", count=1, start=20)
+        self.assertEqual(first[0].identifier, "WB-20")
+        self.assertEqual(second[0].identifier, "WB-21")
+
+    def test_concurrent_reservers_never_receive_the_same_identifier(self) -> None:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            batches = list(
+                pool.map(
+                    lambda index: reserve_identifiers(
+                        self.log, prefix="WB", count=2, author=f"agent-{index}"
+                    ),
+                    range(8),
+                )
+            )
+        claimed = [item.identifier for batch in batches for item in batch]
+        self.assertEqual(len(claimed), 16)
+        self.assertEqual(len(set(claimed)), 16)
+        self.assertEqual(len(read_reservations(self.log)), 16)
+
+    def test_filing_under_somebody_elses_reservation_is_refused(self) -> None:
+        reserve_identifiers(
+            self.log, prefix="WB", count=1, author="W4", purpose="sweep defects"
+        )
+        with self.assertRaises(NoteError) as raised:
+            add_note(self.log, identifier="WB-3", title="mine", author="W5")
+        message = str(raised.exception)
+        self.assertIn("reserved by W4", message)
+        self.assertIn("sweep defects", message)
+        self.assertIn("note reserve --prefix WB", message)
+
+    def test_filing_under_your_own_reservation_is_the_normal_path(self) -> None:
+        reserve_identifiers(self.log, prefix="WB", count=1, author="W4")
+        note = add_note(self.log, identifier="WB-3", title="mine", author="W4")
+        self.assertEqual(note.identifier, "WB-3")
+
+    def test_force_files_under_a_reservation_anyway(self) -> None:
+        reserve_identifiers(self.log, prefix="WB", count=1, author="W4")
+        note = add_note(
+            self.log, identifier="WB-3", title="deliberate", author="W5", force=True
+        )
+        self.assertEqual(note.identifier, "WB-3")
+
+    def test_an_unreserved_identifier_is_never_refused(self) -> None:
+        note = add_note(self.log, identifier="WB-99", title="ordinary")
+        self.assertEqual(note.identifier, "WB-99")
+
+    def test_the_listing_shows_only_the_reservations_nothing_was_filed_under(
+        self,
+    ) -> None:
+        reserve_identifiers(self.log, prefix="WB", count=2, author="W4")
+        add_note(self.log, identifier="WB-3", title="filed", author="W4")
+        view = merged_view(self.log)
+        self.assertEqual(
+            [item.identifier for item in view.unfiled_reservations], ["WB-4"]
+        )
+
+    def test_a_prefix_that_is_not_a_prefix_says_what_one_looks_like(self) -> None:
+        with self.assertRaises(NoteError) as raised:
+            reserve_identifiers(self.log, prefix="WB-1")
+        self.assertIn("--prefix WB", str(raised.exception))
+
+    def test_the_reservation_directory_sits_beside_the_notes(self) -> None:
+        reserve_identifiers(self.log, prefix="WB", count=1)
+        self.assertEqual(
+            reservations_directory(self.log), notes_directory(self.log) / "reserved"
+        )
+
+
+class ReservationCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.log = Path(temporary.name) / "FINDINGS.md"
+        self.log.write_text(LOG, encoding="utf-8")
+
+    def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
+        import contextlib
+        import io
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_reserve_prints_every_file_it_created(self) -> None:
+        status, stdout, stderr = self.run_cli(
+            [
+                "note",
+                "reserve",
+                "--log",
+                str(self.log),
+                "--prefix",
+                "WB",
+                "--count",
+                "2",
+                "--author",
+                "W4",
+            ]
+        )
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("reserved: WB-3, WB-4", stdout)
+        self.assertIn("created exclusively", stdout)
+        self.assertIn("note add --log", stdout)
+
+    def test_the_json_form_lists_the_claims(self) -> None:
+        status, stdout, _ = self.run_cli(
+            ["note", "reserve", "--log", str(self.log), "--json"]
+        )
+        payload = json.loads(stdout)
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["schema"], "decomp-workbench-note-reserve-v1")
+        self.assertEqual(payload["reserved"][0]["id"], "WB-3")
+
+    def test_a_colliding_add_exits_two_and_names_the_owner(self) -> None:
+        self.run_cli(
+            ["note", "reserve", "--log", str(self.log), "--author", "W4"]
+        )
+        status, _stdout, stderr = self.run_cli(
+            [
+                "note",
+                "add",
+                "--log",
+                str(self.log),
+                "--id",
+                "WB-3",
+                "--title",
+                "mine",
+                "--author",
+                "W5",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("reserved by W4", stderr)
+
+    def test_the_listing_names_the_outstanding_claims(self) -> None:
+        self.run_cli(
+            [
+                "note",
+                "reserve",
+                "--log",
+                str(self.log),
+                "--author",
+                "W4",
+                "--purpose",
+                "sweep defects",
+            ]
+        )
+        status, stdout, _ = self.run_cli(["note", "list", "--log", str(self.log)])
+        self.assertEqual(status, 0)
+        self.assertIn("reserved (claimed, nothing filed under it yet)", stdout)
+        self.assertIn("sweep defects", stdout)
 
 
 if __name__ == "__main__":

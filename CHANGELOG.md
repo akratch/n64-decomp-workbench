@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **`note reserve` claims an identifier before anything is written under it.**
+  The sidecar mechanism makes a note impossible to lose; it does nothing about
+  two agents filing *different findings under one number*, which one campaign
+  did three times in a single night — every agent having honestly read the log
+  first, because reading is not claiming. Each reserved identifier gets its own
+  file created with `O_EXCL`, so two reservers in the same instant cannot both
+  take `WB-122`; the loser takes `WB-123` without either being told. `note add`
+  then refuses an identifier somebody else reserved, naming the owner, the time
+  and the purpose, with `--author` and `--force` as the two ways through. An
+  unreserved identifier behaves exactly as before, and `note list` shows the
+  outstanding claims beside the pending notes.
+
 - **`campaign survey` reads a campaign directory that never had a manifest.**
   `campaign status` keeps the manifest and the command name; this is the second
   reading, not a second meaning for the first. It reports every stage directory
