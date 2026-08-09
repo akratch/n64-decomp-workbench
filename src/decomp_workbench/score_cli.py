@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .cli_options import add_symbol_argument
+from .cli_options import add_explain_keys_argument, add_symbol_argument
 from .compare import compare_loaded, load_target
 from .headline import Headline, build_headline, render_headline
 from .score import (
@@ -348,6 +348,7 @@ def register_score_command(commands: Any) -> None:
         "--section", default=".text", help="object section (default: .text)"
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    add_explain_keys_argument(parser)
     parser.set_defaults(handler=score_command)
 
 

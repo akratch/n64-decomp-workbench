@@ -501,6 +501,32 @@ class CliUxTests(unittest.TestCase):
         self.assertIn("li $v0,49", stdout)
         self.assertIn("addu $t3,$t1,$t2", stdout)
 
+    def test_explain_keys_reaches_every_command_that_prints_registry_keys(
+        self,
+    ) -> None:
+        """The docs promise it; five newer reporting commands did not offer it.
+
+        `align`, `phase`, `score`, `slots` and `sweep ingest` all print keys
+        from the one metric registry -- `words`, `ni`, `frame`, `coset` -- and
+        `docs/json-contracts.md` says reporting commands accept the option
+        after the command name.
+        """
+
+        for command in (
+            "align",
+            "align-dumps",
+            "phase",
+            "phase-dumps",
+            "score",
+            "slots",
+            "sweep-ingest",
+        ):
+            with self.subTest(command=command):
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_cli([command, "--explain-keys"])
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn("words", self.last_stdout)
+
     def test_explain_keys_is_available_without_positional_arguments(self) -> None:
         for command in ("", *SYMBOL_COMMANDS):
             arguments = [command, "--explain-keys"] if command else ["--explain-keys"]
@@ -897,8 +923,7 @@ class DefaultDirectoryTests(unittest.TestCase):
                     continue
                 if action.default not in (None, [], ()):
                     failures.append(
-                        f"{name} {action.option_strings} defaults to "
-                        f"{action.default!r}"
+                        f"{name} {action.option_strings} defaults to {action.default!r}"
                     )
         self.assertEqual(failures, [], "\n".join(failures))
 

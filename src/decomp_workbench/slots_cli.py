@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from .cascade import parse_row_range
-from .cli_options import add_symbol_argument
+from .cli_options import add_explain_keys_argument, add_symbol_argument
 from .csource import CSourceError
 from .dis_cache import DisassemblyCache
 from .row_source import load_dump_rows, load_object_rows
@@ -227,5 +227,6 @@ def register_slots_command(commands: argparse._SubParsersAction[Any]) -> None:
     )
     add_symbol_argument(parser, help_text="read only this exact symbol")
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    add_explain_keys_argument(parser)
     add_terminal_arguments(parser)
     parser.set_defaults(handler=slots_command, report_command="slots")

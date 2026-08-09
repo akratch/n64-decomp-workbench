@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from .cli_options import add_symbol_argument
+from .cli_options import add_explain_keys_argument, add_symbol_argument
 from .dis_cache import DisassemblyCache
 from .model import Instruction, display_path, shorten_paths
 from .row_source import load_dump_rows, load_object_rows
@@ -262,6 +262,7 @@ def _add_arguments(parser: argparse.ArgumentParser, *, object_inputs: bool) -> N
             "report per candidate under `candidates`. Switch on `schema`"
         ),
     )
+    add_explain_keys_argument(parser)
     add_terminal_arguments(parser)
 
 
