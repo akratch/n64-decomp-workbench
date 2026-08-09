@@ -117,7 +117,11 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("replay-as1", "calibrate and probe late assembler scheduling"),
         ("diff", "compare user-supplied original and static pass boundaries"),
     ),
-    "probe": (("lines", "probe whether statement line assignment owns a schedule"),),
+    "probe": (
+        ("lines", "probe whether statement line assignment owns a schedule"),
+        ("equiv", "the ranges over which every read of a local is one value"),
+        ("deadread", "positions where a zero-footprint discarded read can be tried"),
+    ),
     "toolchain": (
         ("init", "materialize a real-copy toolchain with calibration gates"),
         ("calibrate", "run replay, collateral, and project-output gates"),
@@ -189,6 +193,8 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("instrument", "fidelity"): "fidelity",
     ("pass", "replay-as1"): "replay-as1",
     ("pass", "diff"): "pass-diff",
+    ("probe", "deadread"): "probe-deadread",
+    ("probe", "equiv"): "probe-equiv",
     ("probe", "lines"): "probe-lines",
     ("toolchain", "fingerprint"): "fingerprint-toolchain",
     ("toolchain", "lineage"): "lineage",

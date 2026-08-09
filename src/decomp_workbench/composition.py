@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import csource
 from .coverage import SweepCoverage
 
 COMPOSITION_SCHEMA = "decomp-workbench-composition-v1"
@@ -452,85 +453,14 @@ def inspect_source(path: str | Path) -> dict[str, Any]:
 
 MUTATION_REVIEW_SCHEMA = "decomp-workbench-mutation-review-v1"
 
-#: C identifiers that are not struct or union member selections: `sp4A0`
-#: matches, the `count` of `header->count` does not. A member name is owned by
-#: a type, so it can never be the local whose definition went missing.
-_IDENTIFIER_RE = re.compile(r"(?<![\w.])(?<!->)[A-Za-z_]\w*")
-
-#: Words that are never a local whose definition could go missing.
-_REVIEW_KEYWORDS = frozenset(
-    """
-    auto break case char const continue default do double else enum extern
-    float for goto if inline int long register restrict return short signed
-    sizeof static struct switch typedef union unsigned void volatile while
-    NULL
-    """.split()
-)
-
-#: `name =` but not `name ==`, and the compound assignments. A write to the
-#: identifier, as far as text can tell.
-_ASSIGN_TEMPLATE = r"(?<![\w.>])%s\s*(?:\[[^\];]*\])?\s*(?:=(?!=)|[-+*/%%&|^]=|<<=|>>=)"
-
-#: `&name`, `name++`, `--name`: not a plain read, so not evidence of a missing
-#: definition. Treated as "may define" rather than "defines".
-_MAY_DEFINE_TEMPLATE = r"(?:&\s*%s\b|\+\+\s*%s\b|%s\s*\+\+|--\s*%s\b|%s\s*--)"
-
-#: A declaration of the identifier: a type, then the name, then `;` or `=` or
-#: `,`. Used only to find where a local is introduced, never to type it.
-_DECLARE_TEMPLATE = (
-    r"^\s*(?:[A-Za-z_]\w*\s*[\w*\s]*?)\b%s\s*(?:\[[^\]]*\])?\s*(?:[;,=](?!=))"
-)
-
-
-def _identifiers(line: str) -> collections.Counter[str]:
-    return collections.Counter(
-        name
-        for name in _IDENTIFIER_RE.findall(line)
-        if name not in _REVIEW_KEYWORDS and not name.isdigit()
-    )
-
-
-def _defines(line: str, name: str) -> bool:
-    """Whether `line` writes `name`, as far as the text can say."""
-
-    quoted = re.escape(name)
-    if re.search(_ASSIGN_TEMPLATE % quoted, line):
-        return True
-    if re.search(_MAY_DEFINE_TEMPLATE % ((quoted,) * 5), line):
-        return True
-    return bool(re.search(_DECLARE_TEMPLATE % quoted, line))
-
-
-def _declares_without_initializer(line: str, name: str) -> bool:
-    quoted = re.escape(name)
-    if not re.search(_DECLARE_TEMPLATE % quoted, line):
-        return False
-    return not re.search(_ASSIGN_TEMPLATE % quoted, line)
-
-
-def _declaration_line(lines: list[str], name: str) -> int | None:
-    """Where `name` is declared, or `None` if this file never declares it.
-
-    Everything below is restricted to identifiers this file declares. A call to
-    an external function and a read of a project global are both identifiers
-    with no visible write, and neither is the failure being looked for; asking
-    for a declaration first is what keeps the report about locals.
-    """
-
-    quoted = re.escape(name)
-    pattern = re.compile(_DECLARE_TEMPLATE % quoted)
-    for number, line in enumerate(lines, 1):
-        if pattern.search(line):
-            return number
-    return None
-
-
-def _definition_lines(lines: list[str], name: str) -> list[int]:
-    return [
-        number
-        for number, line in enumerate(lines, 1)
-        if not _declares_without_initializer(line, name) and _defines(line, name)
-    ]
+#: The C-text primitives live in `csource`, where the source probes share
+#: them: one answer to "does this line write `V`", not one per reader.
+_REVIEW_KEYWORDS = csource.KEYWORDS
+_identifiers = csource.identifiers
+_defines = csource.defines
+_declares_without_initializer = csource.declares_without_initializer
+_declaration_line = csource.declaration_line
+_definition_lines = csource.definition_lines
 
 
 def _first_definition(lines: list[str], name: str) -> int | None:

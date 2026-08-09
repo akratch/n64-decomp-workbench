@@ -63,6 +63,8 @@ SCHEMAS: dict[str, str] = {
     "oracle-status": "decomp-workbench-oracle-sweep-v1",
     "oracle-sweep": "decomp-workbench-oracle-sweep-v1",
     "object-collateral": "decomp-workbench-object-collateral-v1",
+    "probe-deadread": "decomp-workbench-dead-read-v1",
+    "probe-equiv": "decomp-workbench-value-equality-v1",
     "probe-lines": "decomp-workbench-line-probe-v1",
     "rank": "decomp-workbench-rank-v1",
     "window": "decomp-workbench-window-v1",

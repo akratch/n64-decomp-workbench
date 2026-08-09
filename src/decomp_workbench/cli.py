@@ -123,6 +123,7 @@ from .scratch_check import (
 )
 from .scratch_registration import register_scratch_commands
 from .source_correlation_cli import register_source_correlation_command
+from .source_probe_cli import register_source_probe_commands
 from .toolchain import toolchain_status
 from .toolchain_cli import register_toolchain_commands
 from .trace import (
@@ -1799,6 +1800,9 @@ def build_parser() -> argparse.ArgumentParser:
     register_source_correlation_command(commands)
     register_pass_adapter_command(commands)
     register_line_probe_command(commands)
+    # Two source-level probes: the same-value check one campaign never ran,
+    # and the zero-footprint construct no object diff can point at.
+    register_source_probe_commands(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)
     register_fidelity_command(commands)

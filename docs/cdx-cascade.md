@@ -257,3 +257,5 @@ stages of one campaign. It is a set intersection over `saveocc bb=` values.
 - [Compiler instrumentation](compiler-instrumentation.md) — building the
   instrumented pass, and the shipped record set.
 - [Trace analysis](trace-analysis.md) — the other trace-reading commands.
+- [Source probes](source-probes.md) — the two questions to ask about the C
+  before blaming the allocator.

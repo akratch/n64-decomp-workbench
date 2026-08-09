@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **`probe-equiv` answers "are these two reads the same value", which is the
+  check one campaign never ran.** A local whose address never escapes cannot be
+  written by a callee, so between two of its definitions its value is fixed and
+  every read in that span is the same value — which makes two
+  differently-spelled expressions built from those reads equal. That fact was
+  the campaign's closing lever, findable with one `grep` and one brace match,
+  and five stages searched the register allocator for it because nothing named
+  the check. `decomp-workbench probe-equiv work.c --variable sp4B8` prints the
+  maximal same-value ranges between definitions; `--at LINE --at LINE` answers
+  the pairwise question with its reason. The purity premise is printed on its
+  own line and withdrawn the moment an `&v` appears anywhere in the file, and a
+  range containing a label, a `goto`, or a loop back-edge is flagged rather
+  than trusted. It is a probe over the text and the block structure, not a
+  verifier, and every limit it has is printed with the report.
+
+- **`probe-deadread` lists the positions where a statement that emits nothing
+  can still move the allocator.** A discarded read — `if (v != 0.0f);` — costs
+  zero instructions and still adds an occurrence to the variable's web, which
+  can be exactly what drives the web memory-resident. Nothing is emitted on
+  either side, so no disassembly diff will ever point at one; eleven stages of
+  one campaign did not find it. The command lists the statement positions a
+  definition structurally reaches, ranks the ones outside any loop first
+  (inside a loop the same construct emitted real code in every case measured),
+  and prints the spelling table with each form's measured footprint: the
+  value-guarded forms at zero, the bare `if (v);` at zero or two because it
+  merges with a neighbouring empty guard, and the inert forms — including the
+  dead store, which produced zero kills at 999 positions because a store that
+  dead-code elimination removes never becomes an occurrence. `--reach textual`
+  widens the set to every position after the first definition, marking each
+  row that a branch may not have written. `--write DIR` emits one variant
+  source per candidate for the project's own sweep driver. Documented in
+  `docs/source-probes.md`.
+
 - **One float colour map, corrected, and only one.** `c24=$f0 c25=$f2 c26=$f12
   c27=$f14 c28=$f16 c29=$f18` (L27, four independent forced-colour receipts).
   The instrumented pass prints `bestreg=?` for every float colour because its
