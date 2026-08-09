@@ -144,6 +144,44 @@ wrong answer.
   ``blobs`` entry that does not name a section the map actually has, which
   covers `shift rehearse` too: `build_rehearsal` calls this same function to
   derive its region table, so one fix serves both commands' ``--blob``.
+
+S7 is about the *first* run rather than a wrong one. Running this command on
+a project nobody has audited before means answering two questions out of
+band -- which output sections are opaque, and where the movable window really
+starts -- and S5's two community bring-ups each got one of them wrong in a
+way the report could not show.
+
+* **The map already knows which sections are blobs.** `suggest_blobs` reads
+  the input records and names every output section all of whose objects are
+  raw binaries (`BLOB_OBJECT_RULES`, data, two entries because two build
+  conventions spell the same ``objcopy`` step differently). Measured: DKR's
+  three, Banjo-Kazooie's seven and pilotwings64's six -- which is every
+  ``--blob`` those projects have ever been audited with, plus pilotwings64's
+  ``.ipl3``, which has the identical shape and which S5's operator simply
+  did not think to name. The suggestion is printed and carried in JSON on
+  every run and applied on none; ``--blobs auto`` is the caller saying yes,
+  ``--no-blob`` is the caller disagreeing about one section, and the two
+  compose (`resolve_blobs`).
+* **A section placed at a ROM offset is not a movable-window floor.**
+  pilotwings64's IPL3 arrives as ``build/bin/ipl3.o`` and derives as an
+  ordinary ``data`` region at VMA ``0x00000040`` -- a boot block has no
+  run-time address, so the map places it at its ROM offset. `movable_window`
+  used to take the lowest movable region's VMA whatever it was, and reported
+  a window starting at ``0x40``: two gigabytes wider at the bottom than the
+  layout it describes, which counted 974,964 small integers in the
+  filesystem blob as in-window hits. The floor now comes from the lowest
+  *RAM-resident* movable region (`MOVABLE_FLOOR_MIN`), which is a property
+  of the map rather than of whether the caller happened to name the section
+  ``--blob``. pilotwings64's ``scan_total`` goes from 977,512 to 2,548 with
+  ``scan_high`` unchanged at 62.
+
+Two more affordances live next door, in :mod:`decomp_workbench.pins`, and are
+wired up from here. :func:`~decomp_workbench.pins.reclassify_rom_offsets`
+runs against this module's own ``max_placed_extent`` and turns the raw
+cartridge offsets a splat project pins into a class with a remediation
+(Banjo-Kazooie: 37 pins, from ``unclassified`` to ``rom-offset``). And
+`ShiftAudit.whitelist_template` drafts the whitelist a first run has no way
+to have written yet, from the evidence the same run already collected.
 """
 
 from __future__ import annotations
@@ -159,14 +197,22 @@ from .pins import (
     ARTIFACT_SUSPECT,
     AUTHENTIC_FIXED,
     DERIVED,
+    ROM_OFFSET,
     UNCLASSIFIED,
     PinCatalogue,
+    reclassify_rom_offsets,
+    whitelist_template_text,
 )
 
 __all__ = [
     "BLOB_ERROR_SECTION_LIMIT",
+    "BLOB_OBJECT_RULES",
+    "BLOB_SOURCE_AUTO",
+    "BLOB_SOURCE_EXPLICIT",
+    "BLOB_SOURCE_NONE",
     "CLUSTER_MINIMUM",
     "MAP_SNIFF_BYTES",
+    "MOVABLE_FLOOR_MIN",
     "NON_ALLOC_KIND",
     "NON_ALLOC_ROM_SOURCE",
     "NON_ALLOC_SECTION_FAMILIES",
@@ -177,6 +223,9 @@ __all__ = [
     "SYMBOL_START_BONUS",
     "TIER_RULES",
     "TIER_THRESHOLDS",
+    "BlobPlan",
+    "BlobRule",
+    "BlobSuggestion",
     "ConsistencyCheck",
     "Hit",
     "MovableWindow",
@@ -188,8 +237,10 @@ __all__ = [
     "check_map_image_consistency",
     "movable_window",
     "require_parsed_map",
+    "resolve_blobs",
     "scan_regions",
     "shift_audit_lines",
+    "suggest_blobs",
 ]
 
 #: JSON identity for the report.
@@ -463,6 +514,257 @@ def _placement(
 BLOB_ERROR_SECTION_LIMIT = 20
 
 
+# ---------------------------------------------------------------------------
+# Blob suggestion (S7): the map already knows which sections are opaque
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BlobRule:
+    """One published shape that makes an input object a raw binary."""
+
+    name: str
+    pattern: str
+    match: str
+    """``"suffix"`` (the object path ends with `pattern`) or ``"directory"``
+    (one of the path's directory components is `pattern`)."""
+
+    evidence: str
+
+    def matches(self, object_path: str) -> bool:
+        if self.match == "suffix":
+            return object_path.endswith(self.pattern)
+        return self.pattern in object_path.replace("\\", "/").split("/")[:-1]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "pattern": self.pattern,
+            "match": self.match,
+            "evidence": self.evidence,
+        }
+
+
+#: How a raw-binary object is recognised from its path alone, as data for the
+#: same reason `TIER_RULES` is. Both entries describe the *same* build step --
+#: ``objcopy``'ing a ``.bin`` file into a linkable object -- under the two
+#: naming conventions the projects in front of this tool actually use, and
+#: neither is a guess about content: a section every one of whose inputs came
+#: out of that step has no compiled code or compiler-emitted data in it at
+#: all, which is exactly what ``--blob`` means.
+#:
+#: A third signal exists and is deliberately not used: ``objcopy`` also emits
+#: ``_binary_<path>_start``/``_end`` symbols, which every one of these
+#: sections carries. It would be stronger evidence and it is not available
+#: here -- a symbol proves the *object* is a raw binary, and the question
+#: this rule answers is whether *every* input of one output section is, which
+#: only the input-record table can answer. The path patterns answer it
+#: directly, per record, and are checked against the section's whole input
+#: list rather than against whichever symbol happened to land first.
+BLOB_OBJECT_RULES: tuple[BlobRule, ...] = (
+    BlobRule(
+        "bin-object-suffix",
+        ".bin.o",
+        "suffix",
+        "the object is named after a `.bin` file (splat's convention, and "
+        "DKR's build/assets/boot.bin.o): objcopy'd raw bytes, never compiled "
+        "code",
+    ),
+    BlobRule(
+        "bin-directory",
+        "bin",
+        "directory",
+        "the object was built in a `bin/` directory (pilotwings64's "
+        "build/bin/filesys.o): the same objcopy'd raw bytes under a build "
+        "that drops the `.bin` from the object name",
+    ),
+)
+
+
+def _blob_rule_for(object_path: str) -> BlobRule | None:
+    """The first `BLOB_OBJECT_RULES` entry `object_path` matches, or None."""
+
+    for rule in BLOB_OBJECT_RULES:
+        if rule.matches(object_path):
+            return rule
+    return None
+
+
+@dataclass(frozen=True)
+class BlobSuggestion:
+    """One output section the map's own inputs say is opaque, and why."""
+
+    output_section: str
+    rule: str
+    """The `BLOB_OBJECT_RULES` entry that matched. When a section's objects
+    match different rules this names the first one in rule order, and
+    `objects` carries every path, so the provenance never collapses to a
+    single example."""
+
+    objects: tuple[str, ...]
+    input_records: int
+    vram: int
+    size: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "output_section": self.output_section,
+            "rule": self.rule,
+            "objects": list(self.objects),
+            "input_records": self.input_records,
+            "vram": self.vram,
+            "size": self.size,
+        }
+
+
+def suggest_blobs(ldmap: LdMap) -> tuple[BlobSuggestion, ...]:
+    """Derive the blob set from the map's input records, in map order.
+
+    A section qualifies when it has input records at all and *every* one of
+    them names a raw-binary object (`BLOB_OBJECT_RULES`). The "every" is the
+    whole rule: Banjo-Kazooie's ``.core2`` holds three ``.bin.o`` objects
+    among 398, mixed in with the compiled overlay it belongs to, and a
+    section with one compiled input is a section whose words are worth
+    attributing to symbols -- which is the one thing ``--blob`` turns off.
+
+    This is a *suggestion*, never an application. `resolve_blobs` is where a
+    caller says yes to it, because which sections are opaque is a claim about
+    a project's build that the project gets to make; what this function does
+    is stop the caller having to discover the answer by reading a linker map
+    by hand, which is the cold-start friction it exists to remove.
+    """
+
+    by_output: dict[str, list[Any]] = {}
+    for record in ldmap.input_sections:
+        by_output.setdefault(record.output_section, []).append(record)
+
+    found: list[BlobSuggestion] = []
+    for section in ldmap.sections_sorted():
+        records = by_output.get(section.name, [])
+        if not records:
+            continue
+        rules = [_blob_rule_for(record.object_path) for record in records]
+        if any(rule is None for rule in rules):
+            continue
+        order = {rule.name: index for index, rule in enumerate(BLOB_OBJECT_RULES)}
+        named = sorted(
+            {rule.name for rule in rules if rule is not None},
+            key=lambda name: order[name],
+        )
+        found.append(
+            BlobSuggestion(
+                output_section=section.name,
+                rule=named[0],
+                objects=tuple(sorted({record.object_path for record in records})),
+                input_records=len(records),
+                vram=section.vma,
+                size=section.size,
+            )
+        )
+    return tuple(found)
+
+
+#: `BlobPlan.source` when the caller named every blob with ``--blob``.
+BLOB_SOURCE_EXPLICIT = "explicit"
+#: `BlobPlan.source` when ``--blobs auto`` adopted the suggestion (with or
+#: without extra ``--blob`` names and ``--no-blob`` exclusions on top).
+BLOB_SOURCE_AUTO = "auto"
+#: `BlobPlan.source` when no section is treated as opaque at all.
+BLOB_SOURCE_NONE = "none"
+
+
+@dataclass(frozen=True)
+class BlobPlan:
+    """Which sections this run treats as opaque, where that came from, and
+    what the map would have suggested either way."""
+
+    applied: tuple[str, ...]
+    source: str
+    suggestions: tuple[BlobSuggestion, ...]
+    excluded: tuple[str, ...]
+
+    @property
+    def suggested(self) -> tuple[str, ...]:
+        return tuple(item.output_section for item in self.suggestions)
+
+    @property
+    def unadopted(self) -> tuple[str, ...]:
+        """Suggested sections this run is not treating as opaque."""
+
+        return tuple(
+            name for name in self.suggested if name not in frozenset(self.applied)
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "blobs": list(self.applied),
+            "blob_source": self.source,
+            "blobs_excluded": list(self.excluded),
+            "suggested_blobs": list(self.suggested),
+            "blob_suggestions": [item.as_dict() for item in self.suggestions],
+            "blob_rules": [item.as_dict() for item in BLOB_OBJECT_RULES],
+        }
+
+
+def resolve_blobs(
+    ldmap: LdMap,
+    *,
+    blobs: Iterable[str] = (),
+    auto: bool = False,
+    excluded: Iterable[str] = (),
+) -> BlobPlan:
+    """Turn the caller's blob arguments and the map's suggestion into one set.
+
+    ``--blob`` always adds and ``--no-blob`` always subtracts, whether or not
+    ``--blobs auto`` is in play, so the two spellings compose rather than
+    override: ``--blobs auto --no-blob .ipl3`` is the exact shape a project
+    reaches for when the derivation is right about five of its six sections.
+
+    Naming the same section both ways is refused rather than resolved by
+    precedence. Whichever precedence this picked, half the readers of the
+    command line would expect the other one -- and a caller who wrote both
+    did not mean either.
+    """
+
+    suggestions = suggest_blobs(ldmap)
+    named = tuple(dict.fromkeys(blobs))
+    removed = tuple(dict.fromkeys(excluded))
+    both = [name for name in named if name in set(removed)]
+    if both:
+        raise ValueError(
+            "--blob and --no-blob name the same section: "
+            f"{', '.join(sorted(both))}"
+        )
+    known_sections = [section.name for section in ldmap.sections_sorted()]
+    unknown = sorted(set(removed) - set(known_sections))
+    if unknown:
+        raise ValueError(
+            "--no-blob names a section this map does not have: "
+            f"{', '.join(unknown)} (map sections: "
+            f"{_section_name_list(known_sections)})"
+        )
+
+    applied = list(named)
+    if auto:
+        for item in suggestions:
+            if item.output_section not in applied:
+                applied.append(item.output_section)
+    applied = [name for name in applied if name not in set(removed)]
+
+    if not applied:
+        source = BLOB_SOURCE_NONE
+    elif auto:
+        source = BLOB_SOURCE_AUTO
+    else:
+        source = BLOB_SOURCE_EXPLICIT
+    return BlobPlan(
+        applied=tuple(applied),
+        source=source,
+        suggestions=suggestions,
+        excluded=removed,
+    )
+
+
 def _section_name_list(names: Sequence[str]) -> str:
     """Render a capped, comma-separated section-name list for an error."""
 
@@ -632,6 +934,17 @@ class MovableWindow:
         }
 
 
+#: The lowest VMA `movable_window` will accept as its floor. Everything the
+#: MIPS fixed-mapping segments call RAM starts at or above ``0x80000000``
+#: (kseg0), so a movable-kind region printed below it is not resident at a
+#: run-time address at all -- it is a ROM-space section the map placed by its
+#: own offset. Shares its value with
+#: :data:`decomp_workbench.pins.VRAM_WINDOW_FLOOR` and answers the same
+#: question from the other side: that one asks whether a *value* is too small
+#: to be an address, this one whether a *section* is.
+MOVABLE_FLOOR_MIN = 0x80000000
+
+
 def movable_window(regions: Sequence[Region]) -> MovableWindow:
     """Derive ``[first movable start, last bss end)`` from the region table.
 
@@ -646,6 +959,27 @@ def movable_window(regions: Sequence[Region]) -> MovableWindow:
     needs no separate check because ``"non-alloc"`` was never in the movable
     kind set below to begin with.
 
+    **The floor comes from the first RAM-resident movable region, not from
+    the first movable region.** S5's pilotwings64 run is why. That project's
+    IPL3 arrives as ``build/bin/ipl3.o``, a raw binary the caller had no
+    reason to name ``--blob``, so it derived as an ordinary ``data`` region
+    -- at VMA ``0x00000040``, because a boot-block section is placed at its
+    ROM offset and has no run-time address to be placed at. The window's low
+    bound followed it there and the audit reported
+    ``window_lo=0x00000040 window_lo_section=.ipl3``: a window two gigabytes
+    wider at the bottom than the layout it describes, which counts every
+    small integer in the image as an in-window hit. The correct floor is the
+    first section an insertion could actually move, and no insertion moves
+    anything below `MOVABLE_FLOOR_MIN` -- pilotwings64's is ``.entry`` at
+    ``0x80200050``. Excluding the low section by *kind* (blob) would have
+    depended on the caller having named it one; excluding it by residence
+    does not, which is the difference between a fix and a workaround.
+
+    A map with no RAM-resident movable region at all keeps the old answer --
+    the lowest movable region there is. That is not a real N64 link, and
+    inventing an empty window for one would hide the map rather than describe
+    it.
+
     Both bounds name the section that set them, because a window derived from
     the wrong sections is the one way this whole scan can be quietly wrong,
     and a reader has to be able to see it.
@@ -654,7 +988,8 @@ def movable_window(regions: Sequence[Region]) -> MovableWindow:
     movable = [item for item in regions if item.kind in ("text", "data", "bss")]
     if not movable:
         return MovableWindow(lo=0, hi=0, lo_section=None, hi_section=None)
-    low = min(movable, key=lambda item: item.vram)
+    resident = [item for item in movable if item.vram >= MOVABLE_FLOOR_MIN]
+    low = min(resident or movable, key=lambda item: item.vram)
     bss = [item for item in movable if item.kind == "bss"]
     high = max(bss or movable, key=lambda item: item.vram + item.size)
     return MovableWindow(
@@ -1053,6 +1388,18 @@ class ShiftAudit:
     pins: PinCatalogue
     hits: tuple[Hit, ...]
     consistency: ConsistencyCheck
+    blobs: BlobPlan = BlobPlan(
+        applied=(), source=BLOB_SOURCE_NONE, suggestions=(), excluded=()
+    )
+
+    def whitelist_template(self) -> str:
+        """The skeleton `--emit-whitelist` writes, from this run's evidence."""
+
+        return whitelist_template_text(
+            self.pins,
+            window_lo=self.window.lo,
+            window_lo_section=self.window.lo_section,
+        )
 
     @property
     def scan_total(self) -> int:
@@ -1137,6 +1484,7 @@ class ShiftAudit:
         }
         payload.update(self.window.as_dict())
         payload.update(self.consistency.as_dict())
+        payload.update(self.blobs.as_dict())
         payload.update(self.pins.as_dict(limit=limit))
         return payload
 
@@ -1148,6 +1496,8 @@ def build_shift_audit(
     pins: PinCatalogue,
     model: RangeModel,
     blobs: Iterable[str] = (),
+    auto_blobs: bool = False,
+    excluded_blobs: Iterable[str] = (),
     header_sections: Iterable[str] = (".header",),
     map_path: str | None = None,
     image_path: str | None = None,
@@ -1158,10 +1508,25 @@ def build_shift_audit(
     before the (expensive, whole-image) scan: a map and image that do not
     describe the same link are refused before the report pretends to
     answer a question about them.
+
+    Two derivations bracket that check. `resolve_blobs` runs first, because
+    the blob set decides the region table it is checking; and
+    :func:`~decomp_workbench.pins.reclassify_rom_offsets` runs after, because
+    the ROM bound it needs is the consistency check's own
+    ``max_placed_extent``. Handing pins in already classified and answering
+    the ROM-offset question here is deliberate: it keeps the caller's read of
+    its pin files free of any dependency on the map (a misspelled ``--census``
+    key still costs nothing) while making sure no caller can *forget* to ask.
     """
 
+    plan = resolve_blobs(
+        ldmap, blobs=blobs, auto=auto_blobs, excluded=excluded_blobs
+    )
     regions = build_region_table(
-        ldmap, image_size=len(image), blobs=blobs, header_sections=header_sections
+        ldmap,
+        image_size=len(image),
+        blobs=plan.applied,
+        header_sections=header_sections,
     )
     consistency = check_map_image_consistency(
         regions, image, map_path=map_path, image_path=image_path
@@ -1174,9 +1539,12 @@ def build_shift_audit(
         image_bytes=len(image),
         regions=regions,
         window=window,
-        pins=pins,
+        pins=reclassify_rom_offsets(
+            pins, model=model, rom_extent=consistency.max_placed_extent
+        ),
         hits=hits,
         consistency=consistency,
+        blobs=plan,
     )
 
 
@@ -1263,6 +1631,28 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
         )
     )
 
+    plan = found.blobs
+    lines.extend(
+        (
+            "",
+            f"blobs={', '.join(plan.applied) if plan.applied else '-'}  "
+            f"blob_source={plan.source}"
+            + (
+                f"  blobs_excluded={', '.join(plan.excluded)}"
+                if plan.excluded
+                else ""
+            ),
+        )
+    )
+    if plan.unadopted:
+        # The cold-start line: a caller who has never read this map by hand
+        # is told which sections its own inputs say are opaque, and the one
+        # flag that adopts them.
+        lines.append(
+            "suggested_blobs (from .bin.o inputs): "
+            f"{', '.join(plan.unadopted)}  -- adopt with `--blobs auto`"
+        )
+
     counts = found.pins.counts
     lines.extend(
         (
@@ -1271,18 +1661,26 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             f"pins_derived={counts[DERIVED]:,}  "
             f"pins_authentic={counts[AUTHENTIC_FIXED]:,}  "
             f"pins_artifact={counts[ARTIFACT_SUSPECT]:,}  "
+            f"pins_rom_offset={counts[ROM_OFFSET]:,}  "
             f"pins_unclassified={counts[UNCLASSIFIED]:,}",
         )
     )
     for source in found.pins.sources:
         lines.append(f"  pin_sources: {source}")
-    suspects = found.pins.by_classification(ARTIFACT_SUSPECT)
-    if suspects:
-        shown_pins = suspects[: max(0, limit)]
-        heading = (
-            f"artifact-suspect pins ({len(shown_pins)} of {len(suspects)}, --limit)"
+    for classification, heading in (
+        (ARTIFACT_SUSPECT, "artifact-suspect pins"),
+        (ROM_OFFSET, "rom-offset pins"),
+    ):
+        selected = found.pins.by_classification(classification)
+        if not selected:
+            continue
+        shown_pins = selected[: max(0, limit)]
+        lines.extend(
+            (
+                "",
+                f"{heading} ({len(shown_pins)} of {len(selected)}, --limit)",
+            )
         )
-        lines.extend(("", heading))
         lines.extend(
             _table(
                 ("name", "value", "window", "source", "line"),
@@ -1297,6 +1695,12 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
                     for item in shown_pins
                 ],
             )
+        )
+    if found.pins.by_classification(ROM_OFFSET):
+        lines.append(
+            "  rom-offset pins address the cartridge image, not memory. "
+            "Symbolize them against the linker's own "
+            "<segment>_ROM_START/_ROM_END symbols and they follow the layout."
         )
 
     lines.extend(

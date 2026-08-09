@@ -624,6 +624,41 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     ),
     Metric("region_count", "region_count", "regions derived from the map"),
     Metric(
+        "blobs",
+        "blobs",
+        "the output sections this run treated as opaque bytes: scanned, "
+        "never split by input record, never attributed to a symbol",
+    ),
+    Metric(
+        "blob_source",
+        "blob_source",
+        "where that set came from: explicit (--blob), auto (--blobs auto "
+        "adopted the map's own suggestion), or none",
+    ),
+    Metric(
+        "blobs_excluded",
+        "blobs_excluded",
+        "sections --no-blob kept out of the set, whatever the suggestion said",
+    ),
+    Metric(
+        "suggested_blobs",
+        "suggested_blobs",
+        "sections every one of whose input objects is a raw binary; the map's "
+        "own answer to which sections are opaque, adopted with --blobs auto",
+    ),
+    Metric(
+        "blob_suggestions",
+        "blob_suggestions",
+        "one provenance row per suggested blob: the rule that matched and the "
+        "objects that matched it",
+    ),
+    Metric(
+        "blob_rules",
+        "blob_rules",
+        "the published raw-binary-object table: every path shape a blob "
+        "suggestion can be based on, with the evidence behind it",
+    ),
+    Metric(
         "regions",
         "regions",
         "the derived region table: one row per run of like input records, "
@@ -704,10 +739,18 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "or the cart domain",
     ),
     Metric(
+        "pins_rom_offset",
+        "pins_rom_offset",
+        "absolute pins holding a raw offset into the cartridge image: below "
+        "every run-time RAM window and inside the extent the map placed. "
+        "Remediable by symbolizing against the linker's own "
+        "<segment>_ROM_START/_ROM_END symbols",
+    ),
+    Metric(
         "pins_unclassified",
         "pins_unclassified",
-        "pins in no named window, or whose expression did not fold; reported "
-        "rather than guessed",
+        "pins in no named window and not a ROM offset either, or whose "
+        "expression did not fold; reported rather than guessed",
     ),
     Metric("pins", "pins", "the ranked pin list, suspects first, capped at --limit"),
     Metric("pins_shown", "pins_shown", "rows the pin list actually carries"),
@@ -732,6 +775,20 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     ),
     Metric("words", "words", "32-bit words covered"),
     Metric("scanned", "scanned", "whether the scan read this region's words"),
+    # Nested: one blob suggestion, and one published blob rule.
+    Metric("objects", "objects", "the input object paths a suggestion rests on"),
+    Metric(
+        "input_records",
+        "input_records",
+        "input-section records the map attributed to one output section",
+    ),
+    Metric("pattern", "pattern", "the path text one published rule looks for"),
+    Metric(
+        "match",
+        "match",
+        "how that pattern is applied: suffix (the object path ends with it) "
+        "or directory (a path component equals it)",
+    ),
     # Nested: one pin row.
     Metric("name", "name", "the symbol a pin or a rule is named by"),
     Metric("expression", "expression", "the pin's right-hand side, as written"),

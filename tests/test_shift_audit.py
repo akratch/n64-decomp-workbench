@@ -25,10 +25,16 @@ from decomp_workbench.cli import main
 from decomp_workbench.ldmap import LdMap, parse_ld_map, read_ld_map
 from decomp_workbench.mips_refs import WhitelistEntry
 from decomp_workbench.pins import (
+    ARTIFACT_SUSPECT,
+    AUTHENTIC_FIXED,
+    DERIVED,
+    ROM_OFFSET,
+    UNCLASSIFIED,
     PinCatalogue,
     boot_globals_whitelist,
     default_pin_model,
     parse_pin_text,
+    parse_whitelist_text,
     read_pin_files,
 )
 from decomp_workbench.schema import (
@@ -37,14 +43,20 @@ from decomp_workbench.schema import (
     explain_keys_text,
 )
 from decomp_workbench.shift_audit import (
+    BLOB_OBJECT_RULES,
+    BLOB_SOURCE_AUTO,
+    BLOB_SOURCE_EXPLICIT,
+    BLOB_SOURCE_NONE,
     CLUSTER_MINIMUM,
     MAP_SNIFF_BYTES,
+    MOVABLE_FLOOR_MIN,
     NON_ALLOC_KIND,
     NON_ALLOC_ROM_SOURCE,
     NON_ALLOC_SECTION_FAMILIES,
     REPEAT_MINIMUM,
     RESIDENCE_SCORES,
     TIER_RULES,
+    BlobRule,
     ConsistencyCheck,
     Hit,
     Region,
@@ -54,7 +66,9 @@ from decomp_workbench.shift_audit import (
     check_map_image_consistency,
     movable_window,
     require_parsed_map,
+    resolve_blobs,
     shift_audit_lines,
+    suggest_blobs,
 )
 
 # --------------------------------------------------------------------------
@@ -199,6 +213,74 @@ Linker script and memory map
 .overlay_b      0x80386000       0x10 load address 0x00200000
  .text          0x80386000       0x10 build/b.o
 """
+
+
+#: S7's shape, and it carries two features at once because one map really
+#: does produce both. Three sections whose every input object is a raw binary
+#: -- one per `BLOB_OBJECT_RULES` entry, plus a second suffix match -- one
+#: section that mixes a `.bin.o` in with compiled objects (BK's `.core2`
+#: shape, which must *not* be suggested), and one ordinary compiled section.
+#: The three blob-shaped sections are also placed low, at ROM offsets rather
+#: than at run-time addresses, which is pilotwings64's `.ipl3` shape and the
+#: reason `movable_window` derives its floor from RAM residence.
+BLOB_INPUT_MAP = """
+Linker script and memory map
+
+.header         0x00000000       0x10
+ .data          0x00000000       0x10 build/header.o
+
+.boot           0x00000010       0x10
+ .data          0x00000010       0x10 build/assets/boot.bin.o
+
+.assets         0x00000020       0x10 load address 0x00000020
+ .data          0x00000020       0x10 build/assets/assets.bin.o
+
+.filesys        0x00000030       0x10 load address 0x00000030
+ .data          0x00000030       0x10 build/bin/filesys.o
+
+.main           0x80000400       0x40 load address 0x00000040
+ .text          0x80000400       0x20 build/code.o
+ .data          0x80000420       0x10 build/bin/data_1000.bin.o
+ .data          0x80000430       0x10 build/code.o
+
+.main_bss       0x80000440       0x20 load address 0x00000080
+ .bss           0x80000440       0x20 build/code.o
+"""
+
+#: 32 words, one per 4 bytes of the map above. Three carry the whole point:
+#: ``0x00000020`` in `.header` is in-window only under the old, unfixed
+#: window floor; the two ``0x8000042x`` values sit in a suggested blob and in
+#: compiled data respectively, so adopting the suggestion moves exactly one
+#: of them from `medium` to `low`.
+BLOB_INPUT_WORDS: tuple[int, ...] = (
+    0x00000020,  # .header +0x00: a ROM offset, not an address
+    *((0x00000000,) * 3),
+    *((0x00000000,) * 4),  # .boot
+    *((0x00000000,) * 4),  # .assets
+    0x80000424,  # .filesys +0x00: data residence, or blob residence under auto
+    *((0x00000000,) * 3),
+    *((0x00000000,) * 8),  # .main .text, never scanned
+    0x80000420,  # .main .data +0x00: compiled data, medium either way
+    *((0x00000000,) * 7),
+)
+
+BLOB_INPUT_IMAGE = b"".join(struct.pack(">I", word) for word in BLOB_INPUT_WORDS)
+
+
+def blob_input_map() -> LdMap:
+    return parse_ld_map(BLOB_INPUT_MAP, path="blobs.map")
+
+
+def blob_audit(**kwargs: object) -> ShiftAudit:
+    return build_shift_audit(
+        ldmap=blob_input_map(),
+        image=BLOB_INPUT_IMAGE,
+        pins=empty_pins(),
+        model=default_pin_model(),
+        map_path="blobs.map",
+        image_path="blobs.z64",
+        **kwargs,  # type: ignore[arg-type]
+    )
 
 
 def synthetic_map() -> LdMap:
@@ -435,6 +517,256 @@ class MovableWindowTests(unittest.TestCase):
         )
         window = movable_window(regions)
         self.assertEqual(window.lo, 0x80000400)
+
+
+# --------------------------------------------------------------------------
+# S7 feature 1 -- the map already knows which sections are opaque
+# --------------------------------------------------------------------------
+
+
+class BlobRuleTests(unittest.TestCase):
+    """The published raw-binary path shapes, as data."""
+
+    def rule(self, name: str) -> BlobRule:
+        return next(item for item in BLOB_OBJECT_RULES if item.name == name)
+
+    def test_the_suffix_rule_matches_an_object_named_after_a_bin_file(self) -> None:
+        rule = self.rule("bin-object-suffix")
+        self.assertTrue(rule.matches("build/assets/boot.bin.o"))
+        self.assertFalse(rule.matches("build/src/boot.c.o"))
+
+    def test_the_directory_rule_matches_a_component_not_a_prefix(self) -> None:
+        """`build/binaries/x.o` is not `build/bin/x.o`, and a file called
+        `bin` is not a directory called `bin`."""
+
+        rule = self.rule("bin-directory")
+        self.assertTrue(rule.matches("build/bin/filesys.o"))
+        self.assertTrue(rule.matches("build/us.v10/bin/core2/data_DC600.bin.o"))
+        self.assertFalse(rule.matches("build/binaries/filesys.o"))
+        self.assertFalse(rule.matches("build/src/bin"))
+
+    def test_every_rule_carries_its_evidence(self) -> None:
+        for rule in BLOB_OBJECT_RULES:
+            with self.subTest(rule=rule.name):
+                self.assertIn(rule.match, ("suffix", "directory"))
+                self.assertTrue(rule.evidence)
+                self.assertEqual(
+                    set(rule.as_dict()), {"name", "pattern", "match", "evidence"}
+                )
+
+
+class BlobSuggestionTests(unittest.TestCase):
+    """What the map's own input records say, before any caller says anything."""
+
+    def setUp(self) -> None:
+        self.suggestions = suggest_blobs(blob_input_map())
+
+    def test_the_suggestion_is_every_all_raw_binary_section_in_map_order(
+        self,
+    ) -> None:
+        self.assertEqual(
+            [item.output_section for item in self.suggestions],
+            [".boot", ".assets", ".filesys"],
+        )
+
+    def test_a_section_with_one_compiled_input_is_never_suggested(self) -> None:
+        """BK's `.core2` holds three `.bin.o` objects among 398 compiled
+        ones. A section with any compiled input has words worth attributing
+        to symbols, which is the one thing `--blob` turns off."""
+
+        self.assertNotIn(".main", [item.output_section for item in self.suggestions])
+
+    def test_a_wholly_compiled_section_is_never_suggested(self) -> None:
+        self.assertNotIn(".header", [item.output_section for item in self.suggestions])
+
+    def test_a_section_with_no_input_records_is_never_suggested(self) -> None:
+        """"Every input is a raw binary" is vacuously true of no inputs, and
+        would make a blob out of every headerless section in a map."""
+
+        empty = parse_ld_map(
+            "Linker script and memory map\n\n.nothing        0x00000000       0x10\n",
+            path="empty.map",
+        )
+        self.assertEqual(suggest_blobs(empty), ())
+
+    def test_each_suggestion_carries_the_evidence_it_rests_on(self) -> None:
+        found = {item.output_section: item for item in self.suggestions}
+        self.assertEqual(found[".boot"].rule, "bin-object-suffix")
+        self.assertEqual(found[".boot"].objects, ("build/assets/boot.bin.o",))
+        self.assertEqual(found[".filesys"].rule, "bin-directory")
+        self.assertEqual(found[".filesys"].objects, ("build/bin/filesys.o",))
+        self.assertEqual(found[".filesys"].input_records, 1)
+        self.assertEqual(found[".filesys"].vram, 0x30)
+        self.assertEqual(found[".filesys"].size, 0x10)
+
+
+class ResolveBlobsTests(unittest.TestCase):
+    """`--blob`, `--blobs auto` and `--no-blob`, and how they compose."""
+
+    def setUp(self) -> None:
+        self.ldmap = blob_input_map()
+
+    def test_naming_nothing_applies_nothing_and_still_reports_the_suggestion(
+        self,
+    ) -> None:
+        plan = resolve_blobs(self.ldmap)
+        self.assertEqual(plan.applied, ())
+        self.assertEqual(plan.source, BLOB_SOURCE_NONE)
+        self.assertEqual(plan.suggested, (".boot", ".assets", ".filesys"))
+        self.assertEqual(plan.unadopted, (".boot", ".assets", ".filesys"))
+
+    def test_explicit_names_are_applied_and_say_so(self) -> None:
+        plan = resolve_blobs(self.ldmap, blobs=(".assets",))
+        self.assertEqual(plan.applied, (".assets",))
+        self.assertEqual(plan.source, BLOB_SOURCE_EXPLICIT)
+        self.assertEqual(plan.unadopted, (".boot", ".filesys"))
+
+    def test_auto_adopts_exactly_the_suggestion(self) -> None:
+        plan = resolve_blobs(self.ldmap, auto=True)
+        self.assertEqual(plan.applied, (".boot", ".assets", ".filesys"))
+        self.assertEqual(plan.source, BLOB_SOURCE_AUTO)
+        self.assertEqual(plan.unadopted, ())
+
+    def test_blob_still_adds_on_top_of_auto(self) -> None:
+        plan = resolve_blobs(self.ldmap, blobs=(".header",), auto=True)
+        self.assertEqual(plan.applied, (".header", ".boot", ".assets", ".filesys"))
+        self.assertEqual(plan.source, BLOB_SOURCE_AUTO)
+
+    def test_no_blob_subtracts_from_auto(self) -> None:
+        """pilotwings64's exact shape: the derivation is right about five of
+        its six sections."""
+
+        plan = resolve_blobs(self.ldmap, auto=True, excluded=(".boot",))
+        self.assertEqual(plan.applied, (".assets", ".filesys"))
+        self.assertEqual(plan.excluded, (".boot",))
+        self.assertEqual(plan.unadopted, (".boot",))
+
+    def test_naming_a_section_both_ways_is_refused_not_resolved(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            resolve_blobs(self.ldmap, blobs=(".assets",), excluded=(".assets",))
+        message = str(raised.exception)
+        self.assertIn("--blob and --no-blob name the same section", message)
+        self.assertIn(".assets", message)
+
+    def test_a_no_blob_typo_is_refused_the_same_way_a_blob_typo_is(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            resolve_blobs(self.ldmap, auto=True, excluded=(".asset",))
+        self.assertIn(
+            "--no-blob names a section this map does not have: .asset",
+            str(raised.exception),
+        )
+
+    def test_subtracting_everything_reports_no_source_rather_than_auto(self) -> None:
+        plan = resolve_blobs(
+            self.ldmap, auto=True, excluded=(".boot", ".assets", ".filesys")
+        )
+        self.assertEqual(plan.applied, ())
+        self.assertEqual(plan.source, BLOB_SOURCE_NONE)
+
+    def test_the_plan_travels_as_json_with_its_rules(self) -> None:
+        payload = resolve_blobs(self.ldmap, auto=True).as_dict()
+        self.assertEqual(payload["blobs"], [".boot", ".assets", ".filesys"])
+        self.assertEqual(payload["blob_source"], BLOB_SOURCE_AUTO)
+        self.assertEqual(payload["suggested_blobs"], [".boot", ".assets", ".filesys"])
+        self.assertEqual(payload["blobs_excluded"], [])
+        self.assertEqual(
+            [item["name"] for item in payload["blob_rules"]],
+            [item.name for item in BLOB_OBJECT_RULES],
+        )
+        first = payload["blob_suggestions"][0]
+        self.assertEqual(
+            set(first),
+            {"output_section", "rule", "objects", "input_records", "vram", "size"},
+        )
+        json.dumps(payload)
+
+
+class AutoBlobEquivalenceTests(unittest.TestCase):
+    """Adopting the suggestion has to be the same run as naming it by hand."""
+
+    def test_auto_and_the_explicit_flags_agree_on_every_number(self) -> None:
+        auto = blob_audit(auto_blobs=True).as_dict(limit=10)
+        explicit = blob_audit(blobs=(".boot", ".assets", ".filesys")).as_dict(limit=10)
+        auto.pop("blob_source"), explicit.pop("blob_source")
+        # The only remaining difference is the order the two spellings name
+        # the set in: `--blob` keeps the caller's order, `auto` keeps the
+        # map's.
+        self.assertEqual(sorted(auto.pop("blobs")), sorted(explicit.pop("blobs")))
+        self.assertEqual(auto, explicit)
+
+    def test_adopting_the_suggestion_demotes_the_word_inside_the_blob(self) -> None:
+        """The suggestion is not cosmetic: a word in an opaque segment scores
+        at the blob noise floor rather than as compiled data."""
+
+        self.assertEqual(hit_at(blob_audit(), 0x30).tier, "medium")
+        self.assertEqual(hit_at(blob_audit(auto_blobs=True), 0x30).tier, "low")
+        self.assertEqual(hit_at(blob_audit(auto_blobs=True), 0x60).tier, "medium")
+
+
+# --------------------------------------------------------------------------
+# S7 feature 4 -- the movable window's floor
+# --------------------------------------------------------------------------
+
+
+class MovableWindowFloorTests(unittest.TestCase):
+    """S5's pilotwings64 finding: a ROM-space section is not a floor.
+
+    That project's IPL3 arrives as `build/bin/ipl3.o`, derives as an ordinary
+    `data` region at VMA `0x00000040` (a boot block is placed at its ROM
+    offset; it has no run-time address), and used to drag the window's low
+    bound down with it -- a window two gigabytes wider at the bottom than the
+    layout it describes.
+    """
+
+    def test_a_rom_space_region_never_sets_the_floor(self) -> None:
+        window = movable_window(build_region_table(blob_input_map(), image_size=0x80))
+        self.assertEqual(window.lo, 0x80000400)
+        self.assertEqual(window.lo_section, ".main")
+
+    def test_the_floor_is_residence_not_the_callers_blob_list(self) -> None:
+        """Excluding the low section by *kind* would need the caller to have
+        named it `--blob` first, which is the discovery problem, not the fix."""
+
+        named = movable_window(
+            build_region_table(
+                blob_input_map(),
+                image_size=0x80,
+                blobs=(".boot", ".assets", ".filesys"),
+            )
+        )
+        derived = movable_window(
+            build_region_table(blob_input_map(), image_size=0x80)
+        )
+        self.assertEqual(named.lo, derived.lo)
+        self.assertEqual(named.lo_section, derived.lo_section)
+
+    def test_the_high_bound_is_untouched(self) -> None:
+        window = movable_window(build_region_table(blob_input_map(), image_size=0x80))
+        self.assertEqual(window.hi, 0x80000460)
+        self.assertEqual(window.hi_section, ".main_bss")
+
+    def test_a_map_with_no_ram_resident_region_keeps_the_old_answer(self) -> None:
+        """Not a real N64 link -- but inventing an empty window for one would
+        hide the map rather than describe it."""
+
+        regions = (
+            region(".low", "data", vram=0x40, size=0x10, rom=0x40),
+            region(".lower", "data", vram=0x20, size=0x10, rom=0x20),
+        )
+        window = movable_window(regions)
+        self.assertEqual(window.lo, 0x20)
+        self.assertEqual(window.lo_section, ".lower")
+
+    def test_the_floor_is_the_shared_ram_boundary(self) -> None:
+        self.assertEqual(MOVABLE_FLOOR_MIN, 0x80000000)
+
+    def test_the_fix_narrows_the_scan_to_the_layout(self) -> None:
+        """The header word holding `0x00000020` was an in-window hit only
+        because the window started at `0x00000010`."""
+
+        found = blob_audit()
+        self.assertEqual(found.scan_total, 2)
+        self.assertEqual([item.rom for item in found.hits], [0x30, 0x60])
 
 
 class NonAllocSectionTests(unittest.TestCase):
@@ -989,6 +1321,49 @@ class ReportShapeTests(unittest.TestCase):
         self.assertIn("not scanned", text)
 
 
+class BlobReportTests(unittest.TestCase):
+    """The cold-start line, and the keys behind it."""
+
+    def test_a_run_that_named_no_blob_is_told_what_the_map_thinks(self) -> None:
+        text = "\n".join(shift_audit_lines(blob_audit(), limit=4))
+        self.assertIn("blobs=-  blob_source=none", text)
+        self.assertIn(
+            "suggested_blobs (from .bin.o inputs): .boot, .assets, .filesys", text
+        )
+        self.assertIn("--blobs auto", text)
+
+    def test_adopting_the_suggestion_leaves_nothing_left_to_suggest(self) -> None:
+        text = "\n".join(shift_audit_lines(blob_audit(auto_blobs=True), limit=4))
+        self.assertIn("blobs=.boot, .assets, .filesys  blob_source=auto", text)
+        self.assertNotIn("suggested_blobs (from", text)
+
+    def test_an_exclusion_is_printed_rather_than_silently_applied(self) -> None:
+        text = "\n".join(
+            shift_audit_lines(
+                blob_audit(auto_blobs=True, excluded_blobs=(".boot",)), limit=4
+            )
+        )
+        self.assertIn("blobs_excluded=.boot", text)
+        self.assertIn("suggested_blobs (from .bin.o inputs): .boot", text)
+
+    def test_every_key_a_suggesting_report_emits_is_registered(self) -> None:
+        """`ReportShapeTests` reads a map with no raw-binary inputs at all,
+        so the nested suggestion keys only appear here."""
+
+        payload = blob_audit(auto_blobs=True).as_dict(limit=4)
+        emitted = {
+            key
+            for row in payload["blob_suggestions"] + payload["blob_rules"]
+            for key in row
+        }
+        self.assertTrue(emitted)
+        self.assertLessEqual(emitted, set(SHIFT_METRICS_BY_KEY))
+        text = explain_keys_text()
+        for key in emitted | {"blobs", "blob_source", "blobs_excluded"}:
+            with self.subTest(key=key):
+                self.assertIn(key, text)
+
+
 # --------------------------------------------------------------------------
 # Command
 # --------------------------------------------------------------------------
@@ -1223,6 +1598,182 @@ class CommandTests(unittest.TestCase):
         self.assertIn("2 of 15", stdout)
 
 
+class BlobCommandTests(unittest.TestCase):
+    """`--blobs auto`, `--no-blob`, through argparse and the real reader."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.map_path = self.root / "blobs.map"
+        self.image_path = self.root / "blobs.z64"
+        self.map_path.write_text(BLOB_INPUT_MAP, encoding="utf-8")
+        self.image_path.write_bytes(BLOB_INPUT_IMAGE)
+
+    def run_json(self, extra: list[str]) -> tuple[int, dict]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = main(
+                [
+                    "shift",
+                    "audit",
+                    "--map",
+                    str(self.map_path),
+                    "--image",
+                    str(self.image_path),
+                    "--json",
+                    *extra,
+                ]
+            )
+        return status, (json.loads(stdout.getvalue()) if status == 0 else {})
+
+    def test_the_suggestion_travels_even_when_nothing_adopts_it(self) -> None:
+        status, payload = self.run_json([])
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["blobs"], [])
+        self.assertEqual(payload["blob_source"], "none")
+        self.assertEqual(
+            payload["suggested_blobs"], [".boot", ".assets", ".filesys"]
+        )
+
+    def test_auto_adopts_it(self) -> None:
+        status, payload = self.run_json(["--blobs", "auto"])
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["blobs"], [".boot", ".assets", ".filesys"])
+        self.assertEqual(payload["blob_source"], "auto")
+
+    def test_auto_and_the_explicit_flags_report_the_same_scan(self) -> None:
+        _, auto = self.run_json(["--blobs", "auto"])
+        _, explicit = self.run_json(
+            ["--blob", ".boot", "--blob", ".assets", "--blob", ".filesys"]
+        )
+        for key in ("scan_total", "scan_high", "scan_medium", "scan_low"):
+            with self.subTest(key=key):
+                self.assertEqual(auto[key], explicit[key])
+
+    def test_no_blob_subtracts_from_auto(self) -> None:
+        status, payload = self.run_json(["--blobs", "auto", "--no-blob", ".boot"])
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["blobs"], [".assets", ".filesys"])
+        self.assertEqual(payload["blobs_excluded"], [".boot"])
+
+    def test_naming_a_section_both_ways_is_a_usage_failure(self) -> None:
+        status, _ = self.run_json(["--blob", ".assets", "--no-blob", ".assets"])
+        self.assertEqual(status, 2)
+
+    def test_a_no_blob_typo_is_refused(self) -> None:
+        stderr = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+            status = main(
+                [
+                    "shift",
+                    "audit",
+                    "--map",
+                    str(self.map_path),
+                    "--image",
+                    str(self.image_path),
+                    "--blobs",
+                    "auto",
+                    "--no-blob",
+                    ".asset",
+                ]
+            )
+        self.assertEqual(status, 2)
+        self.assertIn(
+            "--no-blob names a section this map does not have: .asset",
+            stderr.getvalue(),
+        )
+
+
+class EmitWhitelistCommandTests(unittest.TestCase):
+    """`--emit-whitelist`: a skeleton beside the report, never instead of it."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.map_path = self.root / "synthetic.map"
+        self.image_path = self.root / "synthetic.z64"
+        self.pins_path = self.root / "undefined_syms.txt"
+        self.map_path.write_text(SYNTHETIC_MAP, encoding="utf-8")
+        self.image_path.write_bytes(SYNTHETIC_IMAGE)
+        self.pins_path.write_text(
+            "SP_STATUS_REG = 0xA4040010;\nosTvType = 0x80000300;\n"
+            "gameLoop = 0x80000420;\n",
+            encoding="utf-8",
+        )
+
+    def run_cli(self, extra: list[str]) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = main(
+                [
+                    "shift",
+                    "audit",
+                    "--map",
+                    str(self.map_path),
+                    "--image",
+                    str(self.image_path),
+                    "--blob",
+                    ".boot",
+                    "--pins",
+                    str(self.pins_path),
+                    *extra,
+                ]
+            )
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_the_skeleton_is_written_and_the_run_continues(self) -> None:
+        destination = self.root / "whitelist.txt"
+        status, stdout, stderr = self.run_cli(["--emit-whitelist", str(destination)])
+        self.assertEqual(status, 0)
+        self.assertIn("shift audit", stdout)  # the report still printed
+        self.assertIn("wrote whitelist skeleton", stderr)
+        text = destination.read_text(encoding="utf-8")
+        self.assertIn("# REVIEW: SP_STATUS_REG", text)
+        self.assertIn("# REVIEW: osTvType", text)
+        self.assertIn("movable window floor: 0x80000400 (.main)", text)
+
+    def test_the_skeleton_declares_nothing_until_a_human_edits_it(self) -> None:
+        destination = self.root / "whitelist.txt"
+        self.run_cli(["--emit-whitelist", str(destination)])
+        status, stdout, _ = self.run_cli(
+            ["--whitelist", str(destination), "--json"]
+        )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        # Every drafted line is commented out, so the pins are classified
+        # exactly as they were before the file existed.
+        self.assertEqual(payload["pins_authentic"], 1)  # kseg1, by window
+        self.assertEqual(payload["pins_artifact"], 2)
+
+    def test_uncommenting_a_line_changes_the_next_run(self) -> None:
+        destination = self.root / "whitelist.txt"
+        self.run_cli(["--emit-whitelist", str(destination)])
+        destination.write_text(
+            destination.read_text(encoding="utf-8").replace(
+                "# 0x80000300 ", "0x80000300 "
+            ),
+            encoding="utf-8",
+        )
+        status, stdout, _ = self.run_cli(["--whitelist", str(destination), "--json"])
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["pins_authentic"], 2)
+        self.assertEqual(payload["pins_artifact"], 1)
+
+    def test_an_existing_file_is_refused_rather_than_overwritten(self) -> None:
+        destination = self.root / "whitelist.txt"
+        destination.write_text("0x80000300 reviewed, by a person\n", encoding="utf-8")
+        status, _, stderr = self.run_cli(["--emit-whitelist", str(destination)])
+        self.assertEqual(status, 2)
+        self.assertIn("refuses to overwrite", stderr)
+        self.assertEqual(
+            destination.read_text(encoding="utf-8"),
+            "0x80000300 reviewed, by a person\n",
+        )
+
+
 # --------------------------------------------------------------------------
 # DKR conformance -- skips when the sibling playground checkout is absent
 # --------------------------------------------------------------------------
@@ -1425,6 +1976,59 @@ class DkrAuditConformanceTests(unittest.TestCase):
         self.assertEqual(payload["pins_artifact"], 2)
         self.assertEqual(payload["pins_derived"], 7)
         self.assertEqual(payload["pins_authentic"], 57)
+
+    def test_s7_the_map_suggests_exactly_the_blobs_this_campaign_names(
+        self,
+    ) -> None:
+        """Every `--blob` DKR has ever been audited with, derived from the
+        map alone: `build/assets/{boot,assets.lut,assets}.bin.o` are the only
+        objects in the whole link that are raw binaries."""
+
+        plan = self.audit.blobs
+        self.assertEqual(plan.suggested, (".boot", ".assets_lut", ".assets"))
+        self.assertEqual(
+            {item.rule for item in plan.suggestions}, {"bin-object-suffix"}
+        )
+        self.assertEqual(plan.unadopted, ())
+
+    def test_s7_adopting_the_suggestion_reproduces_this_scorecard(self) -> None:
+        """`--blobs auto` is the same run as the three explicit flags above,
+        number for number -- the frozen DKR scorecard either way."""
+
+        auto = build_shift_audit(
+            ldmap=read_ld_map(DKR_MAP),
+            image=DKR_IMAGE.read_bytes(),
+            pins=PinCatalogue(entries=(), sources=()),
+            model=default_pin_model(whitelist=(boot_globals_whitelist(),)),
+            auto_blobs=True,
+            map_path=str(DKR_MAP),
+            image_path=str(DKR_IMAGE),
+        )
+        self.assertEqual(sorted(auto.blobs.applied), sorted(self.audit.blobs.applied))
+        self.assertEqual(auto.blobs.source, "auto")
+        self.assertEqual(auto.scan_total, self.audit.scan_total)
+        self.assertEqual(auto.scan_high, self.audit.scan_high)
+        self.assertEqual(auto.scan_medium, self.audit.scan_medium)
+        self.assertEqual(auto.scan_low, self.audit.scan_low)
+        self.assertEqual(auto.window.as_dict(), self.audit.window.as_dict())
+
+    def test_s7_no_dkr_pin_reclassifies_as_a_rom_offset(self) -> None:
+        """The measured control for the new class. DKR already derives its
+        ROM offsets from the linker (`boot_ROM_START = __romPos` and kin are
+        map symbols, not pins), so its pin file holds no raw offset at all --
+        the 66/7/57/2 scorecard is unchanged, and the class costs it nothing.
+        """
+
+        self.assertEqual(self.audit.pins.counts[ROM_OFFSET], 0)
+        self.assertEqual(self.audit.pins.counts[UNCLASSIFIED], 0)
+
+    def test_s7_the_window_is_unchanged_by_the_floor_rule(self) -> None:
+        """DKR's lowest movable region was already RAM-resident (`.main` at
+        0x80000400); the floor rule cannot move a window that never had a
+        ROM-space section competing for it."""
+
+        self.assertEqual(self.audit.window.lo, 0x80000400)
+        self.assertEqual(self.audit.window.lo_section, ".main")
 
     def test_wb_140_the_correct_pair_passes_the_new_consistency_check(self) -> None:
         """WB-140 rule B is always on, including here -- the correct
@@ -1748,6 +2352,364 @@ class BkAuditConformanceTests(unittest.TestCase):
         self.assertEqual(found.max_placed_extent, self.audit.image_bytes)
         self.assertEqual(found.padding_bytes, 0)
         self.assertEqual(found.regions_unplaced_past_eof, 0)
+
+
+# --------------------------------------------------------------------------
+# S7: the two community patients' full scorecards, with pins.
+# --------------------------------------------------------------------------
+
+#: Banjo-Kazooie's four linker-input symbol files, at the repository root.
+BK_PROJECT = PLAYGROUND / "banjo-kazooie"
+BK_PIN_FILES = (
+    BK_PROJECT / "symbol_addrs.us.v10.txt",
+    BK_PROJECT / "manual_syms.us.v10.txt",
+    BK_PROJECT / "rzip_dummy_addrs.us.v10.txt",
+    BK_PROJECT / "level_symbols.us.v10.txt",
+)
+
+#: The blob set S5's scorecard run named by hand -- and, as of S7, exactly
+#: what `--blobs auto` derives from the map.
+BK_BLOBS = (
+    ".crc",
+    ".assets",
+    ".soundfont1ctl",
+    ".soundfont1tbl",
+    ".soundfont2ctl",
+    ".soundfont2tbl",
+    ".boot",
+)
+
+_HAVE_BK_PINS = _HAVE_BK and all(item.is_file() for item in BK_PIN_FILES)
+
+
+@unittest.skipUnless(
+    _HAVE_BK_PINS, f"Banjo-Kazooie pin files not found under {BK_PROJECT}"
+)
+class BkScorecardConformanceTests(unittest.TestCase):
+    """S5's banjo-kazooie scorecard, re-measured through S7's classifier.
+
+    S5 filed one gap against this exact run: 37 pins came back
+    ``unclassified``, and the note said what they were -- "small-value
+    ROM-offset pins from `rzip_dummy_addrs` and the asset table -- a
+    pin-classifier window the tool should grow: raw ROM offsets are their own
+    class". This class is that gap closed, with the number it moved.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        model = default_pin_model()
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(BK_MAP),
+            image=BK_IMAGE.read_bytes(),
+            pins=read_pin_files(BK_PIN_FILES, model=model),
+            model=model,
+            blobs=BK_BLOBS,
+            map_path=str(BK_MAP),
+            image_path=str(BK_IMAGE),
+        )
+
+    def test_the_37_unclassified_pins_are_rom_offsets(self) -> None:
+        """S5 measured ``pins_unclassified=37``; this measures
+        ``pins_rom_offset=37`` and ``pins_unclassified=0``, and the new
+        number is the more truthful one for a reason the pins themselves
+        make: 32 of them come from `rzip_dummy_addrs.us.v10.txt`, whose every
+        line is spelled ``*_rzip_ROM_START``/``_ROM_END``, and the other 5
+        are ``D_5E90``, ``D_D846C0``, ``D_D954B0``, ``D_EA3EB0`` and
+        ``D_EADE60`` -- which are, byte for byte, the ``AT()`` load addresses
+        this same map prints for ``.assets``, ``.soundfont1ctl``,
+        ``.soundfont1tbl``, ``.soundfont2ctl`` and ``.soundfont2tbl``. Every
+        one is a cartridge offset. "Unclassified" said only that this model
+        had no window for them; it is not a window they were missing, it is
+        a class they were.
+        """
+
+        counts = self.audit.pins.counts
+        self.assertEqual(counts[ROM_OFFSET], 37)
+        self.assertEqual(counts[UNCLASSIFIED], 0)
+
+    def test_the_other_pin_classes_are_untouched(self) -> None:
+        """S5's 127/6/0/84 stands: only the unclassified column moved."""
+
+        counts = self.audit.pins.counts
+        self.assertEqual(len(self.audit.pins.entries), 127)
+        self.assertEqual(counts[DERIVED], 6)
+        self.assertEqual(counts[AUTHENTIC_FIXED], 0)
+        self.assertEqual(counts[ARTIFACT_SUSPECT], 84)
+        self.assertEqual(sum(counts.values()), 127)
+
+    def test_the_rom_offset_pins_name_their_own_remediation(self) -> None:
+        offsets = self.audit.pins.by_classification(ROM_OFFSET)
+        rzip = next(
+            item for item in offsets if item.name == "boot_core1_rzip_ROM_START"
+        )
+        self.assertEqual(rzip.value, 0xF19250)
+        assert rzip.reason is not None
+        self.assertIn("_ROM_START", rzip.reason)
+        table = next(item for item in offsets if item.name == "D_5E90")
+        self.assertEqual(table.value, 0x5E90)
+        assets = next(
+            item for item in self.audit.regions if item.output_section == ".assets"
+        )
+        self.assertEqual(table.value, assets.rom)
+
+    def test_the_report_prints_the_new_class_and_its_reading(self) -> None:
+        text = "\n".join(shift_audit_lines(self.audit, limit=5))
+        self.assertIn("pins_rom_offset=37", text)
+        self.assertIn("rom-offset pins (5 of 37, --limit)", text)
+        self.assertIn("_ROM_START/_ROM_END", text)
+
+    def test_the_map_suggests_exactly_the_blob_set_this_scorecard_used(self) -> None:
+        """S5 named seven sections by hand after reading the project's splat
+        configuration. The map's own input records say the same seven."""
+
+        self.assertEqual(sorted(self.audit.blobs.suggested), sorted(BK_BLOBS))
+        self.assertEqual(
+            {item.rule for item in self.audit.blobs.suggestions},
+            {"bin-object-suffix"},
+        )
+
+    def test_core2_is_not_suggested_despite_holding_bin_objects(self) -> None:
+        """`.core2` mixes three `.bin.o` data blobs in with 395 compiled
+        objects. One compiled input is enough to keep a section attributable."""
+
+        self.assertNotIn(
+            ".core2", [item.output_section for item in self.audit.blobs.suggestions]
+        )
+
+    def test_adopting_the_suggestion_reproduces_this_scorecard(self) -> None:
+        model = default_pin_model()
+        auto = build_shift_audit(
+            ldmap=read_ld_map(BK_MAP),
+            image=BK_IMAGE.read_bytes(),
+            pins=read_pin_files(BK_PIN_FILES, model=model),
+            model=model,
+            auto_blobs=True,
+            map_path=str(BK_MAP),
+            image_path=str(BK_IMAGE),
+        )
+        self.assertEqual(auto.blobs.source, "auto")
+        self.assertEqual(auto.as_dict(limit=5), self.audit.as_dict(limit=5) | {
+            "blobs": list(auto.blobs.applied),
+            "blob_source": "auto",
+        })
+
+    def test_the_scan_totals_are_s5s_own(self) -> None:
+        """Unchanged by all four S7 features: bk's window floor was already
+        RAM-resident (`.entry` at 0x80000400), so nothing about the scan
+        moved."""
+
+        self.assertEqual(self.audit.scan_total, 11_066)
+        self.assertEqual(self.audit.scan_high, 1_581)
+        self.assertEqual(self.audit.scan_medium, 1_427)
+        self.assertEqual(self.audit.scan_low, 8_058)
+        self.assertEqual(self.audit.window.lo, 0x80000400)
+        self.assertEqual(self.audit.window.lo_section, ".entry")
+
+    def test_the_whitelist_skeleton_finds_the_one_boot_global(self) -> None:
+        """bk pins exactly one address below its own window floor:
+        ``osRomBase = 0x80000308``, one of the libultra boot globals the boot
+        ROM writes. It is drafted, commented out, and reviewable."""
+
+        text = self.audit.whitelist_template()
+        self.assertIn("# REVIEW: osRomBase", text)
+        self.assertIn("# 0x80000308 osRomBase:", text)
+        self.assertIn("below-window-floor (1)", text)
+        self.assertIn("hardware-window (0)", text)
+
+
+# --------------------------------------------------------------------------
+# pilotwings64 conformance -- S5's greenfield patient, and the window fix
+# it found. Skips gracefully when the sibling checkout is absent.
+# --------------------------------------------------------------------------
+
+PW64_ROOT = PLAYGROUND / "pilotwings64"
+PW64_MAP = PW64_ROOT / "build" / "pilotwings64.us.map"
+PW64_IMAGE = PW64_ROOT / "build" / "pilotwings64.us.z64"
+PW64_SYM = PW64_ROOT / "config" / "us" / "sym"
+PW64_PIN_FILES = (
+    PW64_SYM / "libultra_undefined_syms.txt",
+    PW64_SYM / "hardware_regs.ld",
+    PW64_SYM / "pif_syms.ld",
+    PW64_SYM / "symbol_addrs_app.txt",
+    PW64_SYM / "symbol_addrs_kernel.txt",
+    PW64_SYM / "symbol_addrs_libultra.txt",
+)
+
+#: The five sections S5's scorecard run named `--blob` by hand.
+PW64_BLOBS = (".filetable", ".filesys", ".audio_seq", ".audio_ctl", ".audio_tbl")
+
+_HAVE_PW64 = (
+    PW64_MAP.is_file()
+    and PW64_IMAGE.is_file()
+    and all(item.is_file() for item in PW64_PIN_FILES)
+)
+
+
+@unittest.skipUnless(
+    _HAVE_PW64, f"pilotwings64 build artifacts not found under {PW64_ROOT}"
+)
+class Pw64AuditConformanceTests(unittest.TestCase):
+    """S5's pilotwings64 scorecard, and the window defect it filed.
+
+    S5's caveat read: "pw64's movable window floor sits at `.ipl3` (vma 0x40)
+    -- harmless for stale detection, noted for window-derivation refinement".
+    It was not harmless. `.ipl3` is a raw binary placed at its ROM offset, and
+    a window starting at `0x00000040` counts every small integer in an 8 MB
+    image as an in-window hit: S5 measured `scan_total=977,512`, of which
+    975,000-odd were a "low-tier noise floor" from the filesystem blob. The
+    floor rule (`movable_window`) is that defect fixed, and the number it
+    moves is the headline of this class.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        model = default_pin_model()
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(PW64_MAP),
+            image=PW64_IMAGE.read_bytes(),
+            pins=read_pin_files(PW64_PIN_FILES, model=model),
+            model=model,
+            blobs=PW64_BLOBS,
+            map_path=str(PW64_MAP),
+            image_path=str(PW64_IMAGE),
+        )
+
+    def test_the_window_floor_is_the_first_ram_resident_section(self) -> None:
+        """S5 measured ``window_lo=0x00000040 window_lo_section=.ipl3``; this
+        measures ``0x80200050`` / ``.entry``, and the new number is the more
+        truthful one because it is the first address an insertion could
+        actually move. `.ipl3` is a boot block: the map places it at ROM
+        offset 0x40 with no ``AT()`` because it has no run-time address at
+        all, and a window that starts there claims two gigabytes of address
+        space the layout does not own. ``0x80200050`` is `.entry`'s VMA in
+        this same map -- pilotwings64 links at 0x80200000, not 0x80000000.
+        """
+
+        self.assertEqual(self.audit.window.lo, 0x80200050)
+        self.assertEqual(self.audit.window.lo_section, ".entry")
+        self.assertEqual(self.audit.window.hi, 0x803805E0)
+        self.assertEqual(self.audit.window.hi_section, ".app_bss")
+
+    def test_the_scan_no_longer_counts_the_whole_low_address_space(self) -> None:
+        """S5's ``scan_total=977,512 / scan_high=62`` becomes ``2,548 / 62``.
+        The 974,964 words that left were never candidates: they held values
+        below ``0x80200050``, which no insertion in this layout moves. The
+        `high` tier is unchanged to the word, which is the check that the
+        fix narrowed the window rather than the evidence.
+        """
+
+        self.assertEqual(self.audit.scan_total, 2_548)
+        self.assertEqual(self.audit.scan_high, 62)
+        self.assertEqual(self.audit.scan_medium, 681)
+        self.assertEqual(self.audit.scan_low, 1_805)
+        self.assertEqual(
+            self.audit.scan_high + self.audit.scan_medium + self.audit.scan_low,
+            self.audit.scan_total,
+        )
+
+    def test_the_region_table_is_unchanged(self) -> None:
+        """The floor rule changes the window, never the regions: `.ipl3` is
+        still a placed, scanned `data` region reported exactly as before."""
+
+        self.assertEqual(len(self.audit.regions), 16)
+        self.assertEqual(self.audit.scanned_words, 1_887_600)
+        self.assertEqual(self.audit.text_words, 209_552)
+        self.assertEqual(self.audit.text_regions, 3)
+        ipl3 = next(
+            item for item in self.audit.regions if item.output_section == ".ipl3"
+        )
+        self.assertEqual(
+            (ipl3.kind, ipl3.vram, ipl3.rom_source), ("data", 0x40, "vma-as-rom")
+        )
+
+    def test_the_pin_scorecard_is_s5s_own(self) -> None:
+        """1,825 / 0 derived / 1,724 artifact-suspect, and no ROM offsets:
+        pw64 writes its pins as kseg0 code addresses, not as cartridge
+        offsets, so the new class costs it nothing either."""
+
+        counts = self.audit.pins.counts
+        self.assertEqual(len(self.audit.pins.entries), 1_825)
+        self.assertEqual(counts[DERIVED], 0)
+        self.assertEqual(counts[AUTHENTIC_FIXED], 101)
+        self.assertEqual(counts[ARTIFACT_SUSPECT], 1_724)
+        self.assertEqual(counts[ROM_OFFSET], 0)
+        self.assertEqual(counts[UNCLASSIFIED], 0)
+
+    def test_the_map_suggests_six_sections_where_s5_named_five(self) -> None:
+        """The sixth is `.ipl3` -- ``build/bin/ipl3.o``, the same objcopy'd
+        raw binary as the other five and the same shape as banjo-kazooie's
+        `.boot` (``ipl3.bin.o``), which S5 *did* name a blob. S5's five were
+        the asset segments; nothing distinguishes `.ipl3` from them in the
+        map, so the derivation names it too rather than special-casing a
+        section by what it is called.
+        """
+
+        self.assertEqual(
+            self.audit.blobs.suggested,
+            (".ipl3", *PW64_BLOBS),
+        )
+        self.assertEqual(
+            {item.rule for item in self.audit.blobs.suggestions}, {"bin-directory"}
+        )
+
+    def test_adopting_all_six_reproduces_this_scorecard_anyway(self) -> None:
+        """Measured, not assumed: `.ipl3` holds no word whose value lands in
+        the (now correct) movable window, so treating it as opaque changes
+        nothing but the label on its region. `--blobs auto` and S5's five
+        explicit flags are the same run."""
+
+        model = default_pin_model()
+        auto = build_shift_audit(
+            ldmap=read_ld_map(PW64_MAP),
+            image=PW64_IMAGE.read_bytes(),
+            pins=read_pin_files(PW64_PIN_FILES, model=model),
+            model=model,
+            auto_blobs=True,
+            map_path=str(PW64_MAP),
+            image_path=str(PW64_IMAGE),
+        )
+        self.assertEqual(auto.scan_total, self.audit.scan_total)
+        self.assertEqual(auto.scan_high, self.audit.scan_high)
+        self.assertEqual(auto.scan_medium, self.audit.scan_medium)
+        self.assertEqual(auto.scan_low, self.audit.scan_low)
+        self.assertEqual(auto.window.as_dict(), self.audit.window.as_dict())
+        self.assertEqual(auto.scanned_words, self.audit.scanned_words)
+
+    def test_no_blob_brings_auto_back_to_s5s_five(self) -> None:
+        """The exclusion affordance, on the case that motivated it."""
+
+        model = default_pin_model()
+        trimmed = build_shift_audit(
+            ldmap=read_ld_map(PW64_MAP),
+            image=PW64_IMAGE.read_bytes(),
+            pins=PinCatalogue(entries=(), sources=()),
+            model=model,
+            auto_blobs=True,
+            excluded_blobs=(".ipl3",),
+            map_path=str(PW64_MAP),
+            image_path=str(PW64_IMAGE),
+        )
+        self.assertEqual(trimmed.blobs.applied, PW64_BLOBS)
+        self.assertEqual(trimmed.blobs.unadopted, (".ipl3",))
+
+    def test_the_whitelist_skeleton_drafts_the_greenfield_boot_globals(
+        self,
+    ) -> None:
+        """pw64's ``pif_syms.ld`` pins ``leoBootID`` and the eight libultra
+        boot globals below its window floor, and ``hardware_regs.ld`` pins
+        101 memory-mapped registers. All 110 are drafted, none are asserted.
+        """
+
+        text = self.audit.whitelist_template()
+        self.assertIn("hardware-window (101)", text)
+        self.assertIn("below-window-floor (9)", text)
+        self.assertIn("# REVIEW: osTvType", text)
+        self.assertIn("movable window floor: 0x80200050 (.entry)", text)
+        self.assertEqual(parse_whitelist_text(text), ())
 
 
 if __name__ == "__main__":

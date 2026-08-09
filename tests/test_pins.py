@@ -19,19 +19,27 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 
-from decomp_workbench.mips_refs import RangeModel, WhitelistEntry
+from decomp_workbench.mips_refs import NamedRange, RangeModel, WhitelistEntry
 from decomp_workbench.pins import (
     ARTIFACT_SUSPECT,
     AUTHENTIC_FIXED,
+    CLASSIFICATIONS,
     DERIVED,
+    ROM_OFFSET,
     UNCLASSIFIED,
+    WHITELIST_REVIEW_MARKER,
+    WHITELIST_TEMPLATE_RULES,
     Pin,
     PinCatalogue,
     boot_globals_whitelist,
+    classify_absolute,
     default_pin_model,
     parse_pin_text,
     parse_whitelist_text,
     read_pin_files,
+    reclassify_rom_offsets,
+    whitelist_candidates,
+    whitelist_template_text,
 )
 
 # --------------------------------------------------------------------------
@@ -303,6 +311,304 @@ class CatalogueTests(unittest.TestCase):
         self.assertEqual(payload["references"], ["main_BSS_END"])
         self.assertIsNone(payload["value"])
         self.assertEqual(payload["attributes"], {})
+
+
+# --------------------------------------------------------------------------
+# S7: the ROM-offset class
+# --------------------------------------------------------------------------
+
+#: The shape splat projects pin by the dozen and this model had no name for:
+#: a raw cartridge offset. Banjo-Kazooie's `rzip_dummy_addrs.us.v10.txt`
+#: writes the first two and its level tables the third; the last two are the
+#: boundaries the class must *not* swallow.
+ROM_OFFSET_PINS = """boot_core1_rzip_ROM_START = 0xF19250;
+boot_core1_rzip_ROM_END = 0xF55960;
+D_5E90 = 0x5E90;
+past_the_end = 0x2000000;
+gHeapBase = 0x80280000;
+"""
+
+
+class RomOffsetClassificationTests(unittest.TestCase):
+    """A small absolute inside the ROM the map placed is its own class."""
+
+    def setUp(self) -> None:
+        self.model = default_pin_model()
+        self.extent = 0x10BCD40  # a plausible 17 MB linked extent
+
+    def classify(self, value: int, *, extent: int | None) -> str:
+        return classify_absolute(value, model=self.model, rom_extent=extent)[0]
+
+    def test_a_small_value_inside_the_placed_extent_is_a_rom_offset(self) -> None:
+        self.assertEqual(self.classify(0xF19250, extent=self.extent), ROM_OFFSET)
+        self.assertEqual(self.classify(0x5E90, extent=self.extent), ROM_OFFSET)
+
+    def test_a_value_past_the_placed_extent_stays_unclassified(self) -> None:
+        """Half the evidence is not the evidence: small alone says nothing."""
+
+        self.assertEqual(self.classify(0x2000000, extent=self.extent), UNCLASSIFIED)
+
+    def test_naming_no_extent_keeps_the_answer_this_function_gave_before(
+        self,
+    ) -> None:
+        """A caller with no map cannot bound the ROM and is not asked to."""
+
+        self.assertEqual(self.classify(0xF19250, extent=None), UNCLASSIFIED)
+
+    def test_a_ram_window_always_answers_first(self) -> None:
+        """kseg0/kseg1/cart are decided before the extent is consulted, so a
+        huge extent can never turn a RAM address into a ROM offset."""
+
+        big = 0xFFFFFFFF
+        self.assertEqual(self.classify(0x80280000, extent=big), ARTIFACT_SUSPECT)
+        self.assertEqual(self.classify(0xA4040010, extent=big), AUTHENTIC_FIXED)
+        self.assertEqual(self.classify(0xB0000574, extent=big), ARTIFACT_SUSPECT)
+
+    def test_the_whitelist_still_wins_outright(self) -> None:
+        model = default_pin_model(
+            whitelist=(WhitelistEntry(0x5E90, 0x5E91, "the caller says so"),)
+        )
+        classification, _, reason = classify_absolute(
+            0x5E90, model=model, rom_extent=self.extent
+        )
+        self.assertEqual(classification, AUTHENTIC_FIXED)
+        self.assertEqual(reason, "the caller says so")
+
+    def test_the_floor_comes_from_the_models_own_ram_windows(self) -> None:
+        """A model whose lowest RAM window sits higher than kseg0 moves the
+        ceiling with it -- the bound is derived, not written down twice."""
+
+        model = RangeModel(windows=(NamedRange("high", 0x90000000, 0xA0000000),))
+        self.assertEqual(
+            classify_absolute(0x88000000, model=model, rom_extent=0xFFFFFFFF)[0],
+            ROM_OFFSET,
+        )
+
+    def test_the_reason_names_the_remediation(self) -> None:
+        _, _, reason = classify_absolute(
+            0xF19250, model=self.model, rom_extent=self.extent
+        )
+        assert reason is not None
+        self.assertIn("_ROM_START", reason)
+        self.assertIn("raw ROM offset", reason)
+
+    def test_the_class_is_reported_and_ordered_between_suspect_and_unknown(
+        self,
+    ) -> None:
+        self.assertIn(ROM_OFFSET, CLASSIFICATIONS)
+        self.assertLess(
+            CLASSIFICATIONS.index(ARTIFACT_SUSPECT), CLASSIFICATIONS.index(ROM_OFFSET)
+        )
+        self.assertLess(
+            CLASSIFICATIONS.index(ROM_OFFSET), CLASSIFICATIONS.index(UNCLASSIFIED)
+        )
+
+    def test_parsing_with_an_extent_classifies_in_one_pass(self) -> None:
+        entries = parse_pin_text(
+            ROM_OFFSET_PINS, path="pins.txt", model=self.model, rom_extent=self.extent
+        )
+        by_name = {item.name: item.classification for item in entries}
+        self.assertEqual(by_name["boot_core1_rzip_ROM_START"], ROM_OFFSET)
+        self.assertEqual(by_name["boot_core1_rzip_ROM_END"], ROM_OFFSET)
+        self.assertEqual(by_name["D_5E90"], ROM_OFFSET)
+        self.assertEqual(by_name["past_the_end"], UNCLASSIFIED)
+        self.assertEqual(by_name["gHeapBase"], ARTIFACT_SUSPECT)
+
+
+class RomOffsetReclassificationTests(unittest.TestCase):
+    """The second pass `shift audit` runs once the map's extent is known."""
+
+    def setUp(self) -> None:
+        self.model = default_pin_model()
+        self.catalogue = PinCatalogue(
+            entries=parse_pin_text(
+                ROM_OFFSET_PINS + UNDEFINED_SYMS, path="pins.txt", model=self.model
+            ),
+            sources=("pins.txt",),
+        )
+
+    def test_before_the_pass_every_rom_offset_is_unclassified(self) -> None:
+        self.assertEqual(self.catalogue.counts[ROM_OFFSET], 0)
+        self.assertEqual(self.catalogue.counts[UNCLASSIFIED], 5)
+
+    def test_the_pass_moves_exactly_the_rom_offsets(self) -> None:
+        found = reclassify_rom_offsets(
+            self.catalogue, model=self.model, rom_extent=0x10BCD40
+        )
+        counts = found.counts
+        # Four, not the three `ROM_OFFSET_PINS` names: `UNDEFINED_SYMS`'s
+        # `__SIZE = ABSOLUTE (0x40 + 0x10)` folds to 0x50, which is below
+        # every RAM window and inside the extent, and reads as a ROM offset
+        # too. See `test_a_small_size_constant_reads_as_an_offset_and_says_so`
+        # -- one image cannot tell a size from an offset, and the class is
+        # named after the shape it can see.
+        self.assertEqual(counts[ROM_OFFSET], 4)
+        # `past_the_end` (0x2000000, outside the extent) is the only survivor.
+        self.assertEqual(counts[UNCLASSIFIED], 1)
+        self.assertEqual(sum(counts.values()), len(found.entries))
+
+    def test_a_small_size_constant_reads_as_an_offset_and_says_so(self) -> None:
+        """The class's honest edge, filed rather than papered over.
+
+        A folded *size* (`__SIZE = ABSOLUTE (0x40 + 0x10)`) has exactly the
+        shape of a small ROM offset, and nothing in one linker map
+        distinguishes them -- the same ambiguity `shift audit`'s tiers are
+        built around. The reason attached to the entry is a remediation to
+        consider, not a defect report, and a reader who follows it finds a
+        size and moves on.
+        """
+
+        found = reclassify_rom_offsets(
+            self.catalogue, model=self.model, rom_extent=0x10BCD40
+        )
+        entry = next(item for item in found.entries if item.name == "__SIZE")
+        self.assertEqual(entry.classification, ROM_OFFSET)
+        self.assertEqual(entry.value, 0x50)
+
+    def test_nothing_a_window_already_named_can_move(self) -> None:
+        before = {item.name: item.classification for item in self.catalogue.entries}
+        after = {
+            item.name: item.classification
+            for item in reclassify_rom_offsets(
+                self.catalogue, model=self.model, rom_extent=0xFFFFFFFF
+            ).entries
+        }
+        moved = {name for name in before if before[name] != after[name]}
+        self.assertTrue(all(before[name] == UNCLASSIFIED for name in moved))
+
+    def test_an_unresolved_expression_is_left_alone(self) -> None:
+        """No value, nothing to bound: `unresolved` stays `unclassified`."""
+
+        catalogue = PinCatalogue(
+            entries=parse_pin_text(
+                "mystery = 1 ? 2 : 3;\n", path="pins.txt", model=self.model
+            ),
+            sources=("pins.txt",),
+        )
+        self.assertEqual([item.form for item in catalogue.entries], ["unresolved"])
+        found = reclassify_rom_offsets(catalogue, model=self.model, rom_extent=0x1000)
+        self.assertEqual(found.counts[UNCLASSIFIED], len(found.entries))
+
+    def test_the_sources_survive_the_pass(self) -> None:
+        found = reclassify_rom_offsets(
+            self.catalogue, model=self.model, rom_extent=0x10BCD40
+        )
+        self.assertEqual(found.sources, self.catalogue.sources)
+
+    def test_the_count_reaches_the_json_payload(self) -> None:
+        payload = reclassify_rom_offsets(
+            self.catalogue, model=self.model, rom_extent=0x10BCD40
+        ).as_dict(limit=2)
+        self.assertEqual(payload["pins_rom_offset"], 4)
+        self.assertEqual(payload["pins_unclassified"], 1)
+
+
+# --------------------------------------------------------------------------
+# S7: the whitelist template
+# --------------------------------------------------------------------------
+
+#: One pin per drafting rule, plus two that must not be drafted: a kseg0
+#: address *above* the floor (a real code address this layout owns) and a
+#: derived pin (nothing to whitelist).
+TEMPLATE_PINS = """SP_STATUS_REG = 0xA4040010;
+osTvType = 0x80000300;
+gameLoop = 0x80005000;
+gMainMemoryPool = main_BSS_END;
+"""
+
+
+def template_catalogue(model: RangeModel) -> PinCatalogue:
+    return PinCatalogue(
+        entries=parse_pin_text(TEMPLATE_PINS, path="pins.txt", model=model),
+        sources=("pins.txt",),
+    )
+
+
+class WhitelistTemplateTests(unittest.TestCase):
+    """`shift audit --emit-whitelist`'s skeleton: drafted, never asserted."""
+
+    def setUp(self) -> None:
+        self.model = default_pin_model()
+        self.catalogue = template_catalogue(self.model)
+        self.text = whitelist_template_text(
+            self.catalogue, window_lo=0x80000400, window_lo_section=".main"
+        )
+
+    def test_both_evidence_families_are_drafted(self) -> None:
+        drafted = whitelist_candidates(self.catalogue, window_lo=0x80000400)
+        self.assertEqual(
+            [(item.name, item.rule) for item in drafted],
+            [
+                ("osTvType", "below-window-floor"),
+                ("SP_STATUS_REG", "hardware-window"),
+            ],
+        )
+
+    def test_a_kseg0_pin_above_the_floor_is_not_drafted(self) -> None:
+        """It is an address this layout owns, which is the opposite of the
+        claim a whitelist entry makes."""
+
+        drafted = {
+            item.name for item in whitelist_candidates(self.catalogue, window_lo=0x400)
+        }
+        self.assertNotIn("gameLoop", drafted)
+        self.assertNotIn("osTvType", drafted)
+
+    def test_a_pin_the_callers_whitelist_already_covers_is_not_redrafted(
+        self,
+    ) -> None:
+        model = default_pin_model(whitelist=(boot_globals_whitelist(),))
+        drafted = {
+            item.name
+            for item in whitelist_candidates(
+                template_catalogue(model), window_lo=0x80000400
+            )
+        }
+        self.assertNotIn("osTvType", drafted)
+        self.assertIn("SP_STATUS_REG", drafted)
+
+    def test_every_entry_is_commented_out_and_marked_for_review(self) -> None:
+        self.assertIn(f"{WHITELIST_REVIEW_MARKER} osTvType (pins.txt:2)", self.text)
+        self.assertIn("# 0x80000300 osTvType:", self.text)
+        self.assertIn("# 0xA4040010 SP_STATUS_REG:", self.text)
+
+    def test_the_skeleton_parses_to_no_entries_until_a_human_edits_it(self) -> None:
+        """The point of the marker: a template piped straight into
+        `--whitelist` declares nothing authentic."""
+
+        self.assertEqual(parse_whitelist_text(self.text), ())
+
+    def test_uncommenting_one_line_turns_exactly_that_entry_on(self) -> None:
+        edited = self.text.replace("# 0x80000300 ", "0x80000300 ")
+        entries = parse_whitelist_text(edited)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].lo, 0x80000300)
+        self.assertIn("boot-globals shaped", entries[0].reason)
+
+    def test_the_header_names_the_floor_the_second_rule_used(self) -> None:
+        self.assertIn("movable window floor: 0x80000400 (.main)", self.text)
+        self.assertIn("pin_sources: pins.txt", self.text)
+
+    def test_the_drafting_rules_travel_with_the_template(self) -> None:
+        for rule in WHITELIST_TEMPLATE_RULES:
+            with self.subTest(rule=rule.name):
+                self.assertIn(rule.name, self.text)
+                self.assertIn(rule.evidence, " ".join(self.text.split()))
+        self.assertIn("hardware-window (1)", self.text)
+        self.assertIn("below-window-floor (1)", self.text)
+
+    def test_a_catalogue_with_no_candidates_says_so_rather_than_emitting_nothing(
+        self,
+    ) -> None:
+        empty = PinCatalogue(
+            entries=parse_pin_text(
+                "gMainMemoryPool = main_BSS_END;\n", path="pins.txt", model=self.model
+            ),
+            sources=("pins.txt",),
+        )
+        text = whitelist_template_text(empty, window_lo=0x80000400)
+        self.assertIn("No pin in these files has either shape", text)
+        self.assertEqual(parse_whitelist_text(text), ())
 
 
 class ReadingFilesTests(unittest.TestCase):

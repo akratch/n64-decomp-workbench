@@ -26,9 +26,15 @@ a problem:
   owns: a bare ``kseg0`` RAM address, or the cart domain ``0xB0000000`` (which
   in DKR is literally commented "fake symbols we just need until things are
   properly matched"). These are the entries a shift can break.
-* **unclassified** -- an absolute value in no window this model names, or an
-  expression this reader could not fold. Reported as itself rather than
-  guessed into one of the three above.
+* **rom-offset** -- an absolute value too small to be any run-time address
+  and inside the ROM the map placed: a raw offset into the cartridge image.
+  Splat projects are full of them (Banjo-Kazooie pins
+  ``boot_core1_rzip_ROM_START = 0xF19250`` and asset-table entries like
+  ``D_5E90 = 0x5E90``), and they are a class of their own rather than a
+  failure to classify -- see `ROM_OFFSET`.
+* **unclassified** -- an absolute value in no window this model names and not
+  a ROM offset either, or an expression this reader could not fold. Reported
+  as itself rather than guessed into one of the four above.
 
 Two things this parser gets right that a ``grep '='`` does not. The comment
 beside a pin is evidence -- DKR's own file admits what its two cart-window
@@ -53,7 +59,7 @@ from __future__ import annotations
 import ast
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -64,15 +70,25 @@ __all__ = [
     "AUTHENTIC_FIXED",
     "CLASSIFICATIONS",
     "DERIVED",
+    "HARDWARE_WINDOWS",
+    "ROM_OFFSET",
     "UNCLASSIFIED",
+    "VRAM_WINDOW_FLOOR",
+    "WHITELIST_REVIEW_MARKER",
+    "WHITELIST_TEMPLATE_RULES",
     "Pin",
     "PinCatalogue",
+    "WhitelistCandidate",
+    "WhitelistRule",
     "boot_globals_whitelist",
     "classify_absolute",
     "default_pin_model",
     "parse_pin_text",
     "parse_whitelist_text",
     "read_pin_files",
+    "reclassify_rom_offsets",
+    "whitelist_candidates",
+    "whitelist_template_text",
 ]
 
 #: The right-hand side names a symbol: the pin follows the layout.
@@ -81,13 +97,21 @@ DERIVED = "derived"
 AUTHENTIC_FIXED = "authentic-fixed"
 #: An absolute address in a window the project itself owns.
 ARTIFACT_SUSPECT = "artifact-suspect"
-#: No window named it, or the expression did not fold. Reported, not guessed.
+#: A raw offset into the cartridge image: too small to be any run-time
+#: address, and inside the extent the map placed. See `classify_absolute`.
+ROM_OFFSET = "rom-offset"
+#: No window named it, it is not a ROM offset, or the expression did not
+#: fold. Reported, not guessed.
 UNCLASSIFIED = "unclassified"
 
 #: Report order: the interesting end first, so a capped list spends its budget
-#: on the entries a reader is looking for.
+#: on the entries a reader is looking for. `ROM_OFFSET` sits between the
+#: suspects and the unclassified because it is the same *kind* of finding as a
+#: suspect -- a written-down number with a named remediation -- while being
+#: strictly better understood than an entry nothing could name at all.
 CLASSIFICATIONS: tuple[str, ...] = (
     ARTIFACT_SUSPECT,
+    ROM_OFFSET,
     UNCLASSIFIED,
     AUTHENTIC_FIXED,
     DERIVED,
@@ -104,6 +128,29 @@ _HARDWARE_REASON = (
 _KSEG0_REASON = (
     "kseg0 RAM address written as a constant: it does not move when the layout moves"
 )
+_ROM_OFFSET_REASON = (
+    "raw ROM offset: below every run-time RAM window and inside the extent "
+    "this map places, so it addresses the cartridge image rather than memory. "
+    "Symbolize it against the linker's own <segment>_ROM_START/_ROM_END "
+    "symbols and it follows the layout instead of being written down"
+)
+
+#: The lowest address any window in `default_n64_windows` calls run-time RAM.
+#: Derived from the windows at or above this floor rather than from "the
+#: lowest window there is" on purpose: that model's ``segmented`` window
+#: (``0x00000000-0x08000000``) is a heuristic about how some asset systems
+#: address memory, not a RAM segment, and a value inside it is exactly the
+#: shape `ROM_OFFSET` exists to name.
+VRAM_WINDOW_FLOOR = 0x80000000
+
+
+def _vram_floor(model: RangeModel) -> int:
+    """The lowest run-time-RAM window start `model` names."""
+
+    return min(
+        (item.lo for item in model.windows if item.lo >= VRAM_WINDOW_FLOOR),
+        default=VRAM_WINDOW_FLOOR,
+    )
 
 #: The one whitelist entry nearly every N64 project needs, offered by name
 #: rather than shipped by default -- `RangeModel` deliberately never carries a
@@ -148,13 +195,30 @@ def default_pin_model(
 
 
 def classify_absolute(
-    value: int, *, model: RangeModel
+    value: int, *, model: RangeModel, rom_extent: int | None = None
 ) -> tuple[str, str | None, str | None]:
     """Return ``(classification, window, reason)`` for one absolute address.
 
     The whitelist is checked first and wins outright: an address the caller
     has declared authentic is authentic whichever window it happens to fall
     in, which is exactly the DKR boot-globals case (``kseg0``, and fixed).
+
+    ``rom_extent`` is the map's own placed extent (see
+    :attr:`~decomp_workbench.shift_audit.ConsistencyCheck.max_placed_extent`),
+    and it is what turns a whole family of "the model has no name for this"
+    entries into `ROM_OFFSET`. A splat project pins raw cartridge offsets by
+    the dozen -- Banjo-Kazooie's ``rzip_dummy_addrs`` writes
+    ``boot_core1_rzip_ROM_START = 0xF19250`` and its level tables write
+    ``D_5E90 = 0x5E90`` -- and every one of them lands *below* the lowest
+    run-time RAM window (`VRAM_WINDOW_FLOOR`) and *inside* what the map
+    placed. Neither half alone is evidence: a small number could be anything,
+    and "inside the ROM" is true of every kseg0 address once you mask the
+    segment off. Together they are specific, and they carry a remediation an
+    unclassified entry does not (`_ROM_OFFSET_REASON`).
+
+    Handing no ``rom_extent`` keeps the four-class answer this function gave
+    before -- a caller with no map cannot bound the ROM and is not asked to
+    guess one.
     """
 
     window, whitelisted, reason = model.classify_value(value)
@@ -166,6 +230,8 @@ def classify_absolute(
         return AUTHENTIC_FIXED, window, _HARDWARE_REASON
     if window == "kseg0":
         return ARTIFACT_SUSPECT, window, _KSEG0_REASON
+    if rom_extent is not None and 0 <= value < min(rom_extent, _vram_floor(model)):
+        return ROM_OFFSET, window, _ROM_OFFSET_REASON
     return UNCLASSIFIED, window, None
 
 
@@ -396,9 +462,19 @@ class Pin:
 
 
 def parse_pin_text(
-    text: str, *, path: str | None = None, model: RangeModel
+    text: str,
+    *,
+    path: str | None = None,
+    model: RangeModel,
+    rom_extent: int | None = None,
 ) -> tuple[Pin, ...]:
-    """Parse one ld-script or ``symbol_addrs`` file's text into pins."""
+    """Parse one ld-script or ``symbol_addrs`` file's text into pins.
+
+    ``rom_extent`` is forwarded to `classify_absolute` for the `ROM_OFFSET`
+    class. A caller that reads its pins before it has a map (``shift audit``
+    does, so a misspelled census key costs nothing) leaves it out here and
+    runs `reclassify_rom_offsets` once the map's extent is known.
+    """
 
     code, comments = _strip_comments(text)
     trailing = {item.line: item for item in comments if item.trailing}
@@ -424,7 +500,9 @@ def parse_pin_text(
             classification, window, reason = DERIVED, None, None
         elif form == "absolute":
             assert value is not None  # from _resolve
-            classification, window, reason = classify_absolute(value, model=model)
+            classification, window, reason = classify_absolute(
+                value, model=model, rom_extent=rom_extent
+            )
         else:
             classification, window, reason = UNCLASSIFIED, None, None
 
@@ -509,6 +587,7 @@ class PinCatalogue:
             "pins_derived": counts[DERIVED],
             "pins_authentic": counts[AUTHENTIC_FIXED],
             "pins_artifact": counts[ARTIFACT_SUSPECT],
+            "pins_rom_offset": counts[ROM_OFFSET],
             "pins_unclassified": counts[UNCLASSIFIED],
             "pins_shown": len(shown),
             "limit": max(0, limit),
@@ -516,7 +595,9 @@ class PinCatalogue:
         }
 
 
-def read_pin_files(paths: Iterable[str | Path], *, model: RangeModel) -> PinCatalogue:
+def read_pin_files(
+    paths: Iterable[str | Path], *, model: RangeModel, rom_extent: int | None = None
+) -> PinCatalogue:
     """Read every named pin file into one catalogue, in the order given."""
 
     entries: list[Pin] = []
@@ -524,9 +605,50 @@ def read_pin_files(paths: Iterable[str | Path], *, model: RangeModel) -> PinCata
     for path in paths:
         name = str(path)
         text = Path(path).read_text(encoding="utf-8", errors="replace")
-        entries.extend(parse_pin_text(text, path=name, model=model))
+        entries.extend(
+            parse_pin_text(text, path=name, model=model, rom_extent=rom_extent)
+        )
         sources.append(name)
     return PinCatalogue(entries=tuple(entries), sources=tuple(sources))
+
+
+def reclassify_rom_offsets(
+    catalogue: PinCatalogue, *, model: RangeModel, rom_extent: int
+) -> PinCatalogue:
+    """Re-answer the `ROM_OFFSET` question once the map's extent is known.
+
+    ``shift audit`` reads its pin files before it reads the map, on purpose:
+    a sweep that misspells a ``--census`` key or a ``--whitelist`` line
+    should learn about it without paying for a 10 MB image. That order means
+    the pins are first classified with no ROM bound at all, which is honest
+    but leaves every raw cartridge offset sitting in `UNCLASSIFIED`. This is
+    the second pass, run once, from
+    :func:`~decomp_workbench.shift_audit.build_shift_audit`.
+
+    Only `UNCLASSIFIED` absolutes are re-examined. Nothing a window already
+    named can move -- `classify_absolute` answers the window branches before
+    it ever looks at the ROM extent, so re-running it on an entry that landed
+    in one of them would return the same answer, and restricting the pass
+    makes that a property of the code rather than of the reader's memory.
+    """
+
+    entries: list[Pin] = []
+    for item in catalogue.entries:
+        if item.classification != UNCLASSIFIED or item.value is None:
+            entries.append(item)
+            continue
+        classification, window, reason = classify_absolute(
+            item.value, model=model, rom_extent=rom_extent
+        )
+        if classification != ROM_OFFSET:
+            entries.append(item)
+            continue
+        entries.append(
+            replace(
+                item, classification=classification, window=window, reason=reason
+            )
+        )
+    return PinCatalogue(entries=tuple(entries), sources=catalogue.sources)
 
 
 # ---------------------------------------------------------------------------
@@ -577,3 +699,203 @@ def parse_whitelist_text(text: str) -> tuple[WhitelistEntry, ...]:
             WhitelistEntry(lo=low, hi=high + 1, reason=match.group("reason"))
         )
     return tuple(entries)
+
+
+# ---------------------------------------------------------------------------
+# Whitelist templates
+# ---------------------------------------------------------------------------
+
+#: What every drafted line in an emitted template is prefixed with. The
+#: entries are emitted **commented out**, and this is why: a whitelist entry
+#: is a claim the project makes about its own addresses ("this one is fixed
+#: by the console, not by my layout"), and nothing that reads a linker map
+#: can make that claim on the project's behalf. A file whose lines are live
+#: on arrival would let a caller declare a hundred pins authentic by
+#: redirecting one command into `--whitelist`, which is precisely the
+#: re-derive-it-later failure the whitelist grammar's mandatory reason exists
+#: to prevent. Uncommenting a line is the smallest possible act of reading
+#: it.
+WHITELIST_REVIEW_MARKER = "# REVIEW:"
+
+
+@dataclass(frozen=True)
+class WhitelistRule:
+    """One published reason a pin was drafted into a whitelist template."""
+
+    name: str
+    evidence: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "evidence": self.evidence}
+
+
+#: The evidence families `whitelist_candidates` drafts from, as data for the
+#: same reason `shift_audit.TIER_RULES` is: a reader has to be able to see
+#: which shapes the tool looked for, and a new one should be one entry rather
+#: than a new code path. Both are *candidacy* rules -- they say a pin has the
+#: shape of an authentic fixed address, never that it is one.
+WHITELIST_TEMPLATE_RULES: tuple[WhitelistRule, ...] = (
+    WhitelistRule(
+        "hardware-window",
+        "the value falls in a memory-mapped hardware window (kseg1, or the "
+        "cart domain inside it): an address the console fixes, which no "
+        "layout change can move",
+    ),
+    WhitelistRule(
+        "below-window-floor",
+        "a kseg0 constant below the movable window's own floor: it cannot be "
+        "an address this layout owns, and it is the shape of the libultra "
+        "boot globals the boot ROM writes before any of this project runs",
+    ),
+)
+
+#: Windows whose members the `hardware-window` rule drafts.
+HARDWARE_WINDOWS: tuple[str, ...] = ("kseg1", "cart")
+
+
+@dataclass(frozen=True)
+class WhitelistCandidate:
+    """One drafted template line, with the pin it was drafted from."""
+
+    value: int
+    name: str
+    rule: str
+    reason: str
+    """The drafted right-hand side of the whitelist line: prose a human
+    rewrites, never a claim this module is entitled to make."""
+
+    window: str | None
+    source: str | None
+    line: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.value,
+            "name": self.name,
+            "rule": self.rule,
+            "reason": self.reason,
+            "window": self.window,
+            "source": self.source,
+            "line": self.line,
+        }
+
+
+def whitelist_candidates(
+    catalogue: PinCatalogue, *, window_lo: int
+) -> tuple[WhitelistCandidate, ...]:
+    """Draft one template line per pin that has an authentic-fixed shape.
+
+    ``window_lo`` is the movable window's floor (see
+    :func:`~decomp_workbench.shift_audit.movable_window`), and it is what
+    makes the second rule evidence rather than a guess: a ``kseg0`` constant
+    *below* the lowest address an insertion could move is, by construction,
+    not an address this project's layout places.
+
+    A pin the caller's existing whitelist already covers is not drafted
+    again. Those arrive classified `AUTHENTIC_FIXED` while still sitting in a
+    project-owned window, which is a shape only a whitelist hit produces --
+    re-emitting them would ask a reader to review a decision they have
+    already made and written down.
+    """
+
+    found: list[WhitelistCandidate] = []
+    for pin in catalogue.entries:
+        if pin.form != "absolute" or pin.value is None:
+            continue
+        if pin.window in HARDWARE_WINDOWS:
+            rule = "hardware-window"
+            reason = (
+                f"{pin.name}: memory-mapped hardware address in the "
+                f"{pin.window} window, fixed by the console rather than by "
+                "this project's layout"
+            )
+        elif pin.window == "kseg0" and pin.value < window_lo:
+            if pin.classification == AUTHENTIC_FIXED:
+                continue  # already on the caller's whitelist, with a reason
+            rule = "below-window-floor"
+            reason = (
+                f"{pin.name}: kseg0 constant below the movable window floor "
+                f"0x{window_lo:08x}, so no insertion moves it -- boot-globals "
+                "shaped"
+            )
+        else:
+            continue
+        found.append(
+            WhitelistCandidate(
+                value=pin.value,
+                name=pin.name,
+                rule=rule,
+                reason=reason,
+                window=pin.window,
+                source=pin.source,
+                line=pin.line,
+            )
+        )
+    return tuple(sorted(found, key=lambda item: (item.value, item.name)))
+
+
+def whitelist_template_text(
+    catalogue: PinCatalogue,
+    *,
+    window_lo: int,
+    window_lo_section: str | None = None,
+) -> str:
+    """Render a skeleton whitelist file from a catalogue's own evidence.
+
+    Every drafted entry is emitted commented out and marked
+    `WHITELIST_REVIEW_MARKER`, with the pin, file and line it came from on
+    the line above it. The file therefore parses to *no* entries until a
+    human has removed a ``# `` -- `parse_whitelist_text` reads it happily and
+    finds nothing, which is the correct answer for a template nobody has
+    reviewed yet.
+    """
+
+    candidates = whitelist_candidates(catalogue, window_lo=window_lo)
+    floor = f"0x{window_lo:08x}"
+    if window_lo_section:
+        floor = f"{floor} ({window_lo_section})"
+    lines = [
+        "# shift audit --emit-whitelist: a skeleton, not a whitelist.",
+        "#",
+        "# Format: `0xADDR reason` or `0xLO-0xHI reason`, one per line, high",
+        "# bound inclusive, # comments ignored. A reason is required: an",
+        "# address with no reason is one somebody re-derives later.",
+        "#",
+        "# Every entry below is COMMENTED OUT. A whitelist entry is a claim",
+        "# your project makes about its own addresses, and reading a linker",
+        "# map does not entitle this command to make it for you. Delete the",
+        "# lines that are not authentic, rewrite the reasons on the ones",
+        "# that are, and remove the leading `# ` to turn one on.",
+        "#",
+        f"# movable window floor: {floor}",
+    ]
+    for source in catalogue.sources:
+        lines.append(f"# pin_sources: {source}")
+    lines.append(f"# pins_total: {len(catalogue.entries)}")
+    lines.append(f"# candidates: {len(candidates)}")
+    for rule in WHITELIST_TEMPLATE_RULES:
+        drafted = sum(1 for item in candidates if item.rule == rule.name)
+        lines.append(f"#   {rule.name} ({drafted}): {rule.evidence}")
+    if not candidates:
+        lines.extend(
+            (
+                "#",
+                "# No pin in these files has either shape. That is a result,",
+                "# not an error: this project writes down no hardware address",
+                "# and no constant below its own movable window floor.",
+                "",
+            )
+        )
+        return "\n".join(lines)
+    for item in candidates:
+        where = item.source or "-"
+        lines.extend(
+            (
+                "",
+                f"{WHITELIST_REVIEW_MARKER} {item.name} "
+                f"({where}:{item.line}), rule {item.rule}",
+                f"# 0x{item.value:08X} {item.reason}",
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)

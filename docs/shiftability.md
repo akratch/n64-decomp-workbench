@@ -74,14 +74,15 @@ Two halves.
 
 **The pin half** reads the project's own linker-input symbol files —
 `undefined_syms.txt`, splat's `symbol_addrs` (`--symbol-addrs`) — and sorts
-every assignment into four classes:
+every assignment into five classes:
 
 | Class | What it is |
 |---|---|
 | `derived` | the right-hand side names a symbol (`gMainMemoryPool = main_BSS_END`). Healthy by construction: whatever the linker decides, this follows |
 | `authentic-fixed` | an absolute address the console fixes, not the project — a `kseg1` hardware register, or an address on your whitelist |
 | `artifact-suspect` | an absolute address in a window the project itself owns: a bare `kseg0` RAM address, or the `0xB0000000` cart domain |
-| `unclassified` | an absolute value in no window the model names, or an expression the reader could not fold. Reported as itself rather than guessed |
+| `rom-offset` | a value below every run-time RAM window and inside the extent the map places: a raw cartridge offset (`boot_core1_rzip_ROM_START = 0xF19250`). Remediable — symbolize it against the linker's own `<segment>_ROM_START`/`_ROM_END` |
+| `unclassified` | an absolute value in no window the model names and no ROM offset either, or an expression the reader could not fold. Reported as itself rather than guessed |
 
 The whitelist is a file, it is yours, and every entry needs a reason:
 

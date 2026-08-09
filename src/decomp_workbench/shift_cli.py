@@ -36,6 +36,7 @@ from .pins import PinCatalogue, default_pin_model, parse_whitelist_text, read_pi
 from .schema import SHIFT_CENSUS_KEYS
 from .shift_audit import (
     MAP_SNIFF_BYTES,
+    ShiftAudit,
     build_shift_audit,
     require_parsed_map,
     shift_audit_lines,
@@ -68,6 +69,27 @@ DEFAULT_LIMIT = 40
 def _fail(message: str) -> int:
     print(f"error: {message}", file=sys.stderr)
     return 2
+
+
+def _emit_whitelist(audit: ShiftAudit, destination: Path) -> None:
+    """Write the whitelist skeleton, refusing to overwrite anything.
+
+    Refusing rather than overwriting because the file this would land on is,
+    by construction, the one a project keeps its reviewed reasons in: a
+    template is worth nothing and the reasons are worth everything, and the
+    two have the same natural filename. The audit run itself is unaffected
+    either way -- emission is a side effect of the same evidence the report
+    is about to print, not a mode that replaces it.
+    """
+
+    if destination.exists():
+        raise ValueError(
+            f"--emit-whitelist refuses to overwrite {destination}: it already "
+            "exists, and a reviewed whitelist and a fresh skeleton have the "
+            "same natural filename. Move it aside or name a new file"
+        )
+    destination.write_text(audit.whitelist_template(), encoding="utf-8")
+    print(f"wrote whitelist skeleton: {destination}", file=sys.stderr)
 
 
 def shift_audit_command(args: argparse.Namespace) -> int:
@@ -109,9 +131,13 @@ def shift_audit_command(args: argparse.Namespace) -> int:
             pins=pins,
             model=model,
             blobs=args.blob,
+            auto_blobs=args.blobs == "auto",
+            excluded_blobs=args.no_blob,
             map_path=str(args.map),
             image_path=str(args.image),
         )
+        if args.emit_whitelist:
+            _emit_whitelist(audit, Path(args.emit_whitelist))
     except (OSError, ValueError) as error:
         return _fail(str(error))
 
@@ -480,6 +506,39 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "split by its input records and never attributed to a symbol. "
             "Repeatable. Use it for DMA'd segments and boot code, whose VMA "
             "is a load target rather than a place code lives"
+        ),
+    )
+    audit.add_argument(
+        "--blobs",
+        choices=("auto",),
+        default=None,
+        help=(
+            "`auto` adopts the blob set the map's own input records imply -- "
+            "every section all of whose objects are raw binaries. The report "
+            "prints that suggestion either way; this is what says yes to it. "
+            "--blob still adds on top and --no-blob subtracts"
+        ),
+    )
+    audit.add_argument(
+        "--no-blob",
+        action="append",
+        default=[],
+        metavar="SECTION",
+        help=(
+            "keep this output section out of the blob set whatever `--blobs "
+            "auto` suggested. Repeatable. Naming the same section with --blob "
+            "and --no-blob is refused rather than resolved by precedence"
+        ),
+    )
+    audit.add_argument(
+        "--emit-whitelist",
+        metavar="FILE",
+        help=(
+            "write a whitelist skeleton drafted from this run's own evidence "
+            "-- hardware-window pins and kseg0 pins below the movable window "
+            "floor -- each entry commented out, marked `# REVIEW:`, and "
+            "carrying the pin it came from. Refuses to overwrite an existing "
+            "file; the audit runs and reports normally either way"
         ),
     )
     audit.add_argument(
