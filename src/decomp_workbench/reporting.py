@@ -79,6 +79,11 @@ SCHEMAS: dict[str, str] = {
     "replay-as1": "decomp-workbench-pass-replay-v1",
     "score": "decomp-workbench-score-v1",
     "shift-audit": "decomp-workbench-shift-audit-v1",
+    # One schema, two shapes. An orchestration is a list of analyses plus the
+    # comparison between them, told apart by `mode`, so a consumer that reads
+    # one reads the other.
+    "shift-rehearse": "decomp-workbench-shift-rehearse-v1",
+    "shift-orchestrate": "decomp-workbench-shift-rehearse-v1",
     "slots": "decomp-workbench-stack-slots-v1",
     "sweep-carriers": "decomp-workbench-carrier-pool-v1",
     "sweep-commute": "decomp-workbench-sweep-v1",

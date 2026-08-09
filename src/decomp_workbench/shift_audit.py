@@ -11,7 +11,7 @@ insertion would move.
 module does not pretend otherwise.** A linked N64 ROM has no relocations left
 in it: a pointer the linker resolved and a constant somebody typed are the
 same four bytes. Only a relink can tell them apart, which is `shift rehearse`'s
-job (forthcoming -- it is the empirical referee, and this command's text
+job -- it is the empirical referee, and this command's text
 coverage line points at it). What this module ranks is something it *can*
 measure: how confidently a given word is an address **reference** at all,
 against the false-positive families S0's hand rehearsal found by measuring
@@ -890,7 +890,7 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             f"text: {found.text_words:,} words in {found.text_regions} text "
             "region(s) were not scanned. An instruction's address arithmetic "
             "is split across a lui/%lo pair and only a relink resolves it: "
-            "`shift rehearse` (forthcoming) is the empirical referee for "
+            "`shift rehearse` is the empirical referee for "
             "those, and for which of the words above actually move.",
             "",
             "tiers rank how confidently a word is an address reference, not "

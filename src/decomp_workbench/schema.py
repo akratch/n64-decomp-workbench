@@ -765,6 +765,255 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric("tier", "tier", "high, medium, or low address-reference confidence"),
     Metric("evidence", "evidence", "what one published rule is based on"),
     Metric("count", "count", "how many entries one tally row holds"),
+    # ------------------------------------------------------------------
+    # The rehearsal (``shift rehearse``). The audit reads one image and the
+    # rehearsal reads two, so its vocabulary is about the *difference*: what
+    # changed, what should have changed and did not, and which build step
+    # wrote the words neither the compiler nor the linker did. Keys shared
+    # with the audit above (``vram``, ``tier``, ``rule``, ``region``) mean the
+    # same thing in both, because both read them off the same region table.
+    # ------------------------------------------------------------------
+    Metric("mode", "mode", "analyze (one relink pair) or orchestrate (a driver run)"),
+    Metric("base_map", "base_map", "the unshifted build's `ld -Map` file"),
+    Metric("base_image", "base_image", "the unshifted build's linked image"),
+    Metric("shifted_map", "shifted_map", "the relinked build's `ld -Map` file"),
+    Metric("shifted_image", "shifted_image", "the relinked build's linked image"),
+    Metric(
+        "delta",
+        "delta",
+        "bytes the pad inserted; also, on one movement row, how far that "
+        "symbol actually moved",
+    ),
+    Metric("base_image_bytes", "base_image_bytes", "size of the unshifted image"),
+    Metric(
+        "shifted_image_bytes",
+        "shifted_image_bytes",
+        "size of the relinked image; it must exceed the base by exactly delta",
+    ),
+    Metric(
+        "anchor_vram",
+        "anchor_vram",
+        "the VRAM the pad went in at: everything from here up moves",
+    ),
+    Metric(
+        "anchor_rom", "anchor_rom", "that address as a ROM offset in the base image"
+    ),
+    Metric(
+        "anchor_source",
+        "anchor_source",
+        "auto (derived from the two maps) or symbol (the caller named one)",
+    ),
+    Metric("anchor_symbol", "anchor_symbol", "a symbol placed exactly at the anchor"),
+    Metric(
+        "anchor_highest_unmoved",
+        "anchor_highest_unmoved",
+        "the highest in-window VRAM a shared symbol kept; with "
+        "anchor_lowest_moved it brackets the true insertion point",
+    ),
+    Metric(
+        "anchor_lowest_moved",
+        "anchor_lowest_moved",
+        "the lowest in-window VRAM a shared symbol moved delta from",
+    ),
+    Metric(
+        "generated_spans",
+        "generated_spans",
+        "ROM spans a build step writes rather than the compiler: CRC header "
+        "words and checksum storage, recognised before any decode or value test",
+    ),
+    Metric("start", "start", "first ROM offset one span covers"),
+    Metric("end", "end", "one past the last ROM offset one span covers"),
+    Metric("label", "label", "the class or span name a row was given"),
+    Metric("total_words", "total_words", "32-bit words the pairing compared"),
+    Metric(
+        "differing_total",
+        "differing_total",
+        "paired words whose value changed; the sum of every class count",
+    ),
+    Metric("classes", "classes", "per-class counts for every differing word"),
+    Metric(
+        "unexplained_changed",
+        "unexplained_changed",
+        "changed words no class accounts for: the gate, and zero on a "
+        "controlled relink",
+    ),
+    Metric(
+        "unexplained_shown", "unexplained_shown", "rows the unexplained list carries"
+    ),
+    Metric(
+        "unexplained", "unexplained", "the unexplained-word list, capped at --limit"
+    ),
+    Metric("offset", "offset", "ROM offset of one differing word in the base image"),
+    Metric("old", "old", "the word's value in the base image"),
+    Metric("new", "new", "the word's value in the relinked image"),
+    Metric(
+        "stale_total",
+        "stale_total",
+        "words that held a value inside the moved range and did not move",
+    ),
+    Metric(
+        "stale_confirmed",
+        "stale_confirmed",
+        "the headline: words the audit ranked high that this relink did not "
+        "move -- the strongest available evidence for a hardcoded pointer",
+    ),
+    Metric(
+        "stale_review",
+        "stale_review",
+        "unmoved words at medium confidence: worth a look, not an alarm",
+    ),
+    Metric(
+        "stale_noise",
+        "stale_noise",
+        "unmoved words a suppressor already explained away: the measured "
+        "false-positive floor",
+    ),
+    Metric(
+        "stale_unattributed",
+        "stale_unattributed",
+        "stale candidates the static scan never saw, because they sit in a "
+        "region it does not scan; reported rather than absorbed",
+    ),
+    Metric("stale_shown", "stale_shown", "rows the stale list carries"),
+    Metric("stale", "stale", "the ranked unmoved-word list, capped at --limit"),
+    Metric("shifted_value", "shifted_value", "what the relinked image holds there"),
+    Metric(
+        "verdict",
+        "verdict",
+        "what the relink did to one word: moved, unmoved, or changed-other",
+    ),
+    Metric(
+        "outcome",
+        "outcome",
+        "what that verdict means at that tier: tracks, stale-confirmed, "
+        "stale-review, noise, or changed-other",
+    ),
+    Metric(
+        "merge_tiers",
+        "merge_tiers",
+        "the published merge: what an unmoved word is called at each confidence tier",
+    ),
+    Metric(
+        "tier_verdicts",
+        "tier_verdicts",
+        "the tier by movement matrix: every static hit inside the moved "
+        "range, counted by what the relink did to it",
+    ),
+    Metric(
+        "reconciled_total",
+        "reconciled_total",
+        "static hits judged against the relink",
+    ),
+    Metric("moved_total", "moved_total", "of those, the ones that moved by delta"),
+    Metric("unmoved_total", "unmoved_total", "of those, the ones that did not move"),
+    Metric(
+        "changed_other_total",
+        "changed_other_total",
+        "of those, the ones that changed by something other than delta",
+    ),
+    Metric("movement_shared", "movement_shared", "symbols both maps define"),
+    Metric(
+        "movement_anomaly_total",
+        "movement_anomaly_total",
+        "shared symbols that moved by neither 0 nor delta; a rigid layout has none",
+    ),
+    Metric(
+        "movement_anomaly_shown",
+        "movement_anomaly_shown",
+        "rows the movement-anomaly list carries",
+    ),
+    Metric("movement", "movement", "the movement-anomaly list, capped at --limit"),
+    Metric(
+        "movement_only_in_base",
+        "movement_only_in_base",
+        "symbols the base map defines and the relink lost",
+    ),
+    Metric(
+        "movement_only_in_shifted",
+        "movement_only_in_shifted",
+        "symbols the relink gained",
+    ),
+    Metric("base_address", "base_address", "one symbol's address in the base map"),
+    Metric(
+        "shifted_address",
+        "shifted_address",
+        "the same symbol's address after the relink",
+    ),
+    Metric("checksum_total", "checksum_total", "FUNCTION=VARIABLE pairs checked"),
+    Metric("checksum_pass", "checksum_pass", "pairs the consistency rule held for"),
+    Metric(
+        "checksum_findings",
+        "checksum_findings",
+        "pairs that did not hold, or could not be resolved",
+    ),
+    Metric("checksums", "checksums", "one row per checked pair, always all of them"),
+    Metric(
+        "checksum_rules",
+        "checksum_rules",
+        "the published outcome table for the checksum-consistency rule",
+    ),
+    Metric("function", "function", "the checksum-protected function"),
+    Metric("variable", "variable", "the variable its byte-sum is patched into"),
+    Metric("function_vram", "function_vram", "where that function starts"),
+    Metric("function_rom", "function_rom", "that start as a ROM offset"),
+    Metric(
+        "function_size",
+        "function_size",
+        "bytes to the next symbol the map places: the same extent the "
+        "project's own post-link patcher derives",
+    ),
+    Metric("body_words", "body_words", "words compared inside that extent"),
+    Metric("body_changed", "body_changed", "how many of them the relink changed"),
+    Metric("variable_rom", "variable_rom", "the checksum word's ROM offset"),
+    Metric("variable_base", "variable_base", "its value in the base image"),
+    Metric("variable_shifted", "variable_shifted", "its value in the relinked image"),
+    Metric("variable_changed", "variable_changed", "whether the two differ"),
+    Metric(
+        "status",
+        "status",
+        "pass, checksum-stale, checksum-orphan, or unresolved",
+    ),
+    Metric(
+        "basis",
+        "basis",
+        "why a pair passed: inert (nothing changed) or tracked (both did)",
+    ),
+    Metric("note", "note", "why a pair could not be resolved, when it could not"),
+    Metric(
+        "findings",
+        "findings",
+        "unexplained words plus confirmed stale words plus movement "
+        "anomalies plus checksum findings",
+    ),
+    Metric("wrapper", "wrapper", "the relink script the driver invoked"),
+    Metric("ld_script", "ld_script", "the linker script a run was linked with"),
+    Metric(
+        "anchor_object",
+        "anchor_object",
+        "the object path the pad line was inserted after",
+    ),
+    Metric("workdir", "workdir", "where the driver wrote scripts and build outputs"),
+    Metric(
+        "image_name",
+        "image_name",
+        "the file name the wrapper must leave the image under",
+    ),
+    Metric(
+        "map_name", "map_name", "the file name the wrapper must leave the map under"
+    ),
+    Metric("deltas", "deltas", "the shift amounts the driver rehearsed"),
+    Metric("runs", "runs", "one row per wrapper invocation, base first"),
+    Metric("out_dir", "out_dir", "the directory one run was told to write to"),
+    Metric("exit_status", "exit_status", "what the wrapper exited with"),
+    Metric("analyses", "analyses", "one analyze report per delta"),
+    Metric(
+        "classes_agree",
+        "classes_agree",
+        "whether every delta reported the same counts; a shift census is a "
+        "property of the layout, not of how far it moved",
+    ),
+    Metric("disagreements", "disagreements", "every count the deltas differed on"),
+    Metric("values", "values", "that count, per delta"),
 )
 
 # Keys a command wraps around a report rather than measures. They answer
