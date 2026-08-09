@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **`sweep` generates the variant family, and `sweep ingest` reads it back.**
+  The search half of the boundary `campaign` already draws: the workbench emits
+  sources and a manifest, the project's own compile-one wrapper builds them, and
+  the objects come back to be gated, scored and ranked. `sweep regress` is the
+  experiment nobody runs — the base unedited as its own control, then each
+  accumulated construct removed, singly and jointly — and its price table names
+  what every inherited lever is costing on the base as it stands now. One
+  campaign ran that once, twelve builds, and found a four-atom supplier set was
+  dead weight costing ten rows. `sweep hoist` covers four classes including the
+  deep operand hoist (a leaf of a *nested* subexpression, which no generator
+  library had) and the compound-assignment and call-argument hoists; `sweep
+  commute` exchanges every commutative operand pair that can be exchanged
+  without reassociating; `sweep copies` drops a copy and rehosts its reads;
+  `sweep fuse` fuses a donor's live range into the target's, with `sweep
+  donors` and `sweep carriers` answering the two read-only questions that
+  precede them. Every variant is keyed by **(site, class, carrier)** — at one
+  line of one campaign the carrier's declaration index selected between two
+  entirely different cost deltas — and a colliding triple stops the run. A
+  class letter that is not in the registry is an error rather than a shorter
+  table, which is the defect that made two new generator classes vanish from a
+  campaign's own catalogue. Nothing is dropped quietly: a refused edit, an
+  unbuilt variant and a duplicate source are each a row with its reason, and
+  every report ends with its coverage sentence. Documented in `docs/sweeps.md`.
+
+- **Every generated edit states the base it was written against.** The composer
+  behind the sweep family refuses in three stages: the file's SHA-256 is not the
+  one the plan was written against (so no line number means what it meant); an
+  anchor line does not say what was expected; or the edit falls inside a
+  `--frozen LO..HI` zone another construction declared. Anchors are re-read at
+  their own line after composing, through the line map the edits produced —
+  searching the whole emitted file for the anchor text, which the strongest
+  campaign composer did, is satisfied by a coincidental duplicate elsewhere.
+
+- **`coset=?` is no longer reported as a rotation.** An object holding no
+  ring-carrying row reads `?`, which means "nothing to measure", not "the ring
+  moved"; treating it as a rotation printed the coset caution over whole
+  families of objects that had no ring to rotate.
+
+- **`decomp-workbench probe` and `decomp-workbench sweep` list their operations
+  instead of answering "not a command".** Every other command group already
+  did.
+
 - **`slots` prices a fusion donor without building one.** For each frame
   offset: the loads, the stores, the address-takes, the access widths that
   reach it and the registers that carry it. A donor's price is exactly the

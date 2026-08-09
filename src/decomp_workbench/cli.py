@@ -125,6 +125,7 @@ from .scratch_registration import register_scratch_commands
 from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
+from .sweep_cli import register_sweep_commands
 from .toolchain import toolchain_status
 from .toolchain_cli import register_toolchain_commands
 from .trace import (
@@ -1807,6 +1808,10 @@ def build_parser() -> argparse.ArgumentParser:
     # `slots` reads the same object the other object commands read and
     # answers what a fusion donor costs, without a build.
     register_slots_command(commands)
+    # The search half of the same boundary `campaign` draws: emit a variant
+    # family and its manifest, let the project's wrapper build them, read the
+    # objects back gated, scored, and with the coverage the family declared.
+    register_sweep_commands(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)
     register_fidelity_command(commands)

@@ -291,7 +291,9 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Does statement line assignment own this schedule, and which line does a statement need? | `probe-lines`, `probe-lines --tie` | Token-identical variants plus a control, scored toward and away from the target |
 | Are these two reads of a local the same value? | `probe-equiv` | Same-value ranges from definition placement plus the address-of check, with its limits printed |
 | Where can a statement that emits nothing change the allocation? | `probe-deadread` | Candidate positions, the measured spelling table, and one variant source per candidate |
-| What would fusing this donor cost? | `slots` | Loads, stores and address-takes per frame offset, and the punned slots |
+| What would fusing this donor cost? | `slots`, `sweep donors` | Loads, stores and address-takes per frame offset; the locals whose live range avoids the target's |
+| What is every lever I inherited actually costing me? | `sweep regress` | The removal lattice with its own control, and a measured price per construct |
+| Which carrier, which operand, which commutative pair? | `sweep hoist/commute/copies/fuse`, `sweep ingest` | A variant family keyed by (site, class, carrier), gated and ranked with its coverage |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
 | Will this proof repository work from a fresh clone? | `handoff audit` | Missing paths, absolute paths, and untracked local dependencies |
@@ -339,6 +341,7 @@ The three narrative pages first, then the focused guides:
 - [Trace analysis][trace-analysis]
 - [The allocator decision cascade][cdx-cascade]
 - [Source probes][source-probes]
+- [Sweeps][sweeps] — generate a variant family, then read it back gated and scored
 - [Compiler instrumentation][compiler-instrumentation]
 - [Pass replay][pass-replay]
 - [Line-assignment probe][line-assignment-probe] — does statement line assignment own the schedule
@@ -410,6 +413,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
 [cdx-cascade]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/cdx-cascade.md
 [source-probes]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/source-probes.md
+[sweeps]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/sweeps.md
 [troubleshooting]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/troubleshooting.md
 [workflows]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/workflows.md
 [oracle]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/oracle.md

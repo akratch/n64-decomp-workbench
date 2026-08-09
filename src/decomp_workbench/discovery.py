@@ -123,6 +123,16 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("equiv", "the ranges over which every read of a local is one value"),
         ("deadread", "positions where a zero-footprint discarded read can be tried"),
     ),
+    "sweep": (
+        ("regress", "price every accumulated construct by removing it"),
+        ("carriers", "the locals that are dead at a site, and therefore free"),
+        ("donors", "the locals whose live range avoids a fusion target's"),
+        ("hoist", "hoist an operand into every available carrier"),
+        ("commute", "exchange every commutative operand pair"),
+        ("copies", "drop a copy and rehost its reads on the original"),
+        ("fuse", "fuse a donor's live range into the target's"),
+        ("ingest", "gate, score and rank a built variant family"),
+    ),
     "toolchain": (
         ("init", "materialize a real-copy toolchain with calibration gates"),
         ("calibrate", "run replay, collateral, and project-output gates"),
@@ -198,6 +208,14 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("probe", "deadread"): "probe-deadread",
     ("probe", "equiv"): "probe-equiv",
     ("probe", "lines"): "probe-lines",
+    ("sweep", "carriers"): "sweep-carriers",
+    ("sweep", "commute"): "sweep-commute",
+    ("sweep", "copies"): "sweep-copies",
+    ("sweep", "donors"): "sweep-donors",
+    ("sweep", "fuse"): "sweep-fuse",
+    ("sweep", "hoist"): "sweep-hoist",
+    ("sweep", "ingest"): "sweep-ingest",
+    ("sweep", "regress"): "sweep-regress",
     ("toolchain", "fingerprint"): "fingerprint-toolchain",
     ("toolchain", "lineage"): "lineage",
     ("toolchain", "init"): "toolchain-init",
@@ -215,6 +233,14 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "note-add",
         "note-list",
         "note-merge",
+        "sweep-carriers",
+        "sweep-commute",
+        "sweep-copies",
+        "sweep-donors",
+        "sweep-fuse",
+        "sweep-hoist",
+        "sweep-ingest",
+        "sweep-regress",
         "toolchain-calibrate",
         "toolchain-init",
         "toolchain-status",
@@ -596,10 +622,16 @@ def register_discovery_commands(
     )
     completion.set_defaults(handler=completion_command)
 
+    # Every group whose own name is not already a command. `probe` was
+    # shipped without one and answered `decomp-workbench probe` with "not a
+    # command", which is the opposite of what a reader asking what is on offer
+    # deserves.
     for group in (
         "object",
         "scratch",
         "note",
+        "probe",
+        "sweep",
         "trace",
         "instrument",
         "pass",

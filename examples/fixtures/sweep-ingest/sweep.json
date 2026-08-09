@@ -1,0 +1,110 @@
+{
+  "base": "examples/fixtures/sweep-base.c",
+  "base_sha256": "8ca1584aa7a6965b14ed03839fe4bd4ff481a8c90047da4d7bd1b42bb4261daf",
+  "classes": [
+    {
+      "description": "one accumulated construct deleted, singly or jointly, to price it",
+      "letter": "N",
+      "name": "null-hypothesis removal"
+    }
+  ],
+  "context": "",
+  "coverage": {
+    "basis": "subsets of 2 construct(s) up to order 1",
+    "covered": 4,
+    "excluded": 0,
+    "exhaustive": true,
+    "fraction": 1.0,
+    "sentence": "coverage: swept-exhaustively -- 4 of 4 point(s) (subsets of 2 construct(s) up to order 1); a negative result here is a proof about this space",
+    "space": 4,
+    "step": null,
+    "unvisited": 0,
+    "vocabulary": "swept-exhaustively"
+  },
+  "directory": "examples/fixtures/sweep-ingest",
+  "dropped": [],
+  "dropped_count": 0,
+  "generator": "regress",
+  "limits": [
+    "Edits are textual and structural. Nothing here parses or types C, so a variant is a proposal to build, not a proven-equivalent program.",
+    "Liveness is read from the text: a definition is an assignment, a compound assignment, an increment or an address-of. A write through a pointer the text does not spell is not seen.",
+    "A carrier is only ever an existing dead local. A fresh declaration mints a new frame slot (8 bytes for an f32 on the one compiler this was measured on) and the frame gate rejects it, so the pool never proposes one.",
+    "Review a winner before adopting it: `decomp-workbench experiment review-mutation BASE WINNER`."
+  ],
+  "schema": "decomp-workbench-sweep-v1",
+  "variant_count": 4,
+  "variants": [
+    {
+      "carrier": "-",
+      "class": "N",
+      "description": "the base, unedited: the control every price is measured against",
+      "detail": {
+        "control": true,
+        "removed": []
+      },
+      "filename": "sweep-base.N.control.c",
+      "label": "N.control.x",
+      "site": "control",
+      "stem": "sweep-base.N.control"
+    },
+    {
+      "carrier": "-",
+      "class": "N",
+      "description": "removed: deadread",
+      "detail": {
+        "constructs": [
+          "deadread"
+        ],
+        "order": 1,
+        "removed": [
+          14
+        ],
+        "semantics": "ok"
+      },
+      "filename": "sweep-base.N.L14.c",
+      "label": "N.L14.x",
+      "site": "L14",
+      "stem": "sweep-base.N.L14"
+    },
+    {
+      "carrier": "-",
+      "class": "N",
+      "description": "removed: copy",
+      "detail": {
+        "constructs": [
+          "copy"
+        ],
+        "order": 1,
+        "removed": [
+          15
+        ],
+        "semantics": "read-before-definition: carry"
+      },
+      "filename": "sweep-base.N.L15.c",
+      "label": "N.L15.x",
+      "site": "L15",
+      "stem": "sweep-base.N.L15"
+    },
+    {
+      "carrier": "-",
+      "class": "N",
+      "description": "removed: deadread+copy",
+      "detail": {
+        "constructs": [
+          "deadread",
+          "copy"
+        ],
+        "order": 2,
+        "removed": [
+          14,
+          15
+        ],
+        "semantics": "read-before-definition: carry"
+      },
+      "filename": "sweep-base.N.L14-L15.c",
+      "label": "N.L14-L15.x",
+      "site": "L14+L15",
+      "stem": "sweep-base.N.L14-L15"
+    }
+  ]
+}
