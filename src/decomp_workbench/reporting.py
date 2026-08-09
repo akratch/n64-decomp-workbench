@@ -20,6 +20,8 @@ ERROR_SCHEMA = "decomp-workbench-error-v1"
 
 SCHEMAS: dict[str, str] = {
     "bundle-scratch": "decomp-workbench-scratch-bundle-v1",
+    "align": "decomp-workbench-shift-diff-v1",
+    "align-dumps": "decomp-workbench-shift-diff-v1",
     "audit-handoff": "decomp-workbench-handoff-audit-v1",
     "campaign": "decomp-workbench-campaign-v1",
     "campaign-export": "decomp-workbench-campaign-export-result-v1",

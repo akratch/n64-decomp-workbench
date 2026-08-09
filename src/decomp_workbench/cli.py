@@ -19,6 +19,7 @@ from typing import cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
+from .align_cli import register_align_commands
 from .allocator_cli import register_allocator_commands
 from .artifacts import capture_streams
 from .cache_cli import register_cache_commands
@@ -1771,6 +1772,10 @@ def build_parser() -> argparse.ArgumentParser:
     register_view_commands(commands)
     register_diagnose_commands(commands)
     register_window_commands(commands)
+    # `align` reads the same two objects and answers the question that comes
+    # before every metric `compare` reports: are these two streams even the
+    # same length, and if not, what did the candidate add?
+    register_align_commands(commands)
     register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)
