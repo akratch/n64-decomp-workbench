@@ -111,6 +111,39 @@ properties: it carries debug-info sections and it links overlays).
   overlay window through those methods). See that module's docstring and
   :meth:`~decomp_workbench.ldmap.LdMap.sections_containing` for the honest
   version.
+
+WB-140 (fresh-eyes QA on this branch, filed the day after S5's real-patient
+run above): the module's every remaining number was honest about what it
+counted, but nothing checked whether the *inputs* were the pair they claimed
+to be. Three shapes, one root cause -- no post-parse sanity or caller-input
+validation -- and all three are hard errors now rather than a confident
+wrong answer.
+
+* **A non-map file parses to zero sections.** :func:`~decomp_workbench.ldmap.
+  parse_ld_map` is a permissive regex reader by design (see that module's
+  docstring): text that never matches an output-section header simply
+  contributes nothing, which is correct for a stray blank line and silently
+  wrong for a whole file that is not a linker map at all -- QA's repro was
+  passing a ``.z64`` image as ``--map``. `require_parsed_map` refuses a
+  zero-section map before any region, window, or scan is derived from it,
+  and sniffs the file's first bytes for a NUL (a linker map is text; a
+  ROM's first bytes never are) to name the likely mistake.
+* **A real map paired with an image from a different build.** Measured on
+  the S0 artifacts: DKR's ``nm-base`` map against the ``shift-0x10`` image
+  (a real 0x10 relink, not a corrupt file) produced a full, plausible,
+  exit-0 report with ``scan_total`` ballooned from 3,443 to 1,323,680 -- the
+  worst shape a wrong input pair can take, because nothing about the report
+  *looks* wrong. `check_map_image_consistency` compares the image's actual
+  length against the map's own maximum placed extent (``rom + size``,
+  maximised over every region the map placed) and hard-errors when the two
+  disagree in a way that is not benign cart padding.
+* **A typo'd ``--blob`` name silently matches nothing.** ``.assets`` and
+  ``.assets1`` are both valid-looking section-name shapes, and a name that
+  matches no section changes the region table (the section keeps its
+  default kind) without a whisper. `build_region_table` refuses any
+  ``blobs`` entry that does not name a section the map actually has, which
+  covers `shift rehearse` too: `build_rehearsal` calls this same function to
+  derive its region table, so one fix serves both commands' ``--blob``.
 """
 
 from __future__ import annotations
@@ -131,16 +164,20 @@ from .pins import (
 )
 
 __all__ = [
+    "BLOB_ERROR_SECTION_LIMIT",
     "CLUSTER_MINIMUM",
+    "MAP_SNIFF_BYTES",
     "NON_ALLOC_KIND",
     "NON_ALLOC_ROM_SOURCE",
     "NON_ALLOC_SECTION_FAMILIES",
+    "PADDING_PATTERN_MAX_PERIOD",
     "REPEAT_MINIMUM",
     "RESIDENCE_SCORES",
     "SCANNED_KINDS",
     "SYMBOL_START_BONUS",
     "TIER_RULES",
     "TIER_THRESHOLDS",
+    "ConsistencyCheck",
     "Hit",
     "MovableWindow",
     "Region",
@@ -148,7 +185,9 @@ __all__ = [
     "TierRule",
     "build_region_table",
     "build_shift_audit",
+    "check_map_image_consistency",
     "movable_window",
+    "require_parsed_map",
     "scan_regions",
     "shift_audit_lines",
 ]
@@ -290,6 +329,52 @@ SCORED = "scored"
 
 
 # ---------------------------------------------------------------------------
+# WB-140 rule A: a map that parsed to nothing
+# ---------------------------------------------------------------------------
+
+#: Bytes sampled from the start of a candidate ``--map`` file to guess
+#: whether it is binary rather than text, before either file is read in
+#: full. A linker map is ASCII: addresses, section names, and object paths
+#: are all printable. A single NUL byte this early is something no real map
+#: ever prints and is also the first byte of an N64 ROM's boot-code region
+#: -- cheap and specific enough to name the likely mistake without
+#: decoding anything.
+MAP_SNIFF_BYTES = 4096
+
+
+def require_parsed_map(ldmap: LdMap, *, path: str, sample: bytes = b"") -> None:
+    """WB-140 rule A: refuse a map that parsed to zero output sections.
+
+    QA's repro: pass any ``.z64`` image as ``--map``. `parse_ld_map` is a
+    permissive regex reader by design (see :mod:`decomp_workbench.ldmap`) --
+    text that never matches an output-section header simply contributes
+    nothing to the parse, which is correct for a stray blank line and
+    silently wrong for an entire file that is not a linker map. Every
+    downstream number (``region_count``, ``scan_total``, the pin counts) was
+    then honestly, uselessly zero: a clean exit-0 report that answered no
+    question at all. Zero sections is never a legitimate report for a
+    linked project, so this refuses before a region, a window, or a scan is
+    derived from a map that carries none.
+
+    ``sample`` is the caller's own cheap sniff of the file's first bytes
+    (see `MAP_SNIFF_BYTES`) -- checked only when there is something to
+    refuse, so the swap hint names the likely mistake instead of leaving a
+    reader to guess it.
+    """
+
+    if ldmap.sections:
+        return
+    hint = (
+        " Is this a linker map? --map and --image may be swapped."
+        if b"\x00" in sample
+        else ""
+    )
+    raise ValueError(
+        f"{path} parsed as no linker map: 0 output sections were found.{hint}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Regions
 # ---------------------------------------------------------------------------
 
@@ -370,6 +455,23 @@ def _placement(
     return offset, source
 
 
+#: How many section names an unknown-``--blob`` error spells out before
+#: falling back to "+N more" -- long enough that a typo is still obviously
+#: absent from the list, short enough that a map with hundreds of sections
+#: (BK's map has fourteen overlay output sections alone) does not print a
+#: wall of names for one bad argument.
+BLOB_ERROR_SECTION_LIMIT = 20
+
+
+def _section_name_list(names: Sequence[str]) -> str:
+    """Render a capped, comma-separated section-name list for an error."""
+
+    shown = list(names[:BLOB_ERROR_SECTION_LIMIT])
+    remainder = len(names) - len(shown)
+    joined = ", ".join(shown) if shown else "no sections at all"
+    return f"{joined}, ... (+{remainder} more)" if remainder > 0 else joined
+
+
 def build_region_table(
     ldmap: LdMap,
     *,
@@ -403,9 +505,27 @@ def build_region_table(
     excluded: an explicit placement always outranks the name-based
     inference, the same rule :mod:`decomp_workbench.ldmap` applies to every
     address it resolves.
+
+    WB-140 rule C: every name in ``blobs`` must be an output section this
+    map actually has, checked before any region is derived. A typo
+    (``.assets1`` for ``.assets``) previously matched nothing and changed
+    the region table -- and therefore the movable window and the scan --
+    with no error at all, because an unmatched blob name and an
+    intentionally-absent one look identical to a caller who only sees the
+    downstream numbers move. `shift_rehearse.build_rehearsal` calls this
+    same function to derive its own region table, so this one check covers
+    both commands' ``--blob``.
     """
 
     blob_names = frozenset(blobs)
+    known_sections = [section.name for section in ldmap.sections_sorted()]
+    unknown_blobs = sorted(blob_names - set(known_sections))
+    if unknown_blobs:
+        raise ValueError(
+            "--blob names a section this map does not have: "
+            f"{', '.join(unknown_blobs)} (map sections: "
+            f"{_section_name_list(known_sections)})"
+        )
     header_names = frozenset(header_sections)
     by_output: dict[str, list[Any]] = {}
     for record in ldmap.input_sections:
@@ -542,6 +662,186 @@ def movable_window(regions: Sequence[Region]) -> MovableWindow:
         hi=high.vram + high.size,
         lo_section=low.output_section,
         hi_section=high.output_section,
+    )
+
+
+# ---------------------------------------------------------------------------
+# WB-140 rule B: does this image match this map?
+# ---------------------------------------------------------------------------
+
+#: The longest repeating unit `_is_uniform_padding` checks for, beyond the
+#: single-byte case (0x00 blank cart space or 0xFF erased/unprogrammed
+#: flash, checked first and separately because a cart's padding region can
+#: run to megabytes and a byte-value check is the only one cheap enough
+#: there). Chosen to comfortably cover word- and dword-periodic fill
+#: without ever testing a candidate period anywhere near the excess's own
+#: length -- real content does not come out periodic at a short period by
+#: chance.
+PADDING_PATTERN_MAX_PERIOD = 16
+
+
+def _is_uniform_padding(data: bytes) -> bool:
+    """Whether `data` reads as fill, not as two builds' worth of content."""
+
+    if not data:
+        return True
+    if len(set(data)) == 1:
+        return True
+    for period in range(2, min(PADDING_PATTERN_MAX_PERIOD, len(data) // 2) + 1):
+        if len(data) % period:
+            continue
+        unit = data[:period]
+        if all(
+            data[index : index + period] == unit
+            for index in range(0, len(data), period)
+        ):
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class ConsistencyCheck:
+    """WB-140 rule B: is this image really the one the map describes?
+
+    Measured on the S0 artifacts: DKR's ``nm-base`` map (the un-shifted
+    build) against the ``shift-0x10`` image (a real, correctly-linked
+    0x10-byte relink of the *same* project) is not a corrupt pair -- it is
+    exactly the mistake a caller running a sweep across a project's own
+    shift-rehearsal artifacts would make, and it produced a full, plausible,
+    exit-0 report with ``scan_total`` ballooned from 3,443 to 1,323,680. A
+    confident wrong answer about address safety is the worst shape this
+    command can take, worse than a crash, because nothing about the report
+    signals that anything is wrong.
+
+    The check is one number handed against another. `max_placed_extent` is
+    ``rom + size`` maximised over every region the map actually placed --
+    the last byte the map claims the image should hold. An image longer
+    than that is either benign cart padding (checked byte-for-byte,
+    `_is_uniform_padding`) or content from a different build. An image
+    shorter than that means some of what the map placed is not really
+    there, which `check_map_image_consistency` counts per region
+    (`regions_unplaced_past_eof`) rather than leaving to be inferred from
+    a wall of ``rom_source=unplaced`` rows.
+    """
+
+    max_placed_extent: int
+    """``rom + size``, maximised over every region the map placed (``rom``
+    is not ``None``) -- the last byte the map claims the image should
+    hold."""
+
+    padding_bytes: int | None
+    """Bytes the image runs past `max_placed_extent`, once that excess is
+    confirmed uniform fill. ``None`` when the image is not longer than the
+    map's placed extent -- there is no excess to characterise."""
+
+    regions_unplaced_past_eof: int
+    """Placeable regions (every kind but ``bss`` and `NON_ALLOC_KIND`,
+    neither of which ever claims image bytes) whose claimed extent runs
+    past the image actually handed in -- either because the map's own
+    placement already resolved past the image (``rom_source="unplaced"``)
+    or because a region starts inside the image but its declared size
+    still carries its tail past the end. Nonzero here is the headline
+    signal a truncated or mismatched image leaves, even though every
+    individual region row can look unremarkable on its own (a region
+    whose start is in-bounds keeps its ordinary ``rom_source`` no matter
+    how far its tail overruns)."""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "max_placed_extent": self.max_placed_extent,
+            "padding_bytes": self.padding_bytes,
+            "regions_unplaced_past_eof": self.regions_unplaced_past_eof,
+        }
+
+
+def check_map_image_consistency(
+    regions: Sequence[Region],
+    image: bytes,
+    *,
+    map_path: str | None = None,
+    image_path: str | None = None,
+) -> ConsistencyCheck:
+    """WB-140 rule B, always on: refuse an image that does not match the map.
+
+    Three outcomes, in the order they are tested. The image can run past
+    the map's own extent (`image_bytes > max_placed_extent`): benign when
+    the excess is uniform padding, a hard error naming both numbers
+    otherwise -- QA's exact repro (the S0 ``nm-base`` map against the
+    ``shift-0x10`` image) is a 16-byte, non-uniform excess and is the live
+    test this rule exists to pass. The image can run short
+    (`image_bytes < max_placed_extent`): never silently accepted, because
+    more than half the map's placed regions landing past the end of the
+    image is not an overlay quirk, it is the wrong image -- but *some*
+    regions landing past EOF is common enough (a legitimately truncated
+    debug build, an overlay that simply is not linked into this
+    particular image) that it is reported rather than refused outright.
+    Or the two agree exactly, the healthy case every conformance fixture in
+    this test suite is built to hit.
+    """
+
+    max_extent = max(
+        (item.rom + item.size for item in regions if item.rom is not None),
+        default=0,
+    )
+    image_bytes = len(image)
+
+    placeable = [item for item in regions if item.kind not in ("bss", NON_ALLOC_KIND)]
+    past_eof = sum(
+        1
+        for item in placeable
+        if item.rom is None or item.rom + item.size > image_bytes
+    )
+
+    if image_bytes > max_extent:
+        excess = image[max_extent:]
+        if not _is_uniform_padding(excess):
+            details = [
+                f"image_bytes={image_bytes:,}",
+                f"map_placed_extent={max_extent:,}",
+            ]
+            if map_path:
+                details.append(f"map={map_path}")
+            if image_path:
+                details.append(f"image={image_path}")
+            raise ValueError(
+                f"image extends {len(excess):,} bytes past the map's "
+                "placed extent and the excess is not uniform padding "
+                "-- the map and image are likely from different builds "
+                f"({', '.join(details)})"
+            )
+        return ConsistencyCheck(
+            max_placed_extent=max_extent,
+            padding_bytes=len(excess),
+            regions_unplaced_past_eof=past_eof,
+        )
+
+    if image_bytes < max_extent:
+        if placeable and past_eof * 2 > len(placeable):
+            details = [
+                f"regions_unplaced_past_eof={past_eof}",
+                f"placed_regions={len(placeable)}",
+                f"image_bytes={image_bytes:,}",
+                f"map_placed_extent={max_extent:,}",
+            ]
+            if map_path:
+                details.append(f"map={map_path}")
+            if image_path:
+                details.append(f"image={image_path}")
+            raise ValueError(
+                f"{past_eof} of {len(placeable)} placed regions land past "
+                "the end of the image -- that is not an overlay quirk, "
+                f"that is the wrong image ({', '.join(details)})"
+            )
+        return ConsistencyCheck(
+            max_placed_extent=max_extent,
+            padding_bytes=None,
+            regions_unplaced_past_eof=past_eof,
+        )
+
+    return ConsistencyCheck(
+        max_placed_extent=max_extent,
+        padding_bytes=0,
+        regions_unplaced_past_eof=past_eof,
     )
 
 
@@ -752,6 +1052,7 @@ class ShiftAudit:
     window: MovableWindow
     pins: PinCatalogue
     hits: tuple[Hit, ...]
+    consistency: ConsistencyCheck
 
     @property
     def scan_total(self) -> int:
@@ -835,6 +1136,7 @@ class ShiftAudit:
             "symbol_start_bonus": SYMBOL_START_BONUS,
         }
         payload.update(self.window.as_dict())
+        payload.update(self.consistency.as_dict())
         payload.update(self.pins.as_dict(limit=limit))
         return payload
 
@@ -850,10 +1152,19 @@ def build_shift_audit(
     map_path: str | None = None,
     image_path: str | None = None,
 ) -> ShiftAudit:
-    """Read one project's map, image, and pins into a single inventory."""
+    """Read one project's map, image, and pins into a single inventory.
+
+    WB-140 rule B runs here, always on, right after the region table and
+    before the (expensive, whole-image) scan: a map and image that do not
+    describe the same link are refused before the report pretends to
+    answer a question about them.
+    """
 
     regions = build_region_table(
         ldmap, image_size=len(image), blobs=blobs, header_sections=header_sections
+    )
+    consistency = check_map_image_consistency(
+        regions, image, map_path=map_path, image_path=image_path
     )
     window = movable_window(regions)
     hits = scan_regions(image, regions, window=window, ldmap=ldmap, model=model)
@@ -865,6 +1176,7 @@ def build_shift_audit(
         window=window,
         pins=pins,
         hits=hits,
+        consistency=consistency,
     )
 
 
@@ -900,6 +1212,10 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
     """Render the human report: the same numbers `as_dict` carries."""
 
     window = found.window
+    consistency = found.consistency
+    padding = (
+        "-" if consistency.padding_bytes is None else f"{consistency.padding_bytes:,}"
+    )
     lines = [
         f"shift audit  map={found.map_path or '-'}  image={found.image_path or '-'}",
         "",
@@ -909,6 +1225,13 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
         f"window_lo=0x{window.lo:08x}  window_hi=0x{window.hi:08x}  "
         f"window_lo_section={window.lo_section}  "
         f"window_hi_section={window.hi_section}",
+        # WB-140: the map/image consistency headline. padding_bytes is `-`
+        # when the image does not run past the map's own placed extent;
+        # regions_unplaced_past_eof is printed here, prominently, rather
+        # than left for a reader to notice across a long region table.
+        f"max_placed_extent=0x{consistency.max_placed_extent:08x}  "
+        f"padding_bytes={padding}  "
+        f"regions_unplaced_past_eof={consistency.regions_unplaced_past_eof:,}",
         "",
         "regions",
     ]

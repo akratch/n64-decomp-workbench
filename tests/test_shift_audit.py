@@ -38,17 +38,22 @@ from decomp_workbench.schema import (
 )
 from decomp_workbench.shift_audit import (
     CLUSTER_MINIMUM,
+    MAP_SNIFF_BYTES,
     NON_ALLOC_KIND,
     NON_ALLOC_ROM_SOURCE,
     NON_ALLOC_SECTION_FAMILIES,
     REPEAT_MINIMUM,
     RESIDENCE_SCORES,
     TIER_RULES,
+    ConsistencyCheck,
     Hit,
+    Region,
     ShiftAudit,
     build_region_table,
     build_shift_audit,
+    check_map_image_consistency,
     movable_window,
+    require_parsed_map,
     shift_audit_lines,
 )
 
@@ -237,6 +242,113 @@ def tiers(found: ShiftAudit) -> dict[str, int]:
 
 def hit_at(found: ShiftAudit, rom: int) -> Hit:
     return next(item for item in found.hits if item.rom == rom)
+
+
+# --------------------------------------------------------------------------
+# WB-140 rule A -- a map that parsed to nothing
+# --------------------------------------------------------------------------
+
+
+class RequireParsedMapTests(unittest.TestCase):
+    """Fresh-eyes QA: any `.z64` passed as `--map` parsed to zero sections
+    and produced a clean, empty, exit-0 report. `require_parsed_map` is the
+    refusal."""
+
+    def test_a_map_with_sections_is_accepted(self) -> None:
+        require_parsed_map(synthetic_map(), path="synthetic.map")
+
+    def test_the_sniff_sample_is_a_small_bounded_read(self) -> None:
+        """`MAP_SNIFF_BYTES` is the whole reason the CLI's sniff never pays
+        for reading a multi-megabyte swapped-in image in full."""
+
+        self.assertGreater(MAP_SNIFF_BYTES, 0)
+        self.assertLess(MAP_SNIFF_BYTES, 1_000_000)
+
+    def test_zero_sections_is_refused(self) -> None:
+        empty = parse_ld_map("not a linker map, just some prose\n")
+        self.assertEqual(empty.sections, ())
+        with self.assertRaises(ValueError) as raised:
+            require_parsed_map(empty, path="game.z64")
+        message = str(raised.exception)
+        self.assertIn("game.z64", message)
+        self.assertIn("parsed as no linker map", message)
+
+    def test_a_binary_looking_sample_adds_the_swap_hint(self) -> None:
+        empty = parse_ld_map("")
+        with self.assertRaises(ValueError) as raised:
+            require_parsed_map(empty, path="game.z64", sample=b"\x80\x37\x12\x40\x00")
+        message = str(raised.exception)
+        self.assertIn("--map and --image may be swapped", message)
+
+    def test_a_text_sample_carries_no_swap_hint(self) -> None:
+        empty = parse_ld_map("")
+        with self.assertRaises(ValueError) as raised:
+            require_parsed_map(
+                empty, path="notes.txt", sample=b"just some unrelated text\n"
+            )
+        message = str(raised.exception)
+        self.assertNotIn("swapped", message)
+
+    def test_the_default_sample_carries_no_swap_hint(self) -> None:
+        """A caller with nothing to sniff (no bytes handed in) gets the
+        plain refusal rather than a guess."""
+
+        empty = parse_ld_map("")
+        with self.assertRaises(ValueError) as raised:
+            require_parsed_map(empty, path="whatever")
+        self.assertNotIn("swapped", str(raised.exception))
+
+
+# --------------------------------------------------------------------------
+# WB-140 rule C -- a typo'd --blob matches nothing
+# --------------------------------------------------------------------------
+
+
+class BlobNameValidationTests(unittest.TestCase):
+    """Every `--blob` name must be an output section the map actually has."""
+
+    def test_a_real_section_name_is_accepted(self) -> None:
+        build_region_table(
+            synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot",)
+        )
+
+    def test_a_typo_is_refused_before_any_region_is_derived(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            build_region_table(
+                synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot1",)
+            )
+        message = str(raised.exception)
+        self.assertIn(
+            "--blob names a section this map does not have: .boot1", message
+        )
+        self.assertIn(
+            "map sections: .header, .boot, .main, .main_bss", message
+        )
+
+    def test_multiple_typos_are_all_named(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            build_region_table(
+                synthetic_map(),
+                image_size=len(SYNTHETIC_IMAGE),
+                blobs=(".boot", ".nope", ".alsonope"),
+            )
+        message = str(raised.exception)
+        self.assertIn(".nope", message)
+        self.assertIn(".alsonope", message)
+        # `.boot` is real and was not one of the ones refused.
+        self.assertNotIn("map does not have: .boot,", message)
+
+    def test_the_list_of_available_sections_is_capped(self) -> None:
+        text = "Linker script and memory map\n\n" + "".join(
+            f".sec{index:03d}      0x{index * 0x10:08x}       0x10\n"
+            for index in range(30)
+        )
+        with self.assertRaises(ValueError) as raised:
+            build_region_table(
+                parse_ld_map(text), image_size=0x300, blobs=(".missing",)
+            )
+        message = str(raised.exception)
+        self.assertIn("more)", message)
 
 
 class RegionDerivationTests(unittest.TestCase):
@@ -437,6 +549,171 @@ class OverlaySiblingRegionTests(unittest.TestCase):
         a_data = self.by_key[(".overlay_a", "data")]
         self.assertEqual(a_data.rom, 0x100010)
         self.assertEqual(a_data.rom_source, "load-address")
+
+
+# --------------------------------------------------------------------------
+# WB-140 rule B -- does this image match this map?
+# --------------------------------------------------------------------------
+
+
+def region(
+    output_section: str,
+    kind: str,
+    *,
+    vram: int = 0,
+    size: int,
+    rom: int | None,
+    rom_source: str = "load-address",
+) -> Region:
+    return Region(
+        output_section=output_section,
+        kind=kind,
+        vram=vram,
+        size=size,
+        rom=rom,
+        rom_source=rom_source,
+    )
+
+
+class ConsistencyCheckTests(unittest.TestCase):
+    """`check_map_image_consistency` against hand-built region tables --
+    the same shapes S0's real DKR artifacts exercise, isolated so each rule
+    has exactly one scenario driving it."""
+
+    def test_an_exact_match_reports_zero_padding_and_zero_unplaced(self) -> None:
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        found = check_map_image_consistency(regions, bytes(0x40))
+        self.assertEqual(found.max_placed_extent, 0x40)
+        self.assertEqual(found.padding_bytes, 0)
+        self.assertEqual(found.regions_unplaced_past_eof, 0)
+
+    def test_zero_fill_excess_is_accepted_as_padding(self) -> None:
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        image = bytes(0x40) + bytes(0x10)  # 16 zero bytes past the extent
+        found = check_map_image_consistency(regions, image)
+        self.assertEqual(found.padding_bytes, 0x10)
+
+    def test_0xff_fill_excess_is_accepted_as_padding(self) -> None:
+        """The real-world case: a retail cart padded to its rounded size."""
+
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        image = bytes(0x40) + (b"\xff" * 0x10)
+        found = check_map_image_consistency(regions, image)
+        self.assertEqual(found.padding_bytes, 0x10)
+
+    def test_a_short_repeating_pattern_is_accepted_as_padding(self) -> None:
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        image = bytes(0x40) + (b"\xab\xcd" * 8)
+        found = check_map_image_consistency(regions, image)
+        self.assertEqual(found.padding_bytes, 0x10)
+
+    def test_a_non_uniform_excess_is_a_hard_error_naming_both_numbers(self) -> None:
+        """Rule (2)'s core case: real content past the map's own extent,
+        not padding -- QA's exact repro shape (S0 nm-base map, shift-0x10
+        image), reproduced by hand here."""
+
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        image = bytes(0x40) + bytes.fromhex("030f05ac0fee028c15f0007402fb0c13")
+        with self.assertRaises(ValueError) as raised:
+            check_map_image_consistency(regions, image)
+        message = str(raised.exception)
+        self.assertIn("extends 16 bytes past the map's placed extent", message)
+        self.assertIn("not uniform padding", message)
+        self.assertIn("different builds", message)
+        self.assertIn("image_bytes=80", message)
+        self.assertIn("map_placed_extent=64", message)
+
+    def test_the_error_names_the_map_and_image_paths_when_given(self) -> None:
+        regions = (region(".data", "data", size=0x40, rom=0x00),)
+        image = bytes(0x40) + bytes.fromhex("0102030405060708090a0b0c0d0e0f10")
+        with self.assertRaises(ValueError) as raised:
+            check_map_image_consistency(
+                regions, image, map_path="game.map", image_path="game.z64"
+            )
+        message = str(raised.exception)
+        self.assertIn("game.map", message)
+        self.assertIn("game.z64", message)
+
+    def test_a_minority_of_regions_past_eof_is_reported_not_refused(self) -> None:
+        """Rule (3): some truncation is common enough (an overlay simply
+        not linked into this particular image) to report rather than
+        refuse. One of three placeable regions lands past EOF."""
+
+        regions = (
+            region(".a", "data", size=0x10, rom=0x00),
+            region(".b", "data", size=0x10, rom=0x10),
+            region(".c", "data", size=0x10, rom=0x20),
+        )
+        found = check_map_image_consistency(regions, bytes(0x28))  # 8 bytes short
+        self.assertEqual(found.max_placed_extent, 0x30)
+        self.assertIsNone(found.padding_bytes)
+        self.assertEqual(found.regions_unplaced_past_eof, 1)
+
+    def test_a_majority_of_regions_past_eof_is_the_wrong_image(self) -> None:
+        """Rule (3)'s hard-error branch: more than half of the map's placed
+        regions land past the end of the image."""
+
+        regions = (
+            region(".a", "data", size=0x10, rom=0x00),
+            region(".b", "data", size=0x10, rom=0x10),
+            region(".c", "data", size=0x10, rom=0x20),
+        )
+        with self.assertRaises(ValueError) as raised:
+            check_map_image_consistency(regions, bytes(0x18))  # only .a fully fits
+        message = str(raised.exception)
+        self.assertIn("2 of 3 placed regions land past the end", message)
+        self.assertIn("not an overlay quirk", message)
+        self.assertIn("that is the wrong image", message)
+
+    def test_a_region_whose_start_fits_but_whose_tail_overruns_still_counts(
+        self,
+    ) -> None:
+        """`_placement` only ever refuses a region whose *start* is past the
+        image -- a region that starts inside the image but is truncated by
+        a short image keeps its ordinary `rom_source` (`load-address`), and
+        would look unremarkable in the region table on its own. This is
+        exactly the row `regions_unplaced_past_eof` exists to catch."""
+
+        regions = (
+            region(".a", "data", size=0x10, rom=0x00),
+            region(".b", "data", size=0x20, rom=0x10, rom_source="load-address"),
+        )
+        found = check_map_image_consistency(regions, bytes(0x18))  # cuts .b short
+        self.assertEqual(found.regions_unplaced_past_eof, 1)
+
+    def test_bss_and_non_alloc_regions_never_count_toward_the_ratio(self) -> None:
+        """Neither kind ever claims image bytes (`rom` is always `None`),
+        so neither should inflate `regions_unplaced_past_eof` or its
+        denominator -- only `SCANNED_KINDS`-adjacent placed kinds do."""
+
+        regions = (
+            region(".a", "data", size=0x10, rom=0x00),
+            region(".bss", "bss", size=0x1000, rom=None, rom_source="not-resident"),
+            region(
+                ".mdebug",
+                NON_ALLOC_KIND,
+                size=0x2000,
+                rom=None,
+                rom_source=NON_ALLOC_ROM_SOURCE,
+            ),
+        )
+        found = check_map_image_consistency(regions, bytes(0x10))
+        self.assertEqual(found.max_placed_extent, 0x10)
+        self.assertEqual(found.regions_unplaced_past_eof, 0)
+        self.assertEqual(found.padding_bytes, 0)
+
+    def test_the_dataclass_round_trips_through_as_dict(self) -> None:
+        found = ConsistencyCheck(
+            max_placed_extent=0x10, padding_bytes=4, regions_unplaced_past_eof=0
+        )
+        self.assertEqual(
+            found.as_dict(),
+            {
+                "max_placed_extent": 0x10,
+                "padding_bytes": 4,
+                "regions_unplaced_past_eof": 0,
+            },
+        )
 
 
 class ScanFeatureTests(unittest.TestCase):
@@ -839,6 +1116,70 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("error:", stderr)
 
+    def test_a_map_that_parses_to_zero_sections_is_refused(self) -> None:
+        """WB-140 rule A, through the real CLI: a binary file passed as
+        `--map` (QA's repro was a `.z64` image) parses to zero sections and
+        is refused, with the swap hint, rather than an empty exit-0
+        report."""
+
+        bogus_map = self.root / "not-a-map.z64"
+        bogus_map.write_bytes(bytes(range(256)) * 4)  # plenty of NUL bytes
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(bogus_map),
+                "--image",
+                str(self.image_path),
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn(str(bogus_map), stderr)
+        self.assertIn("parsed as no linker map", stderr)
+        self.assertIn("--map and --image may be swapped", stderr)
+
+    def test_a_mismatched_image_is_refused(self) -> None:
+        """WB-140 rule B, through the real CLI: an image longer than the
+        map's placed extent, by bytes that are not uniform padding."""
+
+        mismatched = self.root / "mismatched.z64"
+        mismatched.write_bytes(SYNTHETIC_IMAGE + bytes.fromhex("0102030405060708"))
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(self.map_path),
+                "--image",
+                str(mismatched),
+                "--blob",
+                ".boot",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn("not uniform padding", stderr)
+        self.assertIn("different builds", stderr)
+
+    def test_an_unknown_blob_name_is_refused(self) -> None:
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(self.map_path),
+                "--image",
+                str(self.image_path),
+                "--blob",
+                ".nope",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn("--blob names a section this map does not have: .nope", stderr)
+
     def test_census_passes_and_fails_with_the_house_exit_codes(self) -> None:
         passing, _, _ = self.run_cli(
             [*self.base_arguments(), "--census", "scan_high=1"]
@@ -891,6 +1232,17 @@ S0_DIR = PLAYGROUND / ".workbench" / "shift-instrumentation" / "s0"
 DKR_MAP = S0_DIR / "nm-base" / "dkr.us.v77.map"
 DKR_IMAGE = S0_DIR / "nm-base" / "dkr.us.v77.z64"
 DKR_PINS = PLAYGROUND / "diddy-kong-racing" / "ver" / "symbols" / "undefined_syms.txt"
+
+
+def run_shift_cli(arguments: list[str]) -> tuple[int, str, str]:
+    """`CommandTests.run_cli`, as a free function for the live test classes
+    below (which are not `CommandTests` subclasses -- they skip as a group
+    when the sibling checkout is absent)."""
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        status = main(arguments)
+    return status, stdout.getvalue(), stderr.getvalue()
 
 
 @unittest.skipUnless(
@@ -1074,6 +1426,16 @@ class DkrAuditConformanceTests(unittest.TestCase):
         self.assertEqual(payload["pins_derived"], 7)
         self.assertEqual(payload["pins_authentic"], 57)
 
+    def test_wb_140_the_correct_pair_passes_the_new_consistency_check(self) -> None:
+        """WB-140 rule B is always on, including here -- the correct
+        ``nm-base`` map+image pair every other test in this class already
+        exercises. The map's placed extent matches the image exactly."""
+
+        found = self.audit.consistency
+        self.assertEqual(found.max_placed_extent, self.audit.image_bytes)
+        self.assertEqual(found.padding_bytes, 0)
+        self.assertEqual(found.regions_unplaced_past_eof, 0)
+
 
 @unittest.skipUnless(
     DKR_MAP.is_file() and DKR_IMAGE.is_file() and DKR_PINS.is_file(),
@@ -1122,6 +1484,125 @@ class DkrCommandConformanceTest(unittest.TestCase):
         self.assertEqual(payload["scan_medium"], 657)
         self.assertEqual(payload["scan_low"], 2_748)
         self.assertEqual(payload["text_words"], 213_560)
+        self.assertEqual(payload["padding_bytes"], 0)
+        self.assertEqual(payload["regions_unplaced_past_eof"], 0)
+
+
+# --------------------------------------------------------------------------
+# WB-140 live repros against the S0 artifacts -- self-skip when absent.
+# --------------------------------------------------------------------------
+
+#: QA's exact B repro: the un-shifted `nm-base` map against the real,
+#: correctly-linked 0x10 relink of the same project. Not a corrupt pair --
+#: exactly the mistake a caller sweeping a project's own rehearsal
+#: artifacts would make.
+DKR_SHIFT10_IMAGE = S0_DIR / "shift-0x10" / "dkr.us.v77.z64"
+
+#: The retail, byte-exact matching build: a *different* map (the real
+#: matching linker script, not the NM cascade script) padded to the
+#: cartridge's rounded size with 0xFF -- the live case for "an image longer
+#: than the map's placed extent is sometimes benign padding."
+DKR_MATCHING_MAP = S0_DIR / "matching" / "dkr.us.v77.map"
+DKR_MATCHING_IMAGE = S0_DIR / "matching" / "dkr.us.v77.z64"
+
+DKR_BLOBS = (".assets", ".assets_lut", ".boot")
+
+
+@unittest.skipUnless(
+    DKR_MAP.is_file() and DKR_SHIFT10_IMAGE.is_file(),
+    f"S0 shift-instrumentation artifacts not found under {S0_DIR}",
+)
+class DkrMapImageMismatchLiveTests(unittest.TestCase):
+    """WB-140 rule B's live anchor: the exact QA repro. Measured directly:
+    the ``nm-base`` map's placed extent is 11,263,248 bytes, the
+    ``shift-0x10`` image is 11,263,264 -- a 16-byte, non-uniform excess
+    (the tail of a real relink, not padding), and this is the shape that
+    used to produce a full exit-0 report with ``scan_total`` ballooned from
+    3,443 to 1,323,680."""
+
+    def test_the_mismatched_pair_is_refused_not_silently_scanned(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            build_shift_audit(
+                ldmap=read_ld_map(DKR_MAP),
+                image=DKR_SHIFT10_IMAGE.read_bytes(),
+                pins=PinCatalogue(entries=(), sources=()),
+                model=default_pin_model(),
+                blobs=DKR_BLOBS,
+                map_path=str(DKR_MAP),
+                image_path=str(DKR_SHIFT10_IMAGE),
+            )
+        message = str(raised.exception)
+        self.assertIn("image extends 16 bytes past the map's placed extent", message)
+        self.assertIn("not uniform padding", message)
+        self.assertIn("different builds", message)
+        self.assertIn("image_bytes=11,263,264", message)
+        self.assertIn("map_placed_extent=11,263,248", message)
+
+    def test_the_command_refuses_it_too(self) -> None:
+        status, _, stderr = run_shift_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(DKR_MAP),
+                "--image",
+                str(DKR_SHIFT10_IMAGE),
+                *[argument for name in DKR_BLOBS for argument in ("--blob", name)],
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn("not uniform padding", stderr)
+        self.assertIn("different builds", stderr)
+
+
+@unittest.skipUnless(
+    DKR_IMAGE.is_file(), f"S0 shift-instrumentation artifacts not found under {S0_DIR}"
+)
+class DkrZ64AsMapLiveTests(unittest.TestCase):
+    """WB-140 rule A's live anchor: QA's actual repro, a real `.z64` passed
+    as `--map`."""
+
+    def test_a_real_rom_image_as_the_map_is_refused_with_the_swap_hint(self) -> None:
+        status, _, stderr = run_shift_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(DKR_IMAGE),
+                "--image",
+                str(DKR_IMAGE),
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn(str(DKR_IMAGE), stderr)
+        self.assertIn("parsed as no linker map", stderr)
+        self.assertIn("--map and --image may be swapped", stderr)
+
+
+@unittest.skipUnless(
+    DKR_MATCHING_MAP.is_file() and DKR_MATCHING_IMAGE.is_file(),
+    f"S0 shift-instrumentation artifacts not found under {S0_DIR}",
+)
+class DkrRetailPaddingLiveTests(unittest.TestCase):
+    """WB-140 rule B's benign branch, measured on a real cart: DKR's
+    retail-matching image is padded past its own map's placed extent with
+    1,272,272 bytes of 0xFF -- accepted, reported, and does not disturb the
+    exit-0 report."""
+
+    def test_the_retail_pad_is_accepted_and_reported(self) -> None:
+        audit = build_shift_audit(
+            ldmap=read_ld_map(DKR_MATCHING_MAP),
+            image=DKR_MATCHING_IMAGE.read_bytes(),
+            pins=PinCatalogue(entries=(), sources=()),
+            model=default_pin_model(),
+            blobs=DKR_BLOBS,
+            map_path=str(DKR_MATCHING_MAP),
+            image_path=str(DKR_MATCHING_IMAGE),
+        )
+        self.assertEqual(audit.consistency.padding_bytes, 1_272_272)
+        self.assertEqual(audit.consistency.regions_unplaced_past_eof, 0)
 
 
 # --------------------------------------------------------------------------
@@ -1254,6 +1735,19 @@ class BkAuditConformanceTests(unittest.TestCase):
         )
         self.assertEqual(core2_data.rom_source, "load-address")
         self.assertIsNotNone(core2_data.rom)
+
+    def test_wb_140_the_uncompressed_image_passes_the_new_consistency_check(
+        self,
+    ) -> None:
+        """`setUpClass` itself already proves this (rule B is always on and
+        would have raised there), but the numbers are asserted explicitly:
+        BK's uncompressed image matches its map's placed extent exactly,
+        with no overlay landing past the end of it."""
+
+        found = self.audit.consistency
+        self.assertEqual(found.max_placed_extent, self.audit.image_bytes)
+        self.assertEqual(found.padding_bytes, 0)
+        self.assertEqual(found.regions_unplaced_past_eof, 0)
 
 
 if __name__ == "__main__":

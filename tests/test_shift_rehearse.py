@@ -274,6 +274,40 @@ def status_for(found: Rehearsal, function: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# WB-140 rule C -- shared with `shift audit` via `build_region_table`
+# --------------------------------------------------------------------------
+
+
+class BlobNameValidationTests(unittest.TestCase):
+    """`build_rehearsal` derives its region table through the same
+    `build_region_table` `shift audit` does (see `shift_rehearse.
+    build_rehearsal`'s own docstring: "the region table ... come[s] from the
+    *base* map (`shift_audit`'s derivation, reused rather than re-derived")
+    -- so WB-140 rule C's blob-name check, added to that one shared
+    function, covers `shift rehearse --blob` for free. This confirms it
+    does rather than assuming it."""
+
+    def test_a_real_blob_name_is_accepted(self) -> None:
+        rehearse()  # BLOBS = (".boot",), a real section in `render_map`
+
+    def test_a_typo_d_blob_name_is_refused_before_any_census_runs(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            build_rehearsal(
+                base_ldmap=base_map(),
+                base_image=base_image(),
+                shifted_ldmap=shifted_map(0x10),
+                shifted_image=shifted_image(0x10),
+                delta=0x10,
+                blobs=(".boot1",),
+                model=default_pin_model(),
+            )
+        message = str(raised.exception)
+        self.assertIn(
+            "--blob names a section this map does not have: .boot1", message
+        )
+
+
+# --------------------------------------------------------------------------
 # Anchor derivation
 # --------------------------------------------------------------------------
 
@@ -835,6 +869,19 @@ class AnalyzeCommandTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("error:", stderr)
 
+    def test_wb_140_an_unknown_blob_name_is_refused(self) -> None:
+        """`--blob` shares the same typo shape `shift audit` does, and the
+        same fix: both derive their region table through the shared
+        `build_region_table`."""
+
+        arguments = [*self.arguments(), "--blob", ".nope"]
+        status, _, stderr = run_cli(arguments)
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn(
+            "--blob names a section this map does not have: .nope", stderr
+        )
+
     def test_a_missing_image_is_a_usage_failure_not_a_traceback(self) -> None:
         status, _, stderr = run_cli(
             [
@@ -1057,6 +1104,17 @@ class OrchestrateCommandTests(unittest.TestCase):
         status, _, stderr = run_cli(arguments)
         self.assertEqual(status, 2)
         self.assertIn("exit", stderr)
+
+    def test_wb_140_an_unknown_blob_name_is_refused(self) -> None:
+        """The same shared `build_region_table` check, reached from
+        `orchestrate` after the (cheap, fake) relink runs but before its
+        report is produced."""
+
+        status, _, stderr = run_cli([*self.arguments(), "--blob", ".nope"])
+        self.assertEqual(status, 2)
+        self.assertIn(
+            "--blob names a section this map does not have: .nope", stderr
+        )
 
     def test_the_run_table_names_every_artifact_it_produced(self) -> None:
         _, stdout, _ = run_cli([*self.arguments(), "--json"])

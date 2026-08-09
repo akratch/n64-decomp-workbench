@@ -581,6 +581,26 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric("image", "image", "the linked image the map describes"),
     Metric("image_bytes", "image_bytes", "size of that image"),
     Metric(
+        "max_placed_extent",
+        "max_placed_extent",
+        "WB-140: `rom + size`, maximised over every region the map placed -- "
+        "the last byte the map claims the image should hold",
+    ),
+    Metric(
+        "padding_bytes",
+        "padding_bytes",
+        "WB-140: bytes the image runs past max_placed_extent, confirmed "
+        "uniform fill (null when the image is not longer than the map's "
+        "placed extent); a non-uniform excess is refused before this key "
+        "is ever reported",
+    ),
+    Metric(
+        "regions_unplaced_past_eof",
+        "regions_unplaced_past_eof",
+        "WB-140: placed regions whose claimed extent runs past the image "
+        "actually handed in; more than half is refused rather than reported",
+    ),
+    Metric(
         "window_lo",
         "window_lo",
         "first VRAM address an insertion would move; derived from the map's "

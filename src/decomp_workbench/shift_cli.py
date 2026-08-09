@@ -34,7 +34,12 @@ from .ldmap import read_ld_map
 from .mips_refs import RangeModel, WhitelistEntry
 from .pins import PinCatalogue, default_pin_model, parse_whitelist_text, read_pin_files
 from .schema import SHIFT_CENSUS_KEYS
-from .shift_audit import build_shift_audit, shift_audit_lines
+from .shift_audit import (
+    MAP_SNIFF_BYTES,
+    build_shift_audit,
+    require_parsed_map,
+    shift_audit_lines,
+)
 from .shift_rehearse import (
     WRAPPER_CONTRACT,
     Rehearsal,
@@ -90,19 +95,26 @@ def shift_audit_command(args: argparse.Namespace) -> int:
             else PinCatalogue(entries=(), sources=())
         )
         ldmap = read_ld_map(args.map)
+        if not ldmap.sections:
+            # Cheap and only paid when there is something to refuse: a
+            # small sniff of the file's own first bytes, not the whole
+            # (possibly multi-megabyte, swapped-in-for-`--image`) file.
+            with open(args.map, "rb") as handle:
+                sample = handle.read(MAP_SNIFF_BYTES)
+            require_parsed_map(ldmap, path=str(args.map), sample=sample)
         image = Path(args.image).read_bytes()
+        audit = build_shift_audit(
+            ldmap=ldmap,
+            image=image,
+            pins=pins,
+            model=model,
+            blobs=args.blob,
+            map_path=str(args.map),
+            image_path=str(args.image),
+        )
     except (OSError, ValueError) as error:
         return _fail(str(error))
 
-    audit = build_shift_audit(
-        ldmap=ldmap,
-        image=image,
-        pins=pins,
-        model=model,
-        blobs=args.blob,
-        map_path=str(args.map),
-        image_path=str(args.image),
-    )
     payload = audit.as_dict(limit=args.limit)
     try:
         census = evaluate_census(predicates, payload)
