@@ -51,6 +51,14 @@ what made this experiment skippable.
 `--order N` adds the joint removals up to order *N*; the all-removed point is
 always included whatever the order.
 
+Every repeatable option in this family also has a `--OPTION-from FILE` form —
+`--construct-from`, `--carrier-from`, `--donor-from`, `--line-from`,
+`--frozen-from` — reading one value per line, ignoring blank lines and `#`
+comments. Use it rather than building a list in a shell variable: `zsh` does
+not word-split a parameter expansion, so an unquoted `$LEVERS` arrives as a
+single argument and the run dies somewhere that looks like a tool bug. That
+shape cost one campaign a stage.
+
 After building, `sweep ingest` prints the price table:
 
 ```text

@@ -12,7 +12,7 @@ import json
 import sys
 from typing import Any
 
-from .cli_options import add_symbol_argument
+from .cli_options import add_list_file_argument, add_symbol_argument
 from .compose import ComposeError, parse_zone
 from .csource import CSourceError
 from .sweep import GENERATOR_CLASSES, SweepError, SweepManifest, read_manifest, write_family
@@ -300,6 +300,9 @@ def _add_generator_arguments(parser: argparse.ArgumentParser) -> None:
             "zone; repeatable"
         ),
     )
+    add_list_file_argument(
+        parser, option="frozen", dest="frozen", noun="frozen zones"
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -390,9 +393,11 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "--construct",
         action="append",
         default=[],
-        required=True,
         metavar="LO..HI[=LABEL]",
         help="one accumulated lever, by the lines that spell it; repeatable",
+    )
+    add_list_file_argument(
+        regress, option="construct", dest="construct", noun="constructs"
     )
     regress.add_argument(
         "--order",
@@ -443,6 +448,7 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         metavar="NAME",
         help="use these carriers instead of every dead local; repeatable",
     )
+    add_list_file_argument(hoist, option="carrier", dest="carrier", noun="carriers")
     _add_generator_arguments(hoist)
     hoist.set_defaults(handler=sweep_hoist_command, report_command="sweep-hoist")
 
@@ -470,6 +476,9 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         type=int,
         metavar="LINE",
         help="restrict to these lines; repeatable (default: the whole file)",
+    )
+    add_list_file_argument(
+        commute, option="line", dest="line", noun="line numbers", value_type=int
     )
     _add_generator_arguments(commute)
     commute.set_defaults(handler=sweep_commute_command, report_command="sweep-commute")
@@ -518,6 +527,7 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         metavar="NAME",
         help="fuse only these donors; repeatable (default: every fusable one)",
     )
+    add_list_file_argument(fuse, option="donor", dest="donor", noun="donors")
     _add_generator_arguments(fuse)
     fuse.set_defaults(handler=sweep_fuse_command, report_command="sweep-fuse")
 

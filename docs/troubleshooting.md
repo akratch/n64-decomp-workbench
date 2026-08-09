@@ -176,6 +176,42 @@ accepted.
 Do not “fix” a violation by reordering the inferred queue until every
 allocation and append has a trace-based explanation.
 
+## A sweep driver dies with "file name too long" inside objdump
+
+The list is arriving as one argument. `zsh` does not word-split a parameter
+expansion, so a driver that builds a list in a variable and expands it
+unquoted —
+
+```sh
+# shell-lint: allow-unquoted -- this is the mistake, not the fix
+LABS=$(ls objects/*.o)
+decomp-workbench rank target.o $LABS
+```
+
+— hands the whole newline-joined list to the command as a single filename. It
+works under `bash` and silently does not under `zsh`, and the error surfaces
+inside the tool rather than at the quoting, so it reads as a tool bug. One
+campaign had this shape in every scorer invocation it wrote, and it cost a
+stage.
+
+Two fixes, both better than remembering to quote. Let the shell expand the
+glob itself, which is field-splitting-free in every shell:
+
+```sh
+decomp-workbench rank target.o objects/*.o
+```
+
+or, where the values are not filenames, take them from a file. Every
+list-valued option here also accepts `--OPTION-from FILE`, one value per line,
+with blank lines and `#` comments ignored:
+
+```sh
+decomp-workbench sweep regress work.c --construct-from levers.txt --write regress/
+```
+
+Nothing this repository ships expands a variable unquoted, and a test enforces
+that for every shell block in the documentation.
+
 ## A campaign appears to reuse stale output
 
 The cache key includes the source and target hashes, rendered command,

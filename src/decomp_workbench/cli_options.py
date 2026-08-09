@@ -11,6 +11,7 @@ what its keys mean.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -155,6 +156,83 @@ def add_candidate_listing_argument(parser: argparse.ArgumentParser) -> None:
             "whether schedule-divergent sites sit at .loc statement-line "
             "boundaries; the IDO driver keeps it beside the object when you "
             "pass `cc -K`, and `ugen -l` writes it directly"
+        ),
+    )
+
+
+class ListFileAction(argparse.Action):
+    """Read a repeatable option's values from a file, one per line.
+
+    A sweep driver that assembles a list in a shell variable and expands it
+    unquoted works under `bash` and silently does not under `zsh`, which does
+    not word-split parameter expansions. One campaign's whole scorer family had
+    that shape: `python3 bands.py $LABS` handed the entire newline-joined list
+    to the tool as *one* filename, and the run died inside `objdump` with "file
+    name too long" -- which reads as a scorer bug, not a quoting bug, and cost
+    a stage before anyone recognised it.
+
+    The fix is not to remind people to quote. It is to give every list-valued
+    option an input that is not a shell word at all: one value per line, blank
+    lines and `#` comments ignored, so a driver writes a file and never builds
+    an argument list in a variable.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        path = str(values)
+        try:
+            text = (
+                sys.stdin.read()
+                if path == "-"
+                else open(path, encoding="utf-8").read()  # noqa: SIM115
+            )
+        except OSError as error:
+            raise argparse.ArgumentError(self, f"cannot read {path}: {error}") from None
+        items = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        if not items:
+            raise argparse.ArgumentError(
+                self, f"{path} holds no values (blank lines and # comments are ignored)"
+            )
+        existing = list(getattr(namespace, self.dest, None) or [])
+        converted = [self.type(item) for item in items] if self.type else items
+        setattr(namespace, self.dest, existing + converted)
+
+
+def add_list_file_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    option: str,
+    dest: str,
+    noun: str,
+    value_type: Any = None,
+) -> None:
+    """Offer `--OPTION-from FILE` beside a repeatable `--OPTION`.
+
+    One spelling everywhere: `--construct-from`, `--carrier-from`. A driver
+    that needs more values than a command line wants writes them to a file
+    rather than into a shell variable it then has to expand correctly.
+    """
+
+    parser.add_argument(
+        f"--{option}-from",
+        dest=dest,
+        action=ListFileAction,
+        type=value_type,
+        metavar="FILE",
+        help=(
+            f"read {noun} from FILE, one per line (- for stdin); blank lines "
+            f"and # comments are ignored. Use this rather than expanding a "
+            f"shell variable: zsh does not word-split one, so the whole list "
+            f"arrives as a single argument"
         ),
     )
 

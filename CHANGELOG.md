@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Every list-valued option takes `--OPTION-from FILE`, and a test keeps the
+  shipped shell safe.** A driver that builds a list in a shell variable and
+  expands it unquoted works under `bash` and silently does not under `zsh`,
+  which does not word-split a parameter expansion: the whole newline-joined
+  list arrives as one argument and the run dies inside `objdump` with "file
+  name too long", which reads as a tool bug rather than a quoting bug. One
+  campaign had that shape in every scorer invocation it wrote and it cost a
+  stage. `--construct-from`, `--carrier-from`, `--donor-from`, `--line-from`
+  and `--frozen-from` read one value per line, ignoring blanks and `#`
+  comments, so the list is never a shell word at all. A new test scans every
+  shell block in the documentation and every shipped `.sh` file and fails on an
+  unquoted expansion of a variable the snippet itself assigns; a block that is
+  demonstrating the mistake marks itself `# shell-lint: allow-unquoted`.
+
 - **`note reserve` claims an identifier before anything is written under it.**
   The sidecar mechanism makes a note impossible to lose; it does nothing about
   two agents filing *different findings under one number*, which one campaign
