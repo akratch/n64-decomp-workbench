@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 
-from decomp_workbench.mips_refs import RangeModel, WhitelistEntry, default_n64_windows
+from decomp_workbench.mips_refs import RangeModel, WhitelistEntry
 from decomp_workbench.pins import (
     ARTIFACT_SUSPECT,
     AUTHENTIC_FIXED,
@@ -66,7 +66,9 @@ D_DD138 = 0xDD138;
 def catalogue(text: str, *, model: RangeModel | None = None) -> PinCatalogue:
     """Parse one fixture into a catalogue under the standard N64 model."""
 
-    entries = parse_pin_text(text, path="fixture.txt", model=model or default_pin_model())
+    entries = parse_pin_text(
+        text, path="fixture.txt", model=model or default_pin_model()
+    )
     return PinCatalogue(entries=entries, sources=("fixture.txt",))
 
 
@@ -116,7 +118,8 @@ class ParsingShapeTests(unittest.TestCase):
 
     def test_a_standalone_comment_becomes_the_heading_of_what_follows(self) -> None:
         self.assertEqual(
-            self.pins["gMainMemoryPool"].context, "Symbols related to the end of the ROM"
+            self.pins["gMainMemoryPool"].context,
+            "Symbols related to the end of the ROM",
         )
         self.assertEqual(
             self.pins["D_B0000574"].context, "Fake symbols until things are matched"
@@ -142,7 +145,9 @@ class SplatAttributeTests(unittest.TestCase):
         self.assertIsNone(pin.comment)
 
     def test_a_single_attribute_still_parses(self) -> None:
-        self.assertEqual(dict(self.pins["thread30_bgload"].attributes), {"type": "func"})
+        self.assertEqual(
+            dict(self.pins["thread30_bgload"].attributes), {"type": "func"}
+        )
 
     def test_prose_is_not_mistaken_for_attributes(self) -> None:
         self.assertEqual(self.pins["audio_init"].context, "audio.c .text")
@@ -237,8 +242,12 @@ class WhitelistFileTests(unittest.TestCase):
             "\n"
         )
         self.assertEqual(len(entries), 2)
-        self.assertEqual(entries[0], WhitelistEntry(0x80100400, 0x80100401, "CIC-6103 boot address"))
-        self.assertEqual(entries[1], WhitelistEntry(0x80000300, 0x80000401, "boot globals"))
+        self.assertEqual(
+            entries[0], WhitelistEntry(0x80100400, 0x80100401, "CIC-6103 boot address")
+        )
+        self.assertEqual(
+            entries[1], WhitelistEntry(0x80000300, 0x80000401, "boot globals")
+        )
 
     def test_a_reason_is_required(self) -> None:
         with self.assertRaises(ValueError) as raised:
@@ -355,9 +364,7 @@ class DkrPinConformanceTests(unittest.TestCase):
 
     def test_exactly_two_absolute_pins_are_artifact_suspects(self) -> None:
         suspects = self.found.by_classification(ARTIFACT_SUSPECT)
-        self.assertEqual(
-            [item.name for item in suspects], ["D_B0000574", "D_B0000578"]
-        )
+        self.assertEqual([item.name for item in suspects], ["D_B0000574", "D_B0000578"])
         self.assertEqual([item.window for item in suspects], ["cart", "cart"])
         self.assertEqual([item.value for item in suspects], [0xB0000574, 0xB0000578])
 
@@ -378,7 +385,9 @@ class DkrPinConformanceTests(unittest.TestCase):
                 self.assertIn(name, derived)
 
     def test_gmainmemorypool_derives_from_the_end_of_bss(self) -> None:
-        pin = next(item for item in self.found.entries if item.name == "gMainMemoryPool")
+        pin = next(
+            item for item in self.found.entries if item.name == "gMainMemoryPool"
+        )
         self.assertEqual(pin.references, ("main_BSS_END",))
 
     def test_ram_to_rom_survives_its_arithmetic(self) -> None:
@@ -387,15 +396,9 @@ class DkrPinConformanceTests(unittest.TestCase):
         self.assertEqual(pin.references, ("main_VRAM",))
 
     def test_every_hardware_register_is_authentic_fixed(self) -> None:
-        registers = [
-            item
-            for item in self.found.entries
-            if item.name.endswith("_REG")
-        ]
+        registers = [item for item in self.found.entries if item.name.endswith("_REG")]
         self.assertEqual(len(registers), 48)
-        self.assertEqual(
-            {item.classification for item in registers}, {AUTHENTIC_FIXED}
-        )
+        self.assertEqual({item.classification for item in registers}, {AUTHENTIC_FIXED})
         self.assertEqual({item.window for item in registers}, {"kseg1"})
         self.assertEqual(
             next(item for item in registers if item.name == "SP_MEM_ADDR_REG").value,

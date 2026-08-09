@@ -567,6 +567,206 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric("count", "count", "number of sites"),
 )
 
+# Shiftability inventory keys (``shift audit``). A third namespace, for the
+# same reason the view has a second: these count *words in an image* and
+# *pins in a linker script*, and a spelling shared with either registry above
+# (``value``, ``reason``, ``window``, ``score``) means something else entirely
+# here. Nested keys -- the fields inside `regions`, `pins`, `hits` and
+# `rules` -- are listed with the rest, because a key nobody explains is the
+# defect this registry exists to prevent.
+SHIFT_METRICS: tuple[Metric, ...] = (
+    Metric("schema", "schema", "report schema identity"),
+    Metric("map", "map", "the linked `ld -Map` file the report was read from"),
+    Metric("image", "image", "the linked image the map describes"),
+    Metric("image_bytes", "image_bytes", "size of that image"),
+    Metric(
+        "window_lo",
+        "window_lo",
+        "first VRAM address an insertion would move; derived from the map's "
+        "own lowest movable section, never hardcoded",
+    ),
+    Metric(
+        "window_hi",
+        "window_hi",
+        "one past the last VRAM address an insertion would move; the end of "
+        "the map's last bss section",
+    ),
+    Metric(
+        "window_lo_section",
+        "window_lo_section",
+        "the output section that set the window's low bound",
+    ),
+    Metric(
+        "window_hi_section",
+        "window_hi_section",
+        "the output section that set the window's high bound",
+    ),
+    Metric("region_count", "region_count", "regions derived from the map"),
+    Metric(
+        "regions",
+        "regions",
+        "the derived region table: one row per run of like input records, "
+        "plus one per section the caller declared a blob",
+    ),
+    Metric(
+        "scanned_words",
+        "scanned_words",
+        "image words read by the scan; data, blob and header regions only",
+    ),
+    Metric(
+        "text_words",
+        "text_words",
+        "instruction words counted and deliberately not scanned; their "
+        "address arithmetic needs `shift rehearse`, not a value test",
+    ),
+    Metric("text_regions", "text_regions", "text regions the map yielded"),
+    Metric(
+        "scan_total",
+        "scan_total",
+        "scanned words holding a value inside the movable window; an upper "
+        "bound on the region's hardcoded-pointer suspects, not a count of them",
+    ),
+    Metric(
+        "scan_high",
+        "scan_high",
+        "hits most confidently a real address reference: compiled data "
+        "pointing at a symbol's start",
+    ),
+    Metric(
+        "scan_medium",
+        "scan_medium",
+        "hits with one of the two elevating signals but not both",
+    ),
+    Metric(
+        "scan_low",
+        "scan_low",
+        "hits a suppressor explained away, or with neither elevating signal",
+    ),
+    Metric("scan_rules", "scan_rules", "how many hits each rule accounted for"),
+    Metric("scan_by_region", "scan_by_region", "hits per output section"),
+    Metric("hits", "hits", "the ranked hit list, capped at --limit"),
+    Metric("hits_shown", "hits_shown", "rows the hit list actually carries"),
+    Metric(
+        "rules",
+        "rules",
+        "the published suppressor table: every rule a hit can name, with the "
+        "evidence behind it",
+    ),
+    Metric(
+        "residence_scores",
+        "residence_scores",
+        "what a hit's region kind is worth when it is scored",
+    ),
+    Metric(
+        "symbol_start_bonus",
+        "symbol_start_bonus",
+        "what landing exactly on a symbol's start address is worth",
+    ),
+    Metric("tier_thresholds", "tier_thresholds", "the score each tier needs"),
+    Metric("pin_sources", "pin_sources", "the pin files read, in the order given"),
+    Metric("pins_total", "pins_total", "linker assignments parsed from those files"),
+    Metric(
+        "pins_derived",
+        "pins_derived",
+        "pins whose right-hand side names a symbol: healthy by construction",
+    ),
+    Metric(
+        "pins_authentic",
+        "pins_authentic",
+        "absolute pins the console or the caller's whitelist fixes: hardware "
+        "registers, boot globals",
+    ),
+    Metric(
+        "pins_artifact",
+        "pins_artifact",
+        "absolute pins in a window the project itself owns: bare kseg0 RAM, "
+        "or the cart domain",
+    ),
+    Metric(
+        "pins_unclassified",
+        "pins_unclassified",
+        "pins in no named window, or whose expression did not fold; reported "
+        "rather than guessed",
+    ),
+    Metric("pins", "pins", "the ranked pin list, suspects first, capped at --limit"),
+    Metric("pins_shown", "pins_shown", "rows the pin list actually carries"),
+    Metric("limit", "limit", "the cap every detail list in this report was built with"),
+    # Nested: one region row.
+    Metric(
+        "output_section", "output_section", "the map output section a row belongs to"
+    ),
+    Metric(
+        "kind",
+        "kind",
+        "how a region's words are read: text, data, blob, header, or bss",
+    ),
+    Metric("vram", "vram", "run-time address"),
+    Metric("size", "size", "bytes covered"),
+    Metric("rom", "rom", "offset into the image"),
+    Metric(
+        "rom_source",
+        "rom_source",
+        "how that offset was derived: load-address, vma-as-rom, unplaced, or "
+        "not-resident",
+    ),
+    Metric("words", "words", "32-bit words covered"),
+    Metric("scanned", "scanned", "whether the scan read this region's words"),
+    # Nested: one pin row.
+    Metric("name", "name", "the symbol a pin or a rule is named by"),
+    Metric("expression", "expression", "the pin's right-hand side, as written"),
+    Metric(
+        "form",
+        "form",
+        "absolute, derived, or unresolved: what the right-hand side turned out to be",
+    ),
+    Metric("classification", "classification", "the pin class this entry landed in"),
+    Metric("value", "value", "the 32-bit value a pin holds or a word contains"),
+    Metric("references", "references", "symbols a derived pin's expression names"),
+    Metric("source", "source", "the file an entry was read from"),
+    Metric("line", "line", "the line it was written on"),
+    Metric("comment", "comment", "prose written beside the entry"),
+    Metric("context", "context", "the standalone comment heading the block it sits in"),
+    Metric("attributes", "attributes", "splat `key:value` attributes from the comment"),
+    # Nested: one hit row.
+    Metric("region", "region", "the output section a hit lives in"),
+    Metric("residence", "residence", "the kind of region a hit lives in"),
+    Metric(
+        "resident_symbol", "resident_symbol", "the symbol a hit sits inside, or null"
+    ),
+    Metric("resident_offset", "resident_offset", "how far into that symbol it sits"),
+    Metric("target_symbol", "target_symbol", "the symbol the hit's value points into"),
+    Metric("target_offset", "target_offset", "how far past that symbol's start"),
+    Metric("alignment", "alignment", "the value modulo 4; anything but 0 rules it out"),
+    Metric(
+        "points_at_symbol_start",
+        "points_at_symbol_start",
+        "whether the value lands exactly on a symbol's address",
+    ),
+    Metric("repeats", "repeats", "how many hits share this exact value"),
+    Metric("cluster", "cluster", "arithmetic-progression family id, or null"),
+    Metric(
+        "window",
+        "window",
+        "the named address window a value falls in: cart, kseg1, kseg0, "
+        "segmented, or null",
+    ),
+    Metric(
+        "whitelisted",
+        "whitelisted",
+        "whether the caller declared this address authentic",
+    ),
+    Metric(
+        "reason",
+        "reason",
+        "why a classification or a whitelist entry says what it says",
+    ),
+    Metric("score", "score", "residence plus symbol-start bonus, for a scored hit"),
+    Metric("rule", "rule", "the rule that decided this hit's tier"),
+    Metric("tier", "tier", "high, medium, or low address-reference confidence"),
+    Metric("evidence", "evidence", "what one published rule is based on"),
+    Metric("count", "count", "how many entries one tally row holds"),
+)
+
 # Keys a command wraps around a report rather than measures. They answer
 # "what did this invocation decide", not "what do these two objects look like",
 # which is why they are not in the comparison registry -- but a key nobody
@@ -639,6 +839,11 @@ COMPARISON_CENSUS_KEYS: dict[str, str] = {
 #: Spellings ``--census`` accepts on the aligned view. The view has no
 #: compatibility spellings, so its keys are exactly its own.
 VIEW_CENSUS_KEYS: dict[str, str] = {item.key: item.key for item in VIEW_METRICS}
+#: The shift registry's own lookup and census spellings. Same rule as the
+#: view's: its keys are exactly its own, and it never borrows a meaning from
+#: the comparison namespace.
+SHIFT_METRICS_BY_KEY: dict[str, Metric] = {item.key: item for item in SHIFT_METRICS}
+SHIFT_CENSUS_KEYS: dict[str, str] = {item.key: item.key for item in SHIFT_METRICS}
 
 
 def summary_line(item: Any) -> str:
@@ -704,13 +909,14 @@ def explain_keys_text() -> str:
     rows = describe(METRICS)
     campaign_rows = describe(CAMPAIGN_METRICS)
     view_rows = describe(VIEW_METRICS)
+    shift_rows = describe(SHIFT_METRICS)
     command_rows = describe(COMMAND_METRICS)
     widths = [
         max(
             len(titles[column]),
             *(
                 len(row[column])
-                for row in rows + campaign_rows + view_rows + command_rows
+                for row in rows + campaign_rows + view_rows + shift_rows + command_rows
             ),
         )
         for column in range(3)
@@ -759,6 +965,18 @@ def explain_keys_text() -> str:
             format_columns(titles),
             separator,
             *format_rows(view_rows),
+            "",
+            "Shiftability inventory keys (shift audit). A third namespace: "
+            "these count words in",
+            "a linked image and pins in a linker script, so a spelling shared "
+            "with either registry",
+            "above is a different thing. Nested keys (regions, pins, hits, "
+            "rules) are listed with",
+            "the rest.",
+            "",
+            format_columns(titles),
+            separator,
+            *format_rows(shift_rows),
             "",
             "Command result keys. These describe what one invocation decided "
             "rather than what",

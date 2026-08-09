@@ -1,0 +1,935 @@
+"""Tests for the static shiftability inventory and its command.
+
+Three tiers. The synthetic fixture below is a handcrafted map plus a
+handcrafted 160-byte image -- no bytes from any ROM -- laid out so that every
+confidence feature and every tier rule has exactly one word that exercises it,
+which is what makes the expected tier totals readable by hand. The CLI tests
+drive the real parser. The DKR conformance tests replay S0's own anchor cases
+(`.workbench/shift-instrumentation/s0` in the sibling `decomp_playground`
+checkout) and self-skip when that checkout is absent; the map and image are
+read from there and never copied into this repository.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import struct
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from typing import ClassVar
+
+from decomp_workbench.cli import main
+from decomp_workbench.ldmap import LdMap, parse_ld_map, read_ld_map
+from decomp_workbench.mips_refs import WhitelistEntry
+from decomp_workbench.pins import (
+    PinCatalogue,
+    boot_globals_whitelist,
+    default_pin_model,
+    parse_pin_text,
+    read_pin_files,
+)
+from decomp_workbench.schema import (
+    SHIFT_CENSUS_KEYS,
+    SHIFT_METRICS_BY_KEY,
+    explain_keys_text,
+)
+from decomp_workbench.shift_audit import (
+    CLUSTER_MINIMUM,
+    REPEAT_MINIMUM,
+    RESIDENCE_SCORES,
+    TIER_RULES,
+    Hit,
+    ShiftAudit,
+    build_region_table,
+    build_shift_audit,
+    movable_window,
+    shift_audit_lines,
+)
+
+# --------------------------------------------------------------------------
+# Synthetic fixture
+# --------------------------------------------------------------------------
+
+#: Five output sections covering every placement shape the region table has
+#: to derive: two sections with no `AT()` whose VMA *is* their ROM offset, one
+#: `AT()`'d section holding a text run followed by two data runs that must
+#: merge, and a bss section that owns no image bytes at all (its huge size is
+#: what puts the movable window's high bound far above the image).
+SYNTHETIC_MAP = """
+Linker script and memory map
+
+.header         0x00000000       0x10
+ .data          0x00000000       0x10 build/header.o
+
+.boot           0x00000010       0x10
+ .data          0x00000010       0x10 build/boot.o
+
+.main           0x80000400       0x80 load address 0x00000020
+ .text          0x80000400       0x20 build/code.o
+ .text          0x80000420       0x10 build/more.o
+ .data          0x80000430       0x30 build/code.o
+                0x80000430                gData
+                0x80000440                gTarget
+                0x80000450                gOther
+ .rodata        0x80000460       0x20 build/code.o
+
+.main_bss       0x80000480    0x10020 load address 0x000000a0
+ .bss           0x80000480    0x10020 build/code.o
+                0x800104a0                main_BSS_END
+"""
+
+#: One word per feature. The comment beside each is the rule it exists to
+#: fire; the totals asserted below are the sum of these, by hand.
+SYNTHETIC_WORDS: tuple[int, ...] = (
+    # .header, ROM 0x00-0x0f
+    0x00000000,
+    0x80000444,  # header residence, nothing else: low
+    0x00000000,
+    0x00000000,
+    # .boot, ROM 0x10-0x1f
+    0x80000440,  # points at gTarget; blob residence: medium
+    0x80000444,  # blob residence, nothing else: low
+    0x00000000,
+    0x00000000,
+    # .main .text, ROM 0x20-0x4f -- address-shaped and never scanned
+    0x80000440,
+    *((0x00000000,) * 11),
+    # .main .data + .rodata, ROM 0x50-0x9f
+    0x80000440,  # data residence, points at gTarget: high
+    0x80000443,  # misaligned
+    0x80010000,  # round constant (low half zero), no symbol under it
+    0x80000454,  # plain in-window data word: medium
+    0x80000460,  # cluster member
+    0x80000464,  # cluster member
+    0x80000468,  # cluster member
+    0x00000000,
+    0x80000474,  # repeated value
+    0x80000474,
+    0x80000474,
+    0x80000474,
+    0x80000480,  # plain in-window data word: medium (whitelisted in one test)
+    *((0x00000000,) * 7),
+)
+
+SYNTHETIC_IMAGE = b"".join(struct.pack(">I", word) for word in SYNTHETIC_WORDS)
+
+
+def synthetic_map() -> LdMap:
+    return parse_ld_map(SYNTHETIC_MAP, path="synthetic.map")
+
+
+def empty_pins() -> PinCatalogue:
+    return PinCatalogue(entries=(), sources=())
+
+
+def read_pin_text(text: str) -> PinCatalogue:
+    return PinCatalogue(
+        entries=parse_pin_text(text, path="pins.txt", model=default_pin_model()),
+        sources=("pins.txt",),
+    )
+
+
+def audit(
+    *,
+    blobs: tuple[str, ...] = (".boot",),
+    whitelist: tuple[WhitelistEntry, ...] = (),
+) -> ShiftAudit:
+    return build_shift_audit(
+        ldmap=synthetic_map(),
+        image=SYNTHETIC_IMAGE,
+        pins=empty_pins(),
+        model=default_pin_model(whitelist=whitelist),
+        blobs=blobs,
+        map_path="synthetic.map",
+        image_path="synthetic.z64",
+    )
+
+
+def tiers(found: ShiftAudit) -> dict[str, int]:
+    return {
+        "high": found.scan_high,
+        "medium": found.scan_medium,
+        "low": found.scan_low,
+    }
+
+
+def hit_at(found: ShiftAudit, rom: int) -> Hit:
+    return next(item for item in found.hits if item.rom == rom)
+
+
+class RegionDerivationTests(unittest.TestCase):
+    """The region table is read off the map, never configured by hand."""
+
+    def setUp(self) -> None:
+        self.regions = build_region_table(
+            synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot",)
+        )
+
+    def test_one_region_per_kind_run(self) -> None:
+        self.assertEqual(
+            [(item.output_section, item.kind) for item in self.regions],
+            [
+                (".header", "header"),
+                (".boot", "blob"),
+                (".main", "text"),
+                (".main", "data"),
+                (".main_bss", "bss"),
+            ],
+        )
+
+    def test_unlike_data_runs_merge_and_text_does_not_join_them(self) -> None:
+        """`.data` and `.rodata` are one data run; `.text` stays its own."""
+
+        text = next(item for item in self.regions if item.kind == "text")
+        data = next(item for item in self.regions if item.kind == "data")
+        self.assertEqual((text.vram, text.size), (0x80000400, 0x30))
+        self.assertEqual((data.vram, data.size), (0x80000430, 0x50))
+
+    def test_an_at_section_takes_its_rom_from_the_load_address(self) -> None:
+        data = next(item for item in self.regions if item.kind == "data")
+        self.assertEqual(data.rom, 0x50)
+        self.assertEqual(data.rom_source, "load-address")
+
+    def test_a_section_without_at_is_placed_by_its_vma_and_says_so(self) -> None:
+        header = self.regions[0]
+        self.assertEqual(header.rom, 0x00)
+        self.assertEqual(header.rom_source, "vma-as-rom")
+
+    def test_a_bss_section_owns_no_image_bytes_and_is_not_scanned(self) -> None:
+        bss = next(item for item in self.regions if item.kind == "bss")
+        self.assertFalse(bss.scanned)
+        self.assertEqual(bss.rom_source, "not-resident")
+
+    def test_text_is_placed_but_still_not_scanned(self) -> None:
+        text = next(item for item in self.regions if item.kind == "text")
+        self.assertEqual(text.rom, 0x20)
+        self.assertFalse(text.scanned)
+
+    def test_a_blob_designation_replaces_the_derived_kind(self) -> None:
+        plain = build_region_table(
+            synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=()
+        )
+        self.assertEqual(plain[1].kind, "data")
+        self.assertEqual(self.regions[1].kind, "blob")
+
+    def test_a_region_past_the_end_of_the_image_is_reported_unplaced(self) -> None:
+        short = build_region_table(synthetic_map(), image_size=0x30, blobs=())
+        unplaced = [item for item in short if item.rom_source == "unplaced"]
+        self.assertTrue(unplaced)
+        self.assertTrue(all(not item.scanned for item in unplaced))
+
+
+class MovableWindowTests(unittest.TestCase):
+    """The window comes from the map's own extent, not from a constant."""
+
+    def test_the_window_runs_from_the_first_movable_start_to_the_last_bss_end(
+        self,
+    ) -> None:
+        regions = build_region_table(
+            synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot",)
+        )
+        window = movable_window(regions)
+        self.assertEqual((window.lo, window.hi), (0x80000400, 0x800104A0))
+        self.assertEqual(window.lo_section, ".main")
+        self.assertEqual(window.hi_section, ".main_bss")
+
+    def test_the_window_ignores_blobs_and_the_header(self) -> None:
+        """A DMA'd segment's VMA is a load target, not a place code lives."""
+
+        regions = build_region_table(
+            synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot", ".header")
+        )
+        window = movable_window(regions)
+        self.assertEqual(window.lo, 0x80000400)
+
+
+class ScanFeatureTests(unittest.TestCase):
+    """Every confidence feature, one word each."""
+
+    def setUp(self) -> None:
+        self.audit = audit()
+
+    def test_text_words_are_counted_but_never_scanned(self) -> None:
+        self.assertEqual(self.audit.text_words, 12)
+        self.assertEqual(self.audit.text_regions, 1)
+        self.assertEqual(
+            [item.rom for item in self.audit.hits if item.rom < 0x50],
+            [0x04, 0x10, 0x14],
+        )
+
+    def test_the_scan_covers_data_blob_and_header_regions(self) -> None:
+        self.assertEqual(self.audit.scanned_words, 28)
+        self.assertEqual(self.audit.scan_total, 15)
+
+    def test_alignment_is_recorded_and_demotes(self) -> None:
+        hit = hit_at(self.audit, 0x54)
+        self.assertEqual(hit.alignment, 3)
+        self.assertEqual(hit.rule, "misaligned")
+        self.assertEqual(hit.tier, "low")
+
+    def test_pointing_at_a_symbol_start_elevates(self) -> None:
+        hit = hit_at(self.audit, 0x50)
+        self.assertTrue(hit.points_at_symbol_start)
+        self.assertEqual(hit.target_symbol, "gTarget")
+        self.assertEqual(hit.target_offset, 0)
+        self.assertEqual(hit.tier, "high")
+
+    def test_pointing_into_the_middle_of_a_symbol_does_not(self) -> None:
+        hit = hit_at(self.audit, 0x5C)
+        self.assertFalse(hit.points_at_symbol_start)
+        self.assertEqual(hit.target_symbol, "gOther")
+        self.assertEqual(hit.target_offset, 4)
+        self.assertEqual(hit.tier, "medium")
+
+    def test_blob_residence_demotes_the_same_value_that_data_elevates(self) -> None:
+        self.assertEqual(hit_at(self.audit, 0x10).value, hit_at(self.audit, 0x50).value)
+        self.assertEqual(hit_at(self.audit, 0x10).tier, "medium")
+        self.assertEqual(hit_at(self.audit, 0x50).tier, "high")
+
+    def test_a_blob_hit_is_not_attributed_to_a_symbol(self) -> None:
+        """S0's own dump read asset bytes through `.main`'s ROM mapping and
+        labelled them `gAudioHeapStack+0x...`. A blob's VMA is a DMA target,
+        so residence is reported as the section and nothing more."""
+
+        self.assertIsNone(hit_at(self.audit, 0x10).resident_symbol)
+        self.assertEqual(hit_at(self.audit, 0x10).region, ".boot")
+        self.assertEqual(hit_at(self.audit, 0x50).resident_symbol, "gData")
+        self.assertEqual(hit_at(self.audit, 0x54).resident_offset, 4)
+
+    def test_a_constant_stride_arithmetic_progression_is_one_cluster(self) -> None:
+        members = [item for item in self.audit.hits if item.cluster is not None]
+        self.assertEqual([item.rom for item in members], [0x60, 0x64, 0x68])
+        self.assertEqual({item.cluster for item in members}, {0})
+        self.assertEqual({item.rule for item in members}, {"progression-cluster"})
+        self.assertEqual({item.tier for item in members}, {"low"})
+        self.assertGreaterEqual(len(members), CLUSTER_MINIMUM)
+
+    def test_a_repeated_value_is_counted_and_demoted_but_not_dropped(self) -> None:
+        repeats = [item for item in self.audit.hits if item.value == 0x80000474]
+        self.assertEqual(len(repeats), REPEAT_MINIMUM)
+        self.assertEqual({item.repeats for item in repeats}, {REPEAT_MINIMUM})
+        self.assertEqual({item.rule for item in repeats}, {"repeated-value"})
+        self.assertEqual({item.tier for item in repeats}, {"low"})
+
+    def test_a_repeat_is_not_reported_as_a_cluster(self) -> None:
+        """A progression whose difference is zero is a repeat, and the repeat
+        rule is the one that names it; two rules for one family would double
+        count it in the rule tally."""
+
+        self.assertTrue(
+            all(item.cluster is None for item in self.audit.hits if item.repeats > 1)
+        )
+
+    def test_a_round_value_with_no_symbol_under_it_is_a_constant(self) -> None:
+        hit = hit_at(self.audit, 0x58)
+        self.assertEqual(hit.rule, "round-constant")
+        self.assertEqual(hit.tier, "low")
+
+    def test_a_whitelisted_value_is_demoted_with_the_reason_attached(self) -> None:
+        whitelisted = audit(
+            whitelist=(WhitelistEntry(0x80000480, 0x80000481, "the caller says so"),)
+        )
+        hit = hit_at(whitelisted, 0x80)
+        self.assertEqual(hit.rule, "whitelisted")
+        self.assertEqual(hit.tier, "low")
+        self.assertTrue(hit.whitelisted)
+        self.assertEqual(hit.reason, "the caller says so")
+        self.assertEqual(hit_at(audit(), 0x80).tier, "medium")
+
+
+class TierTotalTests(unittest.TestCase):
+    """The totals are the sum of the fixture's per-word comments."""
+
+    def test_the_synthetic_totals_are_readable_by_hand(self) -> None:
+        found = audit()
+        self.assertEqual(tiers(found), {"high": 1, "medium": 3, "low": 11})
+        self.assertEqual(sum(tiers(found).values()), found.scan_total)
+
+    def test_dropping_the_blob_designation_promotes_the_boot_words(self) -> None:
+        """Both boot words move up one tier, and nothing else changes."""
+
+        found = audit(blobs=())
+        self.assertEqual(tiers(found), {"high": 2, "medium": 3, "low": 10})
+
+    def test_the_rule_tally_partitions_the_scan(self) -> None:
+        found = audit()
+        self.assertEqual(sum(found.scan_rules.values()), found.scan_total)
+        self.assertEqual(
+            found.scan_rules,
+            {
+                "misaligned": 1,
+                "progression-cluster": 3,
+                "repeated-value": 4,
+                "round-constant": 1,
+                "scored": 6,
+            },
+        )
+
+    def test_every_rule_a_hit_can_carry_is_in_the_published_table(self) -> None:
+        published = {item.name for item in TIER_RULES} | {"scored"}
+        found = audit(
+            whitelist=(WhitelistEntry(0x80000480, 0x80000481, "the caller says so"),)
+        )
+        self.assertLessEqual({item.rule for item in found.hits}, published)
+        self.assertEqual(set(RESIDENCE_SCORES), {"data", "header", "blob"})
+
+
+class ReportShapeTests(unittest.TestCase):
+    """The JSON contract, and the human report the same numbers render to."""
+
+    def setUp(self) -> None:
+        self.audit = audit()
+        self.payload = self.audit.as_dict(limit=4)
+
+    def test_the_census_keys_are_top_level_scalars(self) -> None:
+        for key in (
+            "pins_total",
+            "pins_derived",
+            "pins_authentic",
+            "pins_artifact",
+            "pins_unclassified",
+            "scan_total",
+            "scan_high",
+            "scan_medium",
+            "scan_low",
+            "scanned_words",
+            "text_words",
+            "text_regions",
+            "region_count",
+            "image_bytes",
+            "window_lo",
+            "window_hi",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, self.payload)
+                self.assertIsInstance(self.payload[key], int | str)
+
+    def test_the_detail_lists_name_their_own_cap(self) -> None:
+        self.assertEqual(self.payload["limit"], 4)
+        self.assertEqual(self.payload["hits_shown"], 4)
+        self.assertEqual(len(self.payload["hits"]), 4)
+        self.assertEqual(self.payload["scan_total"], 15)
+
+    def test_hits_are_ranked_before_they_are_capped(self) -> None:
+        tiers_shown = [item["tier"] for item in self.payload["hits"]]
+        self.assertEqual(tiers_shown[0], "high")
+        self.assertEqual(tiers_shown[1:4], ["medium", "medium", "medium"])
+
+    def test_the_rules_are_data_and_travel_with_the_report(self) -> None:
+        names = [item["name"] for item in self.payload["rules"]]
+        self.assertIn("misaligned", names)
+        self.assertIn("progression-cluster", names)
+        for rule in self.payload["rules"]:
+            self.assertEqual(set(rule), {"name", "tier", "evidence"})
+        self.assertEqual(self.payload["residence_scores"]["blob"], 0)
+        self.assertEqual(self.payload["tier_thresholds"]["high"], 3)
+
+    def test_the_region_table_travels_with_the_report(self) -> None:
+        names = [
+            (item["output_section"], item["kind"]) for item in self.payload["regions"]
+        ]
+        self.assertIn((".main", "text"), names)
+        self.assertIn((".main_bss", "bss"), names)
+        self.assertEqual(self.payload["region_count"], 5)
+
+    def test_the_payload_is_plain_json(self) -> None:
+        json.dumps(self.payload)
+
+    def test_every_json_key_the_report_emits_is_registered(self) -> None:
+        """`--explain-keys` has to reach every key, nested ones included."""
+
+        def keys(value: object) -> set[str]:
+            if isinstance(value, dict):
+                found: set[str] = set()
+                for key, item in value.items():
+                    found.add(key)
+                    found |= keys(item)
+                return found
+            if isinstance(value, list):
+                return {name for item in value for name in keys(item)}
+            return set()
+
+        # `schema` is registered; the scan/rule tallies are keyed by rule and
+        # region name rather than by metric, so their own keys are values.
+        emitted = keys(self.payload) - {"schema"}
+        emitted -= set(self.payload["scan_rules"])
+        emitted -= set(self.payload["scan_by_region"])
+        emitted -= set(self.payload["residence_scores"])
+        emitted -= set(self.payload["tier_thresholds"])
+        self.assertLessEqual(emitted, set(SHIFT_METRICS_BY_KEY))
+        text = explain_keys_text()
+        for key in emitted:
+            with self.subTest(key=key):
+                self.assertIn(key, text)
+
+    def test_every_printed_label_is_one_of_those_keys(self) -> None:
+        """The house rule: a printed label and its JSON key are one string.
+
+        Table headers are checked because they are where a report drifts: a
+        column called `placed by` reads well and cannot be looked up.
+        """
+
+        registered = set(SHIFT_METRICS_BY_KEY)
+        headers = (
+            "output_section kind vram size rom rom_source words scanned",
+            "name value window source line",
+            "rule count",
+            "region count",
+            "rom value tier rule region resident_symbol target_symbol",
+        )
+        for row in headers:
+            for label in row.split():
+                with self.subTest(label=label):
+                    self.assertIn(label, registered)
+        # Rendered with a pin catalogue, so the suspect table is present too.
+        with_pins = build_shift_audit(
+            ldmap=synthetic_map(),
+            image=SYNTHETIC_IMAGE,
+            pins=read_pin_text("D_B0000574 = 0xB0000574;\n"),
+            model=default_pin_model(),
+            blobs=(".boot",),
+        )
+        text = "\n".join(shift_audit_lines(with_pins, limit=4))
+        for row in headers:
+            with self.subTest(row=row):
+                self.assertTrue(
+                    any(line.split() == row.split() for line in text.splitlines()),
+                    f"no table in the report has the header {row!r}",
+                )
+
+    def test_the_census_registry_is_exactly_the_shift_vocabulary(self) -> None:
+        self.assertEqual(set(SHIFT_CENSUS_KEYS), set(SHIFT_METRICS_BY_KEY))
+
+    def test_the_human_report_prints_the_same_numbers(self) -> None:
+        lines = shift_audit_lines(self.audit, limit=4)
+        text = "\n".join(lines)
+        self.assertIn("scan_total", text)
+        self.assertIn("15", text)
+        self.assertIn("0x80000400", text)
+        self.assertIn("shift rehearse", text)
+        # No silent truncation: the cap is printed beside the total.
+        self.assertIn("4 of 15", text)
+
+    def test_the_human_report_says_what_the_text_words_are_for(self) -> None:
+        text = "\n".join(shift_audit_lines(self.audit, limit=4))
+        self.assertIn("12", text)
+        self.assertIn("not scanned", text)
+
+
+# --------------------------------------------------------------------------
+# Command
+# --------------------------------------------------------------------------
+
+
+class CommandTests(unittest.TestCase):
+    """Argument handling, exit codes, and the JSON envelope."""
+
+    root: ClassVar[Path]
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.map_path = self.root / "synthetic.map"
+        self.image_path = self.root / "synthetic.z64"
+        self.map_path.write_text(SYNTHETIC_MAP, encoding="utf-8")
+        self.image_path.write_bytes(SYNTHETIC_IMAGE)
+
+    def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def base_arguments(self) -> list[str]:
+        return [
+            "shift",
+            "audit",
+            "--map",
+            str(self.map_path),
+            "--image",
+            str(self.image_path),
+            "--blob",
+            ".boot",
+        ]
+
+    def test_the_group_spelling_runs(self) -> None:
+        status, stdout, _ = self.run_cli(self.base_arguments())
+        self.assertEqual(status, 0)
+        self.assertIn("shift audit", stdout)
+
+    def test_json_carries_the_schema_identity(self) -> None:
+        status, stdout, _ = self.run_cli([*self.base_arguments(), "--json"])
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema"], "decomp-workbench-shift-audit-v1")
+        self.assertEqual(payload["scan_total"], 15)
+        self.assertEqual(payload["scan_high"], 1)
+
+    def test_the_blob_option_is_repeatable_and_changes_the_answer(self) -> None:
+        _, plain, _ = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(self.map_path),
+                "--image",
+                str(self.image_path),
+                "--json",
+            ]
+        )
+        self.assertEqual(json.loads(plain)["scan_high"], 2)
+
+    def test_a_pin_file_is_read_and_counted(self) -> None:
+        pins = self.root / "undefined_syms.txt"
+        pins.write_text(
+            "/* fake */\nD_B0000574 = 0xB0000574;\ngPool = main_BSS_END;\n",
+            encoding="utf-8",
+        )
+        status, stdout, _ = self.run_cli(
+            [*self.base_arguments(), "--pins", str(pins), "--json"]
+        )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["pins_total"], 2)
+        self.assertEqual(payload["pins_artifact"], 1)
+        self.assertEqual(payload["pins_derived"], 1)
+
+    def test_a_whitelist_file_reaches_both_the_pins_and_the_scan(self) -> None:
+        pins = self.root / "undefined_syms.txt"
+        pins.write_text("osTvType = 0x80000300;\n", encoding="utf-8")
+        whitelist = self.root / "whitelist.txt"
+        whitelist.write_text(
+            "# the caller's claim, with its reason\n"
+            "0x80000300-0x80000400 boot globals\n"
+            "0x80000480 a fixed thing\n",
+            encoding="utf-8",
+        )
+        status, stdout, _ = self.run_cli(
+            [
+                *self.base_arguments(),
+                "--pins",
+                str(pins),
+                "--whitelist",
+                str(whitelist),
+                "--json",
+            ]
+        )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["pins_authentic"], 1)
+        self.assertEqual(payload["scan_medium"], 2)
+
+    def test_a_malformed_whitelist_line_is_refused_before_any_work(self) -> None:
+        whitelist = self.root / "whitelist.txt"
+        whitelist.write_text("0x80000300\n", encoding="utf-8")
+        status, _, stderr = self.run_cli(
+            [*self.base_arguments(), "--whitelist", str(whitelist)]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+
+    def test_a_missing_image_is_a_usage_failure_not_a_traceback(self) -> None:
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                str(self.map_path),
+                "--image",
+                str(self.root / "absent.z64"),
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+
+    def test_census_passes_and_fails_with_the_house_exit_codes(self) -> None:
+        passing, _, _ = self.run_cli(
+            [*self.base_arguments(), "--census", "scan_high=1"]
+        )
+        self.assertEqual(passing, 0)
+        failing, stdout, _ = self.run_cli(
+            [*self.base_arguments(), "--census", "scan_high=99"]
+        )
+        self.assertEqual(failing, 3)
+        self.assertIn("census: FAIL", stdout)
+
+    def test_an_unknown_census_key_is_refused_before_reading_anything(self) -> None:
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                "absent.map",
+                "--image",
+                "absent.z64",
+                "--census",
+                "x=1",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("unknown census key 'x'", stderr)
+
+    def test_explain_keys_covers_the_shift_vocabulary(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            self.run_cli(["shift", "audit", "--explain-keys"])
+        self.assertEqual(raised.exception.code, 0)
+
+    def test_naming_no_operation_prints_the_group_listing(self) -> None:
+        status, stdout, _ = self.run_cli(["shift"])
+        self.assertEqual(status, 0)
+        self.assertIn("audit", stdout)
+
+    def test_the_limit_is_honoured_and_named(self) -> None:
+        status, stdout, _ = self.run_cli([*self.base_arguments(), "--limit", "2"])
+        self.assertEqual(status, 0)
+        self.assertIn("2 of 15", stdout)
+
+
+# --------------------------------------------------------------------------
+# DKR conformance -- skips when the sibling playground checkout is absent
+# --------------------------------------------------------------------------
+
+PLAYGROUND = Path(__file__).resolve().parents[2] / "decomp_playground"
+S0_DIR = PLAYGROUND / ".workbench" / "shift-instrumentation" / "s0"
+DKR_MAP = S0_DIR / "nm-base" / "dkr.us.v77.map"
+DKR_IMAGE = S0_DIR / "nm-base" / "dkr.us.v77.z64"
+DKR_PINS = PLAYGROUND / "diddy-kong-racing" / "ver" / "symbols" / "undefined_syms.txt"
+
+
+@unittest.skipUnless(
+    DKR_MAP.is_file() and DKR_IMAGE.is_file(),
+    f"S0 shift-instrumentation artifacts not found under {S0_DIR}",
+)
+class DkrAuditConformanceTests(unittest.TestCase):
+    """S0's anchor cases, replayed through the classifier that replaced it.
+
+    The tier totals below were measured on this exact image and are frozen
+    here on purpose: they are the calibration this campaign stage claims, and
+    a change in any rule has to be re-justified against the anchors rather
+    than absorbed silently.
+
+    The relationship to S0's own number is worth stating because it is not a
+    discrepancy. S0 counted 1,501 *stale candidates*: words that held an
+    in-window value and did **not** move across a real 0x10 shift. This audit
+    has one image and cannot know what moved, so it counts every in-window
+    word in the data/blob/header regions and gets 3,443. The two were
+    reconciled directly against S0's shifted image: of its 1,501, exactly
+    1,479 are in `.assets`, 14 in `.main`'s data run, 7 in `.boot`, 1 in
+    `.header` -- and **zero** in text. So S0's whole stale set lies inside the
+    regions this audit scans, and the 1,942-word difference is precisely the
+    words a shift moves, which is `shift rehearse`'s question, not this
+    command's.
+    """
+
+    audit: ClassVar[ShiftAudit]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.audit = build_shift_audit(
+            ldmap=read_ld_map(DKR_MAP),
+            image=DKR_IMAGE.read_bytes(),
+            pins=(
+                read_pin_files(
+                    [DKR_PINS],
+                    model=default_pin_model(whitelist=(boot_globals_whitelist(),)),
+                )
+                if DKR_PINS.is_file()
+                else PinCatalogue(entries=(), sources=())
+            ),
+            model=default_pin_model(whitelist=(boot_globals_whitelist(),)),
+            blobs=(".assets", ".assets_lut", ".boot"),
+            map_path=str(DKR_MAP),
+            image_path=str(DKR_IMAGE),
+        )
+
+    def test_the_region_table_is_the_six_sections_of_the_cascade_script(self) -> None:
+        self.assertEqual(
+            [(item.output_section, item.kind) for item in self.audit.regions],
+            [
+                (".header", "header"),
+                (".boot", "blob"),
+                (".main", "text"),
+                (".main", "data"),
+                (".main_bss", "bss"),
+                (".assets_lut", "blob"),
+                (".assets", "blob"),
+            ],
+        )
+
+    def test_the_movable_window_is_derived_from_the_map(self) -> None:
+        window = self.audit.window
+        self.assertEqual(window.lo, 0x80000400)
+        self.assertEqual(window.hi, 0x80122610)
+        self.assertEqual(window.lo_section, ".main")
+        self.assertEqual(window.hi_section, ".main_bss")
+
+    def test_the_text_coverage_line_counts_what_it_did_not_scan(self) -> None:
+        self.assertEqual(self.audit.text_words, 213_560)
+        self.assertEqual(self.audit.text_regions, 1)
+
+    def test_the_measured_tier_totals(self) -> None:
+        self.assertEqual(self.audit.scan_total, 3_443)
+        self.assertEqual(self.audit.scan_high, 38)
+        self.assertEqual(self.audit.scan_medium, 657)
+        self.assertEqual(self.audit.scan_low, 2_748)
+        self.assertEqual(
+            self.audit.scan_high + self.audit.scan_medium + self.audit.scan_low,
+            self.audit.scan_total,
+        )
+
+    def test_the_scan_totals_per_region_match_s0s_own_attribution(self) -> None:
+        """`.assets` (1,479) and `.boot` (7) are S0's counts exactly: an
+        opaque blob holds no relocated pointers, so every in-window word in
+        one is a stale candidate and the two questions have one answer."""
+
+        self.assertEqual(self.audit.scan_by_region[".assets"], 1_479)
+        self.assertEqual(self.audit.scan_by_region[".boot"], 7)
+        self.assertEqual(self.audit.scan_by_region[".main"], 1_955)
+        self.assertEqual(self.audit.scan_by_region[".header"], 2)
+
+    def test_the_track_select_cluster_is_demoted_whole(self) -> None:
+        """S0's packed-shorts family: an arithmetic progression of packed
+        fields at a constant stride, two of whose four members are also
+        misaligned."""
+
+        family = [
+            hit
+            for hit in self.audit.hits
+            if hit.resident_symbol == "gTrackSelectBgData"
+        ]
+        self.assertEqual(
+            [hit.value for hit in family],
+            [0x80000800, 0x80001002, 0x80001804, 0x80002006],
+        )
+        self.assertEqual({hit.tier for hit in family}, {"low"})
+        self.assertEqual(
+            [hit.rule for hit in family],
+            [
+                "progression-cluster",
+                "misaligned",
+                "progression-cluster",
+                "misaligned",
+            ],
+        )
+
+    def test_the_sine_table_constant_is_demoted(self) -> None:
+        hit = next(
+            item
+            for item in self.audit.hits
+            if item.resident_symbol == "gSineTable" and item.resident_offset == 0x7FC
+        )
+        self.assertEqual(hit.value, 0x80008000)
+        self.assertEqual(hit.rule, "round-constant")
+        self.assertEqual(hit.tier, "low")
+
+    def test_the_matched_garbage_in_the_asset_blob_is_demoted_by_alignment(
+        self,
+    ) -> None:
+        """S0 labelled these `gAudioHeapStack+0x...` by reading asset ROM
+        offsets through `.main`'s VRAM mapping. They are `.assets` bytes; the
+        odd-valued ones cannot be pointers whatever they are called."""
+
+        for value in (0x8007BA73, 0x8005D193):
+            with self.subTest(value=value):
+                hit = next(item for item in self.audit.hits if item.value == value)
+                self.assertEqual(hit.region, ".assets")
+                self.assertIsNone(hit.resident_symbol)
+                self.assertEqual(hit.rule, "misaligned")
+                self.assertEqual(hit.tier, "low")
+
+    def test_the_symbol_start_hit_outranks_the_blob_noise(self) -> None:
+        """The same value appears twice: once in compiled data and once in
+        the asset blob. Both point at a symbol start, and both are ranked
+        above the blob's own noise floor."""
+
+        found = [item for item in self.audit.hits if item.value == 0x800D379C]
+        self.assertEqual(len(found), 2)
+        by_region = {item.region: item for item in found}
+        self.assertEqual(by_region[".main"].tier, "high")
+        self.assertEqual(by_region[".assets"].tier, "medium")
+        for hit in found:
+            self.assertTrue(hit.points_at_symbol_start)
+            self.assertEqual(hit.target_symbol, "gContPakNoRoomForGhostsStrings")
+
+    def test_the_high_tier_is_pointer_tables_not_noise(self) -> None:
+        """Every high-tier hit points at a symbol start from compiled data.
+
+        Measured against S0's real 0x10 shift: all 38 of them moved. The
+        tiers rank how confidently a word is an address *reference*; whether
+        a reference tracks a shift is the rehearsal's question.
+        """
+
+        highs = [item for item in self.audit.hits if item.tier == "high"]
+        self.assertEqual(len(highs), 38)
+        self.assertTrue(all(item.points_at_symbol_start for item in highs))
+        self.assertTrue(all(item.residence in ("data", "header") for item in highs))
+        self.assertIn(
+            "gContPakNoRoomForGhostsStrings",
+            {item.target_symbol for item in highs},
+        )
+
+    def test_the_pin_catalogue_travels_inside_the_audit(self) -> None:
+        if not DKR_PINS.is_file():
+            self.skipTest(f"DKR pin file not found at {DKR_PINS}")
+        payload = self.audit.as_dict(limit=5)
+        self.assertEqual(payload["pins_total"], 66)
+        self.assertEqual(payload["pins_artifact"], 2)
+        self.assertEqual(payload["pins_derived"], 7)
+        self.assertEqual(payload["pins_authentic"], 57)
+
+
+@unittest.skipUnless(
+    DKR_MAP.is_file() and DKR_IMAGE.is_file() and DKR_PINS.is_file(),
+    f"S0 shift-instrumentation artifacts not found under {S0_DIR}",
+)
+class DkrCommandConformanceTest(unittest.TestCase):
+    """The whole command, on the real inputs, through argparse."""
+
+    def test_the_command_reports_the_measured_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            whitelist = Path(temp) / "whitelist.txt"
+            whitelist.write_text(
+                "0x80000300-0x80000400 N64 boot globals and the fixed entrypoint\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                status = main(
+                    [
+                        "shift",
+                        "audit",
+                        "--map",
+                        str(DKR_MAP),
+                        "--image",
+                        str(DKR_IMAGE),
+                        "--pins",
+                        str(DKR_PINS),
+                        "--whitelist",
+                        str(whitelist),
+                        "--blob",
+                        ".assets",
+                        "--blob",
+                        ".assets_lut",
+                        "--blob",
+                        ".boot",
+                        "--json",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["schema"], "decomp-workbench-shift-audit-v1")
+        self.assertEqual(payload["pins_total"], 66)
+        self.assertEqual(payload["pins_artifact"], 2)
+        self.assertEqual(payload["scan_total"], 3_443)
+        self.assertEqual(payload["scan_high"], 38)
+        self.assertEqual(payload["scan_medium"], 657)
+        self.assertEqual(payload["scan_low"], 2_748)
+        self.assertEqual(payload["text_words"], 213_560)
+
+
+if __name__ == "__main__":
+    unittest.main()

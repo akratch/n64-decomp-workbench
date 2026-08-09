@@ -125,6 +125,7 @@ from .scratch_check import (
     site_source_marker,
 )
 from .scratch_registration import register_scratch_commands
+from .shift_cli import register_shift_commands
 from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
@@ -1787,6 +1788,10 @@ def build_parser() -> argparse.ArgumentParser:
     # `phase` reads the rows `align` paired, and answers the question that
     # follows: of the rows that differ, how many are a ring rotation?
     register_phase_commands(commands)
+    # `shift` asks the same question one scale up: `align` is shift-tolerant
+    # about one function's rows, and `shift audit` is about a whole linked
+    # image's addresses.
+    register_shift_commands(commands)
     register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)

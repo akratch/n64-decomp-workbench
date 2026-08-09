@@ -143,6 +143,9 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("fingerprint", "compile redistributable behavioral microcases"),
         ("lineage", "compare symbol lineage across object revisions"),
     ),
+    "shift": (
+        ("audit", "inventory where a linked project's addresses come from"),
+    ),
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),
         ("diff", "compare compiler decisions by semantic web provenance"),

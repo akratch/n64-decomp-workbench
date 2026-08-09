@@ -102,8 +102,7 @@ _HARDWARE_REASON = (
     "this project's layout"
 )
 _KSEG0_REASON = (
-    "kseg0 RAM address written as a constant: it does not move when the "
-    "layout moves"
+    "kseg0 RAM address written as a constant: it does not move when the layout moves"
 )
 
 #: The one whitelist entry nearly every N64 project needs, offered by name
@@ -261,7 +260,9 @@ def _strip_comments(text: str) -> tuple[str, tuple[_Comment, ...]]:
         if text.startswith("//", index):
             close = text.find("\n", index)
             stop = size if close < 0 else close
-            comments.append(_Comment(line, _condense(text[index + 2 : stop]), line_has_code))
+            comments.append(
+                _Comment(line, _condense(text[index + 2 : stop]), line_has_code)
+            )
             pieces.append(" " * (stop - index))
             index = stop
             continue
@@ -434,7 +435,8 @@ def parse_pin_text(
             tokens = note.text.split()
             if tokens and all(_ATTRIBUTE_RE.match(item) for item in tokens):
                 attributes = tuple(
-                    (key, rest) for key, _, rest in (item.partition(":") for item in tokens)
+                    (key, rest)
+                    for key, _, rest in (item.partition(":") for item in tokens)
                 )
             else:
                 comment_text = note.text
@@ -514,9 +516,7 @@ class PinCatalogue:
         }
 
 
-def read_pin_files(
-    paths: Iterable[str | Path], *, model: RangeModel
-) -> PinCatalogue:
+def read_pin_files(paths: Iterable[str | Path], *, model: RangeModel) -> PinCatalogue:
     """Read every named pin file into one catalogue, in the order given."""
 
     entries: list[Pin] = []
