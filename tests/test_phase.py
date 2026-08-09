@@ -353,6 +353,25 @@ class PhaseCommandTests(unittest.TestCase):
         self.assertIn("SHIFTED", stdout)
         self.assertIn("insertion-only", stdout)
 
+    def test_a_large_ring_falls_back_to_paired_cosets_with_a_notice(self) -> None:
+        """An 8-register ring must not error when --cosets is unspecified."""
+
+        traffic = float_traffic(24)
+        target = body(*traffic)
+
+        status, stdout, stderr = run_cli(
+            [
+                "phase-dumps",
+                self._dump("t8.objdump", target),
+                self._dump("c8.objdump", target),
+                "--ring",
+                "$t2,$t3,$t4,$t5,$t6,$t7,$t8,$t9",
+            ]
+        )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("paired cosets", stderr)
+
     def test_require_ni_refuses_a_candidate_of_the_wrong_length(self) -> None:
         traffic = float_traffic(24)
         target = body(*traffic)

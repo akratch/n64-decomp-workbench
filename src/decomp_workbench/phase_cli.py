@@ -15,6 +15,7 @@ from .model import Instruction, display_path, shorten_paths
 from .phase import (
     COSET_FAMILIES,
     DEFAULT_RING,
+    MAX_ALL_RING,
     PhaseError,
     PhaseReport,
     Slot,
@@ -162,6 +163,16 @@ def phase_command(args: argparse.Namespace) -> int:
     )
     try:
         ring = parse_ring(args.ring)
+        if args.cosets is None:
+            if len(ring) > MAX_ALL_RING:
+                args.cosets = "paired"
+                print(
+                    f"note: {len(ring)}-register ring is too large to permute; "
+                    "searching paired cosets (pass --cosets to choose)",
+                    file=sys.stderr,
+                )
+            else:
+                args.cosets = "all"
         slots = _read_slots(args)
         base_source, base_sha = _base_identity(args)
         target = _rows(args.target, args, cache=cache)
@@ -285,11 +296,12 @@ def _add_arguments(parser: argparse.ArgumentParser, *, object_inputs: bool) -> N
     parser.add_argument(
         "--cosets",
         choices=COSET_FAMILIES,
-        default="all",
+        default=None,
         help=(
             "which renamings count as the same allocation rotated: all "
             "permutations of the ring, or paired (identity plus disjoint-pair "
-            "swaps, the physically plausible set) (default: all)"
+            "swaps, the physically plausible set) (default: all, falling back "
+            "to paired with a notice when the ring is too large to permute)"
         ),
     )
     parser.add_argument(
