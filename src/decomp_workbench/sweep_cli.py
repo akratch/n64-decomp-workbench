@@ -593,7 +593,12 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "--slot",
         type=int,
         metavar="OFFSET",
-        help="count loads and stores at this frame offset only",
+        help=(
+            "count loads and stores at this sp-relative stack slot only -- "
+            "the 1184 in `lwc1 $f10,1184(sp)`, which `slots` lists. It is not "
+            "the frame offset `trace-cascade` keys a site by; that is this "
+            "number plus the frame size"
+        ),
     )
     ingest.add_argument(
         "--section", default=".text", help="object section (default: .text)"

@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 from unittest import mock
 
 from mips_asm import assemble
@@ -118,6 +119,25 @@ class SlotReportTests(unittest.TestCase):
         self.assertTrue(all(item["total"] > 0 for item in cheapest))
         self.assertEqual(cheapest[0]["total"], min(item["total"] for item in cheapest))
 
+    def test_each_slot_carries_the_frame_offset_the_trace_keys_it_by(self) -> None:
+        """`slots` says 1184; the cascade wants 0xfffffdf8. Same storage.
+
+        The two commands are the two halves of one question -- what does this
+        site cost, and why did the allocator do that to it -- and the campaign
+        that needed both had to convert by hand, with the frame size coming
+        from a third command.
+        """
+
+        report = self.report()
+        slots = cast(list[dict[str, Any]], report["slots"])
+        cheapest = cast(list[dict[str, Any]], report["cheapest"])
+        self.assertEqual(report["frame"], -1704)
+        entries = {item["offset"]: item for item in slots}
+        self.assertEqual(entries[1184]["frame_offset"], -520)
+        self.assertEqual(entries[1184]["frame_offset"] & 0xFFFFFFFF, 0xFFFFFDF8)
+        for item in cheapest:
+            self.assertIn("frame_offset", item)
+
     def test_a_row_range_narrows_the_census(self) -> None:
         narrowed = slot_report(rows(BODY), label="demo.o", rows=(1, 3))
 
@@ -180,6 +200,11 @@ class SlotsCommandTests(unittest.TestCase):
         self.assertIn("PUN", out)
         self.assertIn("cheapest slots to disturb:", out)
         self.assertIn("does not say which C local lives at a slot", out)
+        # The site the reader will paste into `trace-cascade`, spelled the
+        # way that command's own option accepts it.
+        self.assertIn("frame=-1704", out)
+        self.assertIn("0xfffffdf8", out)
+        self.assertIn("--frame-offset", out)
 
     def test_the_volatile_probe_needs_a_source_and_says_so(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

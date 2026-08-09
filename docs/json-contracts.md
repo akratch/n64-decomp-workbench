@@ -15,6 +15,20 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-oracle-sweep-v1`
 - `decomp-workbench-trace-source-v1`
 
+### One command, two shapes
+
+Two commands take more than one candidate, and the schema says which shape you
+got. Switch on `schema`, never on argument count:
+
+| Command | One candidate | Several candidates |
+|---|---|---|
+| `align`, `align-dumps` | `decomp-workbench-shift-diff-v1` | `decomp-workbench-align-census-v1` |
+| `phase`, `phase-dumps` | `decomp-workbench-phase-v1` | `decomp-workbench-phase-census-v1` |
+
+A census document holds one single-candidate report per entry under
+`candidates`, so a consumer that already reads the single shape can loop over
+that list unchanged.
+
 `decomp-workbench commands --json` is the versioned discovery surface. Existing
 flat command names and journey spellings return the same report:
 `object diagnose` is an alias of `diagnose`, and `campaign status` is an alias

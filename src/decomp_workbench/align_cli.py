@@ -249,7 +249,16 @@ def _add_arguments(parser: argparse.ArgumentParser, *, object_inputs: bool) -> N
                 "scorer that defaults to a directory scores whatever is in it"
             ),
         )
-    parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "emit JSON. One candidate is a "
+            "`decomp-workbench-shift-diff-v1` report; more than one is a "
+            "`decomp-workbench-align-census-v1` document holding one such "
+            "report per candidate under `candidates`. Switch on `schema`"
+        ),
+    )
     add_terminal_arguments(parser)
 
 
@@ -273,6 +282,9 @@ def register_align_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "align",
         help="report the edit script between two objects, tolerant of shifts",
         description=_DESCRIPTION,
+        epilog=(
+            "example: decomp-workbench align target.o candidate.o --window 2039..2110"
+        ),
     )
     parser.add_argument("target", help="reference object")
     parser.add_argument("candidates", nargs="+", help="candidate object(s)")

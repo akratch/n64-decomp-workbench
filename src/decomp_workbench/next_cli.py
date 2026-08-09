@@ -113,6 +113,7 @@ def register_next_command(commands: argparse._SubParsersAction[Any]) -> None:
         "next",
         help="name the next diagnostic step, with the command and why",
         description=_DESCRIPTION,
+        epilog=("example: decomp-workbench next target.o candidate.o --src work.c"),
     )
     parser.add_argument("target", help="target object (.o)")
     parser.add_argument("candidate", help="candidate object (.o)")

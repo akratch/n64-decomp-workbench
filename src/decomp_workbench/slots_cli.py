@@ -66,12 +66,16 @@ def slots_command(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
+    frame = report["frame"]
     lines = [
         f"stack slots: {report['object']}  {report['slot_count']} slot(s) "
         f"over rows {report['rows'][0]}..{report['rows'][1]}  "
-        f"{report['touched_rows']} touching row(s)",
+        f"{report['touched_rows']} touching row(s)"
+        + (f"  frame={frame}" if frame is not None else ""),
         "",
-        " offset   rows  ld   st   addr  widths   registers",
+        " slot     frameoff    rows  ld   st   addr  widths   registers"
+        if frame is not None
+        else " slot     rows  ld   st   addr  widths   registers",
     ]
     for item in report["slots"]:
         widths = ",".join(str(width) for width in item["widths"]) or "-"
@@ -79,8 +83,20 @@ def slots_command(args: argparse.Namespace) -> int:
         if len(item["registers"]) > args.registers:
             registers += ",..."
         flag = "  PUN" if item["punned"] else ""
+        # The trace spells a site as an unsigned 32-bit frame offset
+        # (0xfffffdf8); print it that way beside the signed value so a reader
+        # can paste it straight into `trace-cascade --frame-offset`.
+        offset = item["frame_offset"]
+        joint = (
+            f"{offset & 0xFFFFFFFF:#010x} "
+            if offset is not None and offset < 0
+            else f"{offset:<10d} "
+            if offset is not None
+            else ""
+        )
         lines.append(
-            f" {item['offset']:<8d} {item['total']:<5d} {item['loads']:<4d} "
+            f" {item['offset']:<8d} {joint}{item['total']:<5d} "
+            f"{item['loads']:<4d} "
             f"{item['stores']:<4d} {item['address_taken']:<5d} "
             f"{widths:<8s} {registers}{flag}"
         )
@@ -103,6 +119,16 @@ def slots_command(args: argparse.Namespace) -> int:
                 "this is that price, without a build.",
             )
         )
+    if frame is not None:
+        lines.extend(
+            (
+                "",
+                f"slot is sp-relative, as the rows spell it; frameoff is the "
+                f"same storage as the allocator trace keys it -- slot + frame "
+                f"({frame}). `decomp-workbench trace-cascade LOG "
+                "--frame-offset FRAMEOFF` reads that site's decision.",
+            )
+        )
     lines.extend(("", f"reading: {report['reading']}"))
     if probe is not None:
         lines.extend(
@@ -118,13 +144,18 @@ def slots_command(args: argparse.Namespace) -> int:
 
 
 _DESCRIPTION = (
-    "Count what an object's rows do to each frame offset: loads, stores, "
+    "Count what an object's rows do to each sp-relative stack slot: loads, "
+    "stores, "
     "address-takes, the access widths that reach it and the registers that "
     "carry it. Two campaign questions reduce to this one census -- what a "
     "fusion donor costs (the rows that touch its slot, which one campaign "
     "spent a whole sweep answering by construction) and whether a slot is one "
     "variable or a pun. It reports what the rows do; it does not claim which "
-    "C local lives at a slot, because nothing in an object says so."
+    "C local lives at a slot, because nothing in an object says so. Each slot "
+    "is printed both ways -- sp-relative as the rows spell it, and as the "
+    "frame offset `trace-cascade` keys a site by -- because 1184 and "
+    "0xfffffdf8 are the same storage and only one of them is a command "
+    "argument."
 )
 
 
@@ -133,7 +164,7 @@ def register_slots_command(commands: argparse._SubParsersAction[Any]) -> None:
 
     parser = commands.add_parser(
         "slots",
-        help="count the loads, stores and address-takes at each frame offset",
+        help="count the loads, stores and address-takes at each stack slot",
         description=_DESCRIPTION,
         epilog="example: decomp-workbench slots target.o --rows 1900..2200",
     )

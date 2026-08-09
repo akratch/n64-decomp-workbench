@@ -118,13 +118,35 @@ source: how many rows touch a candidate donor's stack slot (that count *is* the
 donor's price), and whether a slot is one variable or a pun.
 
 ```sh
-decomp-workbench slots examples/fixtures/target.objdump --dumps
+decomp-workbench slots examples/fixtures/stack-slots.objdump --dumps
 ```
 
-`slots` counts, per frame offset, the loads, the stores, the address-takes, the
+```text
+stack slots: examples/fixtures/stack-slots.objdump  4 slot(s) over rows 1..16  11 touching row(s)  frame=-1704
+
+ slot     frameoff    rows  ld   st   addr  widths   registers
+ 28       0xfffff974 2     1    1    0     4        ra
+ 64       0xfffff998 3     2    1    0     2,4      t0,t1,t2  PUN
+ 1184     0xfffffdf8 4     3    1    0     4        f0,f4,f6,f8
+ 1684     0xffffffec 2     1    1    1     4        t3,t4
+```
+
+`slots` counts, per stack slot, the loads, the stores, the address-takes, the
 access widths that reach it and the registers that carry it. A slot reached by
 two widths is marked `PUN`: that is one storage location under two spellings,
 and the allocator keys webs on storage rather than on the C name.
+
+**Two columns, one storage.** `slot` is the displacement the rows spell —
+the `1184` in `lwc1 $f10,1184(sp)`. `frameoff` is the *same* location as the
+allocator trace names it, which is `slot + frame`. Only the second is a
+command argument: `1184` is what you read, `0xfffffdf8` is what you paste into
+[`trace-cascade --frame-offset`](cdx-cascade.md). One campaign converted
+between the two by hand for several stages, with the frame size coming from a
+third command.
+
+The cheapest-slot line is the donor price list: the fewest rows a fusion has
+to disturb. It is the answer one campaign spent a whole sweep computing by
+construction.
 
 It reports what the rows do. It does not claim which C local lives at a slot,
 because nothing in an object says so. The measurement that does answer that is

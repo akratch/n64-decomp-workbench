@@ -375,7 +375,16 @@ def _add_arguments(parser: argparse.ArgumentParser, *, object_inputs: bool) -> N
                 "disassembly of the object on disk"
             ),
         )
-    parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "emit JSON. One candidate is a `decomp-workbench-phase-v1` "
+            "report; more than one is a `decomp-workbench-phase-census-v1` "
+            "document holding one such report per candidate under "
+            "`candidates`. Switch on `schema`"
+        ),
+    )
     add_terminal_arguments(parser)
 
 
@@ -401,6 +410,10 @@ def register_phase_commands(commands: argparse._SubParsersAction[Any]) -> None:
         "phase",
         help="read the scratch-ring phase vector over named row slots",
         description=_DESCRIPTION,
+        epilog=(
+            "example: decomp-workbench phase target.o candidate.o "
+            "--slots head=1..2038,body=2039..4200,tail=4201..4641"
+        ),
     )
     parser.add_argument("target", help="reference object")
     parser.add_argument("candidates", nargs="+", help="candidate object(s)")

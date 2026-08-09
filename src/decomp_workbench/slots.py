@@ -74,7 +74,13 @@ _WIDTHS = {
 
 @dataclass(frozen=True)
 class SlotTraffic:
-    """One frame offset, and everything the object's rows do to it."""
+    """One sp-relative stack slot, and everything the object's rows do to it.
+
+    ``offset`` is the displacement as the rows spell it -- the ``1184`` in
+    ``lwc1 $f10,1184(sp)``. It is *not* the frame offset the allocator trace
+    keys a site by: that is this number plus the frame size, and the two must
+    not be confused, because ``1184`` and ``-520`` name the same storage.
+    """
 
     offset: int
     loads: int
@@ -117,6 +123,14 @@ def slot_report(
 ) -> dict[str, Any]:
     """Return the frame's slot traffic, one entry per offset touched."""
 
+    from .compare import frame_size
+
+    # The allocator trace keys a site by frame offset (`0xfffffdf8`); the rows
+    # spell the same storage sp-relative (`1184(sp)`). Both are printed so the
+    # reader never has to do the arithmetic, or discover the hard way that the
+    # two vocabularies meet at `slot + frame`. Taken over every row, so a
+    # `--rows` window that excludes the prologue still resolves it.
+    frame = frame_size("\n".join(item.assembly for item in instructions))
     low, high = rows if rows is not None else (1, len(instructions))
     loads: dict[int, int] = {}
     stores: dict[int, int] = {}
@@ -159,28 +173,35 @@ def slot_report(
         for offset in sorted(set(loads) | set(stores) | set(addresses))
     ]
     kept = [item for item in entries if item.total + item.address_taken >= minimum]
+
+    def entry(item: SlotTraffic) -> dict[str, Any]:
+        payload = item.as_dict()
+        payload["frame_offset"] = None if frame is None else item.offset + frame
+        return payload
+
     return {
         "schema": SLOTS_SCHEMA,
         "object": label,
         "rows": [low, min(high, len(instructions))],
+        "frame": frame,
         "slot_count": len(kept),
         "row_count": len(instructions),
         "touched_rows": sum(item.total for item in kept),
-        "slots": [item.as_dict() for item in kept],
+        "slots": [entry(item) for item in kept],
         # Ranked among slots the rows actually read or write: a slot whose
         # only mention is an address-take costs nothing to disturb because
         # nothing touches it, which is not the question a donor price asks.
         "cheapest": [
-            item.as_dict()
+            entry(item)
             for item in sorted(
-                (entry for entry in kept if entry.total), key=lambda entry: entry.total
+                (item for item in kept if item.total), key=lambda item: item.total
             )[:5]
         ],
         "reading": (
-            "counts of what this object's rows do to each frame offset. It "
-            "does not say which C local lives at a slot: nothing in an object "
-            "says so, and the measurement that does is a build (see "
-            "`--volatile-probe`)."
+            "counts of what this object's rows do to each sp-relative stack "
+            "slot -- the 1184 in `lwc1 $f10,1184(sp)`. It does not say which "
+            "C local lives at a slot: nothing in an object says so, and the "
+            "measurement that does is a build (see `--volatile-probe`)."
         ),
     }
 
