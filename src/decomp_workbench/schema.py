@@ -328,6 +328,13 @@ METRICS: tuple[Metric, ...] = (
         "LCS-aligned residual sites anchored to target instruction indices",
     ),
     Metric(
+        "commutative_findings",
+        "commutative_findings",
+        "commutative operand pairs with the source edit each one names, "
+        "including the pairs whose arithmetic row matches and whose two "
+        "operand loads are crossed one row earlier",
+    ),
+    Metric(
         "raw_difference_breakdown",
         "raw_difference_breakdown",
         "why literal words differ: instruction bits, relocation layout, or "

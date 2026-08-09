@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .commutative import CommutativeFinding, commutative_findings
 from .elf_instructions import true_instruction_count as elf_true_instruction_count
 from .field_guide import (
     AMBIGUOUS_PLAYBOOK_FAMILIES,
@@ -377,8 +378,9 @@ def aligned_residual_analysis(
     dict[str, int],
     list[dict[str, object]],
     PoolReport | None,
+    tuple[CommutativeFinding, ...],
 ]:
-    """Return LCS-aligned counts, gaps, residual sites, and the pool reading.
+    """Return LCS-aligned counts, gaps, residual sites, pool, and commutative findings.
 
     Positional counting misranked candidates in six recorded campaigns: one
     inserted instruction shifts every later position, so a candidate that is one
@@ -394,6 +396,11 @@ def aligned_residual_analysis(
     The fourth element is the literal-pool reading, which says how the two
     objects' pool accesses were resolved and how many slots each references.
     See :mod:`decomp_workbench.literal_pool`.
+
+    The fifth is the commutative operand reading, which needs *every* aligned
+    row and not only the reported ones: a swapped operand order in the source
+    often leaves the arithmetic row byte-identical and shows up one row back,
+    in the two operand loads. See :mod:`decomp_workbench.commutative`.
     """
 
     # ``view`` is built on top of this module, so the import is deferred rather
@@ -422,7 +429,7 @@ def aligned_residual_analysis(
             }
             for index in range(max(len(target), len(candidate)))
         ]
-        return counts, gaps, sites, None
+        return counts, gaps, sites, None, ()
     view = build_view(
         target,
         candidate,
@@ -464,7 +471,7 @@ def aligned_residual_analysis(
             candidate_slots=view.pool.candidate_slots,
         )
     )
-    return counts, gaps, sites, pool
+    return counts, gaps, sites, pool, commutative_findings(view.rows)
 
 
 def aligned_residual(
@@ -472,7 +479,7 @@ def aligned_residual(
 ) -> dict[str, int]:
     """Return the LCS-aligned residual counts, keyed for the report."""
 
-    counts, _, _, _ = aligned_residual_analysis(target, candidate)
+    counts, _, _, _, _ = aligned_residual_analysis(target, candidate)
     return counts
 
 
@@ -1059,7 +1066,7 @@ def compare_instructions(
         and fp_count == 0
         and target_frame == candidate_frame
     )
-    aligned, aligned_gaps, aligned_sites, pool = aligned_residual_analysis(
+    aligned, aligned_gaps, aligned_sites, pool, commutative = aligned_residual_analysis(
         target, candidate
     )
     breakdown = raw_difference_breakdown(
@@ -1171,6 +1178,7 @@ def compare_instructions(
         diff_sites=sites,
         diff_site_classes=site_classes,
         aligned_diff_sites=aligned_sites,
+        commutative_findings=[item.as_dict() for item in commutative],
         warnings=resolved_warnings,
         target_frame_layout=target_frame_layout,
         candidate_frame_layout=candidate_frame_layout,

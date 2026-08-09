@@ -10,6 +10,11 @@ from .model import Comparison
 from .schema import summary_line
 from .terminal import Painter
 
+#: Commutative sites quoted on the terminal before the rest are deferred to
+#: ``--json``. Each one is five lines; a screen full of them stops being a
+#: lever list and becomes a dump.
+COMMUTATIVE_SITES = 5
+
 
 def comparison_line(item: Comparison, painter: Painter | None = None) -> str:
     """Render the summary line from the shared metric registry.
@@ -236,6 +241,7 @@ def comparison_explanation_lines(
             f"{name}={count}" for name, count in item.diff_site_classes.items()
         )
         lines.append(f"diff_sites={len(item.diff_sites)} ({classes})")
+    lines.extend(commutative_lines(item))
     # One footer, indented like `view`'s: the guidance is now several lines
     # long (levers, then the command, then the instrumentation branch), and
     # repeating `next:` on each of them read as several unrelated instructions.
@@ -251,6 +257,43 @@ def comparison_explanation_lines(
         )
     elif not accepted and cross_rom:
         lines.append("acceptance: FAIL (cross-ROM structure also differs)")
+    return lines
+
+
+def commutative_lines(item: Comparison) -> list[str]:
+    """Return the commutative operand section, or nothing.
+
+    A count of commutative rows is not a lever. This names the expression, the
+    two operands, and -- where the arithmetic row is byte-identical and only
+    its operand loads are crossed -- the row the reader would otherwise have
+    sent to the allocator by mistake.
+    """
+
+    findings = item.commutative_findings
+    if not findings:
+        return []
+    crossed = sum(1 for entry in findings if entry.get("kind") == "operand-load")
+    heading = f"commutative operands: {len(findings)} site(s)"
+    if crossed:
+        heading += f", {crossed} visible only in the operand loads"
+    lines = [heading]
+    for entry in findings[:COMMUTATIVE_SITES]:
+        sources = ", ".join(str(name) for name in entry["sources"])
+        lines.append(f"  row {entry['aligned_row']}  {entry['opcode']} ({sources})")
+        lines.append(f"    target    {entry['target']}")
+        lines.append(f"    candidate {entry['candidate']}")
+        for definition in entry["definitions"]:
+            lines.append(
+                f"    defines {definition['register']} at row "
+                f"{definition['aligned_row']}: {definition['target']} | "
+                f"{definition['candidate']}"
+            )
+        lines.append(f"    lever: {entry['lever']}")
+    if len(findings) > COMMUTATIVE_SITES:
+        lines.append(
+            f"  ... {len(findings) - COMMUTATIVE_SITES} more site(s); the full "
+            "list is in --json under commutative_findings"
+        )
     return lines
 
 

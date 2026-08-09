@@ -79,6 +79,12 @@ class Comparison:
     diff_sites: list[dict[str, Any]] = field(default_factory=list)
     diff_site_classes: dict[str, int] = field(default_factory=dict)
     aligned_diff_sites: list[dict[str, Any]] = field(default_factory=list)
+    #: Commutative operand pairs, each with the edit that would fix it. The
+    #: class count above says how many rows are commutative; this says which
+    #: expression to change, including the case where the arithmetic row is
+    #: byte-identical and only its two operand loads are crossed. See
+    #: ``decomp_workbench.commutative``.
+    commutative_findings: list[dict[str, Any]] = field(default_factory=list)
     #: Conditions that make the verdict itself untrustworthy, as opposed to
     #: findings about the code. A reader who ignores one of these is reading a
     #: correct answer to the wrong question, so renderers print them ahead of
