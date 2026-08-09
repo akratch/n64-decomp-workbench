@@ -305,3 +305,18 @@ decomp-workbench matrix SPEC.json [--run-dir DIR] [--timeout SECONDS] [--json]
   otherwise, so a mismatch or a broken control among the variants is still
   worth reading in the attractor table rather than treated as command
   failure. `2` for a spec file that does not exist or does not parse.
+
+## The screen line
+
+Both forms of `score` print one line carrying the four facts a sweep reads per
+object -- the object's identity, its real instruction count, its frame, its
+float load and store traffic (narrowed with `--slot OFFSET`), and the ring
+coset it sits at relative to the target:
+
+```
+screen: sha=10e37dc2dc12 ni=4641 frame=-1704 ld1184=2 st1184=1 coset=id
+```
+
+A non-identity coset prints the caution beside it, because a ring-quotienting
+scorer reads a rotated object as far closer than it is. See
+[Shift-tolerant diffs and the ring phase](shift-and-phase.md).

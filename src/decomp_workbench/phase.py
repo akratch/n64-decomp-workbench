@@ -41,6 +41,7 @@ comparison rather than destroying it.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from collections.abc import Sequence
@@ -63,6 +64,7 @@ __all__ = [
     "parse_ring",
     "parse_slots",
     "ring_cosets",
+    "ring_pattern",
     "validate_partition",
 ]
 
@@ -90,7 +92,13 @@ COSET_FAMILIES = ("all", "paired")
 #: ``n!`` and a reader who asks for it on a large ring wants ``paired``.
 MAX_ALL_RING = 7
 
-_REGISTER_RE = re.compile(r"\$f\d+")
+#: One MIPS register token, in the spelling GNU objdump prints. Any ring is
+#: allowed, not only the float one: the integer temporaries rotate the same way
+#: and a candidate whose `$t6..$t9` have shifted round is the same fact about a
+#: different pool.
+_RING_REGISTER_RE = re.compile(
+    r"^\$(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s[0-8]|k[01]|gp|sp|fp|ra)$"
+)
 _SLOT_RE = re.compile(
     r"^(?P<name>[A-Za-z0-9_][A-Za-z0-9_.-]*)=(?P<start>\d+)\.\.(?P<stop>\d+)$"
 )
@@ -241,9 +249,7 @@ class Coset:
         if self.is_identity:
             return text
         table = self.mapping
-        return _REGISTER_RE.sub(
-            lambda match: table.get(match.group(0), match.group(0)), text
-        )
+        return ring_pattern(self.ring).sub(lambda match: table[match.group(0)], text)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -252,6 +258,22 @@ class Coset:
             "ring": list(self.ring),
             "image": list(self.image),
         }
+
+
+@functools.cache
+def ring_pattern(ring: tuple[str, ...]) -> re.Pattern[str]:
+    """Return the substitution pattern for one ring.
+
+    Built from the ring itself, with a word boundary, so ``$f1`` can never
+    match inside ``$f10``: a substring test would rewrite the wrong register
+    and quietly change what the coset means.
+    """
+
+    return re.compile(
+        "|".join(
+            re.escape(name) + r"\b" for name in sorted(ring, key=len, reverse=True)
+        )
+    )
 
 
 def parse_ring(text: str) -> tuple[str, ...]:
@@ -263,10 +285,12 @@ def parse_ring(text: str) -> tuple[str, ...]:
         if not entry:
             continue
         register = entry if entry.startswith("$") else f"${entry}"
-        if not _REGISTER_RE.fullmatch(register):
+        if not _RING_REGISTER_RE.fullmatch(register):
             raise PhaseError(
-                f"invalid ring register {entry!r}; the ring is a list of "
-                "coprocessor-1 registers, for example --ring '$f4,$f6,$f8,$f10'"
+                f"invalid ring register {entry!r}; the ring is a list of MIPS "
+                "registers, for example --ring '$f4,$f6,$f8,$f10' for the "
+                "float scratch ring, or --ring '$t6,$t7,$t8,$t9' for the "
+                "integer temporaries"
             )
         names.append(register)
     if len(names) < 2:
@@ -506,6 +530,7 @@ def _row_evidence(
         if index in inverse
     }
 
+    pattern = ring_pattern(ring)
     fixed: dict[int, bool] = {}
     ring_rows: set[int] = set()
     masked: set[int] = set()
@@ -528,7 +553,7 @@ def _row_evidence(
         right = comparable_text(
             candidate[candidate_row], row_of_address=candidate_addresses
         )
-        if any(register in left or register in right for register in ring):
+        if pattern.search(left) or pattern.search(right):
             ring_rows.add(target_row)
             pending[target_row] = (left, right)
         else:

@@ -2,6 +2,81 @@
 
 ## Unreleased
 
+- **`align` reports the edit script, not what the shift cost.** `compare` and
+  `score` index by position, so an object that is byte-exact apart from one
+  extra instruction reports a four-figure mismatch count and reads as garbage;
+  one campaign paid that cost eleven separate times and two more stages
+  rediscovered the same gap. `decomp-workbench align TARGET.o CANDIDATE.o` (and
+  `align-dumps` on retained objdump text) aligns the two instruction streams and
+  prints `replaced`/`inserted`/`deleted`, the target rows each block lands at,
+  the derived cut list, and one headline: how many instructions away the
+  candidate really is. Several candidates give a one-line-each census ordered by
+  that number. The two objects' relocation rows stay in separate spaces — merging
+  them over-masks near a shift boundary and silently dropped two genuine
+  mismatches from a published count — and branch destinations are renormalized
+  through the pairing so an insertion above a correct branch is not charged as a
+  difference. `--window LO..HI` tallies insertions before and inside a named row
+  range. `--json` emits `decomp-workbench-shift-diff-v1`.
+
+- **`phase` reads the scratch-ring phase as a vector over named row slots.**
+  Three campaign scorers reported a ring rotation and each lied differently.
+  `decomp-workbench phase TARGET.o CANDIDATE.o --slots 'B1=0..1573,B4=1574..4640'`
+  prints, per slot, the coset that would make it match, the quotiented count
+  under that coset, and the positional count it really scores — never the first
+  without the second, because one campaign's headline "39 → 29" was 1045
+  positional rows and three stages recorded ring-flipped objects as wins. Slots
+  are checked to partition the row space: a hole is an error naming the rows,
+  after a band table left 105 rows of a 4641-row object unnamed and a candidate
+  scored `RAW=1` with two real mismatches. Rows are paired through `align`, so a
+  shifted candidate scores near its true residual. `--require-ni` refuses a
+  candidate of the wrong length; `--base`/`--require-base` pin the source the
+  table was built from; a slot with no coset-dependent rows reads `no-evidence`
+  rather than being labelled from nothing, and `--context OBJECT` prices a
+  construct in composition instead of alone; `--baseline OBJECT` reports healed
+  and broken rows separately. Any register pool may be the ring. `--json` emits
+  `decomp-workbench-phase-v1`. Documented in `docs/shift-and-phase.md`.
+
+- **A disassembly cache that cannot answer "perfect" because it was truncated.**
+  `align` and `phase` accept `--disassembly-cache DIR`, whose entries are trusted
+  only when they prove they are a complete disassembly of the object on disk: the
+  object's SHA-256, the entry's own row count against what the body parses to,
+  and — for a whole-section dump — against the words the object's ELF section
+  holds. The cache every campaign writes guards on existence alone, so a run
+  killed mid-write leaves a zero-byte file that parses to no rows and therefore
+  reports no mismatches: a silent perfect score, reported five times
+  independently. There is no default cache directory, because a scorer with one
+  scores whatever is in it.
+
+- **A commutative row is a lever, and it is often one row up.** `compare` and
+  `diagnose` now name each commutative operand pair — which expression, which two
+  operands, and that the edit is expression shape rather than allocation. IDO
+  canonicalizes `a + b` and `b + a`, so a wrong operand order frequently leaves
+  the arithmetic row byte-identical and surfaces only in the two operand loads
+  above it, whose destinations are crossed; a classifier reading the differing
+  row alone calls those an ordinary register difference and sends the reader to
+  the allocator for a front-end question. Both shapes appear in
+  `commutative_findings`.
+
+- **`score` prints one screen line.** `screen: sha=… ni=… frame=… ld1184=…
+  st1184=… coset=…` — identity, real instruction count, frame, float load and
+  store traffic (whole-frame or narrowed by `--slot OFFSET`), and the ring coset
+  relative to the target, with a caution when it is not identity. Every stage of
+  one campaign wrote its own version of this line; none carried the coset, and
+  none separated stores from loads at a slot even though the store count was what
+  distinguished the winning kill from a rejected alternative.
+
+- **A sampled sweep says what it never visited.** `SweepCoverage` records the
+  space, the points visited, the stride, and the points excluded by a stated
+  rule, and derives the vocabulary from them: *swept-exhaustively* or *sampled*.
+  A campaign closed a family on a `step 8` sweep whose record said nothing about
+  the other seven eighths. `experiment compose` carries the block and gains
+  `--step N`, so a combination space larger than the cap can be sampled instead
+  of abandoned.
+
+- **`next` routes a count difference to `align` and a float run to `phase`.**
+  The instruction-count blocker previously named `view`, which shows the
+  alignment but not what the difference costs.
+
 - **`force-rows` measures which object rows an allocator control owns.** A web
   number is not a location: it indexes a run-local table that does not survive
   into the object, and one campaign measured that neither "ucode record index

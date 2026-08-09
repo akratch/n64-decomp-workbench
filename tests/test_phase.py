@@ -29,9 +29,11 @@ from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.phase import (
     DEFAULT_RING,
+    Coset,
     PhaseError,
     Slot,
     build_phase_report,
+    parse_ring,
     parse_slots,
     ring_cosets,
     validate_partition,
@@ -186,6 +188,33 @@ class CosetTests(unittest.TestCase):
         self.assertTrue(head.coset.is_identity)
         self.assertFalse(tail.coset.is_identity)
         self.assertEqual(item.phase_vector[0], "id")
+
+
+class RingTests(unittest.TestCase):
+    def test_any_register_pool_may_be_the_ring(self) -> None:
+        """The integer temporaries rotate too, and it is the same fact."""
+
+        self.assertEqual(parse_ring("$t6,$t7,$t8,$t9"), ("$t6", "$t7", "$t8", "$t9"))
+        self.assertEqual(parse_ring("f4, f6"), ("$f4", "$f6"))
+
+    def test_a_short_register_never_matches_inside_a_longer_one(self) -> None:
+        """A substring rewrite would turn `$f10` into `$f80` and lie about it."""
+
+        coset = Coset(ring=("$f1", "$f2"), image=("$f2", "$f1"))
+        self.assertEqual(coset.apply("lwc1 $f10,8($sp)"), "lwc1 $f10,8($sp)")
+        self.assertEqual(coset.apply("lwc1 $f1,8($sp)"), "lwc1 $f2,8($sp)")
+
+    def test_a_ring_of_one_has_nothing_to_report(self) -> None:
+        with self.assertRaises(PhaseError) as raised:
+            parse_ring("$f4")
+        self.assertIn("at least two registers", str(raised.exception))
+
+    def test_an_unknown_register_names_both_example_rings(self) -> None:
+        with self.assertRaises(PhaseError) as raised:
+            parse_ring("$q9")
+        message = str(raised.exception)
+        self.assertIn("$f4,$f6,$f8,$f10", message)
+        self.assertIn("$t6,$t7,$t8,$t9", message)
 
 
 class EvidenceTests(unittest.TestCase):

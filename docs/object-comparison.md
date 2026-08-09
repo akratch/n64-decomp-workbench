@@ -469,3 +469,14 @@ or weights.
 
 The final project gate should remain the project’s normal object or whole-ROM
 verification, not a heuristic score.
+
+## Before the metrics: length and phase
+
+Two facts decide what the numbers above are numbers *about*, and both are
+invisible to a position-indexed comparison. `align` reports the edit script
+between the two streams, so an object that is one instruction longer reads as
+"one instruction away" rather than as a four-figure cascade. `phase` reports
+the scratch-ring coset per named row slot, so a residual that is a global
+register renaming is never mistaken for a list of mistakes -- nor recorded as a
+win on the quotiented number. See
+[Shift-tolerant diffs and the ring phase](shift-and-phase.md).
