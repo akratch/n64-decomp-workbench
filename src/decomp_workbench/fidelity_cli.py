@@ -53,14 +53,23 @@ def register_fidelity_command(
     )
     parser.add_argument("stock")
     parser.add_argument("instrumented")
-    parser.add_argument("--objdump")
+    parser.add_argument(
+        "--objdump",
+        help="GNU-compatible MIPS objdump; auto-detected when omitted",
+    )
     parser.add_argument(
         "--section",
         action="append",
         default=[".text", ".rodata", ".data"],
         help="content section to gate; repeatable",
     )
-    parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="seconds to allow each objdump invocation (default: 10.0)",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.set_defaults(handler=fidelity_command)
 
@@ -162,14 +171,23 @@ def register_instrument_gate_command(
         help="re-run the gate a stamp records and report what changed",
     )
     parser.add_argument("--note", help="one line about how the objects were built")
-    parser.add_argument("--objdump")
+    parser.add_argument(
+        "--objdump",
+        help="GNU-compatible MIPS objdump; auto-detected when omitted",
+    )
     parser.add_argument(
         "--section",
         action="append",
         default=[".text", ".rodata", ".data"],
         help="content section to gate; repeatable",
     )
-    parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="seconds to allow each objdump invocation (default: 10.0)",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     add_terminal_arguments(parser)
     parser.set_defaults(

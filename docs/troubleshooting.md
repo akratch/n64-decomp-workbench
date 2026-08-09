@@ -152,6 +152,86 @@ handoff root is not a directory: /work/bundle/bundle (from 'bundle/' relative to
 Relative and absolute spellings of the same tree audit identically; `.`,
 `bundle/`, and `../bundle` all resolve to one canonical root.
 
+## A near-match suddenly reports thousands of differing words
+
+The candidate almost certainly emits a different number of instructions, and
+the comparison is position-indexed: candidate row N against target row N. One
+inserted instruction shifts every later row against its neighbour, so an
+object that is byte-exact apart from one `nop` reports a four-figure count and
+reads as garbage.
+
+```sh
+decomp-workbench align target.o candidate.o
+```
+
+`align` prints the edit script and the number that survives a shift — `away`,
+the instructions a source change must actually move. It also states what the
+positional comparison charged, so the two numbers can be reconciled rather
+than argued about. `next` routes here automatically and marks it a blocker:
+allocator and scheduler experiments are not measurable across a count
+difference. See [Shift and phase](shift-and-phase.md).
+
+## The score improved a lot and nothing seems closer
+
+Read whether the improvement is a rotation rather than a repair. A float-heavy
+function often differs in every row of a region while being one register
+renaming away from exact — the same values in the same scratch ring, starting
+one register along.
+
+```sh
+decomp-workbench phase target.o candidate.o --slots head=1..2038,body=2039..4641
+```
+
+`phase` prints two numbers per slot: `free`, quotiented by the best-fit ring
+coset, and `positional`, what the object scores as written. **Rank on
+positional.** A slot whose row carries a `COSET` note is not progress the
+object has made, and one campaign recorded exactly that as a win. See
+[Metric traps](metric-traps.md).
+
+## A cascade reports a kill that never happened
+
+The site was named by a trace-local symbol or web number, and a rebase
+renumbered it. `sym=1042` became `sym=1039`, the script that grepped the old
+number found nothing, and "no decision for this site" was read as "the site
+was killed" — for seven stages of one campaign.
+
+Name the site by its frame offset, which is the one identity in the grammar
+that a rebase does not move:
+
+```sh
+decomp-workbench trace-cascade build.ilog --frame-offset 0xfffffdf8
+```
+
+`--against OTHER.ilog` prints the same site in both logs round by round, and
+says outright when the symbol number changed underneath it.
+
+## `slots` says 1184 and `trace-cascade` wants 0xfffffdf8
+
+They are the same storage. `slots` prints the displacement the rows spell
+(sp-relative); the allocator trace keys a site by the frame offset, which is
+that number plus the frame size. `slots` prints both columns and the frame
+size in its header, so paste the `frameoff` value:
+
+```sh
+decomp-workbench slots candidate.o        # slot 1184  frameoff 0xfffffdf8
+decomp-workbench trace-cascade build.ilog --frame-offset 0xfffffdf8
+```
+
+Passing `--frame-offset` and `--slot`+`--frame` together is refused unless
+they derive the same site, so a driver that sets each from a different place
+cannot silently read the wrong slot.
+
+## `sweep ingest` says `sampled` and "never visited"
+
+Some variants have no object. A point with no object is a point nobody
+measured — it is not an exclusion, and it does not buy back the
+`swept-exhaustively` claim, because a negative result over a space half of
+which was never built is not a proof about that space. The `unbuilt` list
+names each one and why: `no object at PATH` means the wrapper never wrote it,
+`unreadable: ...` means it wrote something objdump could not read. Fix the
+build for those, re-run `sweep ingest`, and the coverage sentence changes on
+its own.
+
 ## A trace command reports no events
 
 Verify that:

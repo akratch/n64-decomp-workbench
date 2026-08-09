@@ -221,7 +221,13 @@ def register_line_probe_command(commands: argparse._SubParsersAction[Any]) -> No
         metavar="NAME=VALUE",
         help="explicit compiler environment entry; repeatable",
     )
-    parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        metavar="SECONDS",
+        help="seconds to allow each compile (default: 120.0)",
+    )
     add_process_output_arguments(parser)
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.set_defaults(handler=probe_lines_command)

@@ -554,7 +554,8 @@ decomp-workbench bundle-scratch scratch/func_802963D0 \
   --source candidate.c \
   --platform n64 \
   --compiler 'IDO 7.1' \
-  --compiler-flags='-O2 -mips2'
+  --compiler-flags='-O2 -mips2' \
+  --diff-label func_802963D0
 ```
 
 That produces a complete, checksummed decomp.me handoff without uploading

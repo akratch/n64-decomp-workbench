@@ -270,6 +270,8 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 
 | Problem | Command | Output |
 |---|---|---|
+| How far is this candidate, in one number? | `score` | The positional word delta that is the matching gate, the two other counts labelled with what each is for, and the screen line that identifies a candidate in a sweep column |
+| What do I do next? | `next` | The next steps in priority order, each a runnable command with your real paths in it and one sentence saying what it settles |
 | Are these objects instruction-exact? | `compare` | Relocation-aware verdict, mismatch counts, register ranges, JSON |
 | Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
 | Can one command tell me exactness, mechanism, and the next lever? | `diagnose`, `diagnose-dumps` | Comparison plus decisive aligned evidence, one input load |
@@ -277,6 +279,8 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
 | Does this downloaded scratch really match? | `check-scratch` | Browser score context, aligned object truth, optional site-faithful recompile |
 | The footer named a playbook — what is it? | `guide` | The field-guide levers for a playbook, verdict, or lever number |
+| The counts differ, so every later row is charged — how far is it really? | `align`, `align-dumps` | The edit script (replaced, inserted, deleted) and the instructions a source change must actually move, instead of what one insertion cost positionally |
+| Is this candidate wrong, or the same allocation rotated one register along? | `phase`, `phase-dumps` | Per row slot, the ring coset that would make it match **and** the positional count it really scores, so a rotation is never recorded as a win |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
 | How do I run and reopen hundreds of variants safely? | `campaign`, `campaign status/resume/export` | Parallel builds, cache, durable state, trajectory and HTML |
 | How do I describe a generated family? | `experiment validate` | Parameter/path/grid validation and selected-region contract |
@@ -291,9 +295,14 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Does statement line assignment own this schedule, and which line does a statement need? | `probe-lines`, `probe-lines --tie` | Token-identical variants plus a control, scored toward and away from the target |
 | Are these two reads of a local the same value? | `probe-equiv` | Same-value ranges from definition placement plus the address-of check, with its limits printed |
 | Where can a statement that emits nothing change the allocation? | `probe-deadread` | Candidate positions, the measured spelling table, and one variant source per candidate |
-| What would fusing this donor cost? | `slots`, `sweep donors` | Loads, stores and address-takes per frame offset; the locals whose live range avoids the target's |
+| What would fusing this donor cost? | `slots`, `sweep donors` | Loads, stores and address-takes per stack slot — printed both sp-relative and as the frame offset `trace-cascade` keys a site by; and the locals whose live range avoids the target's |
 | What is every lever I inherited actually costing me? | `sweep regress` | The removal lattice with its own control, and a measured price per construct |
-| Which carrier, which operand, which commutative pair? | `sweep hoist/commute/copies/fuse`, `sweep ingest` | A variant family keyed by (site, class, carrier), gated and ranked with its coverage |
+| Which locals are free at this site? | `sweep carriers` | The declared locals that are dead here, each refusal saying why |
+| Which carrier, which operand, which commutative pair? | `sweep hoist`, `sweep commute`, `sweep copies`, `sweep fuse` | One variant source per lever of that kind, keyed by (site, class, carrier), with the frozen zones another construction owns left untouched |
+| I built the family — now read it back honestly | `sweep ingest` | Every variant gated, scored and ranked, with the coverage claim the run is entitled to and a row naming each variant that did not build |
+| I inherited a campaign directory and there is no manifest | `campaign survey` | Stages, counts, the newest artifacts, the findings log, and whether any instrument gate was recorded — read at read time, so nothing in it can be stale |
+| Several of us append findings to one log and keep colliding on numbers | `note reserve` | Identifiers reserved before they are written, across more than one document |
+| Was that instrumented compiler ever gated against stock? | `instrument gate` | The section, relocation and symbol comparison, plus a stamp saying exactly what it does and does not claim |
 | Would one late-pass edit explain the object? | `replay-as1` | A rebuilt object from an edited retained listing |
 | Can I hand this function to decomp.me without uploading it? | `bundle-scratch` | Target, context, source, settings, and checksums |
 | Will this proof repository work from a fresh clone? | `handoff audit` | Missing paths, absolute paths, and untracked local dependencies |
@@ -313,6 +322,9 @@ Run `decomp-workbench commands` for the compact journey map or
 `decomp-workbench completion bash|zsh|fish|powershell` for a generated
 completion script. Grouped spellings such as `object diagnose`,
 `campaign status`, and `trace source` coexist with established flat commands.
+The name shapes — a bare verb reads objects, `trace-*` reads a compiler log,
+`probe-*` reads your C source, `sweep <verb>` writes a family of variants —
+are explained in [Choose a workflow](docs/workflows.md#command-names).
 
 ## All documentation
 

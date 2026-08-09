@@ -30,7 +30,8 @@ import unittest
 from pathlib import Path
 from typing import ClassVar, NamedTuple
 
-from decomp_workbench.cli import main
+from decomp_workbench.cli import build_parser, main
+from decomp_workbench.discovery import rewrite_group_alias
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -168,6 +169,75 @@ def discover() -> list[DocumentedCommand]:
     return discovered
 
 
+#: Shell syntax that makes a documented line more than one argument vector.
+#: A redirection or a pipeline is the reader's shell, not this parser's input.
+SHELL_OPERATORS = frozenset({">", ">>", "<", "|", "||", "&&", ";", "&"})
+
+#: argparse diagnostics that mean the *page* is wrong rather than the machine.
+#: A missing file, an unreadable list, a directory that does not exist -- all
+#: environment, all expected when the page is written against `target.o`.
+STRUCTURAL_REFUSALS = (
+    "unrecognized arguments",
+    "the following arguments are required",
+    "invalid choice",
+    "expected one argument",
+    "expected at least one argument",
+    "not allowed with",
+    "is not a decomp-workbench command",
+    "ignored explicit argument",
+)
+
+
+def parseable_commands() -> list[tuple[Path, int, tuple[str, ...]]]:
+    """Every documented command line that is one plain argument vector."""
+
+    found: list[tuple[Path, int, tuple[str, ...]]] = []
+    for document in DOCUMENTS:
+        for line, info, body in fenced_blocks(document):
+            if info.lower() not in SHELL_LANGUAGES:
+                continue
+            for command in command_lines(body):
+                try:
+                    arguments = split_arguments(command)
+                except ValueError:
+                    continue
+                if not arguments or arguments[0] != PROGRAM:
+                    continue
+                if any(item in SHELL_OPERATORS for item in arguments):
+                    continue
+                # A trailing `# what this prints` is the reader's shell
+                # stripping it, not an argument. `shlex.split` keeps it.
+                for index, item in enumerate(arguments):
+                    if item.startswith("#"):
+                        arguments = arguments[:index]
+                        break
+                found.append((document, line, arguments[1:]))
+    return found
+
+
+def parse_failure(argv: tuple[str, ...]) -> str | None:
+    """Return the structural refusal `argv` provokes, or None."""
+
+    stderr = io.StringIO()
+    try:
+        with (
+            contextlib.redirect_stderr(stderr),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            build_parser().parse_args(rewrite_group_alias(list(argv)))
+    except SystemExit as exit_request:
+        if exit_request.code in (0, None):
+            return None
+        message = stderr.getvalue().strip()
+        last = message.splitlines()[-1] if message else "refused with no message"
+        if any(phrase in message for phrase in STRUCTURAL_REFUSALS):
+            return last
+        return None
+    except Exception:  # pragma: no cover - an argparse action reaching the disk
+        return None
+    return None
+
+
 class DocumentedCommandTests(unittest.TestCase):
     """Every command line a reader can paste really runs and really says that."""
 
@@ -206,6 +276,49 @@ class DocumentedCommandTests(unittest.TestCase):
             if status != 0:
                 failures.append(f"{command} -> exit {status}")
         self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_every_documented_command_line_parses(self) -> None:
+        """A pasted command must at least be a command, fixture or not.
+
+        Only a command line naming a shipped fixture can be *run* here, which
+        leaves most of the documentation — every page written against
+        `target.o` and `work.c` — with no guard at all. A misspelled option
+        survives in those pages until a reader pastes one and gets a usage
+        error, which is the moment the documentation stops being trusted.
+        This checks the half that does not need a fixture: that argparse
+        accepts the shape. It caught `--instrumented-build` for an option that
+        ships as `--instrumented`.
+
+        Only structural refusals count. A missing file is the environment, not
+        the page.
+        """
+
+        failures: list[str] = []
+        for document, line, argv in parseable_commands():
+            error = parse_failure(argv)
+            if error is not None:
+                relative = document.relative_to(ROOT)
+                failures.append(
+                    f"{relative}:{line}: `{PROGRAM} {' '.join(argv)}`\n  {error}"
+                )
+        self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_the_parse_check_reaches_the_whole_documentation(self) -> None:
+        """A silent extractor would make the check above vacuous."""
+
+        found = list(parseable_commands())
+        documents = {document for document, _, _ in found}
+        # 237 at the time of writing, over 36 documents. The floor is well
+        # below that and still far above the point where a broken extractor
+        # would go unnoticed.
+        self.assertGreaterEqual(len(found), 150)
+        for name in ("workflows.md", "troubleshooting.md", "sweeps.md"):
+            self.assertIn(ROOT / "docs" / name, documents)
+        # A grouped spelling must survive the rewrite, or every `sweep` and
+        # `note` line would be silently reported as unparseable.
+        self.assertIsNone(parse_failure(("sweep", "regress", "work.c", "--write", "d")))
+        # ...and a real misspelling must still be caught.
+        self.assertIsNotNone(parse_failure(("sweep", "regress", "--no-such-option")))
 
     def test_documented_output_is_real(self) -> None:
         failures: list[str] = []
