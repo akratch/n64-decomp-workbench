@@ -113,6 +113,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("alias", "add base-provenance alias probes"),
         ("scheduler", "apply a hash-pinned external scheduler profile"),
         ("fidelity", "gate meaningful sections, relocations, and symbols"),
+        ("gate", "prove an instrumented build reproduces stock, and stamp it"),
     ),
     "pass": (
         ("replay-as1", "calibrate and probe late assembler scheduling"),
@@ -203,6 +204,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("instrument", "alias"): "instrument-uopt-alias",
     ("instrument", "scheduler"): "instrument-scheduler",
     ("instrument", "fidelity"): "fidelity",
+    ("instrument", "gate"): "instrument-gate",
     ("pass", "replay-as1"): "replay-as1",
     ("pass", "diff"): "pass-diff",
     ("probe", "deadread"): "probe-deadread",

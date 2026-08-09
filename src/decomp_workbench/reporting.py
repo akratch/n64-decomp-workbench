@@ -49,6 +49,7 @@ SCHEMAS: dict[str, str] = {
     "diagnose": "decomp-workbench-diagnosis-v1",
     "diagnose-dumps": "decomp-workbench-diagnosis-v1",
     "install-skill": "decomp-workbench-skill-install-v1",
+    "instrument-gate": "decomp-workbench-instrument-gate-v1",
     "instrument-scheduler": "decomp-workbench-scheduler-instrument-v1",
     "lineage": "decomp-workbench-cross-rom-lineage-v1",
     "matrix": "decomp-workbench-matrix-v1",

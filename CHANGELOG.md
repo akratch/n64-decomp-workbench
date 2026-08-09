@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **`instrument gate` records the identity gate instead of remembering it.** An
+  instrumented pass is only worth reading if, with tracing off, it emits the
+  same object the stock pass does; otherwise its traces describe a compiler
+  nobody is trying to match. `docs/compiler-instrumentation.md` has required
+  that for a long time and one campaign honoured it — by hand, every time, with
+  no record. Twelve instruments across four passes, and the only evidence any
+  of them was gated was a stage's own sentence. The command runs the existing
+  section-scoped comparison and writes a stamp naming the profile, both objects
+  and their hashes, the sections gated, and exactly what the gate does and does
+  not claim; it exits `1` on failure so a build script can stop. `--verify`
+  re-runs the comparison rather than re-reading the record, and reports `STALE`
+  when either object has moved or changed underneath the stamp. It does not
+  build a compiler — that means invoking your build system, and the package
+  does not run user-supplied build commands.
+
 - **`sweep` generates the variant family, and `sweep ingest` reads it back.**
   The search half of the boundary `campaign` already draws: the workbench emits
   sources and a manifest, the project's own compile-one wrapper builds them, and

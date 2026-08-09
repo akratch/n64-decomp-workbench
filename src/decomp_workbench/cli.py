@@ -67,7 +67,10 @@ from .environment import merge_toolchain_environment
 from .environment import parse_environment as parse_environment
 from .experiment_cli import register_experiment_commands
 from .experiments import load_experiment, validate_campaign_sources
-from .fidelity_cli import register_fidelity_command
+from .fidelity_cli import (
+    register_fidelity_command,
+    register_instrument_gate_command,
+)
 from .fingerprint_cli import register_fingerprint_commands
 from .force_rows_cli import register_force_rows_commands
 from .globalcolor import (
@@ -1815,6 +1818,9 @@ def build_parser() -> argparse.ArgumentParser:
     register_fingerprint_commands(commands)
     register_relocation_command(commands)
     register_fidelity_command(commands)
+    # The identity gate, recorded: an instrumented pass whose traces are
+    # evidence has to have reproduced the stock object first.
+    register_instrument_gate_command(commands)
     register_toolchain_commands(commands)
     register_oracle_commands(commands)
     register_experiment_commands(commands)

@@ -475,6 +475,43 @@ For each profile and host:
 9. If using a behavioral control, prove the disabled control returns to the
    stock output.
 
+### Record steps 4 and 5, do not remember them
+
+Steps 4 and 5 are the identity gate, and they are the ones campaigns skip —
+not by deciding to, but by running them once, by hand, and leaving no record. One
+campaign built roughly twelve instruments across four compiler passes and the
+only evidence that any of them had been gated was a stage's own sentence saying
+so. A reader arriving at one of those traces three stages later has nothing to
+check.
+
+```sh
+decomp-workbench instrument gate \
+  --stock stock.o --instrumented cdx.o \
+  --profile uopt-cdx --stamp gates/uopt-cdx.json
+```
+
+The comparison is the section-scoped one below, unchanged. What the command
+adds is the stamp: the profile, both objects with their hashes, the sections
+gated, the objdump that read them, and the sentence naming what the gate does
+and does not claim. It exits `1` when the gate fails, so a build script can
+stop.
+
+```sh
+decomp-workbench instrument gate --verify gates/uopt-cdx.json
+```
+
+`--verify` **re-runs** the comparison rather than re-reading the record, and
+reports `STALE` when either object has moved or changed underneath the stamp. A
+record that could only be checked against itself would be a record of an
+intention.
+
+Two things this deliberately does not do. It does not build a compiler:
+building means invoking your build system, and the package does not run
+user-supplied build commands — every alternative either reintroduces the shell
+or constrains the recompilation trees it can serve to the one it was written
+against. And it says nothing about a trace's *record grammar*: the gate is
+about objects, and each instrumented pass keeps its own reader.
+
 ### Byte identity is section-scoped, not file-scoped
 
 Gate on sections, not on whole-file hashes. Stock IDO `cc` under `-g3` is not
