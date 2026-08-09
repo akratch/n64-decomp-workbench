@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .campaign import run_campaign
+from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
 from .campaign_state import (
     build_status,
     export_status,
@@ -338,9 +339,74 @@ def campaign_note_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def campaign_survey_command(args: argparse.Namespace) -> int:
+    from .terminal import emit_lines
+
+    try:
+        report = survey_campaign(
+            args.directory, budget=args.budget, base=args.base
+        )
+    except (CampaignSurveyError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    emit_lines(
+        survey_lines(report, limit=args.limit or len(report["stages"]) or 1),
+        width=args.width,
+        pager=args.pager,
+    )
+    return 0
+
+
+_SURVEY_DESCRIPTION = (
+    "Read a campaign working directory -- the one holding the stage "
+    "directories -- and report what is in it: every stage by recency with its "
+    "file, source and object counts; the findings logs with their pending "
+    "sidecar notes; the sweep manifests and their coverage; the "
+    "instrument-gate stamps, or their absence. It is a reading taken now, not "
+    "a registry: nothing is stored, so nothing here can be a stale claim, and "
+    "nothing here guesses which artifact is the base. For a manifest "
+    "`campaign run` wrote, the command is `campaign status`."
+)
+
+
 def register_campaign_cockpit_commands(
     commands: argparse._SubParsersAction[Any],
 ) -> None:
+    survey = commands.add_parser(
+        "campaign-survey",
+        help=argparse.SUPPRESS,
+        description=_SURVEY_DESCRIPTION,
+        epilog="example: decomp-workbench campaign survey .workbench/my-campaign",
+    )
+    survey.add_argument("directory", help="the campaign working directory")
+    survey.add_argument(
+        "--base",
+        metavar="FILE",
+        help="hash this file now and print it as the pinned base",
+    )
+    survey.add_argument(
+        "--budget",
+        type=int,
+        default=40000,
+        metavar="N",
+        help="files to walk before stopping and saying so (default: 40000)",
+    )
+    survey.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="stage rows to print before eliding (default: 20; 0 prints all)",
+    )
+    survey.add_argument("--json", action="store_true", help="emit JSON")
+    _add_terminal(survey)
+    survey.set_defaults(
+        handler=campaign_survey_command, report_command="campaign-survey"
+    )
+
     status = commands.add_parser(
         "campaign-status",
         help=argparse.SUPPRESS,
@@ -390,3 +456,9 @@ def register_campaign_cockpit_commands(
     note.add_argument("--state-dir", default=".decomp-workbench")
     note.add_argument("--json", action="store_true", help="emit JSON")
     note.set_defaults(handler=campaign_note_command)
+
+
+def _add_terminal(parser: argparse.ArgumentParser) -> None:
+    from .terminal import add_terminal_arguments
+
+    add_terminal_arguments(parser)

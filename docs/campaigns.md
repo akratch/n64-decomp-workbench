@@ -77,6 +77,36 @@ Exports are bounded, self-contained JSON or HTML. They contain reduced
 comparison/campaign evidence rather than object or compiler contents and
 refuse to overwrite an existing file.
 
+## Survey a campaign directory that never had a manifest
+
+`campaign status` reads a *manifest*: a set of source variants compiled,
+cached, ranked and recorded through `campaign run`. Its unit is a compiled
+candidate and its state is a ledger it wrote itself.
+
+A late-stage campaign often does not look like that. Its artifacts are files a
+human promoted, its floor came from a sweep in another directory, and its
+residue is a `compare --by-region` run against a source path nothing records.
+For that shape:
+
+```sh
+decomp-workbench campaign survey .workbench/my-campaign
+```
+
+It reports every stage directory by recency with its file, source and object
+counts and the notes it carries; the findings logs with their pending sidecar
+notes; the sweep manifests and their coverage; and the instrument-gate stamps —
+or their absence, which is itself the finding when the directory holds traces.
+
+It is a **reading, not a registry**. Nothing is stored, so nothing in it can be
+a stale claim, and it interprets only documents the workbench already defines,
+counting everything else. `--base FILE` hashes one file now and prints it as
+the pinned base; without it, the survey names the newest source and object it
+found and says plainly that they may or may not be the base. Guessing that is
+what a registry would have institutionalised.
+
+The walk stops at `--budget` files and says when it did, so a stage inventory is
+never quietly smaller than the directory.
+
 ## Describe a transformation family
 
 Keep source generation external, but make its hypothesis machine-readable:

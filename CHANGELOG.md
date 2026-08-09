@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`campaign survey` reads a campaign directory that never had a manifest.**
+  `campaign status` keeps the manifest and the command name; this is the second
+  reading, not a second meaning for the first. It reports every stage directory
+  by recency with its file, source and object counts, the findings logs with
+  their pending sidecar notes, the sweep manifests and their coverage, and the
+  instrument-gate stamps — or their absence, which is the finding when the
+  directory holds traces. It is a reading, not a registry: nothing is persisted,
+  so nothing in it can be a stale claim, and it interprets only documents the
+  workbench already defines while counting everything else. It never guesses
+  which artifact is the base — it names the newest source and object it found,
+  says they may or may not be it, and prints the command that would measure
+  them. The walk stops at `--budget` files and says when it did.
+
 - **`instrument gate` records the identity gate instead of remembering it.** An
   instrumented pass is only worth reading if, with tracing off, it emits the
   same object the stock pass does; otherwise its traces describe a compiler

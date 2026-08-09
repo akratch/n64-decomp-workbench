@@ -307,11 +307,27 @@ decomp-workbench compare TARGET.o ARTIFACT.o --by-region SRC.c
 decomp-workbench oracle status
 ```
 
-**What would settle it.** A second campaign that tracks more than one artifact,
-so the registry's fields are observed rather than designed. Specifically:
-whether an artifact's identity is its object hash or its source path, and
-whether "unattributed" is a property of the residue or of the campaign's own
-records.
+**Settled, by refusing the registry.** Shipped as
+[`campaign survey`](campaigns.md#survey-a-campaign-directory-that-never-had-a-manifest).
+`campaign status` keeps the manifest and the command name; the directory
+reading is a second command, not a second meaning for the first.
+
+Both open questions dissolve once nothing is persisted. *Is an artifact's
+identity its object hash or its source path?* Neither is fixed: a survey is a
+reading of the directory as it is right now — a path, and its content hash
+taken at read time — so there is no stored identity to be wrong about. *Is
+"unattributed" a property of the residue or of the campaign's own records?* Of
+the residue, necessarily, because there are no records. And the schema whose
+compatibility cost needed a second campaign's evidence does not exist: the
+survey interprets only documents the workbench already defines (findings logs
+and their sidecars, sweep manifests, instrument-gate stamps, `campaign run`
+manifests) and counts everything else. A second campaign can extend the reader
+without breaking anything, which is exactly what a registry could not have
+promised.
+
+The one thing it refuses to do is guess which artifact is the base. It names
+the newest source and object it found, says they may or may not be the base,
+and prints the command that would measure them.
 
 ### An instrument build should not be able to return an ungated binary
 
@@ -343,12 +359,20 @@ grammars. A spec format that covers all four is close to "arbitrary source
 patch plus arbitrary log format", at which point the tool is a build wrapper
 whose only real contribution is the gate.
 
-**The smaller thing that is probably right.** Ship the gate alone, as
-`instrument gate --stock OBJ --instrumented-build OBJ`, which takes two objects
-somebody else built and states whether the instrument is trustworthy. It
-enforces the habit, it needs no build system, and it is the half that campaigns
-were skipping. The build half stays campaign-local, as it must: it names one
-compiler tree and one patch grammar.
+**Shipped: the gate alone, and its record.**
+[`instrument gate`](compiler-instrumentation.md#record-steps-4-and-5-do-not-remember-them)
+takes two objects somebody else built and states whether the instrument is
+trustworthy — and writes a stamp, because the campaign that asked for this ran
+the check by hand every time and left no record that it had. `--verify` re-runs
+the comparison rather than re-reading the record, and reports `STALE` when
+either object has moved.
+
+Both open questions are answered by that scope, not deferred by it. The
+**build-invocation boundary** stays where it was: the package does not build
+compilers, so the build half remains campaign-local, naming one compiler tree
+and one patch grammar. The **grammar scope** question disappears, because the
+gate compares objects rather than logs — one command covers all four
+instrumented passes, and each pass keeps its own record reader.
 
 ## Campaign migration notes
 

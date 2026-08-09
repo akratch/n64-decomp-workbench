@@ -70,6 +70,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "campaign": (
         ("run", "compile, cache, rank, and record source candidates"),
         ("status", "show trajectory, failures, families, and basins"),
+        ("survey", "read a campaign working directory that has no manifest"),
         ("resume", "run only manifest work absent from the ledger"),
         ("note", "persist the active hypothesis for status and handoff"),
         ("export", "write bounded shareable JSON or HTML evidence"),
@@ -179,6 +180,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("handoff", "audit"): "audit-handoff",
     ("campaign", "run"): "campaign",
     ("campaign", "status"): "campaign-status",
+    ("campaign", "survey"): "campaign-survey",
     ("campaign", "resume"): "campaign-resume",
     ("campaign", "note"): "campaign-note",
     ("campaign", "export"): "campaign-export",
@@ -231,6 +233,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "campaign-note",
         "campaign-resume",
         "campaign-status",
+        "campaign-survey",
         "next-dumps",
         "note-add",
         "note-list",
