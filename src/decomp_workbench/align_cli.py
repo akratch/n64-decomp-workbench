@@ -9,7 +9,7 @@ from typing import Any
 
 from .cli_options import add_symbol_argument
 from .dis_cache import DisassemblyCache
-from .model import Instruction, display_path
+from .model import Instruction, display_path, shorten_paths
 from .row_source import load_dump_rows, load_object_rows
 from .shift_align import (
     ALIGNMENT_GRANULARITIES,
@@ -83,7 +83,8 @@ def _census_lines(
 ) -> list[str]:
     """One line per candidate, cheapest first: the batch reading."""
 
-    width = max(len(diff.candidate_name) for diff, _ in results)
+    labels, shared = shorten_paths([diff.candidate_name for diff, _ in results])
+    width = max(len(labels[diff.candidate_name]) for diff, _ in results)
     header = (
         f"{'candidate'.ljust(width)}  {'rows':>5s} {'delta':>6s} {'away':>6s} "
         f"{'edit':>5s} {'rep':>5s} {'ins':>5s} {'del':>5s} {'residual':>8s}  shape"
@@ -100,7 +101,7 @@ def _census_lines(
             else ("insertion-only" if diff.insertion_only else "structural")
         )
         line = (
-            f"{diff.candidate_name.ljust(width)}  {diff.candidate_rows:5d} "
+            f"{labels[diff.candidate_name].ljust(width)}  {diff.candidate_rows:5d} "
             f"{diff.candidate_rows - diff.target_rows:+6d} {diff.rows_away:6d} "
             f"{diff.edit_distance:5d} {diff.replaced:5d} {diff.inserted:5d} "
             f"{diff.deleted:5d} {diff.paired_mismatches:8d}  {shape}"
@@ -109,6 +110,8 @@ def _census_lines(
             line += f"  {window['before']:6d}  {window['inside']:6d}"
         lines.append(line)
     lines.append("")
+    if shared:
+        lines.append(shared)
     lines.append(
         "away = edit + residual: the instructions a source change must move. "
         "It is the ranking number; delta is how far the candidate's length is "

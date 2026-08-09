@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -242,3 +244,38 @@ def display_path(path: str | Path) -> str:
         return str(value.resolve().relative_to(Path.cwd().resolve()))
     except ValueError:
         return str(value)
+
+
+def shorten_paths(names: Sequence[str]) -> tuple[dict[str, str], str | None]:
+    """Strip the directory a census's candidates share, and name it once.
+
+    A census pads its first column to the longest candidate name. Campaign
+    objects live under one long absolute directory, so that column consumed
+    the whole terminal and `--width` then elided the *data* -- leaving a table
+    of paths and nothing else. The shared prefix is one fact, so it is printed
+    once and the rows carry only what distinguishes them.
+
+    Returns the name-to-label mapping and the sentence naming the prefix, or
+    ``None`` when there is nothing worth stripping.
+    """
+
+    if len(names) < 2:
+        return {name: name for name in names}, None
+    parts = [Path(name).parts for name in names]
+    if any(len(item) < 2 for item in parts):
+        return {name: name for name in names}, None
+    shared: list[str] = []
+    # Paths of different depths are the normal case, so the shortest one ends
+    # the comparison: strict=False is the behaviour wanted, stated explicitly.
+    for column in zip(*parts, strict=False):
+        # Never strip the final component: a row must keep a name.
+        if len(set(column)) != 1 or len(shared) + 1 >= min(len(item) for item in parts):
+            break
+        shared.append(column[0])
+    if not shared:
+        return {name: name for name in names}, None
+    prefix = Path(*shared)
+    labels = {name: str(Path(*Path(name).parts[len(shared) :])) for name in names}
+    if len(set(labels.values())) != len(set(names)):  # pragma: no cover - defensive
+        return {name: name for name in names}, None
+    return labels, f"paths are relative to {prefix}{os.sep}"

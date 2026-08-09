@@ -569,6 +569,26 @@ class SweepCliTests(unittest.TestCase):
         self.assertIn("sweep regress", stdout)
         self.assertIn("sweep ingest", stdout)
 
+    def test_at_and_line_are_one_option_across_the_family(self) -> None:
+        """`sweep carriers --at 13` prints a next step spelling it `--line 13`.
+
+        Two names for "a line number in the C source", one command apart, on
+        the two halves of a single workflow. They are aliases now, the way
+        `--symbol` and `--function` are.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "work.c"
+            source.write_text(SOURCE, encoding="utf-8")
+            by_at, at_out, _ = run_cli(["sweep", "carriers", str(source), "--at", "12"])
+            by_line, line_out, _ = run_cli(
+                ["sweep", "carriers", str(source), "--line", "12"]
+            )
+
+        self.assertEqual(by_at, 0)
+        self.assertEqual(by_line, 0)
+        self.assertEqual(at_out, line_out)
+
     def test_the_probe_group_also_lists_rather_than_erroring(self) -> None:
         status, stdout, _ = run_cli(["probe"])
         self.assertEqual(status, 0)

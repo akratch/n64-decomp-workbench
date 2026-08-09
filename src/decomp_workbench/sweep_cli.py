@@ -347,7 +347,15 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
     )
     carriers.add_argument("source", help="the C source to read")
     carriers.add_argument(
-        "--at", type=int, required=True, metavar="LINE", help="the site line"
+        # `--at` and `--line` are one option, as `--symbol`/`--function` are:
+        # this command's own `next:` line hands the reader to `sweep hoist`,
+        # which spells the same number the other way.
+        "--at",
+        "--line",
+        type=int,
+        required=True,
+        metavar="LINE",
+        help="the site line; --line is the same option",
     )
     carriers.add_argument(
         "--type", metavar="TYPE", help="only carriers declared with this type"
@@ -445,7 +453,12 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
     )
     hoist.add_argument("source", help="the C source to read")
     hoist.add_argument(
-        "--line", type=int, required=True, metavar="LINE", help="the statement to hoist"
+        "--line",
+        "--at",
+        type=int,
+        required=True,
+        metavar="LINE",
+        help="the statement to hoist; --at is the same option",
     )
     hoist.add_argument(
         "--class",
@@ -484,11 +497,15 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
     commute.add_argument("source", help="the C source to read")
     commute.add_argument(
         "--line",
+        "--at",
         action="append",
         default=[],
         type=int,
         metavar="LINE",
-        help="restrict to these lines; repeatable (default: the whole file)",
+        help=(
+            "restrict to these lines; repeatable, and --at is the same "
+            "option (default: the whole file)"
+        ),
     )
     add_list_file_argument(
         commute, option="line", dest="line", noun="line numbers", value_type=int
@@ -571,7 +588,14 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         help="directory the wrapper wrote the built variants into",
     )
     ingest.add_argument(
-        "--target", required=True, metavar="OBJ", help="the reference object"
+        "--target",
+        required=True,
+        metavar="OBJ",
+        help=(
+            "the reference object the variants are scored against. An object "
+            "path, not a variable name: `--target` on the generator side "
+            "(`sweep donors`, `sweep fuse`) is the C local being fused into"
+        ),
     )
     ingest.add_argument(
         "--object-suffix",

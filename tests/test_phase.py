@@ -453,6 +453,32 @@ class PhaseCommandTests(unittest.TestCase):
         self.assertIn("COSET", stdout)
         self.assertIn("rank on positional", stdout)
 
+    def test_a_census_names_the_shared_directory_once(self) -> None:
+        """The first column padded to a long absolute path ate the table.
+
+        Campaign objects live under one long directory, so a census padded its
+        candidate column to that width and `--width` then elided the numbers,
+        leaving a table of paths and no data.
+        """
+
+        traffic = float_traffic(24)
+        target = body(*traffic)
+
+        status, stdout, stderr = run_cli(
+            [
+                "phase-dumps",
+                self._dump("target.objdump", target),
+                self._dump("clean.objdump", target),
+                self._dump("rotated.objdump", body(*rotate(traffic))),
+            ]
+        )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("paths are relative to", stdout)
+        table = [line for line in stdout.splitlines() if line.startswith("clean")]
+        self.assertTrue(table, stdout)
+        self.assertTrue(table[0].startswith("clean.objdump"), table[0])
+
 
 if __name__ == "__main__":
     unittest.main()

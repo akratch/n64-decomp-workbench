@@ -214,12 +214,17 @@ class AlignCommandTests(unittest.TestCase):
         status, stdout, stderr = run_cli(["align-dumps", target, second, first])
 
         self.assertEqual(status, 0, stderr)
+        # Candidates share one directory, so the census names it once and the
+        # rows carry only what tells them apart -- otherwise the first column
+        # is padded to the full path and `--width` elides the numbers.
+        self.assertIn("paths are relative to", stdout)
+        names = {Path(first).name, Path(second).name}
         ranked = [
             line.split()[0]
             for line in stdout.splitlines()
-            if line.startswith(str(self.root))
+            if line.split()[:1] and line.split()[0] in names
         ]
-        self.assertEqual(ranked, [first, second])
+        self.assertEqual(ranked, [Path(first).name, Path(second).name])
 
     def test_the_window_tally_separates_insertions_before_from_inside(self) -> None:
         lines = body(*stream(30))

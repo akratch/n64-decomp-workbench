@@ -11,7 +11,7 @@ from typing import Any
 
 from .cli_options import add_symbol_argument
 from .dis_cache import DisassemblyCache
-from .model import Instruction, display_path
+from .model import Instruction, display_path, shorten_paths
 from .phase import (
     COSET_FAMILIES,
     DEFAULT_RING,
@@ -122,7 +122,8 @@ def _check_instruction_count(report: PhaseReport, *, strict: bool) -> str | None
 def _census_lines(reports: list[PhaseReport]) -> list[str]:
     """One line per candidate: the batch reading a sweep needs."""
 
-    width = max(len(item.candidate_name) for item in reports)
+    labels, shared = shorten_paths([item.candidate_name for item in reports])
+    width = max(len(labels[item.candidate_name]) for item in reports)
     vector_width = max(len(" ".join(item.phase_vector)) for item in reports)
     lines = [
         f"{'candidate'.ljust(width)}  {'ni':>5s} {'delta':>6s}  "
@@ -135,12 +136,14 @@ def _census_lines(reports: list[PhaseReport]) -> list[str]:
         if item.instruction_delta:
             note = f"SHIFTED {note}".strip()
         lines.append(
-            f"{item.candidate_name.ljust(width)}  {item.candidate_rows:5d} "
+            f"{labels[item.candidate_name].ljust(width)}  {item.candidate_rows:5d} "
             f"{item.instruction_delta:+6d}  "
             f"{' '.join(item.phase_vector).ljust(vector_width)}  "
             f"{item.quotiented:6d} {item.positional:10d}  {note}"
         )
     lines.append("")
+    if shared:
+        lines.append(shared)
     lines.append(
         "free is quotiented by each slot's best-fit ring coset; positional is "
         "what the object scores as written. They agree only for a row marked "

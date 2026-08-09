@@ -693,7 +693,9 @@ def register_cascade_commands(commands: argparse._SubParsersAction[Any]) -> None
         "--rom",
         metavar="OBJECT",
         help=(
-            "reference object; report which float colours it never uses, so a "
+            "reference object -- a compiled `.o`, not a ROM image; the "
+            "command that reads a ROM image is `score --rom`. Report which "
+            "float colours it never uses, so a "
             "forbidden set can be checked against the allocation the "
             "reference actually made"
         ),
