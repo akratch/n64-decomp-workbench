@@ -236,6 +236,101 @@ intersection: EMPTY -- these webs share no occurrence block, so neither can be b
 stages of one campaign. It is a set intersection over `saveocc bb=` values.
 `--block BB` goes the other way: every web with an occurrence in that block.
 
+## The frame ladder
+
+The cascade commands answer "what happened to *this* variable". `trace-frame`
+answers the question underneath it: **which slots does this frame have at
+all**, and which itable entry owns each one.
+
+```sh
+decomp-workbench trace-frame examples/traces/frame-ladder.log --frame -216 --pager never
+```
+
+```text
+frame ladder: frame-ladder.log 12 slot(s) frame=-216 source=symtab+webdetail
+-144 72(sp) idx=408 size=4 vreg=1 class=M webs=- -
+-140 76(sp) idx=72 size=4 vreg=1 class=M webs=- -
+-136 80(sp) idx=80 size=4 vreg=0 class=M webs=80,181 -
+```
+
+`--frame` is the prologue's `addiu sp,sp,-N` written signed, and
+`home = offset - frame`. Get that sign backwards and every local lands in the
+caller's frame — which reads as a perfectly plausible ladder, which is why it
+cost a campaign an afternoon.
+
+Two record families feed it, and the `source=` field says which:
+
+- **`symtab`** — the whole itable, from `CDX_SYMTAB=1`
+  ([the patch](../src/decomp_workbench/patches/README.md)). Every slot the
+  procedure has.
+- **`webdetail`** — the shipped profile's records. Only the slots that reached
+  the allocator, which is a subset, and a `webdetail`-only ladder says so.
+
+`webs=` joins the allocator's webs to the slot **by frame offset**. Two webs
+on one slot is the normal reading of a split family, and the join survives the
+renumbering that a symbol-number join does not.
+
+### Names are yours; the compiler has none
+
+The input ucode carries no names. `cfe -j` on a composed translation unit holds
+three human strings — the file name, the function name, and a format literal —
+and every local, parameter, and temp is a bare (class, offset) pair. No
+instrument can print a name that is not there.
+
+So `--names` takes a map you wrote, in either spelling of the same fact:
+
+```txt
+sp:80   colour       # the sp-relative slot a disassembly shows
+-136    colour       # the frame offset the itable records
+```
+
+```sh
+decomp-workbench trace-frame examples/traces/frame-ladder.log --frame -216 \
+  --names examples/fixtures/frame-names.txt --summary --pager never
+```
+
+```text
+frame ladder: frame-ladder.log 12 slot(s) named=8 unnamed=4 source=symtab+webdetail
+lowest offset -144 lowest named -136 temps below it 2
+```
+
+An unnamed slot **below the lowest named one** is a compiler temp — declared
+locals sit at the top of the ladder, `cfe`'s pooled expression temps
+immediately below them, and `uopt`'s own temps below those. That is the entire
+claim: which pass owns a given temp is a further question, and a script that
+answered it from the itable index number answered it wrong.
+
+With nothing named, nothing is claimed. The predecessor script hard-coded
+`off < -100` as the temp threshold and it was true of exactly one function.
+
+### Where a pooled temp is born
+
+The itable is a hash table of expressions in **first-occurrence order**: a
+repeated expression reuses its index and bumps its version, so an index is
+stamped where that expression first appears in the ucode stream. `--ops`
+prints that stream:
+
+```sh
+decomp-workbench trace-frame examples/traces/frame-ladder.log --frame -216 --ops --pager never
+```
+
+```text
+op71 ustr l=M-132(69) r=R2(2) dt=6
+op74 ustr l=M-140(72) r=R2(2) dt=6
+op79 ustr l=M-18(77) r=R2(2) dt=6
+```
+
+`ustr <temp> <- v0` between two named stores is a call's return value being
+stashed in an integer temp, and the index says which source construct stamped
+it. That is how one campaign identified its blocking temp as *a call used as a
+non-final argument of another call* — `cfe` cannot leave the result in `v0`
+while the remaining arguments are set up, so it materialises a home.
+
+Reading it the other way round is the trap the same campaign fell into:
+deleting the construct at the birth site does **not** delete the slot. The
+index simply moves to the next expression that needs an integer home. The pool
+dies when the *last* such expression is gone, not when any particular one is.
+
 ## What this cannot tell you
 
 - **Which source line an occurrence came from.** `saveocc`'s `bb=` is a pointer

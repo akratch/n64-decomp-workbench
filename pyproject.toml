@@ -57,6 +57,8 @@ decomp_workbench = [
     "docs/compiler-laws/*.md",
     "docs/field-guide.md",
     "fingerprints/*.c",
+    "patches/*.md",
+    "patches/*.patch",
     "py.typed",
     "skills/n64-decomp-campaign/SKILL.md",
     "skills/n64-decomp-campaign/agents/*.yaml",

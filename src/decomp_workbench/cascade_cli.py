@@ -32,6 +32,15 @@ from .cascade import (
 )
 from .cli_options import add_symbol_argument
 from .dis_cache import DisassemblyCache
+from .frame_ladder import (
+    SYMTAB_RECORD_GRAMMAR as SYMTAB_GRAMMAR,
+)
+from .frame_ladder import (
+    frame_ladder,
+    ladder_lines,
+    op_report,
+    parse_slot_names,
+)
 from .globalcolor import FP_COLOR_REGISTERS, register_for_color
 from .row_source import load_dump_rows, load_object_rows
 from .screen import build_screen_line
@@ -75,7 +84,7 @@ class _GrammarAction(argparse.Action):
             "the kill signal; the save arithmetic needs them.",
             "",
         ]
-        for kind, description in RECORD_GRAMMAR.items():
+        for kind, description in (*RECORD_GRAMMAR.items(), *SYMTAB_GRAMMAR.items()):
             lines.append(f"[CDX] {kind}")
             lines.extend(f"    {line}" for line in _wrap(description, 68))
             lines.append("")
@@ -590,6 +599,68 @@ def blocks_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def frame_command(args: argparse.Namespace) -> int:
+    """Print one procedure's frame ladder, or its itable operation stream."""
+
+    try:
+        log = CdxLog.read(args.log)
+        names: dict[int, str] = {}
+        if args.names:
+            from pathlib import Path
+
+            try:
+                text = Path(args.names).read_text(encoding="utf-8")
+            except OSError as error:
+                raise CascadeError(f"cannot read {args.names}: {error}") from None
+            names = parse_slot_names(text, frame=args.frame)
+        ladder = frame_ladder(log, frame=args.frame, proc=args.proc, names=names)
+        operations = op_report(ladder, names=names) if args.ops else None
+    except CascadeError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        document: dict[str, Any] = ladder.as_dict()
+        if operations is not None:
+            document["operations"] = operations
+        print(json.dumps(document, indent=2, sort_keys=True))
+        return 0
+    if args.summary:
+        lines = [
+            f"frame ladder: {ladder.log}  {len(ladder.slots)} slot(s)  "
+            f"named={len(ladder.named)} unnamed="
+            f"{len(ladder.slots) - len(ladder.named)}  "
+            f"source={'+'.join(ladder.sources)}",
+            f"  lowest offset {ladder.slots[0].offset if ladder.slots else '-'}"
+            f"  lowest named {ladder.lowest_named_offset if ladder.named else '-'}"
+            f"  temps below it {len(ladder.below_named)}",
+            f"  itable entries {len(ladder.entries)}, of which "
+            f"{sum(item.is_operation for item in ladder.entries)} operation(s)",
+        ]
+        for warning in ladder.warnings:
+            lines.append(f"warning: {warning}")
+        emit_lines(lines, width=args.width, pager=args.pager)
+        return 0
+    lines = list(ladder_lines(ladder))
+    if operations is not None:
+        lines.append(
+            f"itable operations: {operations['selected_count']} of "
+            f"{operations['entry_count']} entries, in first-occurrence order"
+        )
+        for row in operations["operations"][: args.limit]:
+            lines.append(
+                f"  op{row['index']:<5d} {row['opcode_name']:<6s} "
+                f"l={row['left_name']:<20s} r={row['right_name']:<20s} "
+                f"dt={row['dtype']}"
+            )
+        if operations["selected_count"] > args.limit:
+            lines.append(
+                f"  ... {operations['selected_count'] - args.limit} more "
+                "operation(s); raise --limit"
+            )
+    emit_lines(lines, width=args.width, pager=args.pager)
+    return 0
+
+
 def _add_site_arguments(parser: argparse.ArgumentParser) -> None:
     site = parser.add_argument_group(
         "site",
@@ -799,3 +870,65 @@ def register_cascade_commands(commands: argparse._SubParsersAction[Any]) -> None
     blocks.add_argument("--json", action="store_true", help="emit JSON")
     add_terminal_arguments(blocks)
     blocks.set_defaults(handler=blocks_command, report_command="trace-blocks")
+
+    frame = commands.add_parser(
+        "trace-frame",
+        help="the frame ladder: every stack slot one procedure owns",
+        description=(
+            "Print one procedure's stack slots, lowest offset first, with the "
+            "sp-relative home each one has, the itable index stamped at it, "
+            "and the allocator webs that reached it. Names are yours to "
+            "supply with --names: the input ucode carries none, so no "
+            "instrument can print one. --ops adds the itable's operation "
+            "stream in first-occurrence order, which is where a pooled "
+            "compiler temp's birth site can be read."
+        ),
+        epilog=(
+            "example: decomp-workbench trace-frame build.ilog --frame -216 "
+            "--names locals.txt"
+        ),
+    )
+    frame.add_argument("log", help="CDX log from an instrumented build")
+    frame.add_argument(
+        "--frame",
+        type=lambda value: int(value, 0),
+        metavar="SIZE",
+        help=(
+            "the frame size, signed, as the prologue's addiu sp,sp,-N writes "
+            "it; turns each offset into the sp-relative home a disassembly "
+            "shows"
+        ),
+    )
+    frame.add_argument(
+        "--proc",
+        type=int,
+        metavar="N",
+        help="restrict to one procedure ordinal (default: every procedure)",
+    )
+    frame.add_argument(
+        "--names",
+        metavar="FILE",
+        help=(
+            "reader-supplied slot names, one `OFFSET NAME` per line; `-140 "
+            "colour` is a frame offset and `sp:76 colour` an sp-relative slot"
+        ),
+    )
+    frame.add_argument(
+        "--ops",
+        action="store_true",
+        help=(
+            "also print the itable's operation stream with symbolic operands "
+            "(needs CDX_SYMTAB records)"
+        ),
+    )
+    frame.add_argument(
+        "--summary",
+        action="store_true",
+        help="print the slot counts only, for a sweep column",
+    )
+    frame.add_argument(
+        "--limit", type=int, default=80, metavar="N", help="operations to show"
+    )
+    frame.add_argument("--json", action="store_true", help="emit JSON")
+    add_terminal_arguments(frame)
+    frame.set_defaults(handler=frame_command, report_command="trace-frame")

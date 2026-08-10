@@ -106,6 +106,7 @@ SCHEMAS: dict[str, str] = {
     "trace-order": "decomp-workbench-color-order-v1",
     "trace-copy-decisions": "decomp-workbench-copy-decisions-v1",
     "trace-fifo": "decomp-workbench-trace-fifo-v1",
+    "trace-frame": "decomp-workbench-frame-ladder-v1",
     "trace-globalcolor": "decomp-workbench-trace-globalcolor-v1",
     "trace-origin-probe": "decomp-workbench-origin-probe-v1",
     "trace-scheduler": "decomp-workbench-scheduler-trace-v1",
