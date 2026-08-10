@@ -1925,12 +1925,12 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             "object already defines. GNU ld lets a script assignment override "
             "an object's definition silently, and the surviving absolute "
             "symbol keeps the losing definition's size -- which is what makes "
-            "the check exact, and free (WB-143)."
+            "the check exact, and free."
         )
         lines.append(
             "  pins_missing_sources is off: pass --elf <linked ELF> to check "
             "whether --pins/--symbol-addrs named every absolute symbol the "
-            "link actually carries. WB-144: an incomplete inventory exits "
+            "link actually carries. An incomplete inventory exits "
             "clean and reports every other number honestly about the pins "
             "it *was* given -- this is the only check that catches a pin "
             "file nobody handed it."

@@ -37,8 +37,8 @@ class CommandParser(argparse.ArgumentParser):
                 2,
                 f"{self.prog}: error: {match.group('value')} is not a "
                 f"{self.prog} command.\n"
-                f"Run `{self.prog} commands` for the compact journey map, or "
-                f"`{self.prog} --help` for every command.\n",
+                f"Run `{self.prog.split()[0]} commands` for the compact "
+                f"journey map, or `{self.prog} --help` for every command.\n",
             )
         super().error(message)
 

@@ -276,8 +276,12 @@ a map and an image and builds nothing:
 
 ```sh
 decomp-workbench shift audit --map build/game.map --image build/game.z64 \
-  --pins ver/symbols/undefined_syms.txt --blob .assets
+  --elf build/game.elf --pins ver/symbols/undefined_syms.txt --blobs auto
 ```
+
+Pass every symbol file your link consumes with `-T`, and pass `--elf`: it is
+what names the pins an object in the link already defines, which are free to
+delete and are where a live run's whole headline finding turned out to be.
 
 That says which of your pinned addresses follow the layout
 (`gMainMemoryPool = main_BSS_END`) and which are written down

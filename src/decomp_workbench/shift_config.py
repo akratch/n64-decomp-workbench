@@ -494,8 +494,8 @@ def verify_lines(found: ConfigVerification, *, limit: int) -> list[str]:
         (
             "",
             "a faithful pair is one where a configuration edit changed the "
-            "linker script and nothing else -- the gate S6 ran before "
-            "rehearsing any shift on pilotwings64, and passed byte-exactly on "
+            "linker script and nothing else -- the gate to pass before "
+            "rehearsing any shift; on pilotwings64 it passed byte-exactly on "
             "the first try. A pair that is genuinely shifted fails every one "
             "of these checks by construction: that is `shift rehearse`'s "
             "question, not this one's.",

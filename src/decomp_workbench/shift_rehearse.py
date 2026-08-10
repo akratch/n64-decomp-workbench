@@ -331,8 +331,8 @@ def derive_anchor(
                 f"[0x{window_lo:08x}, 0x{window_hi:08x}) moved by the declared "
                 f"delta 0x{delta:x}: either the delta is wrong, the two maps "
                 "do not describe the same relink, or this map places nothing "
-                "but linker-script assignments in its own window (WB-142 -- "
-                "pass --anchor <symbol> to name the insertion point yourself)"
+                "but linker-script assignments in its own window "
+                "(pass --anchor <symbol> to name the insertion point yourself)"
             )
         vram, source = lowest_moved, "auto"
         named = min(
@@ -732,7 +732,8 @@ SYMBOL_RULES: tuple[SymbolRule, ...] = (
         "the same name, silently, and kept the overridden definition's size "
         "and type on the surviving symbol. The object still defines it, so "
         "deleting the assignment is byte-identical at the current layout -- "
-        "S6 proved exactly that by ablation on pilotwings64's ten",
+        "proved by ablation on pilotwings64's ten, which rebuilt to the same "
+        "sha1",
     ),
     SymbolRule(
         SYMBOL_STALE,
@@ -1647,7 +1648,7 @@ def _symbol_census_lines(found: SymbolCensus | None, *, limit: int) -> list[str]
             "read, and it does not read text: a reference consumed only from "
             "a lui/%lo pair is invisible to it. The symbol census answers "
             "that half, and on pilotwings64 it found 13x more blockers than "
-            "the data side did (S6 4.5).",
+            "the data side did.",
         ]
     lines = [
         "",

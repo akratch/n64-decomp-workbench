@@ -1482,7 +1482,7 @@ class Wb142AnchorDerivationTests(unittest.TestCase):
             )
         message = str(caught.exception)
         self.assertIn("object-backed", message)
-        self.assertIn("WB-142", message)
+        self.assertIn("linker-script assignments", message)
         self.assertIn("--anchor", message)
 
 

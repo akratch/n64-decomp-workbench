@@ -105,9 +105,13 @@ and rebuild. It costs a relink and changes no output bytes: the map is a side
 report, not an input.
 
 While you are in there, read the `ld` line itself, because Phase 1 needs it.
-On a make-driven project, `make -n` prints the command without running it:
+On a make-driven project, `make -n` prints the commands without running them —
+but a matched project is a *built* project, so plain `make -n` prints nothing
+but the final `sha1sum -c` and you learn nothing. Force it to print the whole
+recipe and pull the link line out:
 
 ```
+$ make -Bn | grep -- -Map
 mips-linux-gnu-ld -T <script> \
   -T config/us/sym/hardware_regs.ld -T config/us/sym/pif_syms.ld \
   -T config/us/sym/libultra_undefined_syms.txt \
@@ -115,6 +119,8 @@ mips-linux-gnu-ld -T <script> \
   -T build/splat_out/us/undefined_syms_auto.txt \
   -Map <map> --no-check-sections -o <elf>
 ```
+
+(One line in the real output; wrapped here to read.)
 
 **That `-T` list is the complete set of files that can pin an address in your
 project.** Nothing else reaches the linker. Write it down; it is Phase 1's
@@ -169,7 +175,7 @@ places to look:
 > files reports `pins_shadowing=7`; with them it reports 17, and the ten it
 > was missing include the one word a relink later convicted.
 
-That mistake is the one `shift audit` now catches on its own (WB-144). Pass
+That mistake is the one `shift audit` now catches on its own. Pass
 `--elf` and the audit cross-checks its own pin classes against the linked
 ELF's absolute symbol table: any address-shaped symbol the link carries in
 the movable window or the placed ROM extent that no `--pins`/`--symbol-addrs`
@@ -233,8 +239,19 @@ set.
 ### 1.2 Reading the pin classes
 
 ```
-pins_total=147  pins_derived=0  pins_authentic=102  pins_artifact=27  pins_rom_offset=6  pins_shadowing=10  pins_unclassified=2
+pins_total=147  pins_derived=0  pins_authentic=102  pins_artifact=27  pins_rom_offset=6  pins_shadowing=10  pins_unclassified=2  pins_missing_sources=0
+  pin_sources: config/us/sym/hardware_regs.ld
+  pin_sources: config/us/sym/pif_syms.ld
+  pin_sources: config/us/sym/libultra_undefined_syms.txt
+  pin_sources: build/splat_out/us/undefined_funcs_auto.txt
+  pin_sources: build/splat_out/us/undefined_syms_auto.txt
 ```
+
+The headline echoes the files it read, so the `-T` list you assembled in §0.2
+is on screen beside the numbers it produced. `pins_missing_sources=0` is the
+completeness check from §0.4: it needs `--elf`, and without it the audit says
+`pins_shadowing=off  pins_missing_sources=off` and prints two lines telling you
+what you are not being told.
 
 | Class | What it means for you |
 |---|---|
@@ -273,20 +290,29 @@ objects have since learned to define. The check is exact rather than
 heuristic, and it needs no shift. Deleting all ten and relinking reproduced
 pilotwings64's ROM byte for byte, `sha1 ec771aed…` unchanged.
 
-`rom-offset` is the same shape of free win one level down. Banjo-Kazooie
-carries 37 of them, and they are not arbitrary:
+`rom-offset` is the same shape of free win one level down. Banjo-Kazooie's
+`-T` set — `manual_syms.us.v10.txt` and the generated
+`build/us.v10/compressed_symbols.txt` — carries 32 of them, and they are not
+arbitrary:
 
 ```
-rom-offset pins (8 of 37, --limit)
+rom-offset pins (8 of 32, --limit)
 name                       value       window     source                               line
 boot_core1_rzip_ROM_START  0x00f19250  segmented  build/us.v10/compressed_symbols.txt  1
 boot_core1_rzip_ROM_END    0x00f37f90  segmented  build/us.v10/compressed_symbols.txt  2
 boot_core2_rzip_ROM_START  0x00f37f90  segmented  build/us.v10/compressed_symbols.txt  3
 boot_core2_rzip_ROM_END    0x00fa3fd0  segmented  build/us.v10/compressed_symbols.txt  4
+boot_CC_rzip_ROM_START     0x00fa3fd0  segmented  build/us.v10/compressed_symbols.txt  5
+boot_CC_rzip_ROM_END       0x00fa5f50  segmented  build/us.v10/compressed_symbols.txt  6
+boot_MMM_rzip_ROM_START    0x00fa5f50  segmented  build/us.v10/compressed_symbols.txt  7
+boot_MMM_rzip_ROM_END      0x00fa9150  segmented  build/us.v10/compressed_symbols.txt  8
 ```
 
 Each `_ROM_END` is the next `_ROM_START`. These are boundaries the link
-already computes; the file writes them down as literals.
+already computes; the file writes them down as literals. Add banjo's splat
+`symbol_addrs.us.v10.txt` with `--symbol-addrs` and the count reads 37 — five
+more the disassembler wrote down and the linker never sees, which is §1.4's
+distinction on a second project.
 
 ### 1.3 `--emit-whitelist`
 
@@ -312,6 +338,10 @@ What lands in the file is a skeleton, not a whitelist:
 
 ```
 # shift audit --emit-whitelist: a skeleton, not a whitelist.
+#
+# Format: `0xADDR reason` or `0xLO-0xHI reason`, one per line, high
+# bound inclusive, # comments ignored. A reason is required: an
+# address with no reason is one somebody re-derives later.
 #
 # Every entry below is COMMENTED OUT. A whitelist entry is a claim
 # your project makes about its own addresses, and reading a linker
@@ -545,7 +575,7 @@ shared_symbols=2,732  symbols_moved=2,543  symbols_only_in_pinned=0  symbols_onl
 shared_sections=14  sections_diverged=11  sections_only_in_pinned=0  sections_only_in_candidate=0
 image=differs  pinned_image_bytes=8,388,608  candidate_image_bytes=8,388,624  image_first_difference=0x000010
 
-first divergent symbol: entry_ROM_END 0x00001050 -> 0x00001060 (+0x10)
+first divergent symbol: kernel_ROM_START 0x00001050 -> 0x00001060 (+0x10)
 first divergent section: .entry.size 0x50 -> 0x60
 ```
 
@@ -603,8 +633,13 @@ stays valid; it lands exactly on the first symbolic link in the chain, so a
 clean pass proves the whole chain follows rather than one hop; and `0x10` is a
 multiple of the `SUBALIGN(16)` granularity, so nothing re-rounds and the delta
 stays exact end to end. **Pick multiples of your subalign** — a pad that is
-not will be silently re-rounded by the next `ALIGN` and the pair is refused on
-the size precondition.
+not will be silently re-rounded by the next `ALIGN`, and the pair is then
+refused rather than paired anyway. With `--anchor` given, the refusal names the
+arithmetic directly (`shifted image is +64 bytes longer than base, not the
+declared delta +16`); while the anchor is being derived you get the more
+general form instead — `no object-backed symbol … moved by the declared delta`
+— which is the same fact reported one step earlier. Either way, compare the two
+image sizes yourself before you argue with the tool.
 
 ### 3.2 Two deltas
 
@@ -789,6 +824,33 @@ explain this class.
 
 ## Phase 4 — the queue
 
+`shift plan` reads reports, not maps. Re-run Phase 1's audit and Phase 3's two
+rehearsals with `--json` — same arguments, plus a generous `--limit`, because
+§4.4 is about what happens when you forget:
+
+```sh
+decomp-workbench shift audit \
+  --map build/pilotwings64.us.map \
+  --image build/pilotwings64.us.z64 \
+  --elf build/pilotwings64.us.elf \
+  --pins config/us/sym/hardware_regs.ld \
+  --pins config/us/sym/pif_syms.ld \
+  --pins config/us/sym/libultra_undefined_syms.txt \
+  --pins build/splat_out/us/undefined_funcs_auto.txt \
+  --pins build/splat_out/us/undefined_syms_auto.txt \
+  --blobs auto --limit 5000 --json > pw64-audit.json
+
+for delta in 10 40; do
+  decomp-workbench shift rehearse analyze \
+    --base-map artifacts/base-symbolic.map --base-image artifacts/base-symbolic.z64 \
+    --shifted-map artifacts/shifted-$delta.map --shifted-image artifacts/shifted-$delta.z64 \
+    --base-elf scratch/base-symbolic.elf --shifted-elf scratch/shifted-$delta.elf \
+    --delta 0x$delta \
+    --blob .filetable --blob .filesys --blob .audio_seq --blob .audio_ctl --blob .audio_tbl \
+    --crc-words 0x10,0x14 --limit 5000 --json > pw64-rehearse-$delta.json
+done
+```
+
 You now have one audit report and two rehearsal reports, holding somewhere
 between hundreds and tens of thousands of rows between them. `shift plan`
 merges them into one ranked, gated list of *jobs*.
@@ -954,7 +1016,21 @@ than no queue.
 ### 4.5 What a plan without a rehearsal looks like
 
 banjo-kazooie has no shift-capable linker configuration yet, so its plan comes
-from the audit alone:
+from the audit alone. `bk-audit.json` below is the *complete* inventory §1.4
+argues for — the two `-T` files, plus the two splat hint files that never reach
+`ld` — read at `--limit 200`:
+
+```sh
+decomp-workbench shift audit \
+  --map build/us.v10/banjo.us.v10.map \
+  --image build/us.v10/banjo.us.v10.uncompressed.z64 \
+  --elf build/us.v10/banjo.us.v10.elf \
+  --pins manual_syms.us.v10.txt \
+  --pins build/us.v10/compressed_symbols.txt \
+  --pins level_symbols.us.v10.txt \
+  --symbol-addrs symbol_addrs.us.v10.txt \
+  --blobs auto --limit 200 --json > bk-audit.json
+```
 
 ```
 shift plan  audit=bk-audit.json  rehearse=-

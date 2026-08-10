@@ -564,7 +564,7 @@ _ORCHESTRATE_DESCRIPTION = (
 _CONFIG_DESCRIPTION = (
     "Making a project shiftable means editing its linker configuration, and "
     "the one thing that edit must not do is change the build. `verify` is "
-    "S6's Gate 2 as a command: every shared symbol at an identical address, "
+    "that gate as a command: every shared symbol at an identical address, "
     "every output section placed identically, and -- when you hand it both "
     "images -- byte-identical output. Three checks rather than one, because "
     "a byte-identical image can coexist with a symbol that moved into a hole."
@@ -645,12 +645,12 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "link already defines: GNU ld lets a script assignment override "
             "an object's definition with no warning, and keeps the losing "
             "definition's size on the surviving absolute symbol -- so the "
-            "check is exact rather than a heuristic, and needs no shift "
-            "(WB-143). Those pins are `shadowing-pin`, and deleting one is "
+            "check is exact rather than a heuristic, and needs no shift. "
+            "Those pins are `shadowing-pin`, and deleting one is "
             "byte-identical at the current layout. And whether --pins/"
             "--symbol-addrs itself is complete: an absolute symbol the link "
             "carries that no supplied file names is `pins_missing_sources` "
-            "-- the -T file nobody handed this run (WB-144)"
+            "-- the -T file nobody handed this run"
         ),
     )
     audit.add_argument(
@@ -768,6 +768,7 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "--base-map build/base.map --base-image build/base.z64 "
             "--shifted-map build/shift/game.map "
             "--shifted-image build/shift/game.z64 --delta 0x10 "
+            "--base-elf build/base.elf --shifted-elf build/shift/game.elf "
             "--blob .assets --crc-words 0x10,0x14 "
             "--checksum-pair race_check_finish=gRaceCheckFinishChecksum "
             "--census unexplained_changed=0,stale_confirmed=0"
@@ -814,7 +815,7 @@ def register_shift_commands(commands: argparse._SubParsersAction[Any]) -> None:
             "word-by-word referee structurally cannot -- a reference consumed "
             "only from a lui/%%lo pair in text is invisible to a value test, "
             "and on pilotwings64 the symbol side found 13x more blockers than "
-            "the data side did (WB-143)"
+            "the data side did"
         ),
     )
     analyze.add_argument(

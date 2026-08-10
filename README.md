@@ -41,6 +41,13 @@ Three pages are the entire workflow:
 | [Field guide](docs/field-guide.md) | "The diff looks like X" → the C that moves it, with the measured effect |
 | [Backlog walkthrough](docs/walkthrough-30-near-matches.md) | Thirty near matches: batch triage, and which classes to knock out first |
 
+**Already at 100%?** Then your question is a different one — whether the
+addresses in that matched ROM are *references*, so code and data can be
+inserted, removed or resized without a hardcoded pointer quietly surviving the
+move. Start at [the shiftability campaign](docs/shiftability-campaign.md): five
+phases, the first two of which need only a linker map and a linked image, no
+build. [Shiftability](docs/shiftability.md) is the reference beside it.
+
 Everything below is reference.
 
 ## Try it in 60 seconds
@@ -249,7 +256,7 @@ then let a real padded relink referee which ones actually move:
 
 ```sh
 decomp-workbench shift audit --map build/game.map --image build/game.z64 \
-  --pins ver/symbols/undefined_syms.txt --blob .assets
+  --elf build/game.elf --pins ver/symbols/undefined_syms.txt --blobs auto
 decomp-workbench shift rehearse orchestrate --wrapper tools/relink.sh \
   --ld-script mods/game.custom.ld --anchor-object build/src/hasm/entrypoint.s.o \
   --deltas 0x10,0x40 --workdir .workbench/rehearsal \

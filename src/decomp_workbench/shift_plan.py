@@ -150,7 +150,7 @@ REMEDIATION_CLASSES: tuple[Remediation, ...] = (
         "an object in this link already defines the symbol and the linker "
         "script's assignment silently overrode it. Deleting the assignment "
         "restores a definition that follows the layout for free -- and "
-        "changes no bytes at the current layout, which S6 proved on "
+        "changes no bytes at the current layout, proved on "
         "pilotwings64 by ablating all ten and rebuilding to the same sha1",
         "rebuild and prove byte- and symbol-identity (`shift config verify`), "
         "then re-audit and watch pins_shadowing fall by one",
@@ -161,8 +161,8 @@ REMEDIATION_CLASSES: tuple[Remediation, ...] = (
         "match-preserving",
         "the pinned value is one the linker already computes: it lands "
         "exactly on a section's own ROM or VRAM boundary, so the script can "
-        "name that boundary instead of writing the number down. S7 measured "
-        "the identity on Banjo-Kazooie -- five of its asset-table pins are, "
+        "name that boundary instead of writing the number down. Measured "
+        "on Banjo-Kazooie -- five of its asset-table pins are, "
         "byte for byte, the AT() load addresses of the five sections they "
         "point at",
         "rebuild and prove byte- and symbol-identity (`shift config verify`), "
@@ -197,7 +197,7 @@ REMEDIATION_CLASSES: tuple[Remediation, ...] = (
         "references this instrumentation structurally cannot judge. A MIPS "
         "address is split across a lui/%lo (or lui/ori) pair and never exists "
         "as one word, so a data-side value test cannot see it and a linked "
-        "ROM keeps no relocation to read instead. S6 4.5 measured the cost on "
+        "ROM keeps no relocation to read instead. The cost, measured on "
         "pilotwings64: seven RSP-microcode pins and the boot stack pointer "
         "were invisible to stale_confirmed and were found by the symbol side. "
         "Whether the original source spelled one lui/addiu or lui/ori is "

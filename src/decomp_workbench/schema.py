@@ -582,21 +582,26 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "elf",
         "elf",
-        "WB-143: the linked ELF the shadowing-pin check read, or null when "
+        "the linked ELF the shadowing-pin check read, or null when "
         "--elf was not passed. Null and `pins_shadowing=0` are different "
         "answers: not asked, versus none found",
     ),
-    Metric("image_bytes", "image_bytes", "size of that image"),
+    Metric(
+        "image_bytes",
+        "image_bytes",
+        "size of that image; `shift config verify` prints this same key as "
+        "`pinned_image_bytes`, beside `candidate_image_bytes`",
+    ),
     Metric(
         "max_placed_extent",
         "max_placed_extent",
-        "WB-140: `rom + size`, maximised over every region the map placed -- "
+        "`rom + size`, maximised over every region the map placed -- "
         "the last byte the map claims the image should hold",
     ),
     Metric(
         "padding_bytes",
         "padding_bytes",
-        "WB-140: bytes the image runs past max_placed_extent, confirmed "
+        "bytes the image runs past max_placed_extent, confirmed "
         "uniform fill (null when the image is not longer than the map's "
         "placed extent); a non-uniform excess is refused before this key "
         "is ever reported",
@@ -604,7 +609,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "regions_unplaced_past_eof",
         "regions_unplaced_past_eof",
-        "WB-140: placed regions whose claimed extent runs past the image "
+        "placed regions whose claimed extent runs past the image "
         "actually handed in; more than half is refused rather than reported",
     ),
     Metric(
@@ -756,7 +761,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "pins_shadowing",
         "pins_shadowing",
-        "WB-143: absolute pins an object in the linked ELF already defines -- "
+        "absolute pins an object in the linked ELF already defines -- "
         "the script assignment overrode that definition silently, and the "
         "surviving absolute symbol kept the losing definition's size, which "
         "is the evidence. Deleting one is byte-identical at the current "
@@ -771,7 +776,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "pins_missing_sources",
         "pins_missing_sources",
-        "WB-144: ELF absolute symbols inside the movable window or the map's "
+        "ELF absolute symbols inside the movable window or the map's "
         "placed ROM extent that no supplied --pins/--symbol-addrs file names "
         "and the map does not explain as its own cascade-script boundary "
         "symbol -- the inventory is missing whatever -T file pinned them. "
@@ -1120,13 +1125,15 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "symbol_range_lo",
         "the insertion VRAM; the census judges symbols strictly above it, "
         "because the insertion address itself carries both a boundary that "
-        "correctly stays and content that correctly moves",
+        "correctly stays and content that correctly moves. The human report "
+        "prints this and symbol_range_hi together as `symbol_range=(lo, hi]`",
     ),
     Metric(
         "symbol_range_hi",
         "symbol_range_hi",
         "the movable window's high bound, judged inclusively: the symbol "
-        "naming the end of the last bss section moves with it",
+        "naming the end of the last bss section moves with it. Printed as "
+        "the high half of `symbol_range=(lo, hi]`",
     ),
     Metric("symbol_checked", "symbol_checked", "shared symbols inside that range"),
     Metric("symbol_moved", "symbol_moved", "of those, the ones that moved by delta"),
