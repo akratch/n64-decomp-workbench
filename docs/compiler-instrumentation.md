@@ -419,11 +419,73 @@ promoted alongside the existing uopt profiles.
 
 ### Scheduler-selection traces
 
-The `vsprintf` endgame used an early private pointer dump to reduce the last
-two-word residual to one ready-set tie. That unlabeled format remains
-unsupported. The workbench now supports the replacement interface:
+#### For IDO 5.3, the assembler already ships one
+
+Before patching anything, try this:
+
+```sh
+cc -Wa,-R -c source.c 2>sched.log
+```
+
+```sh
+decomp-workbench trace-scheduler examples/traces/as1-reorganize.log --from-as1-r --block 429
+```
 
 ```text
+scheduler: 4 event(s), 2 ready-set tie(s)
+proc=0 block=429 cycle=1 word=0x2418000a opcode=addiu line=16408 ready=2 chosen=n1 tie=lineno
+```
+
+`as1` carries its own list-scheduler trace behind the `-R` (reorganize)
+option — option-table index 13 of the 106-entry table `f_which_opt` reads —
+and `cc` forwards `-Wa,-R` to it. There is **no patched compiler**, and
+therefore no profile to hash-pin and no fidelity gate to record beyond the one
+the campaign that found it already recorded: an object built with `-Wa,-R` was
+`cmp`-identical to the same object built without it, whole file, not merely
+section-scoped. The trace goes to stderr, so a capture that redirects only
+stdout keeps the object and loses the trace.
+
+The native records are *richer* than `DKWB-SCHED-V1` — the whole per-block DAG,
+with `before`, `aftercycles`, `maxhazard`, and successor latencies — which is
+why the reader parses them natively and converts, rather than asking you to
+convert first. `--emit PATH` writes the `DKWB-SCHED-V1` form for the commands
+that read it.
+
+The deciding key is **computed** by the reader, not read: the schema has no
+field for the losing candidates, and without the losers there is nothing to
+compute a tie from. The chain is the lexicographic minimum of
+
+```txt
+( start_time, -aftercycles, -latency, node->addr, node->lineno, ready-list position )
+```
+
+each step a strict accept / not-equal reject. Two things follow, and both are
+printed with the report rather than kept here:
+
+- **`node->lineno` is a source physical line number.** Key five means source
+  whitespace is a codegen input: folding two statements onto one physical line
+  makes their line numbers equal, and lets key six — ready-list position —
+  decide instead. One campaign closed eight mismatched rows with a
+  whitespace-only edit this way.
+- **`node->addr` is not in the record per candidate**, only on the chosen node.
+  The reader evaluates the other keys and, when the named key does not select
+  the node the assembler picked, reports the key as `*-disagrees` rather than a
+  clean tie.
+
+`cycle=` is the selection ordinal within the block. `as1` prints no cycle
+counter, and the ordinal is what two traces align on.
+
+`instrument-scheduler` below remains the answer for an era whose assembler has
+no built-in trace, or when a field the built-in trace does not print is needed.
+For IDO 5.3 it is unnecessary.
+
+#### The stable named schema
+
+The `vsprintf` endgame used an early private pointer dump to reduce the last
+two-word residual to one ready-set tie. That unlabeled format remains
+unsupported. The workbench also supports the replacement interface:
+
+```txt
 [DKWB-SCHED-V1] proc=1 block=2 cycle=3 word=0x8c220000 \
 opcode=lw line=9 ready=2 chosen=n4 tie=source-order
 ```
