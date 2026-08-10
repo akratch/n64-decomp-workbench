@@ -380,6 +380,40 @@ before checking each one:
 `save`, `totalsave`, and `bestcost` are the pass's own floats at the decision
 and are reported as measured.
 
+### Campaign-local patches that are kept, not remembered
+
+The shipped profiles are what `instrument-uopt` writes. Some records the
+workbench *reads* come from patches it does not ship — `savedetail`, `saveocc`,
+and the `symtab` itable dump. `trace-cascade --grammar` marks every record
+SHIPPED or CAMPAIGN-LOCAL, so a log can be checked against a reader without
+running anything.
+
+Those patches now have a home:
+[`src/decomp_workbench/patches/`](../src/decomp_workbench/patches/README.md).
+The precedent is unhappy — an earlier CDX patch was recorded as **lost**, the
+instrumented binary outliving the source that made it, and two campaigns paid
+for the recovery. Each entry there carries the diff, the base file's sha256,
+the sha256 the patch produces, the rebuild recipe, and the fidelity gates the
+rebuild owes.
+
+`uopt-5.3-cdx-symtab.patch` adds one environment variable:
+
+| Variable | Effect |
+|---|---|
+| `CDX_SYMTAB=1` | Dump `uopt`'s whole per-procedure itable once per procedure; honours `CDX_PROC` and `CDX_OUT`, independent of `CDX_LOG` |
+
+The itable is what `sym=` indexes everywhere else in the grammar, and it is a
+hash table of expressions in **first-occurrence order**. `trace-frame` reads
+the dump; [the frame ladder](cdx-cascade.md#the-frame-ladder) is the page about
+reading it.
+
+Two facts about it are worth having before you reach for the patch. The input
+ucode carries **no names** — every local, parameter, and temp is a bare
+(class, offset) pair, so `name=` in the record is the itable kind and no patch
+can make it a symbol name. And stock `uopt -Wo,-zdbug:2` already writes the
+same table to `./uoptlist` with no patched compiler at all; the patch is for
+when you want it in one log beside the CDX web records.
+
 ### Alias and base-provenance profile
 
 ```sh

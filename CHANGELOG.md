@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **Three instruments a campaign built by hand are now the tool's, and the
+  patch that made one of them is kept rather than remembered.** `trace-frame`
+  prints the frame ladder — every stack slot a procedure owns, lowest first,
+  with its sp-relative home, the itable index stamped at it, and the allocator
+  webs that reached it — from either the whole `CDX_SYMTAB` itable dump or, as
+  a stated subset, the shipped `webdetail` records. Names are the reader's,
+  because the input ucode carries none: `cfe -j` on a composed translation
+  unit holds three human strings and no local, parameter, or temp is one of
+  them. Unnamed slots below the lowest named one are compiler temps and that
+  is the whole claim; with nothing named, nothing is claimed, where the
+  predecessor script hard-coded a threshold true of exactly one function.
+  `--ops` prints the itable in first-occurrence order, which is where a pooled
+  temp's birth site is legible — and where the trap is, because deleting the
+  construct at the birth site moves the index rather than the slot. The
+  `CDX_SYMTAB` patch itself lands in `src/decomp_workbench/patches/` with both
+  sha256s, the rebuild recipe, and the four fidelity gates it owes; the
+  previous CDX patch was recorded as lost and two campaigns paid for the
+  recovery.
+
+- **`instrument-scheduler` was built to add a trace IDO 5.3 already ships.**
+  `as1` carries its own list-scheduler selection trace behind `-R`, reachable
+  as `cc -Wa,-R`, print-only and byte-inert — the traced object is
+  `cmp`-identical to the untraced one, whole file. `trace-scheduler
+  --from-as1-r` reads it natively, because the assembler's records are the
+  richer pair: they carry the losing candidates, which the `DKWB-SCHED-V1`
+  schema has no field for, so `tie=` has to be computed while the losers are
+  in hand. The key chain is the lexicographic minimum of `(start_time,
+  -aftercycles, -latency, node->addr, node->lineno, ready-list position)` —
+  key five is a source physical line number, which makes statement folding a
+  codegen lever. The two things the record does not carry travel with the
+  report: `node->addr` is per-selection only, so an unexplained pick is named
+  `<key>-disagrees` rather than reported as a clean tie, and `cycle=` is the
+  selection ordinal because `as1` prints no cycle counter.
+
+- **A `trace-webs --against` that aligns nothing now says which identity field
+  failed, and whether a rebuild would help.** `common=0/0` has two causes that
+  need opposite responses: a fingerprint input absent from both logs is a
+  missing record, and one present on both sides sharing no value is
+  renumbering, which no instrument setting recovers. Both are reported per
+  field and per producing record, and only when coverage is empty. A record
+  counts as missing only when none of its fields reached either side, so the
+  ordinarily-absent `provenance_web` enrichment no longer reads as a failure.
+
 - **Late-stage decomp campaigns now preserve the evidence that actually moves.**
   Scratch checks lead with `ACCEPTED` or `NOT ACCEPTED` and list each differing
   relocation offset/type/symbol/addend; equal-length opcode-identical streams
