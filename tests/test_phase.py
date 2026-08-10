@@ -31,6 +31,7 @@ from decomp_workbench.phase import (
     DEFAULT_RING,
     Coset,
     PhaseError,
+    PhaseReport,
     Slot,
     build_phase_report,
     parse_ring,
@@ -79,7 +80,7 @@ def rows(lines: list[str]) -> list[Instruction]:
     return parse_disassembly(assemble(lines, symbol=SYMBOL), symbol=SYMBOL)
 
 
-def report(target: list[str], candidate: list[str], **kwargs: object):
+def report(target: list[str], candidate: list[str], **kwargs: object) -> PhaseReport:
     left, right = rows(target), rows(candidate)
     shift = build_shift_diff(left, right)
     return build_phase_report(left, right, shift=shift, **kwargs)  # type: ignore[arg-type]
@@ -359,7 +360,7 @@ class PhaseCommandTests(unittest.TestCase):
         traffic = float_traffic(24)
         target = body(*traffic)
 
-        status, stdout, stderr = run_cli(
+        status, _stdout, stderr = run_cli(
             [
                 "phase-dumps",
                 self._dump("t8.objdump", target),

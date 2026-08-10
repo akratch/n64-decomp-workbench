@@ -150,10 +150,10 @@ def read_stamp(path: str | Path) -> dict[str, Any]:
         ) from None
     except ValueError as error:
         raise InstrumentGateError(f"{location} is not valid JSON: {error}") from None
-    if payload.get("schema") != GATE_SCHEMA:
+    schema = payload.get("schema") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict) or schema != GATE_SCHEMA:
         raise InstrumentGateError(
-            f"{location} is not a {GATE_SCHEMA} document "
-            f"(schema={payload.get('schema')!r})"
+            f"{location} is not a {GATE_SCHEMA} document (schema={schema!r})"
         )
     return payload
 

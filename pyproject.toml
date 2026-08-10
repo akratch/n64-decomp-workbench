@@ -32,8 +32,11 @@ dev = [
     "build>=1.2",
     "check-wheel-contents>=0.6",
     "codespell>=2.4",
-    "mypy>=1.14",
-    "ruff>=0.9",
+    # Pinned to the current minor series: CI reproducibility, since a newer
+    # minor has repeatedly landed new checks/stricter defaults (formatter
+    # drift, new mypy errors) that silently break a previously-green build.
+    "mypy>=2.3,<2.4",
+    "ruff>=0.16,<0.17",
     "twine>=6",
 ]
 

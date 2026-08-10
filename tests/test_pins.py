@@ -853,9 +853,7 @@ class ShadowingPinTests(unittest.TestCase):
 
     def test_the_reclassified_pin_carries_the_remediation_in_its_reason(self) -> None:
         reclassified = reclassify_shadowing_pins(self.catalogue, elf=self.elf)
-        pin = next(
-            item for item in reclassified.entries if item.name == "D_80000540"
-        )
+        pin = next(item for item in reclassified.entries if item.name == "D_80000540")
         assert pin.reason is not None
         self.assertIn("already defines", pin.reason)
         self.assertIn("byte-identical", pin.reason)

@@ -24,6 +24,7 @@ from mips_asm import assemble
 
 from decomp_workbench.cli import main
 from decomp_workbench.compare import compare_instructions
+from decomp_workbench.model import Comparison, Instruction
 from decomp_workbench.objdump import parse_disassembly
 
 SYMBOL = "demo"
@@ -35,11 +36,11 @@ def body(*instructions: str) -> list[str]:
     return [*PROLOGUE, *instructions, *EPILOGUE]
 
 
-def rows(lines: list[str]) -> list:
+def rows(lines: list[str]) -> list[Instruction]:
     return parse_disassembly(assemble(lines, symbol=SYMBOL), symbol=SYMBOL)
 
 
-def comparison(target: list[str], candidate: list[str]):
+def comparison(target: list[str], candidate: list[str]) -> Comparison:
     return compare_instructions(
         rows(target),
         rows(candidate),

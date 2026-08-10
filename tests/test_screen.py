@@ -190,7 +190,13 @@ class ScoreScreenTests(unittest.TestCase):
         candidate_text = assemble(body(*rotate(traffic)), symbol=SYMBOL)
         target, candidate = self._object("target.o"), self._object("candidate.o")
 
-        def dump(path, *, objdump=None, symbol=None, section=".text"):
+        def dump(
+            path: str | Path,
+            *,
+            objdump: str | None = None,
+            symbol: str | None = None,
+            section: str = ".text",
+        ) -> tuple[str, list[Instruction]]:
             text = target_text if str(path) == target else candidate_text
             return text, parse_disassembly(text, symbol=symbol)
 

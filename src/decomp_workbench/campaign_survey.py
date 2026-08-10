@@ -36,6 +36,7 @@ would have institutionalised.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,7 +151,7 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
-def _iterate(root: Path):
+def _iterate(root: Path) -> Iterator[Path]:
     stack = [root]
     while stack:
         current = stack.pop()

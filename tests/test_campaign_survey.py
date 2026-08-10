@@ -159,9 +159,7 @@ class SurveyCliTests(SurveyCase):
         self.assertIn(f"campaign survey: {self.root}", stdout)
 
     def test_the_json_form_carries_its_schema(self) -> None:
-        status, stdout, _ = run_cli(
-            ["campaign", "survey", str(self.root), "--json"]
-        )
+        status, stdout, _ = run_cli(["campaign", "survey", str(self.root), "--json"])
         self.assertEqual(status, 0)
         self.assertEqual(json.loads(stdout)["schema"], SURVEY_SCHEMA)
 

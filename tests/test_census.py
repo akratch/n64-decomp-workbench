@@ -89,7 +89,8 @@ class CensusPredicateTests(unittest.TestCase):
         `--explain-keys` every time it happened."""
 
         with self.assertRaisesRegex(
-            ValueError, r"unknown census key 'pins_shadowingg'.*did you mean 'pins_shadowing'\?$"
+            ValueError,
+            r"unknown census key 'pins_shadowingg'.*did you mean 'pins_shadowing'\?$",
         ):
             parse_census(["pins_shadowingg=0"], allowed=SHIFT_CENSUS_KEYS)
 

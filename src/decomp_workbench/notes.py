@@ -465,11 +465,7 @@ def add_note(
         raise NoteError("a note needs a non-empty --id, e.g. --id WB-54")
     if not force:
         reserved = next(
-            (
-                item
-                for item in read_reservations(log)
-                if item.identifier == identifier
-            ),
+            (item for item in read_reservations(log) if item.identifier == identifier),
             None,
         )
         if reserved is not None and (reserved.author or None) != (author or None):

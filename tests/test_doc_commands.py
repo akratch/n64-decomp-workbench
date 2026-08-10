@@ -315,7 +315,7 @@ class DocumentedCommandTests(unittest.TestCase):
         for name in ("workflows.md", "troubleshooting.md", "sweeps.md"):
             self.assertIn(ROOT / "docs" / name, documents)
         # A grouped spelling must survive the rewrite, or every `sweep` and
-        # `note` line would be silently reported as unparseable.
+        # `note` line would be silently reported as unparsable.
         self.assertIsNone(parse_failure(("sweep", "regress", "work.c", "--write", "d")))
         # ...and a real misspelling must still be caught.
         self.assertIsNotNone(parse_failure(("sweep", "regress", "--no-such-option")))

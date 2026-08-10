@@ -128,9 +128,7 @@ class SectionDivergence:
 
 def _section_divergences(
     pinned: Sequence[OutputSection], candidate: Sequence[OutputSection]
-) -> tuple[
-    tuple[SectionDivergence, ...], tuple[str, ...], tuple[str, ...], int
-]:
+) -> tuple[tuple[SectionDivergence, ...], tuple[str, ...], tuple[str, ...], int]:
     """Compare two maps' section placements, in the pinned map's VMA order."""
 
     by_name = {item.name: item for item in candidate}
@@ -263,9 +261,7 @@ class ConfigVerification:
             "shared_sections": self.shared_sections,
             "sections_diverged": self.sections_diverged,
             "sections_only_in_pinned": list(self.sections_only_in_pinned[:cap]),
-            "sections_only_in_candidate": list(
-                self.sections_only_in_candidate[:cap]
-            ),
+            "sections_only_in_candidate": list(self.sections_only_in_candidate[:cap]),
             "section_divergences": [
                 item.as_dict() for item in self.section_divergences[:cap]
             ],
@@ -310,9 +306,7 @@ def verify_faithful(
             "is a question about two images, and one of them cannot answer it"
         )
 
-    movement = audit_symbol_movement(
-        pinned, candidate, allowed_deltas=FAITHFUL_DELTAS
-    )
+    movement = audit_symbol_movement(pinned, candidate, allowed_deltas=FAITHFUL_DELTAS)
     moved = tuple(
         (item.name, item.base_address, item.shifted_address)
         for item in movement.anomalies
@@ -428,11 +422,7 @@ def verify_lines(found: ConfigVerification, *, limit: int) -> list[str]:
     if first_section is not None:
         lines.append(
             f"first divergent section: {first_section.name}.{first_section.field} "
-            + (
-                "-"
-                if first_section.pinned is None
-                else f"0x{first_section.pinned:x}"
-            )
+            + ("-" if first_section.pinned is None else f"0x{first_section.pinned:x}")
             + " -> "
             + (
                 "-"

@@ -39,7 +39,7 @@ from decomp_workbench.sweep_generators import (
     parse_construct,
     removal_family,
 )
-from decomp_workbench.sweep_ingest import ingest_lines, ingest_sweep
+from decomp_workbench.sweep_ingest import IngestResult, ingest_lines, ingest_sweep
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "fixtures" / "sweep-base.c"
@@ -475,7 +475,7 @@ class IngestTests(SourceCase):
         target.write_text(TARGET_DUMP, encoding="utf-8")
         return directory, objects, target
 
-    def ingest(self):
+    def ingest(self) -> IngestResult:
         directory, objects, target = self.build()
         return ingest_sweep(
             read_manifest(directory),

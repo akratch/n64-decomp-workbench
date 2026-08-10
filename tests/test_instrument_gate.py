@@ -14,6 +14,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from decomp_workbench.cli import main
 from decomp_workbench.instrument_gate import (
@@ -68,7 +69,7 @@ class GateCase(unittest.TestCase):
         self.failing = self.root / "broken.o"
         self.failing.write_bytes(b"different object")
 
-    def stamp(self, instrumented: Path | None = None) -> dict:
+    def stamp(self, instrumented: Path | None = None) -> dict[str, Any]:
         return build_stamp(
             stock=self.stock,
             instrumented=instrumented or self.instrumented,

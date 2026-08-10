@@ -752,8 +752,7 @@ class _Boundary:
     def describe(self, value: int) -> str:
         primary = self._phrase(*self.edges[0])
         alternates = "".join(
-            f"; and {self._phrase(edge, sections)}"
-            for edge, sections in self.edges[1:]
+            f"; and {self._phrase(edge, sections)}" for edge, sections in self.edges[1:]
         )
         return (
             f"0x{value:08x} is exactly {primary}{alternates} -- an address this "
@@ -808,17 +807,11 @@ def _boundaries(regions: Iterable[Mapping[str, Any]]) -> dict[int, _Boundary]:
     for address, edge in sorted(
         edges, key=lambda key: (key[0], _EDGE_ORDER.index(key[1]))
     ):
-        collected.setdefault(address, []).append(
-            (edge, tuple(edges[(address, edge)]))
-        )
-    return {
-        address: _Boundary(tuple(rows)) for address, rows in collected.items()
-    }
+        collected.setdefault(address, []).append((edge, tuple(edges[(address, edge)])))
+    return {address: _Boundary(tuple(rows)) for address, rows in collected.items()}
 
 
-def _owning_section(
-    regions: Sequence[Mapping[str, Any]], value: int
-) -> str | None:
+def _owning_section(regions: Sequence[Mapping[str, Any]], value: int) -> str | None:
     """The smallest region whose VRAM extent contains ``value``."""
 
     candidates = [
@@ -894,9 +887,7 @@ class ShiftPlan:
 
     @property
     def free_wins(self) -> int:
-        return sum(
-            1 for item in self.items if item.remediation == DELETE_REDUNDANT_PIN
-        )
+        return sum(1 for item in self.items if item.remediation == DELETE_REDUNDANT_PIN)
 
     @property
     def structural(self) -> int:
@@ -971,9 +962,7 @@ def _plan_audit(queue: _Queue, audit: Mapping[str, Any], capped: list[str]) -> N
                 ),
                 gates={
                     "identity": _identity_gate(audit),
-                    "audit": _audit_gate(
-                        audit, census="pins_shadowing=<one less>"
-                    ),
+                    "audit": _audit_gate(audit, census="pins_shadowing=<one less>"),
                 },
                 section=section,
                 value=value if isinstance(value, int) else None,
@@ -997,9 +986,7 @@ def _plan_audit(queue: _Queue, audit: Mapping[str, Any], capped: list[str]) -> N
                 ),
                 gates={
                     "identity": _identity_gate(audit),
-                    "audit": _audit_gate(
-                        audit, census="pins_rom_offset=<one less>"
-                    ),
+                    "audit": _audit_gate(audit, census="pins_rom_offset=<one less>"),
                 },
                 section=boundary.section if boundary is not None else section,
                 value=value if isinstance(value, int) else None,
@@ -1016,15 +1003,12 @@ def _plan_audit(queue: _Queue, audit: Mapping[str, Any], capped: list[str]) -> N
                     title=f"declare {name} authentic, with a reason",
                     rule="audit-whitelist-pin",
                     evidence=(
-                        f"{name} = 0x{value:08x} sits in the "
-                        f"{pin.get('window')} window"
+                        f"{name} = 0x{value:08x} sits in the {pin.get('window')} window"
                         if isinstance(value, int)
                         else f"{name} sits in the {pin.get('window')} window"
                     ),
                     gates={
-                        "audit": _audit_gate(
-                            audit, census="pins_authentic=<one more>"
-                        )
+                        "audit": _audit_gate(audit, census="pins_authentic=<one more>")
                     },
                     value=value if isinstance(value, int) else None,
                 )
@@ -1039,9 +1023,7 @@ def _plan_audit(queue: _Queue, audit: Mapping[str, Any], capped: list[str]) -> N
                     evidence=boundary.describe(value),
                     gates={
                         "identity": _identity_gate(audit),
-                        "audit": _audit_gate(
-                            audit, census="pins_artifact=<one less>"
-                        ),
+                        "audit": _audit_gate(audit, census="pins_artifact=<one less>"),
                     },
                     section=boundary.section,
                     value=value,
@@ -1061,9 +1043,7 @@ def _plan_audit(queue: _Queue, audit: Mapping[str, Any], capped: list[str]) -> N
                 ),
                 gates={
                     "identity": _identity_gate(audit),
-                    "audit": _audit_gate(
-                        audit, census="pins_artifact=<one less>"
-                    ),
+                    "audit": _audit_gate(audit, census="pins_artifact=<one less>"),
                 },
                 section=section,
                 value=value if isinstance(value, int) else None,
@@ -1195,9 +1175,7 @@ def _plan_rehearse(
 
     regions = [item for item in analysis.get("regions", []) if isinstance(item, dict)]
     if not regions and audit is not None:
-        regions = [
-            item for item in audit.get("regions", []) if isinstance(item, dict)
-        ]
+        regions = [item for item in audit.get("regions", []) if isinstance(item, dict)]
     boundaries = _boundaries(regions)
     shadowing = {
         str(item.get("name"))
@@ -1343,9 +1321,7 @@ def _plan_rehearse(
                 "relink and lands on no section boundary and inside no section"
             ),
             gates={
-                "rehearse": _rehearse_gate(
-                    analysis, census="symbol_stale=<one less>"
-                )
+                "rehearse": _rehearse_gate(analysis, census="symbol_stale=<one less>")
             },
             value=value,
             delta=delta,
@@ -1604,9 +1580,7 @@ def plan_markdown(found: ShiftPlan) -> str:
 
     position = {item.subject: index for index, item in enumerate(found.items, start=1)}
     for remediation in REMEDIATION_CLASSES:
-        group = [
-            item for item in found.items if item.remediation == remediation.name
-        ]
+        group = [item for item in found.items if item.remediation == remediation.name]
         if not group:
             continue
         lines.extend(

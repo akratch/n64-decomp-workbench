@@ -329,8 +329,7 @@ def parse_construct(text: str) -> Construct:
         ) from None
     if first < 1 or last < first:
         raise SweepError(
-            f"{text!r} is not a line range: lines start at 1 and LO must not "
-            "exceed HI"
+            f"{text!r} is not a line range: lines start at 1 and LO must not exceed HI"
         )
     return Construct(first=first, last=last, label=label.strip())
 
@@ -452,9 +451,7 @@ def _removal_semantics(code: list[str], removed: list[int]) -> str:
             if not defines(code[number - 1], name):
                 continue
             still_defined = [
-                other
-                for other in definition_lines(code, name)
-                if other not in gone
+                other for other in definition_lines(code, name) if other not in gone
             ]
             still_read = any(
                 reads(line, name) for index, line in enumerate(survivors, 1) if line
@@ -845,9 +842,7 @@ def commutative_family(
             if wanted
             else ""
         )
-        raise SweepError(
-            f"{path} has no exchangeable commutative operand pair{where}"
-        )
+        raise SweepError(f"{path} has no exchangeable commutative operand pair{where}")
     return SweepManifest(
         generator="commute",
         base=str(path),
@@ -916,13 +911,9 @@ def _commutative_pairs(
         for index, (position, operator) in enumerate(tokens):
             if operator not in operators:
                 continue
-            left_prec = (
-                _PRECEDENCE[tokens[index - 1][1]] if index else -1
-            )
+            left_prec = _PRECEDENCE[tokens[index - 1][1]] if index else -1
             right_prec = (
-                _PRECEDENCE[tokens[index + 1][1]]
-                if index + 1 < len(tokens)
-                else -1
+                _PRECEDENCE[tokens[index + 1][1]] if index + 1 < len(tokens) else -1
             )
             if left_prec >= _PRECEDENCE[operator]:
                 continue
@@ -1159,14 +1150,17 @@ def copy_family(
                     f"line {number}: drop {target} = {origin} and read "
                     f"{origin} at {len(rehosted)} later line(s)"
                 ),
-                detail={"line": number, "target": target, "origin": origin,
-                        "rehosted": rehosted},
+                detail={
+                    "line": number,
+                    "target": target,
+                    "origin": origin,
+                    "rehosted": rehosted,
+                },
             )
         )
     if not space:
         raise SweepError(
-            f"{path} holds no copy of the form `Y = X;` between two declared "
-            "locals"
+            f"{path} holds no copy of the form `Y = X;` between two declared locals"
         )
     return SweepManifest(
         generator="copies",
@@ -1184,9 +1178,7 @@ def copy_family(
     )
 
 
-def _copy_refusal(
-    code: list[str], *, target: str, origin: str, at: int
-) -> str | None:
+def _copy_refusal(code: list[str], *, target: str, origin: str, at: int) -> str | None:
     if takes_address(code, target) or takes_address(code, origin):
         return f"{target} or {origin} has its address taken; a callee may write it"
     later_reads = [
@@ -1264,9 +1256,7 @@ def _live_range(code: list[str], name: str) -> tuple[int, int] | None:
     """
 
     touched = set(definition_lines(code, name))
-    touched.update(
-        number for number, line in enumerate(code, 1) if reads(line, name)
-    )
+    touched.update(number for number, line in enumerate(code, 1) if reads(line, name))
     if not touched:
         return None
     return min(touched), max(touched)
@@ -1360,9 +1350,7 @@ def fusion_family(
     wanted = donors or tuple(item.name for item in table if item.disjoint)
     unknown = [name for name in wanted if name not in by_name]
     if unknown:
-        raise SweepError(
-            f"{path} declares no fusable local named {', '.join(unknown)}"
-        )
+        raise SweepError(f"{path} declares no fusable local named {', '.join(unknown)}")
     if not wanted:
         raise SweepError(
             f"no local's live range avoids {target}'s in {path}. Run "

@@ -297,8 +297,7 @@ def dedupe_variants(
             {
                 "site": item.key.label,
                 "reason": (
-                    f"byte-identical to {first.key.label}; one source, one "
-                    "build"
+                    f"byte-identical to {first.key.label}; one source, one build"
                 ),
             }
         )

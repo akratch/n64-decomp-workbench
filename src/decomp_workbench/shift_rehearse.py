@@ -1899,9 +1899,7 @@ def rehearse_lines(found: Rehearsal, *, limit: int) -> list[str]:
         )
     else:
         stale = found.ranked_stale()[: max(0, limit)]
-        lines.extend(
-            ("", f"stale ({len(stale)} of {found.unmoved_total:,}, --limit)")
-        )
+        lines.extend(("", f"stale ({len(stale)} of {found.unmoved_total:,}, --limit)"))
         lines.extend(
             _table(
                 (

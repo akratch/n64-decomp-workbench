@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,7 +123,7 @@ def _assignment_end(line: str) -> int:
     return len(line)
 
 
-def _expansions(line: str):
+def _expansions(line: str) -> Iterator[tuple[int, str]]:
     """Yield `(index, name)` for each expansion outside single or double quotes."""
 
     single = False
@@ -137,8 +138,11 @@ def _expansions(line: str):
             single = not single
         elif char == '"' and not single:
             double = not double
-        elif char == "#" and not single and not double and (
-            index == 0 or line[index - 1].isspace()
+        elif (
+            char == "#"
+            and not single
+            and not double
+            and (index == 0 or line[index - 1].isspace())
         ):
             return
         elif char == "$" and not single and not double:
@@ -182,7 +186,7 @@ class ShellSafetyTests(unittest.TestCase):
         """A scanner that found nothing would pass the two tests above."""
 
         found = unquoted_expansions(
-            ['LABS=$(ls o/*.o)', 'python3 bands.py $LABS'],
+            ["LABS=$(ls o/*.o)", "python3 bands.py $LABS"],
         )
         self.assertEqual(len(found), 1)
         self.assertIn("bands.py $LABS", found[0][1])
@@ -197,7 +201,7 @@ class ShellSafetyTests(unittest.TestCase):
 
     def test_quoting_it_is_accepted(self) -> None:
         self.assertEqual(
-            unquoted_expansions(['D=/opt/irix', 'run -L "$D" "$D/usr/lib/acpp"']),
+            unquoted_expansions(["D=/opt/irix", 'run -L "$D" "$D/usr/lib/acpp"']),
             [],
         )
 

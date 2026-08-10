@@ -481,7 +481,7 @@ def _classify_value_word(old: int, new: int, delta: int) -> str:
 
 
 def _span_lookup(
-    spans: Sequence[tuple[int, int, str]]
+    spans: Sequence[tuple[int, int, str]],
 ) -> tuple[list[int], list[tuple[int, int, str]]]:
     ordered = sorted(spans, key=lambda item: item[0])
     return [item[0] for item in ordered], ordered

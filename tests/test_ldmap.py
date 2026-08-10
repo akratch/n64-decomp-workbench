@@ -928,9 +928,7 @@ def build_elf(
             _SHDR.pack(offsets[".symtab"], 1, 0, 0, symtab_offset, 0, 0, 0, 1, 0)
         )
     headers.append(
-        _SHDR.pack(
-            offsets[".strtab"], 3, 0, 0, strtab_offset, len(strtab), 0, 0, 1, 0
-        )
+        _SHDR.pack(offsets[".strtab"], 3, 0, 0, strtab_offset, len(strtab), 0, 0, 1, 0)
     )
 
     identity = bytes([0x7F]) + b"ELF" + bytes([elf_class, encoding, 1]) + bytes(9)
@@ -1109,9 +1107,7 @@ PW64_SHADOWING_PINS = (
 PW64_PLAIN_PINS = ("D_802C3C90", "D_803805E0", "D_8024B355")
 
 
-@unittest.skipUnless(
-    PW64_ELF.is_file(), f"S6 pilotwings64 ELF not found at {PW64_ELF}"
-)
+@unittest.skipUnless(PW64_ELF.is_file(), f"S6 pilotwings64 ELF not found at {PW64_ELF}")
 class Pw64ElfConformanceTests(unittest.TestCase):
     """The rule, against the link S6 measured by hand.
 

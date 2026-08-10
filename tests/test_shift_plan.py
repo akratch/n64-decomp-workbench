@@ -295,9 +295,7 @@ class RoutingTests(unittest.TestCase):
         """It has a reason written down already; re-queuing it would ask a
         reader to re-make a decision they made."""
 
-        self.assertNotIn(
-            "SP_STATUS", [item.subject for item in self.plan.items]
-        )
+        self.assertNotIn("SP_STATUS", [item.subject for item in self.plan.items])
 
     def test_a_high_tier_scan_hit_is_investigate_and_a_low_one_is_nothing(
         self,
@@ -346,9 +344,7 @@ class MergeTests(unittest.TestCase):
         self.plan = plan()
 
     def test_the_pin_four_reports_agree_about_is_one_item(self) -> None:
-        matches = [
-            item for item in self.plan.items if item.subject == "D_80000540"
-        ]
+        matches = [item for item in self.plan.items if item.subject == "D_80000540"]
         self.assertEqual(len(matches), 1)
         self.assertEqual(
             sorted(matches[0].sources),
@@ -356,9 +352,7 @@ class MergeTests(unittest.TestCase):
         )
 
     def test_a_static_item_a_relink_confirms_becomes_a_conviction(self) -> None:
-        item = next(
-            item for item in self.plan.items if item.subject == "D_80000560"
-        )
+        item = next(item for item in self.plan.items if item.subject == "D_80000560")
         self.assertIn("audit-pin", item.sources)
         self.assertIn("rehearse-symbol", item.sources)
         self.assertTrue(item.conviction)
@@ -368,9 +362,7 @@ class MergeTests(unittest.TestCase):
         is a queue that punishes running the experiment properly."""
 
         doubled = plan(rehearsals=[REHEARSE, {**REHEARSE, "delta": 0x40}])
-        item = next(
-            item for item in doubled.items if item.subject == "D_80000540"
-        )
+        item = next(item for item in doubled.items if item.subject == "D_80000540")
         self.assertEqual(item.deltas, [0x10, 0x40])
         self.assertTrue(
             any("confirmed at deltas 0x10, 0x40" in line for line in item.evidence)
@@ -378,14 +370,10 @@ class MergeTests(unittest.TestCase):
 
     def test_gates_are_one_per_kind_not_one_per_report(self) -> None:
         doubled = plan(rehearsals=[REHEARSE, {**REHEARSE, "delta": 0x40}])
-        item = next(
-            item for item in doubled.items if item.subject == "D_80000540"
-        )
+        item = next(item for item in doubled.items if item.subject == "D_80000540")
         self.assertEqual(len(item.gates), 3)
         self.assertTrue(any("shift config verify" in gate for gate in item.gates))
-        self.assertTrue(
-            any("shift rehearse analyze" in gate for gate in item.gates)
-        )
+        self.assertTrue(any("shift rehearse analyze" in gate for gate in item.gates))
         self.assertTrue(any("shift audit" in gate for gate in item.gates))
 
 
@@ -400,9 +388,7 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual(flags, sorted(flags, reverse=True))
 
     def test_inside_a_band_the_class_order_holds(self) -> None:
-        ranks = [
-            item.rank.rank for item in self.plan.items if item.conviction
-        ]
+        ranks = [item.rank.rank for item in self.plan.items if item.conviction]
         self.assertEqual(ranks, sorted(ranks))
 
     def test_structural_is_last(self) -> None:
@@ -417,9 +403,7 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual(sections, sorted(sections, key=lambda item: item or "~"))
 
     def test_exemplars_lead_their_class(self) -> None:
-        derive = [
-            item for item in self.plan.items if item.remediation == DERIVE_PIN
-        ]
+        derive = [item for item in self.plan.items if item.remediation == DERIVE_PIN]
         flags = [item.exemplar for item in derive]
         self.assertEqual(flags, sorted(flags, reverse=True))
 
@@ -482,9 +466,7 @@ class ReportShapeTests(unittest.TestCase):
         without = build_plan(
             audit=AUDIT, rehearsals=[{**REHEARSE, "symbol_census": False}]
         )
-        self.assertTrue(
-            any("symbol census" in item for item in without.capped)
-        )
+        self.assertTrue(any("symbol census" in item for item in without.capped))
 
     def test_every_emitted_key_is_registered(self) -> None:
         emitted = set(self.payload)
@@ -507,9 +489,7 @@ class MarkdownTests(unittest.TestCase):
     def test_every_non_empty_class_gets_a_heading_with_its_gate(self) -> None:
         for item in REMEDIATION_CLASSES:
             with self.subTest(remediation=item.name):
-                if not any(
-                    row.remediation == item.name for row in plan().items
-                ):
+                if not any(row.remediation == item.name for row in plan().items):
                     continue
                 self.assertIn(f"## {item.name}", self.text)
         self.assertIn("**Gate:**", self.text)
@@ -609,16 +589,21 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "audit.json").write_text(json.dumps(AUDIT), encoding="utf-8")
-        (self.root / "rehearse.json").write_text(
-            json.dumps(REHEARSE), encoding="utf-8"
-        )
+        (self.root / "rehearse.json").write_text(json.dumps(REHEARSE), encoding="utf-8")
 
     def run_plan(self, *arguments: str) -> tuple[int, str, str]:
         stdout, stderr = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             status = main(
-                ["shift", "plan", "--pager", "never", "--width", "unlimited",
-                 *arguments]
+                [
+                    "shift",
+                    "plan",
+                    "--pager",
+                    "never",
+                    "--width",
+                    "unlimited",
+                    *arguments,
+                ]
             )
         return status, stdout.getvalue(), stderr.getvalue()
 
@@ -643,9 +628,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(len(payload["rehearse_reports"]), 2)
 
     def test_the_wrong_schema_is_refused_by_name(self) -> None:
-        status, _, stderr = self.run_plan(
-            "--audit", str(self.root / "rehearse.json")
-        )
+        status, _, stderr = self.run_plan("--audit", str(self.root / "rehearse.json"))
         self.assertEqual(status, 2)
         self.assertIn("carries schema", stderr)
         self.assertIn(AUDIT_SCHEMA, stderr)
@@ -730,7 +713,7 @@ def run_json(arguments: list[str], destination: Path) -> dict[str, Any]:
     if status != 0:
         raise AssertionError(f"{' '.join(arguments)} exited {status}")
     destination.write_text(stdout.getvalue(), encoding="utf-8")
-    return json.loads(stdout.getvalue())
+    return dict(json.loads(stdout.getvalue()))
 
 
 def run_plan_cli(*arguments: str) -> tuple[int, str, str]:
@@ -871,26 +854,18 @@ class Pw64PlanConformanceTests(unittest.TestCase):
             item for item in self.plan.items if "rehearse-symbol" in item.sources
         ]
         self.assertEqual(len(from_symbols), 13)
-        heap = next(
-            item for item in from_symbols if item.subject == "D_803805E0"
-        )
+        heap = next(item for item in from_symbols if item.subject == "D_803805E0")
         self.assertEqual(heap.remediation, DERIVE_PIN)
         self.assertTrue(heap.exemplar)
 
     def test_the_boot_stack_pointer_is_a_migration_in_kernel_bss(self) -> None:
-        stack = next(
-            item for item in self.plan.items if item.subject == "D_802C3C90"
-        )
+        stack = next(item for item in self.plan.items if item.subject == "D_802C3C90")
         self.assertEqual(stack.remediation, MIGRATE_SYMBOL)
         self.assertEqual(stack.section, ".kernel_bss")
 
     def test_the_blob_segments_are_parked(self) -> None:
-        parked = [
-            item for item in self.plan.items if item.remediation == STRUCTURAL
-        ]
-        self.assertTrue(
-            any(item.subject == "blob-segments" for item in parked), parked
-        )
+        parked = [item for item in self.plan.items if item.remediation == STRUCTURAL]
+        self.assertTrue(any(item.subject == "blob-segments" for item in parked), parked)
 
     def test_the_convictions_lead_and_are_the_relinks_own(self) -> None:
         self.assertGreater(self.plan.convictions, 0)
@@ -1021,8 +996,7 @@ class BkPlanConformanceTests(unittest.TestCase):
         item = next(
             row
             for row in self.plan.items
-            if row.remediation == STRUCTURAL
-            and row.subject == "vram:0x803863f0"
+            if row.remediation == STRUCTURAL and row.subject == "vram:0x803863f0"
         )
         self.assertIn("14 output sections share", item.title)
         for section in (".CC", ".GV", ".MMM", ".emptyLvl"):
@@ -1036,9 +1010,7 @@ class BkPlanConformanceTests(unittest.TestCase):
         )
 
     def test_the_37_rom_offset_pins_are_derive_pin_candidates(self) -> None:
-        derive = [
-            item for item in self.plan.items if item.remediation == DERIVE_PIN
-        ]
+        derive = [item for item in self.plan.items if item.remediation == DERIVE_PIN]
         from_rom_offsets = [
             item for item in derive if "audit-rom-offset-pin" in item.rules
         ]
@@ -1074,9 +1046,7 @@ class BkPlanConformanceTests(unittest.TestCase):
         )
 
     def test_the_exemplars_lead_the_class_in_the_queue(self) -> None:
-        derive = [
-            item for item in self.plan.items if item.remediation == DERIVE_PIN
-        ]
+        derive = [item for item in self.plan.items if item.remediation == DERIVE_PIN]
         flags = [item.exemplar for item in derive]
         self.assertEqual(flags, sorted(flags, reverse=True))
 

@@ -17,6 +17,7 @@ import io
 import json
 import tempfile
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 
 from decomp_workbench.cli import main
@@ -76,7 +77,7 @@ again:
 
 
 @contextlib.contextmanager
-def written(text: str, *, name: str = "work.c"):
+def written(text: str, *, name: str = "work.c") -> Iterator[str]:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / name
         path.write_text(text, encoding="utf-8")

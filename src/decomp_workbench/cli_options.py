@@ -187,9 +187,7 @@ class ListFileAction(argparse.Action):
         path = str(values)
         try:
             text = (
-                sys.stdin.read()
-                if path == "-"
-                else open(path, encoding="utf-8").read()
+                sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
             )
         except OSError as error:
             raise argparse.ArgumentError(self, f"cannot read {path}: {error}") from None
@@ -203,7 +201,11 @@ class ListFileAction(argparse.Action):
                 self, f"{path} holds no values (blank lines and # comments are ignored)"
             )
         existing = list(getattr(namespace, self.dest, None) or [])
-        converted = [self.type(item) for item in items] if self.type else items
+        converter = self.type
+        if callable(converter):
+            converted = [converter(item) for item in items]
+        else:
+            converted = items
         setattr(namespace, self.dest, existing + converted)
 
 

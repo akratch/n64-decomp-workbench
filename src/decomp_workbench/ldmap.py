@@ -991,9 +991,7 @@ class ElfSymbols:
         """
 
         candidates = [
-            item
-            for item in self.sections
-            if item.allocated and item.contains(address)
+            item for item in self.sections if item.allocated and item.contains(address)
         ]
         if not candidates:
             return None
@@ -1095,16 +1093,12 @@ def parse_elf_symbols(data: bytes, *, path: str | None = None) -> ElfSymbols:
                 value=st_value,
                 size=st_size,
                 kind=symbol_kind,
-                binding=ELF_SYMBOL_BINDINGS.get(
-                    st_info >> 4, f"bind-{st_info >> 4}"
-                ),
+                binding=ELF_SYMBOL_BINDINGS.get(st_info >> 4, f"bind-{st_info >> 4}"),
                 section_index=st_shndx,
                 section=owner,
             )
         )
-    return ElfSymbols(
-        path=path, sections=tuple(sections), symbols=tuple(symbols)
-    )
+    return ElfSymbols(path=path, sections=tuple(sections), symbols=tuple(symbols))
 
 
 def read_elf_symbols(path: str | Path) -> ElfSymbols:

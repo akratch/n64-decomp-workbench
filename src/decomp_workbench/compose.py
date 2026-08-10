@@ -95,8 +95,7 @@ def parse_zone(text: str) -> tuple[int, int]:
         ) from None
     if low < 1 or high < low:
         raise ComposeError(
-            f"{text!r} is not a line range: lines start at 1 and LO must not "
-            "exceed HI"
+            f"{text!r} is not a line range: lines start at 1 and LO must not exceed HI"
         )
     return low, high
 
@@ -274,8 +273,7 @@ def apply_plan(plan: EditPlan, *, text: str | None = None) -> ComposedSource:
     for anchor in plan.anchors:
         if not 1 <= anchor.line <= total:
             raise ComposeError(
-                f"{plan.base} has {total} line(s); the anchor names line "
-                f"{anchor.line}"
+                f"{plan.base} has {total} line(s); the anchor names line {anchor.line}"
             )
         found = lines[anchor.line - 1]
         if _normalize(found) != _normalize(anchor.text):
@@ -289,16 +287,16 @@ def apply_plan(plan: EditPlan, *, text: str | None = None) -> ComposedSource:
     emitted: list[str] = []
     line_map: dict[int, int] = {}
     for number, line in enumerate(lines, start=1):
-        edit = seen.get(number)
-        if edit is None:
+        pending = seen.get(number)
+        if pending is None:
             emitted.append(line)
             line_map[number] = len(emitted)
             continue
-        emitted.extend(edit.insert)
-        if edit.replace is not None:
-            emitted.append(edit.replace)
+        emitted.extend(pending.insert)
+        if pending.replace is not None:
+            emitted.append(pending.replace)
             line_map[number] = len(emitted)
-        elif edit.insert:
+        elif pending.insert:
             # An insert-only edit keeps the anchor line it was aimed before.
             emitted.append(line)
             line_map[number] = len(emitted)
@@ -311,8 +309,7 @@ def apply_plan(plan: EditPlan, *, text: str | None = None) -> ComposedSource:
         moved = line_map.get(anchor.line)
         if moved is None:
             raise ComposeError(
-                f"the plan deleted line {anchor.line}, which is also one of "
-                "its anchors"
+                f"the plan deleted line {anchor.line}, which is also one of its anchors"
             )
         if _normalize(emitted[moved - 1]) != _normalize(anchor.text):
             raise ComposeError(

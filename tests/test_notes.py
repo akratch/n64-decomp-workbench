@@ -342,18 +342,14 @@ class IdentifierReservationTests(unittest.TestCase):
             reserve_identifiers(self.log, prefix="WB", count=1)[0].identifier,
             "WB-3",
         )
-        claimed = reserve_identifiers(
-            self.log, prefix="WB", count=1, also=(backlog,)
-        )
+        claimed = reserve_identifiers(self.log, prefix="WB", count=1, also=(backlog,))
         self.assertEqual(claimed[0].identifier, "WB-122")
 
     def test_an_unreadable_additional_document_is_an_error_not_a_shrug(
         self,
     ) -> None:
         with self.assertRaises(NoteError) as raised:
-            reserve_identifiers(
-                self.log, prefix="WB", also=(self.root / "nowhere.md",)
-            )
+            reserve_identifiers(self.log, prefix="WB", also=(self.root / "nowhere.md",))
         self.assertIn("additional identifier source", str(raised.exception))
 
     def test_a_prefix_that_is_not_a_prefix_says_what_one_looks_like(self) -> None:
@@ -417,9 +413,7 @@ class ReservationCliTests(unittest.TestCase):
         self.assertEqual(payload["reserved"][0]["id"], "WB-3")
 
     def test_a_colliding_add_exits_two_and_names_the_owner(self) -> None:
-        self.run_cli(
-            ["note", "reserve", "--log", str(self.log), "--author", "W4"]
-        )
+        self.run_cli(["note", "reserve", "--log", str(self.log), "--author", "W4"])
         status, _stdout, stderr = self.run_cli(
             [
                 "note",

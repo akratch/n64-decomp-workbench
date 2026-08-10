@@ -89,9 +89,7 @@ def candidate(
     if renamed is not None:
         text = text.replace("func_a", renamed)
     if dropped is not None:
-        text = "\n".join(
-            line for line in text.splitlines() if dropped not in line
-        )
+        text = "\n".join(line for line in text.splitlines() if dropped not in line)
     return text
 
 
@@ -156,9 +154,7 @@ class DivergenceTests(unittest.TestCase):
         found = verify(candidate(moved="func_a"))
         self.assertFalse(found.faithful)
         self.assertEqual(found.symbols_moved, 1)
-        self.assertEqual(
-            found.first_moved_symbol, ("func_a", 0x80000440, 0x80000450)
-        )
+        self.assertEqual(found.first_moved_symbol, ("func_a", 0x80000440, 0x80000450))
 
     def test_a_section_placed_at_a_different_size_is_caught(self) -> None:
         found = verify(candidate(size=0x90))
@@ -194,9 +190,7 @@ class DivergenceTests(unittest.TestCase):
     def test_an_image_that_differs_names_the_first_byte(self) -> None:
         other = bytearray(IMAGE)
         other[0x33] ^= 0xFF
-        found = verify(
-            PINNED_MAP, pinned_image=IMAGE, candidate_image=bytes(other)
-        )
+        found = verify(PINNED_MAP, pinned_image=IMAGE, candidate_image=bytes(other))
         self.assertFalse(found.faithful)
         self.assertIs(found.image_identical, False)
         self.assertEqual(found.image_first_difference, 0x33)
@@ -242,9 +236,7 @@ class RenderingTests(unittest.TestCase):
     """What a reader sees, and the one line they act on."""
 
     def test_the_headline_leads_with_the_verdict(self) -> None:
-        text = "\n".join(
-            verify_lines(verify(candidate(moved="func_a")), limit=5)
-        )
+        text = "\n".join(verify_lines(verify(candidate(moved="func_a")), limit=5))
         self.assertIn("faithful=NO", text)
         self.assertIn("first divergent symbol: func_a", text)
 

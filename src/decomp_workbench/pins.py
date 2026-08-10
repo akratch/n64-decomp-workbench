@@ -164,6 +164,7 @@ def _vram_floor(model: RangeModel) -> int:
         default=VRAM_WINDOW_FLOOR,
     )
 
+
 #: The one whitelist entry nearly every N64 project needs, offered by name
 #: rather than shipped by default -- `RangeModel` deliberately never carries a
 #: whitelist, because only the caller knows which of its own addresses are
@@ -657,9 +658,7 @@ def reclassify_rom_offsets(
             entries.append(item)
             continue
         entries.append(
-            replace(
-                item, classification=classification, window=window, reason=reason
-            )
+            replace(item, classification=classification, window=window, reason=reason)
         )
     return PinCatalogue(entries=tuple(entries), sources=catalogue.sources)
 
@@ -675,9 +674,7 @@ _SHADOWING_REASON = (
 )
 
 
-def reclassify_shadowing_pins(
-    catalogue: PinCatalogue, *, elf: Any
-) -> PinCatalogue:
+def reclassify_shadowing_pins(catalogue: PinCatalogue, *, elf: Any) -> PinCatalogue:
     """WB-143b: re-answer a pin's class against the ELF the link produced.
 
     ``elf`` is a :class:`~decomp_workbench.ldmap.ElfSymbols` (typed loosely

@@ -1181,8 +1181,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "symbol_rules",
         "symbol_rules",
-        "the published symbol-side rule table, with the evidence behind each "
-        "class",
+        "the published symbol-side rule table, with the evidence behind each class",
     ),
     Metric(
         "absolute",
@@ -1356,8 +1355,12 @@ SHIFT_METRICS: tuple[Metric, ...] = (
         "rehearse_reports",
         "the `shift rehearse` reports read, in the order given",
     ),
-    Metric("plan_total", "plan_total", "items in the queue; things to do, not "
-        "times they were mentioned -- one subject in one class is one item"),
+    Metric(
+        "plan_total",
+        "plan_total",
+        "items in the queue; things to do, not "
+        "times they were mentioned -- one subject in one class is one item",
+    ),
     Metric(
         "plan_convictions",
         "plan_convictions",
@@ -1443,8 +1446,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "conviction",
         "conviction",
-        "whether a relink demonstrated this item, rather than a scan "
-        "suspecting it",
+        "whether a relink demonstrated this item, rather than a scan suspecting it",
     ),
     Metric(
         "exemplar",
@@ -1464,8 +1466,7 @@ SHIFT_METRICS: tuple[Metric, ...] = (
     Metric(
         "gates",
         "gates",
-        "the exact commands to run after one item's fix; a fix with no gate "
-        "is a hope",
+        "the exact commands to run after one item's fix; a fix with no gate is a hope",
     ),
     Metric("section", "section", "the section whose extent owns one item's address"),
     Metric("rank", "rank", "a remediation class's position in queue order"),

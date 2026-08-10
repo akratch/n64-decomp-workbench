@@ -156,9 +156,7 @@ class ComposeTests(unittest.TestCase):
 
     def test_an_edit_past_the_end_names_the_file_length(self) -> None:
         with self.assertRaises(ComposeError) as raised:
-            apply_plan(
-                self.plan(edits=(Edit(line=99, expect="anything"),))
-            )
+            apply_plan(self.plan(edits=(Edit(line=99, expect="anything"),)))
         self.assertIn("line(s); the edit", str(raised.exception))
 
 

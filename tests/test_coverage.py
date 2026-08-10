@@ -14,6 +14,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from decomp_workbench.cli import main
 from decomp_workbench.coverage import SweepCoverage
@@ -88,7 +89,7 @@ class ComposeCoverageTests(unittest.TestCase):
         self.manifest = self.root / "composition.json"
         self.manifest.write_text(json.dumps(COMPOSITION), encoding="utf-8")
 
-    def _compose(self, *extra: str) -> dict:
+    def _compose(self, *extra: str) -> dict[str, Any]:
         status, stdout, stderr = run_cli(
             [
                 "experiment",
@@ -101,7 +102,7 @@ class ComposeCoverageTests(unittest.TestCase):
             ]
         )
         self.assertEqual(status, 0, stderr)
-        return json.loads(stdout)
+        return dict(json.loads(stdout))
 
     def test_an_exhaustive_composition_says_so(self) -> None:
         coverage = self._compose()["coverage"]

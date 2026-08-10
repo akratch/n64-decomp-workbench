@@ -80,8 +80,8 @@ def _emit_manifest(args: argparse.Namespace, manifest: SweepManifest) -> int:
         lines.append(f"  {letter}  {count:>4}  {entry.name} -- {entry.description}")
     if placed.dropped:
         lines.extend(("", f"refused ({len(placed.dropped)}), each with its reason:"))
-        for item in placed.dropped[: args.limit or len(placed.dropped)]:
-            lines.append(f"  {item.get('site', '?')}  {item.get('reason', '')}")
+        for refusal in placed.dropped[: args.limit or len(placed.dropped)]:
+            lines.append(f"  {refusal.get('site', '?')}  {refusal.get('reason', '')}")
         if args.limit and len(placed.dropped) > args.limit:
             lines.append(f"  ... {len(placed.dropped) - args.limit} more")
     lines.extend(

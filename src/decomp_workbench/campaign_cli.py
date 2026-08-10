@@ -343,9 +343,7 @@ def campaign_survey_command(args: argparse.Namespace) -> int:
     from .terminal import emit_lines
 
     try:
-        report = survey_campaign(
-            args.directory, budget=args.budget, base=args.base
-        )
+        report = survey_campaign(args.directory, budget=args.budget, base=args.base)
     except (CampaignSurveyError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

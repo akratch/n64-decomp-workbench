@@ -16,6 +16,7 @@ from __future__ import annotations
 import struct
 import unittest
 from pathlib import Path
+from typing import Any, ClassVar
 
 from decomp_workbench.mips_refs import (
     OPCODE_J,
@@ -25,6 +26,7 @@ from decomp_workbench.mips_refs import (
     RangeModel,
     RegionSpec,
     WhitelistEntry,
+    WordCensus,
     _classify_text_word,
     alignment,
     build_word_census,
@@ -83,13 +85,11 @@ CHECKSUM_SYMBOL_VRAM = {
 }
 
 
-def _skip_unless_images_present(test: unittest.TestCase) -> None:
-    if not (BASE_IMAGE.is_file() and SHIFT_IMAGE.is_file()):
-        test.skipTest(
-            f"S0 campaign images not found under {S0_DIR}; live-conformance "
-            "tests only run when a developer has the shift-instrumentation "
-            "campaign checked out locally"
-        )
+_IMAGES_PRESENT_REASON = (
+    f"S0 campaign images not found under {S0_DIR}; live-conformance "
+    "tests only run when a developer has the shift-instrumentation "
+    "campaign checked out locally"
+)
 
 
 def word(value: int) -> bytes:
@@ -169,9 +169,7 @@ class DecodeWordTests(unittest.TestCase):
         self.assertEqual(ref.target26, 0x123456)
         self.assertEqual(ref.target(region=0x80000000), 0x80000000 | (0x123456 << 2))
         # Only the high nibble of `region` is read.
-        self.assertEqual(
-            ref.target(region=0x8048D158), ref.target(region=0x80000000)
-        )
+        self.assertEqual(ref.target(region=0x8048D158), ref.target(region=0x80000000))
 
     def test_jal_decodes_the_same_shape_as_j(self) -> None:
         ref = decode_word((OPCODE_JAL << 26) | 0x000204)
@@ -269,9 +267,7 @@ class RangeModelTests(unittest.TestCase):
     def test_ranged_whitelist_entry(self) -> None:
         model = RangeModel(
             whitelist=(
-                WhitelistEntry(
-                    lo=0x80100000, hi=0x80101000, reason="ucode data blob"
-                ),
+                WhitelistEntry(lo=0x80100000, hi=0x80101000, reason="ucode data blob"),
             )
         )
         _, whitelisted, reason = model.classify_value(0x80100400)
@@ -383,8 +379,8 @@ class WordCensusSyntheticTests(unittest.TestCase):
         self.generated = [GeneratedSpec(0x00, 0x04, "crc-header")]
         self.moved_range = (0x80000400, 0x80001000)
 
-    def census(self, **overrides):
-        kwargs = dict(
+    def census(self, **overrides: Any) -> WordCensus:
+        kwargs: dict[str, Any] = dict(
             insertion_offset=self.insertion_offset,
             delta=self.DELTA,
             regions=self.regions,
@@ -491,6 +487,9 @@ class WordCensusSyntheticTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+@unittest.skipUnless(
+    BASE_IMAGE.is_file() and SHIFT_IMAGE.is_file(), _IMAGES_PRESENT_REASON
+)
 class WordCensusLiveConformanceTests(unittest.TestCase):
     """Replay S0's spike through this module's section-aware classifier.
 
@@ -505,13 +504,15 @@ class WordCensusLiveConformanceTests(unittest.TestCase):
     1,501, and every differing word accounted for by exactly one label.
     """
 
+    base: ClassVar[bytes]
+    shifted: ClassVar[bytes]
+
     @classmethod
     def setUpClass(cls) -> None:
-        _skip_unless_images_present(cls)
         cls.base = BASE_IMAGE.read_bytes()
         cls.shifted = SHIFT_IMAGE.read_bytes()
 
-    def build(self) -> object:
+    def build(self) -> WordCensus:
         regions = [
             RegionSpec(0x0, 0x40, "header"),
             RegionSpec(0x40, MAIN_ROM, "blob"),

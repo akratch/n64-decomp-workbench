@@ -120,8 +120,7 @@ def note_reserve_command(args: argparse.Namespace) -> int:
     )
     first = claimed[0].identifier
     print(
-        f'next: decomp-workbench note add --log {args.log} --id {first} '
-        f'--title "..."'
+        f'next: decomp-workbench note add --log {args.log} --id {first} --title "..."'
     )
     return 0
 

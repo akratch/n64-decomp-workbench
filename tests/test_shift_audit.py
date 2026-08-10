@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from test_ldmap import build_elf
 
@@ -412,12 +412,8 @@ class BlobNameValidationTests(unittest.TestCase):
                 synthetic_map(), image_size=len(SYNTHETIC_IMAGE), blobs=(".boot1",)
             )
         message = str(raised.exception)
-        self.assertIn(
-            "--blob names a section this map does not have: .boot1", message
-        )
-        self.assertIn(
-            "map sections: .header, .boot, .main, .main_bss", message
-        )
+        self.assertIn("--blob names a section this map does not have: .boot1", message)
+        self.assertIn("map sections: .header, .boot, .main, .main_bss", message)
 
     def test_multiple_typos_are_all_named(self) -> None:
         with self.assertRaises(ValueError) as raised:
@@ -592,7 +588,7 @@ class BlobSuggestionTests(unittest.TestCase):
         self.assertNotIn(".header", [item.output_section for item in self.suggestions])
 
     def test_a_section_with_no_input_records_is_never_suggested(self) -> None:
-        """"Every input is a raw binary" is vacuously true of no inputs, and
+        """ "Every input is a raw binary" is vacuously true of no inputs, and
         would make a blob out of every headerless section in a map."""
 
         empty = parse_ld_map(
@@ -746,9 +742,7 @@ class MovableWindowFloorTests(unittest.TestCase):
                 blobs=(".boot", ".assets", ".filesys"),
             )
         )
-        derived = movable_window(
-            build_region_table(blob_input_map(), image_size=0x80)
-        )
+        derived = movable_window(build_region_table(blob_input_map(), image_size=0x80))
         self.assertEqual(named.lo, derived.lo)
         self.assertEqual(named.lo_section, derived.lo_section)
 
@@ -810,8 +804,17 @@ class NonAllocSectionTests(unittest.TestCase):
     def test_every_known_family_member_is_recognized(self) -> None:
         self.assertEqual(
             {name for name, _ in NON_ALLOC_SECTION_FAMILIES},
-            {".mdebug", ".pdr", ".comment", ".gptab", ".reginfo", ".options",
-             ".debug", ".line", ".rel."},
+            {
+                ".mdebug",
+                ".pdr",
+                ".comment",
+                ".gptab",
+                ".reginfo",
+                ".options",
+                ".debug",
+                ".line",
+                ".rel.",
+            },
         )
 
     def test_every_known_family_member_is_excluded(self) -> None:
@@ -1384,7 +1387,7 @@ class BlobReportTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """Argument handling, exit codes, and the JSON envelope."""
 
-    root: ClassVar[Path]
+    root: Path
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -1643,7 +1646,7 @@ class BlobCommandTests(unittest.TestCase):
         self.map_path.write_text(BLOB_INPUT_MAP, encoding="utf-8")
         self.image_path.write_bytes(BLOB_INPUT_IMAGE)
 
-    def run_json(self, extra: list[str]) -> tuple[int, dict]:
+    def run_json(self, extra: list[str]) -> tuple[int, dict[str, Any]]:
         stdout, stderr = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             status = main(
@@ -1665,9 +1668,7 @@ class BlobCommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(payload["blobs"], [])
         self.assertEqual(payload["blob_source"], "none")
-        self.assertEqual(
-            payload["suggested_blobs"], [".boot", ".assets", ".filesys"]
-        )
+        self.assertEqual(payload["suggested_blobs"], [".boot", ".assets", ".filesys"])
 
     def test_auto_adopts_it(self) -> None:
         status, payload = self.run_json(["--blobs", "auto"])
@@ -1770,9 +1771,7 @@ class EmitWhitelistCommandTests(unittest.TestCase):
     def test_the_skeleton_declares_nothing_until_a_human_edits_it(self) -> None:
         destination = self.root / "whitelist.txt"
         self.run_cli(["--emit-whitelist", str(destination)])
-        status, stdout, _ = self.run_cli(
-            ["--whitelist", str(destination), "--json"]
-        )
+        status, stdout, _ = self.run_cli(["--whitelist", str(destination), "--json"])
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
         # Every drafted line is commented out, so the pins are classified
@@ -2523,10 +2522,14 @@ class BkScorecardConformanceTests(unittest.TestCase):
             image_path=str(BK_IMAGE),
         )
         self.assertEqual(auto.blobs.source, "auto")
-        self.assertEqual(auto.as_dict(limit=5), self.audit.as_dict(limit=5) | {
-            "blobs": list(auto.blobs.applied),
-            "blob_source": "auto",
-        })
+        self.assertEqual(
+            auto.as_dict(limit=5),
+            self.audit.as_dict(limit=5)
+            | {
+                "blobs": list(auto.blobs.applied),
+                "blob_source": "auto",
+            },
+        )
 
     def test_the_scan_totals_are_s5s_own(self) -> None:
         """Unchanged by all four S7 features: bk's window floor was already
@@ -2766,9 +2769,7 @@ PW64_SYMBOLIC_MAP = (
     / "base-symbolic.map"
 )
 PW64_SYMBOLIC_IMAGE = PW64_SYMBOLIC_MAP.with_suffix(".z64")
-PW64_AUTO_SYMS = (
-    PW64_ROOT / "build" / "splat_out" / "us" / "undefined_syms_auto.txt"
-)
+PW64_AUTO_SYMS = PW64_ROOT / "build" / "splat_out" / "us" / "undefined_syms_auto.txt"
 
 _HAVE_PW64_S6_AUDIT = (
     PW64_ELF.is_file()

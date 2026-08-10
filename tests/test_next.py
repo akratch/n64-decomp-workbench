@@ -160,9 +160,7 @@ class CommandContentTests(unittest.TestCase):
         )
 
     def test_a_structural_residue_is_not_sent_to_the_allocator(self) -> None:
-        plan = plan_of(
-            body("addu v0,a0,a1"), body("addu v0,a0,a1", "nop", "nop")
-        )
+        plan = plan_of(body("addu v0,a0,a1"), body("addu v0,a0,a1", "nop", "nop"))
         self.assertNotIn("oracle plan", " ".join(step.command for step in plan.steps))
 
     def test_a_match_routes_to_the_whole_object_gate(self) -> None:

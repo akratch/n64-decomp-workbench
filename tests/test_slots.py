@@ -83,7 +83,7 @@ def run_cli(arguments: list[str]) -> tuple[int, str, str]:
 
 
 class SlotReportTests(unittest.TestCase):
-    def report(self) -> dict[str, object]:
+    def report(self) -> dict[str, Any]:
         return slot_report(rows(BODY), label="demo.o")
 
     def test_loads_and_stores_are_counted_apart(self) -> None:

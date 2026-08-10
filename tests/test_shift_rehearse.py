@@ -320,9 +320,7 @@ class BlobNameValidationTests(unittest.TestCase):
                 model=default_pin_model(),
             )
         message = str(raised.exception)
-        self.assertIn(
-            "--blob names a section this map does not have: .boot1", message
-        )
+        self.assertIn("--blob names a section this map does not have: .boot1", message)
 
 
 # --------------------------------------------------------------------------
@@ -432,8 +430,7 @@ class DeltaMismatchPreconditionTests(unittest.TestCase):
             self._mismatched(anchor=None)
         message = str(raised.exception)
         self.assertIn(
-            "shifted image is +64 bytes longer than base, not the declared "
-            "delta +16",
+            "shifted image is +64 bytes longer than base, not the declared delta +16",
             message,
         )
         self.assertNotIn("no object-backed symbol", message)
@@ -443,8 +440,7 @@ class DeltaMismatchPreconditionTests(unittest.TestCase):
             self._mismatched(anchor="func_a")
         message = str(raised.exception)
         self.assertIn(
-            "shifted image is +64 bytes longer than base, not the declared "
-            "delta +16",
+            "shifted image is +64 bytes longer than base, not the declared delta +16",
             message,
         )
 
@@ -1052,9 +1048,7 @@ class AnalyzeCommandTests(unittest.TestCase):
         status, _, stderr = run_cli(arguments)
         self.assertEqual(status, 2)
         self.assertIn("error:", stderr)
-        self.assertIn(
-            "--blob names a section this map does not have: .nope", stderr
-        )
+        self.assertIn("--blob names a section this map does not have: .nope", stderr)
 
     def _without_explicit_blob(self) -> list[str]:
         """This fixture's own arguments, minus the `--blob .boot` pair."""
@@ -1071,9 +1065,7 @@ class AnalyzeCommandTests(unittest.TestCase):
         byte for byte -- the same conformance the campaign playbook's own
         §3.4 depends on when it switches from a hand-listed blob set."""
 
-        explicit_status, explicit_stdout, _ = run_cli(
-            [*self.arguments(), "--json"]
-        )
+        explicit_status, explicit_stdout, _ = run_cli([*self.arguments(), "--json"])
         auto_status, auto_stdout, _ = run_cli(
             [*self._without_explicit_blob(), "--blobs", "auto", "--json"]
         )
@@ -1105,13 +1097,9 @@ class AnalyzeCommandTests(unittest.TestCase):
         self.assertNotEqual(json.loads(auto_stdout), json.loads(excluded_stdout))
 
     def test_naming_a_section_blob_and_no_blob_is_refused(self) -> None:
-        status, _, stderr = run_cli(
-            [*self.arguments(), "--no-blob", ".boot"]
-        )
+        status, _, stderr = run_cli([*self.arguments(), "--no-blob", ".boot"])
         self.assertEqual(status, 2)
-        self.assertIn(
-            "--blob and --no-blob name the same section: .boot", stderr
-        )
+        self.assertIn("--blob and --no-blob name the same section: .boot", stderr)
 
     def test_a_missing_image_is_a_usage_failure_not_a_traceback(self) -> None:
         status, _, stderr = run_cli(
@@ -1357,9 +1345,7 @@ class OrchestrateCommandTests(unittest.TestCase):
 
         status, _, stderr = run_cli([*self.arguments(), "--blob", ".nope"])
         self.assertEqual(status, 2)
-        self.assertIn(
-            "--blob names a section this map does not have: .nope", stderr
-        )
+        self.assertIn("--blob names a section this map does not have: .nope", stderr)
 
     def test_the_run_table_names_every_artifact_it_produced(self) -> None:
         _, stdout, _ = run_cli([*self.arguments(), "--json"])
@@ -1624,6 +1610,7 @@ class DkrRehearseConformanceTests(unittest.TestCase):
 # WB-142: an assignment names a boundary; only an object names a byte
 # --------------------------------------------------------------------------
 
+
 #: One map shape, rendered at two shifts. Everything at or above
 #: `0x80000400` moves by `delta`. The only in-window symbol *below* the first
 #: object-backed one is `pre_VRAM_END`, a linker-script assignment placed in a
@@ -1711,17 +1698,25 @@ class Wb142AnchorDerivationTests(unittest.TestCase):
         symbols fails here rather than in a live conformance run.
         """
 
-        moved = sorted(
-            self.base.symbol(name).address
-            for name in self.base.symbol_names() & self.shifted.symbol_names()
-            if 0x80000380 <= self.base.symbol(name).address < 0x80000500
-            and self.shifted.symbol(name).address
-            - self.base.symbol(name).address
-            == 0x10
-        )
+        moved = []
+        for name in self.base.symbol_names() & self.shifted.symbol_names():
+            base_symbol = self.base.symbol(name)
+            shifted_symbol = self.shifted.symbol(name)
+            assert base_symbol is not None
+            assert shifted_symbol is not None
+            if (
+                0x80000380 <= base_symbol.address < 0x80000500
+                and shifted_symbol.address - base_symbol.address == 0x10
+            ):
+                moved.append(base_symbol.address)
+        moved.sort()
         self.assertEqual(moved[0], 0x80000380)
-        self.assertTrue(self.base.symbol("pre_VRAM_END").is_assignment)
-        self.assertFalse(self.base.symbol("func_a").is_assignment)
+        pre_vram_end = self.base.symbol("pre_VRAM_END")
+        func_a = self.base.symbol("func_a")
+        assert pre_vram_end is not None
+        assert func_a is not None
+        self.assertTrue(pre_vram_end.is_assignment)
+        self.assertFalse(func_a.is_assignment)
 
     def test_highest_unmoved_is_deliberately_not_restricted(self) -> None:
         """It answers a different question, and narrowing it would hide the
@@ -1823,14 +1818,10 @@ class SymbolCensusTests(unittest.TestCase):
         `symbol_census`. Counting it beats absorbing it."""
 
         self.assertEqual(self.census.boundary_symbols, 1)
-        self.assertNotIn(
-            "func_a", [item.name for item in self.census.findings]
-        )
+        self.assertNotIn("func_a", [item.name for item in self.census.findings])
 
     def test_a_symbol_below_the_insertion_is_not_judged(self) -> None:
-        self.assertNotIn(
-            "below_pad", [item.name for item in self.census.findings]
-        )
+        self.assertNotIn("below_pad", [item.name for item in self.census.findings])
 
     def test_an_object_backed_symbol_that_tracked_is_a_pass(self) -> None:
         self.assertEqual(self.census.checked, 4)
@@ -2199,9 +2190,7 @@ class Pw64RehearseConformanceTests(unittest.TestCase):
         assert self.at10.symbols is not None
         self.assertEqual(self.at10.stale_confirmed, 1)
         self.assertEqual(len(self.at10.symbols.findings), 23)
-        self.assertIn(
-            "D_803571F0", [item.name for item in self.at10.symbols.findings]
-        )
+        self.assertIn("D_803571F0", [item.name for item in self.at10.symbols.findings])
 
     def test_the_two_deltas_agree(self) -> None:
         self.assertEqual(cross_delta_disagreements([self.at10, self.at40]), ())

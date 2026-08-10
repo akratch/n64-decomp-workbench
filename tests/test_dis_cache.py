@@ -17,6 +17,7 @@ import io
 import json
 import tempfile
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -25,6 +26,7 @@ from mips_asm import assemble
 
 from decomp_workbench.cli import main
 from decomp_workbench.dis_cache import DisassemblyCache, DisassemblyCacheError
+from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 
 SYMBOL = "demo"
@@ -73,7 +75,9 @@ class DisassemblyCacheTests(unittest.TestCase):
         self.root = Path(directory.name)
         self.cache_dir = self.root / "cache"
 
-    def _object(self, name: str, lines: list[str]) -> tuple[Path, str, list]:
+    def _object(
+        self, name: str, lines: list[str]
+    ) -> tuple[Path, str, list[Instruction]]:
         text = assemble(lines, symbol=SYMBOL)
         instructions = parse_disassembly(text, symbol=SYMBOL)
         section = b"".join(bytes.fromhex(item.word) for item in instructions)
@@ -82,10 +86,18 @@ class DisassemblyCacheTests(unittest.TestCase):
         return path, text, instructions
 
     @contextlib.contextmanager
-    def _disassembler(self, table: dict[Path, tuple[str, list]]):
+    def _disassembler(
+        self, table: dict[Path, tuple[str, list[Instruction]]]
+    ) -> Iterator[list[Path]]:
         calls: list[Path] = []
 
-        def fake(path, *, objdump=None, symbol=None, section=".text"):
+        def fake(
+            path: str | Path,
+            *,
+            objdump: str | None = None,
+            symbol: str | None = None,
+            section: str = ".text",
+        ) -> tuple[str, list[Instruction]]:
             calls.append(Path(path))
             return table[Path(path)]
 
@@ -173,7 +185,9 @@ class CachedScoringTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
 
-    def _object(self, name: str, lines: list[str]) -> tuple[Path, tuple[str, list]]:
+    def _object(
+        self, name: str, lines: list[str]
+    ) -> tuple[Path, tuple[str, list[Instruction]]]:
         text = assemble(lines, symbol=SYMBOL)
         instructions = parse_disassembly(text, symbol=SYMBOL)
         section = b"".join(bytes.fromhex(item.word) for item in instructions)
@@ -190,7 +204,13 @@ class CachedScoringTests(unittest.TestCase):
         candidate, candidate_dump = self._object("candidate.o", broken)
         cache_dir = self.root / "cache"
 
-        def fake(path, *, objdump=None, symbol=None, section=".text"):
+        def fake(
+            path: str | Path,
+            *,
+            objdump: str | None = None,
+            symbol: str | None = None,
+            section: str = ".text",
+        ) -> tuple[str, list[Instruction]]:
             return {target: target_dump, candidate: candidate_dump}[Path(path)]
 
         with mock.patch("decomp_workbench.dis_cache.dump_object", fake):

@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .coverage import SweepCoverage
 from .dis_cache import DisassemblyCache
 from .model import Instruction
 from .row_source import load_dump_rows, load_object_rows
@@ -144,7 +145,7 @@ class IngestResult:
         }
 
 
-def _ingest_coverage(result: IngestResult):
+def _ingest_coverage(result: IngestResult) -> SweepCoverage:
     """The manifest's coverage, reduced by whatever failed to build.
 
     A variant with no object, or one objdump could not read, is a point the
@@ -156,8 +157,6 @@ def _ingest_coverage(result: IngestResult):
     result here is a proof about this space`. That is the false proof the
     coverage model exists to prevent.
     """
-
-    from .coverage import SweepCoverage
 
     declared = result.manifest.coverage
     return SweepCoverage(
@@ -207,7 +206,7 @@ def ingest_sweep(
             f"{directory} is not a directory. --objects names the directory "
             "the project's compile-one wrapper wrote the built variants into."
         )
-    cache = DisassemblyCache(cache_directory) if cache_directory else None
+    cache = DisassemblyCache(Path(cache_directory)) if cache_directory else None
     target_rows = _load(
         Path(target),
         dumps=target_dumps,
@@ -329,8 +328,8 @@ def ingest_lines(result: IngestResult, *, limit: int = 20) -> list[str]:
             lines.append(f"  ... {len(result.missing) - limit} more")
     if manifest.dropped:
         lines.extend(("", f"refused by the generator ({len(manifest.dropped)}):"))
-        for item in manifest.dropped[:limit]:
-            lines.append(f"  {item.get('site', '?')}  {item.get('reason', '')}")
+        for entry in manifest.dropped[:limit]:
+            lines.append(f"  {entry.get('site', '?')}  {entry.get('reason', '')}")
         if len(manifest.dropped) > limit:
             lines.append(f"  ... {len(manifest.dropped) - limit} more")
     coset = [item for item in result.scored if item.screen and item.screen.rotated]

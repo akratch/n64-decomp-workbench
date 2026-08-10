@@ -17,7 +17,7 @@ import io
 import json
 import tempfile
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -317,7 +317,9 @@ def tie_log() -> str:
 
 
 @contextlib.contextmanager
-def written(text: str, *, name: str = "build.ilog", objects: tuple[str, ...] = ()):
+def written(
+    text: str, *, name: str = "build.ilog", objects: tuple[str, ...] = ()
+) -> Iterator[str]:
     """Write one log, plus any object files a command will hash by path."""
 
     with tempfile.TemporaryDirectory() as directory:

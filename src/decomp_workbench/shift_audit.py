@@ -368,6 +368,7 @@ def _is_non_alloc_section(name: str) -> bool:
             return True
     return False
 
+
 #: How many hits at one constant stride, in arithmetic progression, make a
 #: packed-field family rather than three coincidences.
 CLUSTER_MINIMUM = 3
@@ -798,8 +799,7 @@ def resolve_blobs(
     both = [name for name in named if name in set(removed)]
     if both:
         raise ValueError(
-            "--blob and --no-blob name the same section: "
-            f"{', '.join(sorted(both))}"
+            f"--blob and --no-blob name the same section: {', '.join(sorted(both))}"
         )
     known_sections = [section.name for section in ldmap.sections_sorted()]
     unknown = sorted(set(removed) - set(known_sections))
@@ -1742,9 +1742,7 @@ def build_shift_audit(
     key still costs nothing) while making sure no caller can *forget* to ask.
     """
 
-    plan = resolve_blobs(
-        ldmap, blobs=blobs, auto=auto_blobs, excluded=excluded_blobs
-    )
+    plan = resolve_blobs(ldmap, blobs=blobs, auto=auto_blobs, excluded=excluded_blobs)
     regions = build_region_table(
         ldmap,
         image_size=len(image),
@@ -1881,11 +1879,7 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             "",
             f"blobs={', '.join(plan.applied) if plan.applied else '-'}  "
             f"blob_source={plan.source}"
-            + (
-                f"  blobs_excluded={', '.join(plan.excluded)}"
-                if plan.excluded
-                else ""
-            ),
+            + (f"  blobs_excluded={', '.join(plan.excluded)}" if plan.excluded else ""),
         )
     )
     if plan.unadopted:
@@ -1910,11 +1904,7 @@ def shift_audit_lines(found: ShiftAudit, *, limit: int) -> list[str]:
             + ("off" if found.elf_path is None else f"{counts[SHADOWING_PIN]:,}")
             + f"  pins_unclassified={counts[UNCLASSIFIED]:,}  "
             + "pins_missing_sources="
-            + (
-                "off"
-                if found.elf_path is None
-                else f"{found.pins_missing_sources:,}"
-            ),
+            + ("off" if found.elf_path is None else f"{found.pins_missing_sources:,}"),
         )
     )
     for source in found.pins.sources:
