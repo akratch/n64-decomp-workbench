@@ -134,6 +134,20 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
             f"{report['alignment_denominator']} ({rendered_coverage}) "
             f"status={report['alignment_status']}"
         )
+        # A bare `common=0` sent one campaign looking for a bug in its builds.
+        # Whichever way alignment failed, name the fields and say whether the
+        # fix is an instrument setting or is not available at all.
+        if not report["common_fingerprints"]:
+            diagnosis = report["alignment_diagnosis"]
+            for label, key in (
+                ("present but sharing no value", "no_shared_value"),
+                ("absent from one side", "absent_from_one_side"),
+            ):
+                if diagnosis[key]:
+                    print(f"  identity {label}: {', '.join(diagnosis[key])}")
+            for record in diagnosis["missing_records"]:
+                print(f"  no record on either side supplies: {record}")
+            print(f"  diagnosis: {diagnosis['guidance']}")
         print(
             "decision delta: "
             f"actual assignments={summary['actual_assignment_changes']}, "

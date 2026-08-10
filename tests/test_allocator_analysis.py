@@ -593,3 +593,145 @@ class AllocatorAnalysisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: The shape the campaign actually hit: two near-identical builds whose webs
+#: all renumbered, so every identity field is present on both sides and none
+#: of them shares a value.
+CHURNED = (
+    "[CDX] webdetail proc=2 role=target web=15 sym=0 type=3 dtype=13 "
+    "table=904 chain=71 exprtable=22 exprchain=11 bb=33 line=5 "
+    "raw10=0xfffffec0 raw14=0x04ae0102\n"
+    "[CDX] p2dec phase=p2 proc=2 web=15 bestcolor=1 "
+    "forbidden0=0x20000000 decision=color\n"
+)
+
+#: A log carrying decisions but no `webdetail` at all: the record family that
+#: supplies every fingerprint input is simply absent.
+NO_DETAIL = (
+    "[CDX] p2dec phase=p2 proc=2 web=15 bestcolor=1 "
+    "forbidden0=0x20000000 decision=color\n"
+    "[CDX] p2dec phase=p2 proc=2 web=16 bestcolor=2 forbidden0=0 decision=color\n"
+)
+
+
+class AlignmentDiagnosisTests(unittest.TestCase):
+    """`common=0` must say which inputs failed, and whether a rebuild helps."""
+
+    def diagnose(self, target: str, candidate: str) -> dict:
+        return compare_semantic_webs(
+            parse_globalcolor_trace(target),
+            parse_globalcolor_trace(candidate),
+            proc=2,
+        )
+
+    def test_a_log_without_detail_records_names_the_record(self) -> None:
+        report = self.diagnose(NO_DETAIL, NO_DETAIL)
+
+        diagnosis = report["alignment_diagnosis"]
+        self.assertEqual(report["common_fingerprints"], 0)
+        self.assertIn("dtype", diagnosis["absent_from_both"])
+        self.assertIn("raw10", diagnosis["absent_from_both"])
+        self.assertIn("[CDX] webdetail role=target", diagnosis["missing_records"])
+        self.assertIn("webdetail", diagnosis["guidance"])
+
+    def test_renumbering_is_reported_as_renumbering_not_as_a_missing_record(
+        self,
+    ) -> None:
+        report = self.diagnose(TARGET, CHURNED)
+
+        diagnosis = report["alignment_diagnosis"]
+        self.assertEqual(report["common_fingerprints"], 0)
+        self.assertNotIn("[CDX] webdetail role=target", diagnosis["missing_records"])
+        for name in ("table", "chain", "raw10", "bb"):
+            self.assertIn(name, diagnosis["no_shared_value"])
+        self.assertIn("renumbered, not missing", diagnosis["guidance"])
+        self.assertIn("source_semantic", diagnosis["guidance"])
+
+    def test_a_field_carried_by_both_is_not_reported_as_a_failure(self) -> None:
+        diagnosis = self.diagnose(TARGET, CHURNED)["alignment_diagnosis"]
+
+        # `dtype` and `type` are identical in both logs; only the renumbered
+        # fields belong in the failure list.
+        self.assertIn("dtype", diagnosis["carried_by_both"])
+        self.assertNotIn("dtype", diagnosis["no_shared_value"])
+
+    def test_one_sided_evidence_is_its_own_status(self) -> None:
+        diagnosis = self.diagnose(TARGET, NO_DETAIL)["alignment_diagnosis"]
+
+        self.assertIn("dtype", diagnosis["absent_from_one_side"])
+
+    def test_an_aligned_pair_reports_no_failing_field(self) -> None:
+        diagnosis = self.diagnose(TARGET, TARGET)["alignment_diagnosis"]
+
+        self.assertEqual(diagnosis["no_shared_value"], [])
+        self.assertIn("shares values", diagnosis["guidance"])
+
+    def test_the_diagnosis_reaches_the_next_gate(self) -> None:
+        report = self.diagnose(TARGET, CHURNED)
+
+        self.assertIn("renumbered, not missing", report["next_gate"])
+
+    def test_every_fingerprint_input_has_a_named_producing_record(self) -> None:
+        # A new identity field with no entry here would report `unknown` at
+        # exactly the moment a reader needs to know what to turn on.
+        from decomp_workbench.allocator_analysis import (
+            FINGERPRINT_FIELD_SOURCES,
+            FINGERPRINT_FIELDS,
+        )
+
+        self.assertEqual(set(FINGERPRINT_FIELDS), set(FINGERPRINT_FIELD_SOURCES))
+
+
+class AlignmentDiagnosisCommandTests(unittest.TestCase):
+    """The reader sees the diagnosis, not only the JSON consumer."""
+
+    def run_webs(self, target: str, candidate: str) -> tuple[int, str, str]:
+        import contextlib
+        import io
+        import tempfile
+        from pathlib import Path
+
+        from decomp_workbench.cli import main
+
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "target.log"
+            second = Path(directory) / "candidate.log"
+            first.write_text(target, encoding="utf-8")
+            second.write_text(candidate, encoding="utf-8")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with (
+                contextlib.redirect_stdout(stdout),
+                contextlib.redirect_stderr(stderr),
+            ):
+                status = main(
+                    [
+                        "trace-webs",
+                        str(first),
+                        "--against",
+                        str(second),
+                        "--proc",
+                        "2",
+                    ]
+                )
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_zero_common_fingerprints_names_the_renumbered_fields(self) -> None:
+        _status, stdout, _stderr = self.run_webs(TARGET, CHURNED)
+
+        self.assertIn("common=0", stdout)
+        self.assertIn("identity present but sharing no value:", stdout)
+        self.assertIn("raw10", stdout)
+        self.assertIn("renumbered, not missing", stdout)
+
+    def test_zero_common_fingerprints_names_the_missing_record(self) -> None:
+        _status, stdout, _stderr = self.run_webs(NO_DETAIL, NO_DETAIL)
+
+        self.assertIn("common=0", stdout)
+        self.assertIn("no record on either side supplies:", stdout)
+        self.assertIn("webdetail", stdout)
+
+    def test_an_aligned_pair_is_not_lectured(self) -> None:
+        _status, stdout, _stderr = self.run_webs(TARGET, TARGET)
+
+        self.assertNotIn("diagnosis:", stdout)

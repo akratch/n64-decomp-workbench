@@ -258,6 +258,37 @@ probing for does not exist under this interference, which is often the answer
 the probe was asking for. The sweep still finishes, and every other entry in it
 still applies.
 
+#### Three ways a force does nothing and says nothing
+
+The decline record above covers the forbidden-colour case. Three other ways to
+get a no-op are **toolchain-side** — they are properties of the instrumented
+`uopt` a campaign is holding, not of any workbench command — and all three read
+as "the object did not change", which is exactly what a *successful* byte-inert
+force also reads as. Check them before concluding anything from a null result.
+
+- **A split child declines silently.** Forcing a web that `f_split` has already
+  divided leaves `forced=-2` in the records and emits **no** decline record and
+  no reason. `forced=-2` is the same value a web that was never named by
+  `CDX_FORCE` carries, so the log cannot distinguish "declined because it is a
+  child" from "never asked". Read the family with `trace-cascade` first: if the
+  site has more than one round, the web number you are forcing may be a child
+  of an earlier decision. A decline record naming the cause is the fix, and it
+  belongs in the instrument.
+- **`=n` does not exist.** The 5.3 instrumented `uopt` accepts `=c<N>` and
+  `=s` and nothing else. A control spelled `p1:w9=n` — intended to force the
+  *colourability verdict* rather than the colour — is not a grammar this pass
+  has, and `parse_force_specification` refuses it before a compile is spent.
+  Whether a web is coloured at all is decided earlier, by `compute_save`'s
+  `save > 0` gate, which no shipped control reaches. See the grammar limit
+  under [force rows](#which-object-rows-does-a-force-actually-own) below.
+- **Forces need `CDX_PROC`.** Until a procedure ordinal is selected, force
+  controls stay disabled — deliberately, so a sweep cannot apply one
+  phase-one control to every procedure in the translation unit. The shipped
+  profile writes `DKWB: CDX_FORCE ignored without CDX_PROC` to stderr and
+  clears the control, so this one is visible **if the capture keeps stderr**.
+  A driver that redirects only stdout gets a normal object, no decline
+  record, and no notice.
+
 #### Which object rows does a force actually own?
 
 A web number is not a location. It indexes a run-local allocator table that

@@ -358,3 +358,116 @@ class ObjdumpFailureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MissingCandidateTests(unittest.TestCase):
+    """A candidate that is not there must stop the run, not shrink the report.
+
+    A campaign lost half a sweep to a downstream driver that read a comparison
+    it never got and carried on with the previous candidate's numbers. That
+    driver was the bug, but the audit belongs here: whatever the tool does at
+    the boundary is what every driver will rely on, so it is pinned by test
+    rather than by inspection. The contract is a nonzero exit, the path named
+    in the message, and -- when JSON was asked for -- one schema-named error
+    document rather than an empty or partial report.
+    """
+
+    #: GNU objdump's own behaviour for a path that is not there: exit 1, one
+    #: sentence on stderr, nothing on stdout. Only the absent path fails, so
+    #: the target dumps normally and the candidate is the one that stops it.
+    @staticmethod
+    def _absent(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        target = command[-1]
+        if "nonexistent" in target:
+            return subprocess.CompletedProcess(
+                command, 1, "", f"objdump: '{target}': No such file\n"
+            )
+        return subprocess.CompletedProcess(command, 0, ONE, "")
+
+    def run_compare(self, arguments: list[str]) -> tuple[int, str, str]:
+        with (
+            mock.patch("decomp_workbench.objdump.subprocess.run", self._absent),
+            mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+        ):
+            return run_cli(arguments)
+
+    def test_compare_against_a_missing_candidate_exits_nonzero(self) -> None:
+        status, stdout, stderr = self.run_compare(
+            ["compare", "target.o", "/nonexistent/candidate.o"]
+        )
+
+        self.assertNotEqual(status, 0)
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
+        self.assertIn("/nonexistent/candidate.o", stderr)
+        self.assertEqual(stdout, "")
+
+    def test_the_json_failure_is_one_schema_named_document(self) -> None:
+        import json
+
+        status, stdout, _ = self.run_compare(
+            ["compare", "target.o", "/nonexistent/candidate.o", "--json"]
+        )
+
+        self.assertEqual(status, 2)
+        document = json.loads(stdout)
+        self.assertEqual(document["schema"], "decomp-workbench-error-v1")
+        # `not-found`, not the generic `process-failed`: the classifier
+        # reads the cause out of the message, and a driver that branches on
+        # `kind` can tell a missing file from a broken toolchain.
+        self.assertEqual(document["error"]["kind"], "not-found")
+        self.assertIn("/nonexistent/candidate.o", document["error"]["message"])
+        self.assertNotIn("exact", document)
+
+    def test_compare_dumps_against_a_missing_file_exits_nonzero(self) -> None:
+        status, stdout, stderr = run_cli(
+            ["compare-dumps", "/nonexistent/target.objdump", "/nonexistent/c.objdump"]
+        )
+
+        self.assertEqual(status, 2)
+        self.assertIn("/nonexistent/target.objdump", stderr)
+        self.assertEqual(stdout, "")
+
+    def test_an_unreadable_candidate_is_not_read_as_an_empty_one(self) -> None:
+        # An existing but non-ELF file is the more dangerous shape: the path
+        # resolves, so a check for existence passes, and only objdump knows.
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / "candidate.o"
+            candidate.write_text("not an object\n", encoding="utf-8")
+
+            def unreadable(
+                command: list[str], **kwargs: object
+            ) -> subprocess.CompletedProcess:
+                return subprocess.CompletedProcess(
+                    command, 1, "", "objdump: file format not recognized\n"
+                )
+
+            with (
+                mock.patch("decomp_workbench.objdump.subprocess.run", unreadable),
+                mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+            ):
+                status, stdout, stderr = run_cli(
+                    ["compare", "target.o", str(candidate)]
+                )
+
+        self.assertEqual(status, 2)
+        self.assertIn("MIPS ELF object", stderr)
+        self.assertEqual(stdout, "")
+
+    def test_rank_reports_a_missing_candidate_rather_than_ranking_around_it(
+        self,
+    ) -> None:
+        # `rank` deliberately continues past one bad candidate, which is the
+        # right call for a sweep -- but the failure has to appear in the
+        # report, or a sweep silently ranks N-1 candidates as if it ranked N.
+        import json
+
+        status, stdout, _ = self.run_compare(
+            ["rank", "target.o", "/nonexistent/a.o", "--json"]
+        )
+
+        document = json.loads(stdout)
+        self.assertEqual(
+            [item["candidate"] for item in document["errors"]], ["/nonexistent/a.o"]
+        )
+        self.assertNotEqual(status, 0)

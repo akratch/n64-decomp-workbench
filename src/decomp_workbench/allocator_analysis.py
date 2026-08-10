@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .globalcolor import (
@@ -129,6 +129,14 @@ class SemanticWeb:
     source_attribution: dict[str, str]
     formation: dict[str, Any]
     neighbors: tuple[int, ...]
+    identity: dict[str, str] = field(default_factory=dict)
+    """Exactly the fields hashed into :attr:`fingerprint`.
+
+    Kept beside the hash so a comparison that aligns nothing can say which
+    field failed to align, rather than reporting a bare zero. It is
+    deliberately absent from :meth:`as_dict`: the fingerprint document is a
+    published contract, and this is diagnosis.
+    """
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -381,6 +389,7 @@ def semantic_webs(
                 neighbors=tuple(
                     sorted(neighbors[(decision.proc, decision.phase_tag, decision.web)])
                 ),
+                identity=dict(identity_provenance),
             )
         )
     result.sort(
@@ -606,6 +615,197 @@ def _compare_decision_outcomes(
     }
 
 
+#: Which record supplies which fingerprint input. A comparison that aligns
+#: nothing has to be able to say *which instrument* to turn on, not merely
+#: that alignment failed -- the campaign that hit this ran two near-identical
+#: builds, got `common=0`, and had no way to tell a missing record from a
+#: renumbered one.
+FINGERPRINT_FIELD_SOURCES: dict[str, str] = {
+    "dtype": "[CDX] webdetail role=target",
+    "type": "[CDX] webdetail role=target",
+    "raw10": "[CDX] webdetail role=target",
+    "table": "[CDX] webdetail role=target",
+    "chain": "[CDX] webdetail role=target",
+    "exprtable": "[CDX] webdetail role=target",
+    "exprchain": "[CDX] webdetail role=target",
+    "bb": "[CDX] webdetail role=target",
+    "defbb": "[CDX] provenance_web (preselect and postselect)",
+    "usebbs": "[CDX] provenance_web (preselect and postselect)",
+    "ancestry": "[CDX] provenance_web (preselect and postselect)",
+    "owner_sym": "[CDX] provenance_web (preselect and postselect)",
+    "owner_type": "[CDX] provenance_web (preselect and postselect)",
+    "owner_dtype": "[CDX] provenance_web (preselect and postselect)",
+    "primary_ichain_table": "[CDX] provenance_web (preselect and postselect)",
+    "primary_ichain_chain": "[CDX] provenance_web (preselect and postselect)",
+    "expr_table": "[CDX] provenance_web (preselect and postselect)",
+    "expr_chain": "[CDX] provenance_web (preselect and postselect)",
+    "ir_bb": "[CDX] provenance_web (preselect and postselect)",
+    "source_span": "[CDX] provenance_web (preselect and postselect)",
+    "merge_lineage": "[CDX] provenance_web (preselect and postselect)",
+    "merge_lineage_scope": "[CDX] provenance_web (preselect and postselect)",
+    "semantic_reason": "[CDX] provenance_web (preselect and postselect)",
+    "source_semantic": "a producer-recorded source_semantic= field",
+}
+
+#: Without this record there is no identity at all. The rest are enrichments:
+#: absent, they cost precision; absent, they are also the ordinary case, so
+#: naming them as a failure would send every reader to rebuild a compiler that
+#: is already emitting everything it emits.
+REQUIRED_RECORDS = ("[CDX] webdetail role=target",)
+
+
+def _field_coverage(
+    target_webs: list[SemanticWeb], candidate_webs: list[SemanticWeb]
+) -> list[dict[str, Any]]:
+    """Report, per fingerprint input, whether it is missing or merely moved."""
+
+    rows: list[dict[str, Any]] = []
+    for name in FINGERPRINT_FIELDS:
+        target_values = {
+            web.identity[name] for web in target_webs if name in web.identity
+        }
+        candidate_values = {
+            web.identity[name] for web in candidate_webs if name in web.identity
+        }
+        target_count = sum(name in web.identity for web in target_webs)
+        candidate_count = sum(name in web.identity for web in candidate_webs)
+        if not target_count and not candidate_count:
+            status = "absent-from-both"
+        elif not target_count or not candidate_count:
+            status = "absent-from-one-side"
+        elif not (target_values & candidate_values):
+            status = "no-shared-value"
+        elif target_values != candidate_values:
+            status = "partly-shared"
+        else:
+            status = "shared"
+        rows.append(
+            {
+                "field": name,
+                "record": FINGERPRINT_FIELD_SOURCES.get(name, "unknown"),
+                "status": status,
+                "target_webs": target_count,
+                "candidate_webs": candidate_count,
+                "shared_values": len(target_values & candidate_values),
+                "target_only_values": len(target_values - candidate_values),
+                "candidate_only_values": len(candidate_values - target_values),
+            }
+        )
+    return rows
+
+
+def alignment_diagnosis(
+    target_webs: list[SemanticWeb],
+    candidate_webs: list[SemanticWeb],
+) -> dict[str, Any]:
+    """Say which fingerprint inputs failed, and whether the fix is an instrument.
+
+    Reporting `common=0` and stopping is the defect this answers. Two failures
+    look identical from the coverage number and need opposite responses:
+
+    * a field **absent from both** logs is a missing record -- the instrument
+      never emitted it, and the fix is a rebuild with the right environment;
+    * a field **present on both sides but sharing no value** is renumbering --
+      the record is there and every web's copy of it moved, which no rebuild
+      fixes and which means this pair cannot support a web-by-web claim.
+    """
+
+    coverage = _field_coverage(target_webs, candidate_webs)
+    by_status: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in coverage:
+        by_status[row["status"]].append(row)
+    missing = [row["field"] for row in by_status["absent-from-both"]]
+    one_sided = [row["field"] for row in by_status["absent-from-one-side"]]
+    churned = [row["field"] for row in by_status["no-shared-value"]]
+    carried = [
+        row["field"] for row in coverage if row["status"] in {"shared", "partly-shared"}
+    ]
+    # A record is reported missing only when *none* of its fields reached
+    # either side. Naming a record because one of its optional fields is
+    # absent would send a reader to rebuild an instrument that is already on.
+    records: list[dict[str, Any]] = []
+    for record in sorted(set(FINGERPRINT_FIELD_SOURCES.values())):
+        owned = [
+            row for row in coverage if FINGERPRINT_FIELD_SOURCES[row["field"]] == record
+        ]
+        statuses = {row["status"] for row in owned}
+        if statuses == {"absent-from-both"}:
+            status = "absent-from-both"
+        elif statuses <= {"absent-from-both", "absent-from-one-side"}:
+            status = "absent-from-one-side"
+        elif statuses <= {"absent-from-both", "no-shared-value"}:
+            status = "no-shared-value"
+        else:
+            status = "carried"
+        records.append(
+            {
+                "record": record,
+                "status": status,
+                "fields": [row["field"] for row in owned],
+            }
+        )
+    missing_records = [
+        row["record"] for row in records if row["status"] == "absent-from-both"
+    ]
+    required_missing = [
+        record for record in missing_records if record in REQUIRED_RECORDS
+    ]
+    if not carried and not churned:
+        guidance = (
+            "No fingerprint input reached either side: neither log carries "
+            + (", ".join(missing_records) or "any identity record")
+            + ". Rebuild with CDX_LOG=1 and keep the compiler's stderr; "
+            "`trace-cascade --grammar` prints the records."
+        )
+    elif churned:
+        guidance = (
+            "Present on both sides but sharing no value: "
+            + ", ".join(churned)
+            + ". These are renumbered, not missing -- no instrument setting "
+            "recovers them. Reduce the comparison to one controlled edit with "
+            "`trace-origin-probe`, or record a producer `source_semantic`, "
+            "which is the one identity a renumbering does not move."
+        )
+    elif required_missing:
+        guidance = (
+            "No record on either side supplies "
+            + ", ".join(required_missing)
+            + ", so these identity fields never reached the fingerprint: "
+            + ", ".join(
+                name
+                for name in missing
+                if FINGERPRINT_FIELD_SOURCES[name] in required_missing
+            )
+            + ". Enable it and re-run before reading the presence rows as "
+            "insertions or removals."
+        )
+    else:
+        optional = [
+            record for record in missing_records if record not in REQUIRED_RECORDS
+        ]
+        guidance = (
+            "Every fingerprint input a record supplied is carried by both "
+            "logs and shares values; alignment failure, if any, is in the "
+            "combination rather than in one field."
+        )
+        if optional:
+            guidance += (
+                " Neither log carries the optional enrichment "
+                + ", ".join(optional)
+                + ", which would add identity a renumbering does not move."
+            )
+    return {
+        "fields": coverage,
+        "records": records,
+        "absent_from_both": missing,
+        "absent_from_one_side": one_sided,
+        "no_shared_value": churned,
+        "carried_by_both": carried,
+        "missing_records": missing_records,
+        "guidance": guidance,
+    }
+
+
 def compare_semantic_webs(
     target: GlobalColorTrace,
     candidate: GlobalColorTrace,
@@ -619,6 +819,7 @@ def compare_semantic_webs(
     target_index, target_ambiguous = _index_unique(target_webs)
     candidate_index, candidate_ambiguous = _index_unique(candidate_webs)
     ambiguous = sorted(target_ambiguous | candidate_ambiguous)
+    diagnosis = alignment_diagnosis(target_webs, candidate_webs)
     common_fingerprints = sorted(set(target_index) & set(candidate_index))
     comparable_denominator = len(set(target_index) | set(candidate_index))
     alignment_coverage = (
@@ -634,7 +835,7 @@ def compare_semantic_webs(
         )
         next_gate = (
             "Verify the procedure filter and capture globalcolor decision "
-            "records before comparing allocator webs."
+            "records before comparing allocator webs. " + diagnosis["guidance"]
         )
     elif comparable_denominator and not common_fingerprints:
         alignment_status = "no-common-fingerprints"
@@ -648,7 +849,7 @@ def compare_semantic_webs(
         next_gate = (
             "Reduce the comparison to one controlled source edit with "
             "trace-origin-probe, or add producer-emitted source_semantic; this "
-            "pair cannot support a web-by-web causal claim."
+            "pair cannot support a web-by-web causal claim. " + diagnosis["guidance"]
         )
     elif ambiguous or (alignment_coverage is not None and alignment_coverage < 1.0):
         alignment_status = "partial"
@@ -720,6 +921,7 @@ def compare_semantic_webs(
         "common_fingerprints": len(common_fingerprints),
         "alignment_denominator": comparable_denominator,
         "alignment_coverage": alignment_coverage,
+        "alignment_diagnosis": diagnosis,
         "fingerprint_fields": list(FINGERPRINT_FIELDS),
         "fingerprint_excluded_observations": list(FINGERPRINT_EXCLUDED_OBSERVATIONS),
         "differences": rows,
