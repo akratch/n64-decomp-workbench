@@ -634,12 +634,13 @@ clean pass proves the whole chain follows rather than one hop; and `0x10` is a
 multiple of the `SUBALIGN(16)` granularity, so nothing re-rounds and the delta
 stays exact end to end. **Pick multiples of your subalign** — a pad that is
 not will be silently re-rounded by the next `ALIGN`, and the pair is then
-refused rather than paired anyway. With `--anchor` given, the refusal names the
-arithmetic directly (`shifted image is +64 bytes longer than base, not the
-declared delta +16`); while the anchor is being derived you get the more
-general form instead — `no object-backed symbol … moved by the declared delta`
-— which is the same fact reported one step earlier. Either way, compare the two
-image sizes yourself before you argue with the tool.
+refused rather than paired anyway, and the refusal always names the arithmetic
+directly (`shifted image is +64 bytes longer than base, not the declared delta
++16`) — checked before the anchor is derived, with or without `--anchor`
+given, so a wrong delta is never reported as the vaguer "no object-backed
+symbol … moved by the declared delta" that its own failed derivation would
+otherwise surface first. Either way, compare the two image sizes yourself
+before you argue with the tool.
 
 ### 3.2 Two deltas
 
@@ -688,9 +689,15 @@ decomp-workbench shift rehearse analyze \
   --shifted-map artifacts/shifted-10.map --shifted-image artifacts/shifted-10.z64 \
   --base-elf scratch/base-symbolic.elf --shifted-elf scratch/shifted-10.elf \
   --delta 0x10 \
-  --blob .filetable --blob .filesys --blob .audio_seq --blob .audio_ctl --blob .audio_tbl \
+  --blobs auto \
   --crc-words 0x10,0x14 --limit 12 --pager never --width unlimited
 ```
+
+`--blobs auto` rather than the five `--blob` names §1.1 first suggested: it reads
+the same base map the audit derives from, through the same `resolve_blobs`, and
+hand-listing them here is how an earlier draft of this page silently dropped
+`.ipl3` — present in §1.1's `suggested_blobs` and absent from a copy-pasted
+`--blob` chain nobody re-checked against it. `auto` cannot drop one.
 
 ```
 shift rehearse  base=artifacts/base-symbolic.map  shifted=artifacts/shifted-10.map  delta=0x10

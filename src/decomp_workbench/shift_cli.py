@@ -39,6 +39,7 @@ from .shift_audit import (
     ShiftAudit,
     build_shift_audit,
     require_parsed_map,
+    resolve_blobs,
     shift_audit_lines,
 )
 from .shift_config import verify_faithful, verify_lines
@@ -213,6 +214,15 @@ def shift_rehearse_command(args: argparse.Namespace) -> int:
                 "moved is a question about two links, and one of them cannot "
                 "answer it"
             )
+        # Same derivation `shift audit --blobs auto` uses (`resolve_blobs`),
+        # read from the base map -- the map a rehearsal derives its region
+        # table and movable window from too.
+        blob_plan = resolve_blobs(
+            base_ldmap,
+            blobs=args.blob,
+            auto=args.blobs == "auto",
+            excluded=args.no_blob,
+        )
         rehearsal = build_rehearsal(
             base_ldmap=base_ldmap,
             base_image=base_image,
@@ -220,7 +230,7 @@ def shift_rehearse_command(args: argparse.Namespace) -> int:
             shifted_image=shifted_image,
             delta=delta,
             anchor=None if args.anchor == "auto" else args.anchor,
-            blobs=args.blob,
+            blobs=blob_plan.applied,
             crc_words=crc_words,
             checksum_pairs=pairs,
             base_elf=read_elf_symbols(args.base_elf) if args.base_elf else None,
@@ -280,14 +290,23 @@ def shift_orchestrate_command(args: argparse.Namespace) -> int:
             shifted_image: Path,
             delta: int,
         ) -> Rehearsal:
+            base_ldmap = read_ld_map(base_map)
+            # Same derivation `shift audit --blobs auto` uses
+            # (`resolve_blobs`), read from this delta's own base map.
+            blob_plan = resolve_blobs(
+                base_ldmap,
+                blobs=args.blob,
+                auto=args.blobs == "auto",
+                excluded=args.no_blob,
+            )
             return build_rehearsal(
-                base_ldmap=read_ld_map(base_map),
+                base_ldmap=base_ldmap,
                 base_image=base_image.read_bytes(),
                 shifted_ldmap=read_ld_map(shifted_map),
                 shifted_image=shifted_image.read_bytes(),
                 delta=delta,
                 anchor=None if args.anchor == "auto" else args.anchor,
-                blobs=args.blob,
+                blobs=blob_plan.applied,
                 crc_words=crc_words,
                 checksum_pairs=pairs,
                 model=model,
@@ -454,6 +473,28 @@ def _add_rehearsal_arguments(parser: argparse.ArgumentParser) -> None:
             "treat this output section as opaque bytes: paired and counted, "
             "but never split by its input records and never attributed to a "
             "symbol. Repeatable. Same meaning as `shift audit --blob`"
+        ),
+    )
+    parser.add_argument(
+        "--blobs",
+        choices=("auto",),
+        default=None,
+        help=(
+            "`auto` adopts the blob set the base map's own input records "
+            "imply -- the same derivation `shift audit --blobs auto` uses, "
+            "read from the base link's map. --blob still adds on top and "
+            "--no-blob subtracts"
+        ),
+    )
+    parser.add_argument(
+        "--no-blob",
+        action="append",
+        default=[],
+        metavar="SECTION",
+        help=(
+            "keep this output section out of the blob set whatever `--blobs "
+            "auto` suggested. Repeatable. Naming the same section with --blob "
+            "and --no-blob is refused rather than resolved by precedence"
         ),
     )
     parser.add_argument(

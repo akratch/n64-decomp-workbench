@@ -89,6 +89,7 @@ from .mips_refs import (
     RegionSpec,
     WordCensus,
     build_word_census,
+    check_image_delta,
 )
 from .pins import default_pin_model
 from .shift_audit import (
@@ -1184,6 +1185,14 @@ def build_rehearsal(
     project is correct; it decides what changed and why.
     """
 
+    # WB QA: checked here, before anchor derivation, not left for
+    # `build_word_census` to find later. A wrong delta usually means no
+    # symbol moved by it, so an auto-derived anchor fails first and vaguer
+    # ("no object-backed symbol ... moved by the declared delta") -- the
+    # same fact `check_image_delta` names with the actual arithmetic, and
+    # it must win whether or not `--anchor` was given.
+    check_image_delta(base_image, shifted_image, delta=delta)
+
     range_model = model if model is not None else default_pin_model()
     regions = build_region_table(
         base_ldmap,
@@ -1609,10 +1618,17 @@ def orchestrate(
 
 
 def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    """Render one column-aligned table, the same shape `shift audit` prints."""
+    """Render one column-aligned table, the same shape `shift audit` prints.
+
+    An empty table prints its header and then ``none`` -- a bare header row
+    reads as a table that failed to render, not one with nothing in it. WB
+    QA: a healthy run's "movement anomalies" and "unexplained" tables are
+    empty by construction, and a page of bare headers with no data under any
+    of them was one of the ways a clean report read as noisy.
+    """
 
     if not rows:
-        return [" ".join(header)]
+        return [" ".join(header), "none"]
     widths = [
         max(len(header[column]), *(len(row[column]) for row in rows))
         for column in range(len(header))
@@ -1860,25 +1876,57 @@ def rehearse_lines(found: Rehearsal, *, limit: int) -> list[str]:
         )
     )
 
-    stale = found.ranked_stale()[: max(0, limit)]
-    lines.extend(("", f"stale ({len(stale)} of {found.unmoved_total:,}, --limit)"))
-    lines.extend(
-        _table(
-            ("rom", "value", "tier", "rule", "outcome", "region", "target_symbol"),
-            [
-                (
-                    f"0x{item.rom:06x}",
-                    f"0x{item.value:08x}",
-                    item.tier,
-                    item.rule,
-                    item.outcome,
-                    item.region,
-                    _named(item.target_symbol, item.target_offset),
-                )
-                for item in stale
-            ],
+    # WB QA: a healthy run -- nothing stale-confirmed -- collapses the stale
+    # table to one line instead of printing up to --limit rows that are, at
+    # worst, "worth a look and not an alarm" (MERGE_TIERS). A run that found
+    # a stale-confirmed word prints the full table unconditionally: that is
+    # the finding, and it never hides behind a summary line.
+    if found.stale_confirmed == 0 and found.unmoved_total:
+        breakdown = (
+            "all noise"
+            if found.stale_review == 0
+            else (
+                f"none confirmed ({found.stale_review:,} review, "
+                f"{found.stale_noise:,} noise)"
+            )
         )
-    )
+        lines.extend(
+            (
+                "",
+                f"stale candidates: {found.unmoved_total:,}, {breakdown} -- "
+                f"pass --limit {found.unmoved_total:,} to list them",
+            )
+        )
+    else:
+        stale = found.ranked_stale()[: max(0, limit)]
+        lines.extend(
+            ("", f"stale ({len(stale)} of {found.unmoved_total:,}, --limit)")
+        )
+        lines.extend(
+            _table(
+                (
+                    "rom",
+                    "value",
+                    "tier",
+                    "rule",
+                    "outcome",
+                    "region",
+                    "target_symbol",
+                ),
+                [
+                    (
+                        f"0x{item.rom:06x}",
+                        f"0x{item.value:08x}",
+                        item.tier,
+                        item.rule,
+                        item.outcome,
+                        item.region,
+                        _named(item.target_symbol, item.target_offset),
+                    )
+                    for item in stale
+                ],
+            )
+        )
 
     lines.extend(_symbol_census_lines(found.symbols, limit=limit))
 

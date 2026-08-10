@@ -639,17 +639,23 @@ def _identity_gate(audit: Mapping[str, Any] | None) -> str:
 
 
 def _audit_gate(audit: Mapping[str, Any] | None, *, census: str) -> str:
-    """Re-run the same audit and watch one census key fall."""
+    """Re-run the audit against the rebuild and watch one census key fall.
+
+    ``--map``/``--image``/``--elf`` name the build the fix produces, not the
+    one the original audit read -- a re-audit of the pre-fix artifacts would
+    read the pre-fix census forever. ``--pins`` and ``--blob`` stay concrete:
+    they are configuration the fix edits in place, not build output.
+    """
 
     if audit is None:
         return f"decomp-workbench shift audit ... --census {census}"
     parts = [
         "decomp-workbench shift audit",
-        f"--map {_quote(audit.get('map'))}",
-        f"--image {_quote(audit.get('image'))}",
+        "--map <rebuilt>.map",
+        "--image <rebuilt>.z64",
     ]
     if audit.get("elf"):
-        parts.append(f"--elf {audit['elf']}")
+        parts.append("--elf <rebuilt>.elf")
     for source in audit.get("pin_sources", []):
         parts.append(f"--pins {source}")
     for blob in audit.get("blobs", []):
@@ -659,21 +665,27 @@ def _audit_gate(audit: Mapping[str, Any] | None, *, census: str) -> str:
 
 
 def _rehearse_gate(analysis: Mapping[str, Any] | None, *, census: str) -> str:
-    """Re-run the same rehearsal and watch one census key fall."""
+    """Re-run the rehearsal against the rebuild and watch one census key fall.
+
+    A rehearsal compares two links, so the rebuild produces two placeholders:
+    ``<rebuilt-base>`` for the unshifted side and ``<rebuilt-shifted>`` for
+    the padded one. Naming the pre-fix pair here would make this gate report
+    the same census forever, the same trap ``_audit_gate`` avoids.
+    """
 
     if analysis is None:
         return f"decomp-workbench shift rehearse analyze ... --census {census}"
     parts = [
         "decomp-workbench shift rehearse analyze",
-        f"--base-map {_quote(analysis.get('base_map'))}",
-        f"--base-image {_quote(analysis.get('base_image'))}",
-        f"--shifted-map {_quote(analysis.get('shifted_map'))}",
-        f"--shifted-image {_quote(analysis.get('shifted_image'))}",
+        "--base-map <rebuilt-base>.map",
+        "--base-image <rebuilt-base>.z64",
+        "--shifted-map <rebuilt-shifted>.map",
+        "--shifted-image <rebuilt-shifted>.z64",
         f"--delta 0x{int(analysis.get('delta', 0)):x}",
     ]
     if analysis.get("base_elf"):
-        parts.append(f"--base-elf {analysis['base_elf']}")
-        parts.append(f"--shifted-elf {analysis.get('shifted_elf')}")
+        parts.append("--base-elf <rebuilt-base>.elf")
+        parts.append("--shifted-elf <rebuilt-shifted>.elf")
     parts.append(f"--census {census}")
     return " ".join(parts)
 
@@ -1420,6 +1432,20 @@ CAMPAIGN_LOOP = (
     "fix; a fix with no gate is a hope."
 )
 
+#: Stated once, at the top of the work order, rather than once per gate:
+#: every gate below the loop names the rebuild it needs, not the artifacts
+#: the report you are reading was built from. Naming the pre-fix map, image
+#: or ELF instead would make the gate re-read the same census forever --
+#: the loop cannot pass itself if its own gate never rebuilds anything.
+GATE_PLACEHOLDER_NOTE = (
+    "**Placeholders.** `<rebuilt>` marks a path this fix's rebuild produces "
+    "-- the map, image, or ELF the gate command re-reads, never the one the "
+    "report above was built from. `shift rehearse analyze` rebuilds two "
+    "links, so its gates say `<rebuilt-base>` and `<rebuilt-shifted>`. "
+    "Everything else in a gate command -- pin files, blob names, the delta, "
+    "the census expression -- is copy-paste literal."
+)
+
 
 def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
     """Render one column-aligned table, the shape the shift family prints."""
@@ -1546,6 +1572,8 @@ def plan_markdown(found: ShiftPlan) -> str:
         "# Shift remediation work order",
         "",
         f"**The loop.** {CAMPAIGN_LOOP}",
+        "",
+        GATE_PLACEHOLDER_NOTE,
         "",
         "| | |",
         "|---|---|",

@@ -59,6 +59,7 @@ __all__ = [
     "WordRef",
     "alignment",
     "build_word_census",
+    "check_image_delta",
     "compose",
     "decode_word",
     "default_n64_windows",
@@ -495,6 +496,28 @@ def _label_at(
     return None
 
 
+def check_image_delta(base: bytes, shifted: bytes, *, delta: int) -> None:
+    """Refuse a pair whose size does not account for the declared delta.
+
+    Cheap, and the most legible failure this module can report -- two
+    lengths and a subtraction -- so callers that derive other things from
+    `delta` first (`derive_anchor` picks an insertion point; a wrong delta
+    usually means no symbol moved by it) should run this check *before*
+    that derivation, not after. An anchor failure is real but vague; this
+    one names the arithmetic directly. QA found this buried behind an
+    auto-derived anchor's own "no object-backed symbol ... moved by the
+    declared delta" -- the same fact, reported one step later and vaguer.
+    """
+
+    if len(base) % 4 or len(shifted) % 4:
+        raise ValueError("both images must be a whole number of 32-bit words")
+    if len(shifted) - len(base) != delta:
+        raise ValueError(
+            f"shifted image is {len(shifted) - len(base):+d} bytes longer than "
+            f"base, not the declared delta {delta:+d}"
+        )
+
+
 def build_word_census(
     base: bytes,
     shifted: bytes,
@@ -531,13 +554,7 @@ def build_word_census(
     verdict to each one.
     """
 
-    if len(base) % 4 or len(shifted) % 4:
-        raise ValueError("both images must be a whole number of 32-bit words")
-    if len(shifted) - len(base) != delta:
-        raise ValueError(
-            f"shifted image is {len(shifted) - len(base):+d} bytes longer than "
-            f"base, not the declared delta {delta:+d}"
-        )
+    check_image_delta(base, shifted, delta=delta)
 
     region_starts, region_spans = _span_lookup(
         [(item.start, item.end, item.kind) for item in regions]

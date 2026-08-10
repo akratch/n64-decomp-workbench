@@ -529,6 +529,74 @@ class MarkdownTests(unittest.TestCase):
     def test_convictions_are_marked(self) -> None:
         self.assertIn("**(conviction)**", self.text)
 
+    def test_the_placeholder_convention_is_stated_near_the_loop(self) -> None:
+        head = self.text.splitlines()[:8]
+        self.assertTrue(any("**Placeholders.**" in line for line in head))
+        self.assertTrue(any("<rebuilt>" in line for line in head))
+
+    def test_re_audit_and_re_rehearse_gates_point_at_the_rebuild(self) -> None:
+        """WB QA: a work order's re-audit/re-rehearse gates named the
+        pre-fix map/image/elf, so re-running them forever reads the same
+        census -- the loop's own gate could never pass. They must name the
+        rebuild instead, the way the `shift config verify` gate already
+        names its candidate side."""
+
+        pre_fix_paths = (
+            "build/game.map",
+            "build/game.z64",
+            "build/game.elf",
+            "shift/game.map",
+            "shift/game.z64",
+            "shift/game.elf",
+        )
+        saw_audit_gate = saw_rehearse_gate = False
+        for line in self.text.splitlines():
+            if "gate: `decomp-workbench shift audit" in line:
+                saw_audit_gate = True
+                self.assertIn("<rebuilt>.map", line)
+                self.assertIn("<rebuilt>.z64", line)
+                self.assertIn("<rebuilt>.elf", line)
+                for path in pre_fix_paths:
+                    self.assertNotIn(path, line)
+            elif (
+                "gate: `decomp-workbench shift rehearse analyze" in line
+                and "--delta 0x" not in line
+            ):
+                # The audit-only rules (`investigate`, `dual-spelling-risk`)
+                # never had a rehearse report to name in the first place;
+                # their hand-written placeholder form is a different,
+                # pre-existing gap and not this defect's gate.
+                continue
+            elif "gate: `decomp-workbench shift rehearse analyze" in line:
+                saw_rehearse_gate = True
+                self.assertIn("<rebuilt-base>.map", line)
+                self.assertIn("<rebuilt-base>.z64", line)
+                self.assertIn("<rebuilt-shifted>.map", line)
+                self.assertIn("<rebuilt-shifted>.z64", line)
+                for path in pre_fix_paths:
+                    self.assertNotIn(path, line)
+        self.assertTrue(saw_audit_gate)
+        self.assertTrue(saw_rehearse_gate)
+
+    def test_the_identity_gate_still_pins_its_baseline(self) -> None:
+        """The one gate that legitimately keeps a pre-fix path concrete:
+        `shift config verify` proves the rebuild against the artifact it is
+        *not* allowed to have moved, so `--pinned-map`/`--pinned-image`
+        stay literal while `--candidate-map`/`--candidate-image` are the
+        placeholders."""
+
+        lines = [
+            line
+            for line in self.text.splitlines()
+            if "gate: `decomp-workbench shift config verify" in line
+        ]
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertIn("--pinned-map build/game.map", line)
+            self.assertIn("--pinned-image build/game.z64", line)
+            self.assertIn("--candidate-map <rebuilt>.map", line)
+            self.assertIn("--candidate-image <rebuilt>.z64", line)
+
     def test_the_closing_note_refuses_to_be_a_verdict(self) -> None:
         self.assertIn("evidence with coordinates attached", self.text)
 
@@ -663,6 +731,17 @@ def run_json(arguments: list[str], destination: Path) -> dict[str, Any]:
         raise AssertionError(f"{' '.join(arguments)} exited {status}")
     destination.write_text(stdout.getvalue(), encoding="utf-8")
     return json.loads(stdout.getvalue())
+
+
+def run_plan_cli(*arguments: str) -> tuple[int, str, str]:
+    """Run `shift plan` through the real CLI, the way a maintainer would."""
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        status = main(
+            ["shift", "plan", "--pager", "never", "--width", "unlimited", *arguments]
+        )
+    return status, stdout.getvalue(), stderr.getvalue()
 
 
 _HAVE_PW64 = (
@@ -818,6 +897,72 @@ class Pw64PlanConformanceTests(unittest.TestCase):
         for item in self.plan.items[: self.plan.convictions]:
             with self.subTest(subject=item.subject):
                 self.assertTrue(item.conviction)
+
+    def test_the_work_orders_gates_point_at_the_rebuild_not_S6s_artifacts(
+        self,
+    ) -> None:
+        """QA repro: ``shift plan --audit pw64-audit.json --rehearse ...
+        --markdown`` on the real pilotwings64/S6 reports, then read the gate
+        commands on item #1. `--pinned-map`/`--pinned-image` legitimately
+        keep naming S6's `base-symbolic` pair -- that pair is the proof
+        anchor `shift config verify` is not allowed to have moved. The
+        re-audit and re-rehearse gates must not: naming S6's own
+        pre-existing `.map`/`.z64`/`.elf` there means re-running the gate
+        reads the same unfixed artifacts and the same census, forever."""
+
+        destination = Path(self.temp.name) / "PW64-WORK-ORDER.md"
+        status, _, stderr = run_plan_cli(
+            "--audit",
+            str(Path(self.temp.name) / "audit.json"),
+            "--rehearse",
+            str(Path(self.temp.name) / "rehearse-10.json"),
+            "--rehearse",
+            str(Path(self.temp.name) / "rehearse-40.json"),
+            "--markdown",
+            str(destination),
+        )
+        self.assertEqual(status, 0, stderr)
+        text = destination.read_text(encoding="utf-8")
+
+        self.assertTrue(
+            any("**Placeholders.**" in line for line in text.splitlines()[:8])
+        )
+
+        pre_fix_paths = (
+            str(S6 / "artifacts" / "base-symbolic.map"),
+            str(S6 / "artifacts" / "base-symbolic.z64"),
+            str(S6 / "scratch" / "base-symbolic.elf"),
+            str(S6 / "artifacts" / "shifted-10.map"),
+            str(S6 / "artifacts" / "shifted-10.z64"),
+            str(S6 / "scratch" / "shifted-10.elf"),
+        )
+        saw_audit_gate = saw_rehearse_gate = False
+        for line in text.splitlines():
+            if "gate: `decomp-workbench shift audit" in line:
+                saw_audit_gate = True
+                self.assertIn("<rebuilt>.map", line)
+                self.assertIn("<rebuilt>.z64", line)
+                self.assertIn("<rebuilt>.elf", line)
+                for path in pre_fix_paths:
+                    self.assertNotIn(path, line)
+            elif (
+                "gate: `decomp-workbench shift rehearse analyze" in line
+                and "--delta 0x" in line
+            ):
+                saw_rehearse_gate = True
+                self.assertIn("<rebuilt-base>.map", line)
+                self.assertIn("<rebuilt-shifted>.map", line)
+                for path in pre_fix_paths:
+                    self.assertNotIn(path, line)
+            elif "gate: `decomp-workbench shift config verify" in line:
+                # The one gate allowed to keep naming S6's pre-fix pair --
+                # it is the baseline the fix must not have moved.
+                self.assertIn(str(S6 / "artifacts" / "base-symbolic.map"), line)
+                self.assertIn(str(S6 / "artifacts" / "base-symbolic.z64"), line)
+                self.assertIn("<rebuilt>.map", line)
+                self.assertIn("<rebuilt>.z64", line)
+        self.assertTrue(saw_audit_gate)
+        self.assertTrue(saw_rehearse_gate)
 
 
 _HAVE_BK = (

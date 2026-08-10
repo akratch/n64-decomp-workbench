@@ -86,6 +86,46 @@ class CensusResult:
         }
 
 
+def _edit_distance(left: str, right: str) -> int:
+    """Levenshtein distance, for telling a typo from an unrelated key."""
+
+    if left == right:
+        return 0
+    previous = list(range(len(right) + 1))
+    for row, lchar in enumerate(left, start=1):
+        current = [row] + [0] * len(right)
+        for column, rchar in enumerate(right, start=1):
+            cost = 0 if lchar == rchar else 1
+            current[column] = min(
+                previous[column] + 1,  # deletion
+                current[column - 1] + 1,  # insertion
+                previous[column - 1] + cost,  # substitution
+            )
+        previous = current
+    return previous[-1]
+
+
+def _suggest(key: str, allowed: Mapping[str, str]) -> str | None:
+    """The one registered key an unknown ``key`` most plausibly meant.
+
+    Two shapes of typo, both cheap against a key list this short: a unique
+    prefix (``pins_sha`` names only ``pins_shadowing``) and a small edit
+    distance (``pins_shadowingg`` is one deletion from ``pins_shadowing``).
+    Either has to be unambiguous -- when two registered keys tie, guessing
+    one would be worse than naming neither, so this suggests nothing.
+    """
+
+    prefixed = [name for name in allowed if name != key and name.startswith(key)]
+    if len(prefixed) == 1:
+        return prefixed[0]
+
+    scored = sorted((_edit_distance(key, name), name) for name in allowed)
+    if not scored or scored[0][0] > 2:
+        return None
+    closest = [name for distance, name in scored if distance == scored[0][0]]
+    return closest[0] if len(closest) == 1 else None
+
+
 def parse_census(
     expressions: Sequence[str], *, allowed: Mapping[str, str]
 ) -> tuple[Predicate, ...]:
@@ -108,10 +148,12 @@ def parse_census(
                 )
             metric = allowed.get(key)
             if metric is None:
+                suggestion = _suggest(key, allowed)
+                hint = f" -- did you mean {suggestion!r}?" if suggestion else ""
                 raise ValueError(
                     f"unknown census key {key!r}; this command reports "
                     f"{len(allowed)} keys and --explain-keys prints them "
-                    "with their meanings"
+                    f"with their meanings{hint}"
                 )
             predicates.append(Predicate(key=key, metric=metric, expected=expected))
     return tuple(predicates)

@@ -47,6 +47,7 @@ from decomp_workbench.schema import (
     SHIFT_METRICS_BY_KEY,
     explain_keys_text,
 )
+from decomp_workbench.shift_audit import resolve_blobs
 from decomp_workbench.shift_rehearse import (
     CHECKSUM_RULES,
     MERGE_TIERS,
@@ -133,7 +134,11 @@ def render_map(delta: int, *, anomaly: str | None = None) -> str:
         " .data          0x00000000       0x20 build/header.o",
         "",
         ".boot           0x00000020       0x20",
-        " .data          0x00000020       0x20 build/boot.o",
+        # `.bin.o`: matches `BLOB_OBJECT_RULES`, so `suggest_blobs` (and
+        # therefore `--blobs auto`) names `.boot` on its own -- letting the
+        # WB QA `--blobs auto` tests below reproduce this fixture's
+        # already-explicit `--blob .boot` without a second one.
+        " .data          0x00000020       0x20 build/boot.bin.o",
         "",
         f".main           0x80000400       0x{0xC0 + delta:x} load address 0x00000040",
         f" .text          0x80000400       0x{0x60 + delta:x} build/entry.o",
@@ -390,6 +395,61 @@ class AnchorTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# WB QA: the delta/image-size precondition must beat anchor derivation
+# --------------------------------------------------------------------------
+
+
+class DeltaMismatchPreconditionTests(unittest.TestCase):
+    """A declared `--delta` the two image sizes contradict is a size
+    mismatch, not a derivation failure -- and has to be reported as one
+    whether or not `--anchor` was given.
+
+    Before the fix, `build_rehearsal` called `derive_anchor` first. With no
+    `--anchor`, a wrong delta usually means no symbol moved by it, so the
+    auto derivation failed first, with the vague "no object-backed symbol
+    ... moved by the declared delta". With `--anchor` given, derivation
+    trivially succeeds (it just looks the symbol up) and the specific
+    arithmetic message from `build_word_census` surfaced later -- so the
+    same bad input reported two different errors depending on a flag that
+    has nothing to do with image size. `s6/artifacts` reproduces this live:
+    base-symbolic vs. shifted-40 declared as delta 0x10.
+    """
+
+    def _mismatched(self, *, anchor: str | None) -> None:
+        build_rehearsal(
+            base_ldmap=base_map(),
+            base_image=base_image(),
+            shifted_ldmap=shifted_map(0x40),
+            shifted_image=shifted_image(0x40),
+            delta=0x10,
+            anchor=anchor,
+            blobs=BLOBS,
+            model=default_pin_model(),
+        )
+
+    def test_without_anchor_the_size_mismatch_message_wins(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            self._mismatched(anchor=None)
+        message = str(raised.exception)
+        self.assertIn(
+            "shifted image is +64 bytes longer than base, not the declared "
+            "delta +16",
+            message,
+        )
+        self.assertNotIn("no object-backed symbol", message)
+
+    def test_with_anchor_the_size_mismatch_message_still_wins(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            self._mismatched(anchor="func_a")
+        message = str(raised.exception)
+        self.assertIn(
+            "shifted image is +64 bytes longer than base, not the declared "
+            "delta +16",
+            message,
+        )
+
+
+# --------------------------------------------------------------------------
 # Movement audit
 # --------------------------------------------------------------------------
 
@@ -514,6 +574,107 @@ class StaleMergeTests(unittest.TestCase):
         self.assertEqual(MERGE_TIERS["low"], "noise")
         payload = self.found.as_dict(limit=4)
         self.assertEqual(payload["merge_tiers"], dict(MERGE_TIERS))
+
+
+# --------------------------------------------------------------------------
+# WB QA: "healthy runs read calm" -- the stale-candidate table collapses
+# when nothing is confirmed, and an empty table says so rather than
+# printing a bare header.
+# --------------------------------------------------------------------------
+
+
+def _rehearse_tracking(delta: int, offsets: tuple[int, ...]) -> Rehearsal:
+    """The fixture's own rehearsal, except every ROM `offsets` word is
+    patched to move by `delta` in the shifted image too -- turning an
+    unmoved (stale) word into a tracked one without touching the shared
+    `base_words`/`shifted_words` every other test in this file reads.
+
+    Each offset in the default fixture is a pointer that "does not move" by
+    construction (see `base_words`'s own comments); adding it here nets out
+    exactly one fewer `stale-confirmed`/`stale-review`/`noise` row,
+    depending which offset, so a caller can dial the tier mix a "healthy
+    run" test needs without hand-building a second linker map.
+    """
+
+    words = shifted_words(delta)
+    for offset in offsets:
+        words[offset // 4] = base_words()[offset // 4] + delta
+    split = INSERTION_ROM // 4
+    padded = words[:split] + [0x00000000] * (delta // 4) + words[split:]
+    return build_rehearsal(
+        base_ldmap=base_map(),
+        base_image=base_image(),
+        shifted_ldmap=shifted_map(delta),
+        shifted_image=pack(padded),
+        delta=delta,
+        blobs=BLOBS,
+        crc_words=CRC_WORDS,
+        checksum_pairs=CHECKSUM_PAIRS,
+        model=default_pin_model(),
+        base_map_path="base.map",
+        base_image_path="base.z64",
+        shifted_map_path="shifted.map",
+        shifted_image_path="shifted.z64",
+    )
+
+
+class CalmOutputTests(unittest.TestCase):
+    """A run with nothing stale-confirmed reads as one line, not a table
+    padded out with rows the codebase's own docs call "not an alarm"."""
+
+    def test_a_stale_confirmed_row_keeps_the_full_table(self) -> None:
+        found = rehearse()  # the shared fixture: one stale-confirmed word
+        self.assertEqual(found.stale_confirmed, 1)
+        text = "\n".join(rehearse_lines(found, limit=40))
+        self.assertIn("stale (4 of 4, --limit)", text)
+        self.assertIn("stale-confirmed", text)
+        self.assertIn("gLater", text)  # the confirmed row's own target
+        self.assertNotIn("stale candidates:", text)
+
+    def test_a_healthy_run_with_review_rows_collapses_to_one_line(self) -> None:
+        """0xA8 patched to track: 0 confirmed, 2 review, 1 noise left."""
+
+        found = _rehearse_tracking(0x10, (0xA8,))
+        self.assertEqual((found.stale_confirmed, found.stale_review), (0, 2))
+        text = "\n".join(rehearse_lines(found, limit=40))
+        self.assertIn(
+            "stale candidates: 3, none confirmed (2 review, 1 noise) -- "
+            "pass --limit 3 to list them",
+            text,
+        )
+        self.assertNotIn("stale (", text)
+        # The raw rows are gone, not just relabeled: `gLater` only ever
+        # names the (now-tracking) confirmed word's own stale-table row.
+        self.assertNotIn("gLater", text)
+
+    def test_a_healthy_run_with_only_noise_says_all_noise(self) -> None:
+        """0xA8, 0xA4 and 0x24 patched to track: nothing left but the one
+        low-tier blob word that never moves by construction."""
+
+        found = _rehearse_tracking(0x10, (0xA8, 0xA4, 0x24))
+        self.assertEqual(
+            (found.stale_confirmed, found.stale_review, found.stale_noise),
+            (0, 0, 1),
+        )
+        text = "\n".join(rehearse_lines(found, limit=40))
+        self.assertIn(
+            "stale candidates: 1, all noise -- pass --limit 1 to list them",
+            text,
+        )
+        self.assertNotIn("stale (", text)
+
+    def test_empty_tables_print_none_not_a_bare_header(self) -> None:
+        found = rehearse()  # no movement anomaly in the shared fixture
+        lines = rehearse_lines(found, limit=40)
+        header_index = lines.index("movement anomalies (0 of 0, --limit)")
+        self.assertEqual(
+            lines[header_index : header_index + 3],
+            [
+                "movement anomalies (0 of 0, --limit)",
+                "name base_address shifted_address delta",
+                "none",
+            ],
+        )
 
 
 # --------------------------------------------------------------------------
@@ -895,6 +1056,63 @@ class AnalyzeCommandTests(unittest.TestCase):
             "--blob names a section this map does not have: .nope", stderr
         )
 
+    def _without_explicit_blob(self) -> list[str]:
+        """This fixture's own arguments, minus the `--blob .boot` pair."""
+
+        arguments = self.arguments()
+        index = arguments.index("--blob")
+        return arguments[:index] + arguments[index + 2 :]
+
+    def test_wb_qa_blobs_auto_reproduces_the_explicit_blob_set(self) -> None:
+        """WB QA: `--blobs auto` reuses `shift audit`'s own `resolve_blobs`,
+        read from `--base-map`. `.boot`'s only input record is
+        `build/boot.bin.o`, a `BLOB_OBJECT_RULES` match, so `--blobs auto`
+        alone must reproduce this fixture's explicit `--blob .boot` report
+        byte for byte -- the same conformance the campaign playbook's own
+        §3.4 depends on when it switches from a hand-listed blob set."""
+
+        explicit_status, explicit_stdout, _ = run_cli(
+            [*self.arguments(), "--json"]
+        )
+        auto_status, auto_stdout, _ = run_cli(
+            [*self._without_explicit_blob(), "--blobs", "auto", "--json"]
+        )
+        self.assertEqual(explicit_status, 0)
+        self.assertEqual(auto_status, 0)
+        self.assertEqual(json.loads(explicit_stdout), json.loads(auto_stdout))
+
+    def test_no_blob_subtracts_from_the_auto_set(self) -> None:
+        """`--no-blob` composes with `--blobs auto` rather than being
+        overridden by it: excluding `.boot` from the auto-derived set makes
+        its bytes attributable again, changing the report from the
+        all-blobbed baseline."""
+
+        auto_status, auto_stdout, _ = run_cli(
+            [*self._without_explicit_blob(), "--blobs", "auto", "--json"]
+        )
+        excluded_status, excluded_stdout, _ = run_cli(
+            [
+                *self._without_explicit_blob(),
+                "--blobs",
+                "auto",
+                "--no-blob",
+                ".boot",
+                "--json",
+            ]
+        )
+        self.assertEqual(auto_status, 0)
+        self.assertEqual(excluded_status, 0)
+        self.assertNotEqual(json.loads(auto_stdout), json.loads(excluded_stdout))
+
+    def test_naming_a_section_blob_and_no_blob_is_refused(self) -> None:
+        status, _, stderr = run_cli(
+            [*self.arguments(), "--no-blob", ".boot"]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn(
+            "--blob and --no-blob name the same section: .boot", stderr
+        )
+
     def test_a_missing_image_is_a_usage_failure_not_a_traceback(self) -> None:
         status, _, stderr = run_cli(
             [
@@ -1118,6 +1336,20 @@ class OrchestrateCommandTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("exit", stderr)
 
+    def test_wb_qa_blobs_auto_reproduces_the_explicit_blob_set(self) -> None:
+        """Same conformance as `analyze`'s: `orchestrate` resolves blobs per
+        delta from the base map its own wrapper produces, and `--blobs auto`
+        must reproduce this fixture's explicit `--blob .boot`."""
+
+        explicit = self.arguments()
+        index = explicit.index("--blob")
+        auto = explicit[:index] + explicit[index + 2 :] + ["--blobs", "auto"]
+        explicit_status, explicit_stdout, stderr = run_cli([*explicit, "--json"])
+        self.assertEqual(explicit_status, 0, stderr)
+        auto_status, auto_stdout, stderr = run_cli([*auto, "--json"])
+        self.assertEqual(auto_status, 0, stderr)
+        self.assertEqual(json.loads(explicit_stdout), json.loads(auto_stdout))
+
     def test_wb_140_an_unknown_blob_name_is_refused(self) -> None:
         """The same shared `build_region_table` check, reached from
         `orchestrate` after the (cheap, fake) relink runs but before its
@@ -1171,7 +1403,7 @@ DKR_CHECKSUM_PAIRS = (
 )
 
 
-def dkr_rehearsal(delta: int) -> Rehearsal:
+def dkr_rehearsal(delta: int, *, blobs: tuple[str, ...] = DKR_BLOBS) -> Rehearsal:
     directory = S0_DIR / f"shift-0x{delta:x}"
     return build_rehearsal(
         base_ldmap=read_ld_map(DKR_BASE_MAP),
@@ -1179,7 +1411,7 @@ def dkr_rehearsal(delta: int) -> Rehearsal:
         shifted_ldmap=read_ld_map(directory / "dkr.us.v77.map"),
         shifted_image=(directory / "dkr.us.v77.z64").read_bytes(),
         delta=delta,
-        blobs=DKR_BLOBS,
+        blobs=blobs,
         crc_words=(0x10, 0x14),
         checksum_pairs=DKR_CHECKSUM_PAIRS,
         model=default_pin_model(whitelist=(boot_globals_whitelist(),)),
@@ -1337,6 +1569,55 @@ class DkrRehearseConformanceTests(unittest.TestCase):
 
     def test_the_two_deltas_agree_on_every_class(self) -> None:
         self.assertEqual(cross_delta_disagreements([self.at10, self.at40]), ())
+
+    def test_wb_qa_blobs_auto_reproduces_dkrs_hand_listed_blob_set(self) -> None:
+        """WB QA conformance: `resolve_blobs --blobs auto`, read from DKR's
+        own base map, must resolve to the same three sections
+        `DKR_BLOBS` names by hand -- so a rehearsal run with `--blobs auto`
+        instead reports the identical census this whole class measures."""
+
+        plan = resolve_blobs(read_ld_map(DKR_BASE_MAP), auto=True)
+        self.assertEqual(set(plan.applied), set(DKR_BLOBS))
+        auto = dkr_rehearsal(0x10, blobs=plan.applied)
+        self.assertEqual(auto.census.differing_total, self.at10.census.differing_total)
+        self.assertEqual(auto.census.counts, self.at10.census.counts)
+        self.assertEqual(auto.unexplained_changed, self.at10.unexplained_changed)
+        self.assertEqual(auto.stale_confirmed, self.at10.stale_confirmed)
+
+    def test_wb_qa_the_clean_pair_reads_calm(self) -> None:
+        """WB QA: "healthy runs read calm". This is the positive control --
+        `stale_confirmed=0`, and 1,501 unmoved words that used to print as a
+        40-row table plus a "40 of 1,501" header no different from a run
+        that found something. Before the fix this report ran 104 lines for
+        this exact command (four checksum pairs, the real `--blobs auto`
+        set, default `--limit`); the stale table alone was 42 of them, and
+        every other empty table printed a bare header with nothing under
+        it. Now the stale table is one honest line, every empty table says
+        `none`, and the report is calm enough to read start to finish."""
+
+        text = "\n".join(rehearse_lines(self.at10, limit=40))
+        lines = text.splitlines()
+        self.assertIn(
+            "stale candidates: 1,501, none confirmed (7 review, 1,494 noise) "
+            "-- pass --limit 1,501 to list them",
+            text,
+        )
+        self.assertNotIn("stale (", text)
+        for header, columns in (
+            (
+                "movement anomalies (0 of 0, --limit)",
+                "name base_address shifted_address delta",
+            ),
+            ("unexplained (0 of 0, --limit)", "offset old new label"),
+        ):
+            index = lines.index(header)
+            self.assertEqual(lines[index + 1 : index + 3], [columns, "none"])
+        self.assertLess(
+            len(lines),
+            70,
+            "the stale table used to be 42 of these lines by itself; a "
+            "positive control should not still read like a wall of rows",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -1703,14 +1984,14 @@ PW64_SYMBOL_STALE = (
 )
 
 
-def pw64_rehearsal(delta: int) -> Rehearsal:
+def pw64_rehearsal(delta: int, *, blobs: tuple[str, ...] = PW64_BLOBS) -> Rehearsal:
     return build_rehearsal(
         base_ldmap=read_ld_map(PW64_BASE_MAP),
         base_image=PW64_BASE_IMAGE.read_bytes(),
         shifted_ldmap=read_ld_map(S6_DIR / "artifacts" / f"shifted-{delta:x}.map"),
         shifted_image=(S6_DIR / "artifacts" / f"shifted-{delta:x}.z64").read_bytes(),
         delta=delta,
-        blobs=PW64_BLOBS,
+        blobs=blobs,
         crc_words=(0x10, 0x14),
         base_elf=read_elf_symbols(PW64_BASE_ELF),
         shifted_elf=read_elf_symbols(S6_DIR / "scratch" / f"shifted-{delta:x}.elf"),
@@ -1845,6 +2126,38 @@ class Pw64RehearseConformanceTests(unittest.TestCase):
         for name in ("entry_TEXT_END", "entry_RODATA_END", "entrypoint"):
             self.assertNotIn(name, names)
         self.assertGreater(self.at10.symbols.boundary_symbols, 0)
+
+    def test_wb_qa_blobs_auto_includes_the_ipl3_the_hand_listed_set_dropped(
+        self,
+    ) -> None:
+        """WB QA: the campaign playbook's §3.4 hand-listed five blobs and
+        silently dropped `.ipl3`, which §1.1's own `suggested_blobs` names as
+        a sixth -- the asymmetry `--blobs auto` exists to close. `PW64_BLOBS`
+        above reproduces that same drop, on purpose, so this class's other
+        tests are still the pre-fix record. `resolve_blobs --blobs auto`
+        must not drop it, and every headline number this class measured
+        against the hand-listed five must be unchanged with it included."""
+
+        plan = resolve_blobs(read_ld_map(PW64_BASE_MAP), auto=True)
+        self.assertEqual(set(plan.applied), set(PW64_BLOBS) | {".ipl3"})
+        auto = pw64_rehearsal(0x10, blobs=plan.applied)
+        self.assertEqual(auto.unexplained_changed, self.at10.unexplained_changed)
+        self.assertEqual(auto.stale_confirmed, self.at10.stale_confirmed)
+        self.assertEqual(auto.symbol_stale, self.at10.symbol_stale)
+        self.assertEqual(auto.shadowing_pins, self.at10.shadowing_pins)
+
+    def test_wb_qa_a_stale_confirmed_run_still_prints_the_full_table(self) -> None:
+        """The other half of "healthy runs read calm": S6's own convicted
+        word (`D_803571F0`, `stale_confirmed=1`) is a finding, and a finding
+        never hides behind the collapsed summary line DKR's clean pair
+        gets."""
+
+        self.assertEqual(self.at10.stale_confirmed, 1)
+        text = "\n".join(rehearse_lines(self.at10, limit=40))
+        self.assertNotIn("stale candidates:", text)
+        self.assertIn(f"stale (40 of {self.at10.unmoved_total:,}, --limit)", text)
+        self.assertIn("stale-confirmed", text)
+        self.assertIn("D_803571F0", text)
 
     def test_the_named_examples_s6_singled_out(self) -> None:
         """Four spot checks, one per shape S6 described in prose.

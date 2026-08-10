@@ -21,7 +21,11 @@ from decomp_workbench.census import (
     parse_census,
 )
 from decomp_workbench.cli import main
-from decomp_workbench.schema import COMPARISON_CENSUS_KEYS, VIEW_CENSUS_KEYS
+from decomp_workbench.schema import (
+    COMPARISON_CENSUS_KEYS,
+    SHIFT_CENSUS_KEYS,
+    VIEW_CENSUS_KEYS,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "examples" / "fixtures"
@@ -77,6 +81,37 @@ class CensusPredicateTests(unittest.TestCase):
             # A view key is not a comparison key: the two count different
             # things and must not answer for each other.
             parse_census(["aligned_rows=8"], allowed=COMPARISON_CENSUS_KEYS)
+
+    def test_an_unknown_key_near_a_registered_one_offers_it(self) -> None:
+        """WB QA repro: `pins_shadowingg` (one letter over) against the shift
+        command's own keys must name `pins_shadowing` rather than just
+        refusing -- the same typo cost campaign agents a re-read of
+        `--explain-keys` every time it happened."""
+
+        with self.assertRaisesRegex(
+            ValueError, r"unknown census key 'pins_shadowingg'.*did you mean 'pins_shadowing'\?$"
+        ):
+            parse_census(["pins_shadowingg=0"], allowed=SHIFT_CENSUS_KEYS)
+
+    def test_a_unique_prefix_is_also_offered(self) -> None:
+        with self.assertRaisesRegex(ValueError, "did you mean 'pins_shadowing'\\?$"):
+            parse_census(["pins_sha=0"], allowed=SHIFT_CENSUS_KEYS)
+
+    def test_an_unrelated_typo_offers_nothing(self) -> None:
+        """No candidate within two edits -- guessing wrong is worse than
+        naming no suggestion at all."""
+
+        with self.assertRaisesRegex(ValueError, "unknown census key") as raised:
+            parse_census(["totally_unrelated_garbage=0"], allowed=SHIFT_CENSUS_KEYS)
+        self.assertNotIn("did you mean", str(raised.exception))
+
+    def test_an_ambiguous_near_miss_offers_nothing(self) -> None:
+        """Two registered keys tied at the same distance: naming one would
+        be a guess, not a correction."""
+
+        with self.assertRaisesRegex(ValueError, "unknown census key") as raised:
+            parse_census(["wordz=0"], allowed={"words": "words", "wordy": "wordy"})
+        self.assertNotIn("did you mean", str(raised.exception))
 
     def test_values_compare_by_the_reported_type(self) -> None:
         self.assertTrue(matches(-128, "-128"))

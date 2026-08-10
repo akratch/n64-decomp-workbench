@@ -1594,6 +1594,27 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("unknown census key 'x'", stderr)
 
+    def test_wb_qa_a_near_miss_census_key_offers_the_real_one(self) -> None:
+        """QA repro: `--census pins_shadowingg=0` (one letter over) through
+        the real command line, not just `census.parse_census` in isolation
+        -- `shift audit` reads `SHIFT_CENSUS_KEYS` through the same shared
+        machinery every other census-taking command does."""
+
+        status, _, stderr = self.run_cli(
+            [
+                "shift",
+                "audit",
+                "--map",
+                "absent.map",
+                "--image",
+                "absent.z64",
+                "--census",
+                "pins_shadowingg=0",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("did you mean 'pins_shadowing'?", stderr)
+
     def test_explain_keys_covers_the_shift_vocabulary(self) -> None:
         with self.assertRaises(SystemExit) as raised:
             self.run_cli(["shift", "audit", "--explain-keys"])
