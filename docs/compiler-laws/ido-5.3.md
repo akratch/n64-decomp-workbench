@@ -18,9 +18,16 @@ on another IDO release. Where a law depends on a driver default (ring widths,
 list sizes) that is called out, because those are startup constants for one
 driver configuration and not properties of the compiler.
 
-The measurements come predominantly from one large procedure — 4644
-instructions, 922 basic blocks — so "always" below means "in every case
-observed in that procedure", never "provably, in all programs".
+The measurements come predominantly from two large procedures — one of 4644
+instructions and 922 basic blocks, and one of 2057 instructions with 222 calls —
+so "always" below means "in every case observed in those procedures", never
+"provably, in all programs".
+
+Laws L49–L60 come from the GE007 `mp_watch_menu_display` campaign (2026-08,
+~2900 builds across ~37 delegated stages, scratch score 6859 → instruction-exact
+at 2057/2057 words). Like the L26–L40 block below, each carries a
+**Provenance** line naming the stage, because those stages ran in parallel and
+reused each other's internal law numbers; this page's numbers are its own.
 
 ## Evidence tiers
 
@@ -137,6 +144,153 @@ comments, and same-type casts are **byte-proven inert**.
 **Falsifies.** An inherited cross-campaign lever — the `acpp` line-assignment
 trick from a different toolchain — which would otherwise have been searched
 blind. Line-assignment levers still exist under 5.3, but not through `acpp`.
+
+### L49. One general expression temp per function, value-numbered
+
+cfe mints **one** pooled temp symbol per type class for expression values that
+need a home, and uopt's itable is a hash table of expressions in
+first-occurrence order — so the pool's symbol index is stamped at whichever
+materialisation happens to come first, and **re-mints at the next one** when
+that site is deleted. A "second class" of definition on the same slot is not a
+second construct; it is the same pooled symbol seen at another site. The
+materialisation sites are enumerable, and because they are enumerable the pool
+is **killable**: remove every member and the function compiles with no cfe temp
+at all.
+
+**Receipt — T1.** `CDX_SYMTAB`, a whole-itable dump gated byte-identical
+against the stock compiler with the instrument both unset *and* enabled. The
+pool's index moved 72 → 121 when all 21 `viGetY()` argument sites were replaced
+and the slot survived; the annotated op dump then read the pool's complete
+def/use set as three construct classes on one symbol, and a build that removed
+all of them was the campaign's first object with no cfe temp in the itable.
+
+**Falsifies.** Two same-campaign certificates: "there is always at least one
+discarded or materialised call result, so the temp's def count cannot reach
+zero", and the reading that a newly-appearing def site was a *fourth class* of
+construct rather than the pool re-anchoring. Both had survived ~120 respelling
+attempts across four stages, which is what a value-numbered pool looks like from
+the outside.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `symdump`
+(`L-sd-1`/`L-sd-2`), `cfetemps`, `birthorder` (`L-bo-1`).
+
+### L50. A call-valued argument temps only in a non-final position
+
+A call used as an argument of another call materialises into the pool
+[L49](#l49-one-general-expression-temp-per-function-value-numbered) describes
+**only when other arguments are set up after it**. The *last* call-valued
+argument goes `v0` → argument slot directly and mints nothing.
+
+**Receipt — T1**, itable dumps on both shapes: the double-inline births exactly
+one pointer temp (the third argument), never two, and the final argument's
+result reaches its outgoing slot with no home written.
+
+**Falsifies.** A same-campaign law that priced every call-in-argument as a temp,
+which made a whole family of double-inline spellings look unaffordable. It also
+retires the retype route: giving the callee an `int` return type still does not
+pool a call-result temp with the general expression temp — the two never share a
+symbol, whatever the type.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `cfetemps`
+(`L-pk-3` falsified), `finalframe` (`L-cf-4` re-tested).
+
+### L51. cfe's own `&&`-as-a-value expansion is a spelling you can write
+
+cfe expands `v = a && b` **as a value** into `v = (a); if (v) { v = (b); }`.
+Written out that way in the source, with a named local in place of the pool
+temp, it is **byte-identical** to the operator at every site. Other branch-free
+or branch-ful respellings of the same predicate (`v = 0; if (a && b) v = 1;`,
+`if/else` forms, `|`, `&`, `*`) are **not** — they cost hundreds of rows.
+
+**Receipt — T1, hash-exact.** Four `&&` sites, each rewritten singly, in every
+pair and in every triple: byte-identical objects throughout. The same four sites
+under the other spellings measured 264–860 rows across four independent stages.
+
+**Falsifies.** Four impossibility certificates that all rested on the wrong
+spelling — including one stage's 819-row "maximal legal attack" concluding the
+temp pool could not be emptied. The predicate was never the expensive thing; the
+*expansion* was, and the expansion is writable.
+
+**Scope.** The value form. This says nothing about `&&` in a controlling
+expression, where no value is materialised in the first place.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `birthorder`
+(`L-bo-2`).
+
+### L52. `uadd` operand order follows node complexity, and a cast is a node
+
+cfe decides a `uadd`'s operand order by node complexity, not by source order. A
+same-signedness cast is not a distinct node — `(s32) x` on an already
+sign-extended value is the same node as `x` — but an **unsigned** conversion is,
+and it demotes its operand to the right-hand side.
+
+**Receipt — T1.** The last differing word of a full campaign: `addu t9,a0,v1`
+versus `addu t9,v1,a0`. Source-order swaps, `+=` forms, `(s32)` casts, an `s16`
+carrier and 16 other carrier symbols all failed; `(u32) x2` produced the
+target's operand order and closed the function to zero words.
+
+**Scope.** One site, one target. State it as the mechanism to *try* at a
+commutative-operand residue ([L2](#l2-claim-order-is-source-condition-order-test-order-is-canonicalized)
+and the guide's lever 2 are the rest of that family), not as a swept law.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `birthorder`
+(`L-bo-4`).
+
+### L53. The frame is a byte map, and every declared local has a home in it
+
+IDO reserves a home for **every** declared local, whether or not it is ever
+coloured, and packs the symbol block strictly top-down in **declaration order**:
+`[locals, declaration order][cfe temps][uopt temps]`, temps immediately below
+the locals block. Block-scope locals follow function-scope ones; there is **no
+sibling-scope overlay**. Within the temp region, slots assign in **symbol-index
+order, earliest-born highest** — so a temp created at line 117 permanently
+outranks one created at line 288, and the only way to reach the higher slot is
+for the earlier temp not to exist ([L49](#l49-one-general-expression-temp-per-function-value-numbered)).
+Removing *n* bytes anywhere in the block moves every home below the removal by
+`n`, which is why an unconsidered declaration edit shows up as a whole family of
+constant rows.
+
+**Receipt — T1.** A byte-for-byte frame budget on a −216 frame — outgoing args
+48, saved regs 16, allocator spill 8, symbols 144 — reconstructed from a
+stack-home census of both objects (every `N(sp)` and `addiu ?,sp,N`) joined
+against three independent `CDX_SYMTAB` ladders, and agreeing with the target at
+**every** offset. Home is `raw10 + framesize` in the itable record, two's
+complement.
+
+**Scope, and the two holes that are not spendable.** The same census found two
+4-byte holes — the round-to-8 padding of a 3-register save area and of a
+single-word spill area. Both are allocator outputs, and neither is addressable
+from source. "There are spare bytes in the frame" and "there are spendable bytes
+in the frame" are different claims.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `symdump`,
+`finalframe` (`L-ff-1`/`L-ff-2`), `birthorder`.
+
+### L54. An array's unaddressed interior is spendable frame
+
+An array whose **base only** is ever addressed can be shrunk, and the freed
+bytes handed to a new local declared immediately *before* it, with every other
+home landing on its original offset: the block length is unchanged, the frame is
+unchanged, and a registerisable local appears out of nothing. Declaration order
+is the whole trick — the new local must go on the side that leaves the array's
+base where it was.
+
+**Receipt — T1.** `char rankbuffer[16]` → `[12]` plus one `s32` declared before
+it: frame `−216` unchanged, every used home target-exact, and nine register rows
+died because the function finally had a second symbol for the role. Verified to
+scale — `[8]` plus *two* new locals (one of them never referenced) is
+byte-identical to the one-local build. Declaring the new local on the other side
+of its neighbour costs 22 rows; shrinking without refilling the hole costs
+213–227.
+
+**Falsifies.** Two same-campaign ceiling certificates — "29 locals is the
+ceiling at this frame size", then "30" — and the general form both rested on,
+that a local supply is what the declaration list already says it is. The supply
+was inside a declared array the whole time.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `finalframe`
+(`L-ff-3`, `L-ff-4`), `birthorder` (`L-bo-3`, which spent the last 4 bytes a
+dead temp pool released — those go to the **locals** block, never to temps).
 
 ---
 
@@ -329,6 +483,61 @@ property of the *site*, not of which carrier occupies it.
 **Scope.** One procedure, one address-exposing pun (`&sp498 - 8`-style). Not
 tested against a function with no address-exposed locals at all, where this
 mechanism may not be reachable.
+
+### L55. The eligibility gate: `save <= 0` is struck before colouring begins
+
+Upstream of every cost the allocator computes, uopt applies an **eligibility
+gate**: a web whose computed `save` is not strictly positive is struck from
+colouring entirely and stays in memory permanently. Struck webs emit **no
+`p1cand` and no `p1dec` record at all** — they never reach the toll and
+crossing arithmetic [L28](#l28-p1s-decision-is-net--bestcost-and-totalsave-is-net)
+and [L56](#l56-the-callee-save-toll-is-a-saturating-size-term) describe. The
+verdict byte is `(0.0f < save) ? 1 : 2`; verdict 2 sets `color = -1`, drops the
+web out of the interference bitvector, decrements its neighbours' degrees, and
+calls `whyuncolored()`.
+
+```
+save = ( Σ_occ w(bb)·(uses+defs)          gross
+       − Σ_occ w(bb)·A·[reload(occ)]      chargeA, per USE
+       − Σ_occ w(bb)·A·[store(occ)] )     chargeB, per DEF
+     / divisor
+A = 1.0 ;  w(bb) = 1.0 straight-line, 10.0 in a loop
+nocs = #occurrences + bvectcard(web+12)
+divisor = nocs < 3 ? nocs : 2 + ((nocs − 2) >> 2)
+save *= 2  iff  dtype == 12
+```
+
+The gate is `> 0`, **not** `>= 0`: a web whose charges exactly cancel its gross
+is struck. This is the mechanism by which ordinary plain locals get memory
+homes — not a lost cost contest, but an exclusion before the contest. The
+measured driver of both charges is **aliasing**: an address-taken local's uses
+need reloads (chargeA) and its defs need stores (chargeB), so `&x` in an
+argument list is what puts `x` in memory.
+
+**Receipt — T1.** `compute_save`, `uopt.c` **L46f1ec–L46f254**, with a
+codegen-inert rebuild of the CDX uopt emitting one `savedetail` record per call
+and one `saveocc` record per occurrence (gate: reproduces two named object
+hashes byte-exact). **262 of 512** webs in one function are struck. Nine webs
+whose `net` is exactly `0.000000` at six decimals are all verdict 2. A
+dead-code address-taken probe — `if (0) { f(&colour, …); }`, zero instructions —
+moved one web's `chargeB` from 0 to 8 and its `save` from 3.57 to 2.43, and a
+forced verdict-2 on that web reproduced the champion's **entire** colour
+assignment, web-for-web, at exact instruction parity.
+
+**Falsifies.** Four hypotheses that had each been carried as the explanation for
+memory residency, and one impossibility certificate. A fixed colourable-web
+budget: false — a lab sweep took the `p1dec` count 8 → 348 with no knee. An
+occurrence-density or span penalty: false — span moves only the divisor, which
+is strictly positive and therefore can never change `save`'s sign. `dtype`/size:
+false — the only dtype term is a *doubling* for `dtype == 12`. An interference
+degree term in `bestcost`: false — `numintf` is printed and never priced. And
+the certificate "the measured cost model forbids the target's allocation" was
+measuring the wrong stage entirely: crossings price a candidate, charges decide
+whether there is a candidate.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `colourterm`
+(`L-ct-1`…`L-ct-5`); generalises the ovl8 `chargeB` law
+([L36](#l36-chargeb-exactly-a-store-placement-term)) by giving it its gate.
 
 ---
 
@@ -752,6 +961,164 @@ re-confirmed on a second, independent base after an unrelated rebase.
 
 **Provenance:** stage `eye`, originally L66.
 
+### L56. The callee-save toll is a saturating size term
+
+The cost p1 charges for the **first** callee-saved register a web wants is
+`clamp(nBB / 4, 4, 60)`, where `nBB` is the procedure's basic-block count as
+uopt builds it — one block per call, two per `if`, plus one. It is a **size**
+term, not a save/restore price: `+0.25` per call, `+0.50` per `if`, `+0.0` per
+straight-line instruction, `+0.0` per unit of loop *weight*, floored at 4 and
+**saturated at exactly 60**. Two companions complete the ladder:
+`cost_caller = 2 × call crossings` (weighted by block weight), and a callee
+register already in the save mask that the web does not interfere with costs
+**0**. So a large procedure pays a flat 60 and the toll is not a
+source-reachable quantity there: only a web whose `totalsave` clears the toll
+can *open* the bank, and every cheaper web queues behind that opener, taking its
+register for free afterwards.
+
+**Receipt — T1.** A synthetic lab reading `p1cost`/`p1dec` off the instrumented
+uopt across three independent slopes, exact at six decimals in every cell:
+calls 3 → 60, `if`s 1 → 400, +300 straight-line instructions (no change), a
+100-trip loop (its blocks only). The clamp is measured at 60.000000 from
+`nBB = 241` upward. On a real 222-call procedure, adding an `if` and removing an
+`if` both left `TOLL = 60.000000`.
+
+**Falsifies.** Four hypotheses that had each been treated as the reason a
+register was unaffordable. **Amortisation** (the toll justified against the sum
+of queued beneficiaries): false — 80 webs sit at `bestcost = 60.000000`, each
+judged on its own `totalsave`; there is no pre-scan and no queue. **Pairing** (a
+second callee register discounted once the first is saved): false — with `s0`
+and `s1` in the mask, `s2` still costs the full 60; "already claimed costs 0" is
+register *identity*, not bank state. **Frame-already-saves**: false, same
+records. **Order/retry** (declined webs re-offered once the bank opens): false —
+249 `p1dec` records and **zero** `p2dec`/`p2color` records; a declined web
+splits, and its fragments are decided as *new* webs at their own lower `save`,
+never re-offered the original decision. It also retires the reading of "60" as a
+constant, which is what made the toll look like an unmovable law of the
+allocator rather than a property of procedure size.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `tolllaw`
+(`L-tl-1`…`L-tl-3`).
+
+### L57. The copy-relation channel: `available0` is an argmin, not a complement
+
+`available0` is **not** the complement of `forbidden0`. It is the **argmin set
+of `f_cupcosts` over the non-forbidden colours** — the colours that are cheapest
+once copy relations are priced. A copy relation is a **physical `pmov`** in
+either direction (call-argument setup, call results, formal-parameter copies);
+each candidate colour accumulates the cost of the copies it would leave
+unelided. Ties leave every tied bit set, and the **lowest-numbered register
+wins** among them. There is no bypass: a copy relation cannot hand a web a
+forbidden colour, it can only re-rank the ones still allowed.
+
+**Receipt — T1.** `uopt.c` **158465–158573**, read out and checked against the
+decision records: the campaign's contested carrier had `f_cupcosts` cost **0 at
+every candidate colour** and therefore lost its target register purely on the
+lowest-number tie-break — which is why every copy-cost lever aimed at it (copy
+survival, displacement, role promotion, union) measured 38–937 rows and none
+moved the colour.
+
+**Falsifies.** An earlier same-campaign reading — "a web copy-related to an
+argument register gets `available0` narrowed to that register, bypassing the
+forbids" — which was an inference from one record pair and sent a stage hunting
+for a bypass that does not exist. The narrowing is real; the bypass is not.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `moveabsorb`
+(`L-ma`, the falsified form) and `channel3` (the decoded form).
+
+### L58. `forbidden0` is seeded from hard-register conflicts — argument pins steer colours
+
+Before the colouring worklist runs, `forbidden0` is seeded from **two** sources:
+the assigned colours on the web's adjacency list, *and* the hard-register
+conflict bit-vector. A web that is live across a call's **argument setup**
+therefore inherits a forbid from every argument pin that call writes. This is a
+**source-reachable register-steering channel**: give a value a live range that
+spans a call which pins the register you do not want it to take, and it takes
+the next one instead — at zero instructions.
+
+**Receipt — T1.** Two `p1dec` ladders across a two-statement source diff.
+Carrying a string pointer in the column-select carrier put that web live across
+a `sprintf` whose format argument pins `a1`; `forbidden0` moved
+`0x70000000 → 0x7a000000`, the web moved `a1 → a2`, and six column sites became
+register-for-register target-exact at exact instruction parity and unchanged
+frame. The register the displaced web freed was taken by the unroller's
+remainder bound, mirror-image, in the same records.
+
+**Falsifies.** Six earlier certificates in the same campaign — a missing symbol,
+a density gate, an unroller range gate, a band web, a copy-cost channel, and a
+role-split — every one of which was hunting an **arithmetic** route to what is a
+**conflict-vector** fact. Cost reasoning cannot reach a register that liveness
+forbids, and no amount of it will.
+
+**Scope.** The pinning call must be a real call in the emitted code; the forbid
+follows the whole web, so a symbol carrying two roles inherits the forbid for
+both — which is how one lever's fix created a second, register-swapped family
+until the roles were split onto two symbols
+([L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame)).
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `unrollcrack`
+(`L-uc-3`, the seeding), `wordsaudit` (`L-wa-1`, the lever).
+
+---
+
+## as1 (the assembler's instruction scheduler)
+
+### L59. The scheduler's tie-break reads physical source line numbers
+
+as1's list scheduler picks the **lexicographic minimum** of
+
+```
+( start_time, −aftercycles, −latency, node->addr, node->lineno, ready-list position )
+```
+
+and `node->lineno` is a **source line number**. Each key is a strict `<` accept
+/ `!=` reject step, so the chain is exact lexicographic order. Where `node->addr`
+is 0 for every node — the ordinary case for a compiled TU — `lineno` is the last
+effective key before raw list order. **Physical source line numbers are a
+codegen input at the scheduling stage**, and statement folding and blank lines
+are therefore matching levers with no token change at all.
+
+Two operational corollaries. A respelling that keeps each statement on its own
+line **cannot** flip a `lineno` tie in the direction "later statement first" —
+keys 1–4 are already equal by construction and no legal C ordering gives the
+later statement the smaller number. The two reachable moves are to make the
+lines **equal** (fold onto one physical line, so key 6 decides) or to move the
+other instruction's owning statement later. And where a site needs *both*
+orders — two tied selections in the same pair of statements, wanted opposite
+ways — only equality can deliver it; an inversion fixes one and breaks the other.
+
+**Receipt — T1, from the compiler's own trace.** IDO 5.3 `as1` ships a
+scheduler trace, reachable as **`cc -Wa,-R`** (option 13 of as1's 106-entry
+option table), and it is **byte-inert**: the object built with `-R` is
+`cmp`-identical to the object built without it, whole file. The rule was decoded
+from the selection driver at `as1.c:69172` and confirmed against **2688**
+recorded selections, of which 59 were decided by `lineno`. Eight differing rows
+in a real function were all `lineno` decisions, and all eight fell to a
+**whitespace-only** edit — four `if/else` groups folded onto one physical line
+each, token stream byte-identical after whitespace normalisation — at exact
+instruction parity, exact frame, and exact frame layout.
+
+**Falsifies.** A same-campaign claim that those eight rows were
+**basin-invariant**, carried across 21 respellings and several stages. They were
+*line-number*-invariant: every one of the 21 respellings happened to preserve
+the relative source-line order of the two tied instructions, which is the only
+input the deciding key reads. It also moots, for this era, the apparatus of
+patching a generated as1 behind a hash-pinned instrumentation profile — the
+stock assembler already prints a richer trace than the schema carries.
+
+**Scope.** The pipeline-model branch that would instead score candidates through
+`f_is_node_better` is gated on a global that is **off** for this driver
+configuration; every observed selection is explained without it. And the lever
+is the line number itself, nothing else at the site: restructuring one of these
+statements into two to move an instruction earlier detonated the allocator
+(936 rows). Where the residue is allocation-class rather than schedule-class,
+line layout has **no** purchase — a 13-word residue elsewhere in the same
+function did not move under any of a dozen line layouts.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `schedtie`
+(`L-st-1`…`L-st-3`), re-confirmed inert on two later bases by stages
+`wordsaudit` (`L-wa-2`) and `finalframe`.
+
 ---
 
 ## ugen (the code generator)
@@ -1170,6 +1537,73 @@ byte-exact ROM rebuild.
 
 **Provenance:** stage `omega`, originally L93.
 
+### L60. Every allocation verdict is relative to the current web population
+
+An allocator verdict is a statement about a **population**, not about a web.
+Every declined force, every saturated sweep, every "this construct costs N" is
+conditioned on which other webs exist at the moment the decision is taken — so
+each of them must be **re-measured after every champion change**, not carried
+forward. [L47](#l47-a-levers-price-is-a-property-of-the-base--re-measure-the-whole-set)
+says this about a lever's price; this law is the same fact about *verdicts*,
+where it bites harder, because a verdict reads as a closed question and a price
+reads as a number that might drift.
+
+The practical corollary is a discipline: **a model that forbids the observed
+target is a model missing a term.** The target object exists. When the cost
+model says it cannot, the defect is in the model, and the next move is to find
+the missing term rather than to record an impossibility.
+
+**Receipt — T2, nine instances in one campaign.** Nine impossibility
+certificates — each stated with its arithmetic, each correct against the
+population it was measured on — fell to a later stage that supplied a term the
+model lacked: a saturating size term ([L56](#l56-the-callee-save-toll-is-a-saturating-size-term)),
+an eligibility gate ([L55](#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins)),
+a hard-register conflict vector ([L58](#l58-forbidden0-is-seeded-from-hard-register-conflicts--argument-pins-steer-colours)),
+a spendable array interior ([L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame)),
+a value-numbered temp pool ([L49](#l49-one-general-expression-temp-per-function-value-numbered)),
+and a spelling ([L51](#l51-cfes-own--as-a-value-expansion-is-a-spelling-you-can-write)).
+Several were stated as floors ("the basin bottoms at 72") and a later force
+oracle on the same base returned 65.
+
+**Falsifies.** The habit that produces impossibility certificates at all:
+reasoning to a floor from a model, in a campaign whose whole activity is
+discovering that the model is incomplete. Every stage that wrote one had
+measured honestly; what none of them could measure was the term they did not
+know about.
+
+**Provenance:** ge007 `mp_watch_menu_display` (2026-08), whole campaign —
+~2900 builds, ~37 delegated stages, nine falsified certificates, seven decoded
+allocator/scheduler channels, from a scratch score of 6859 to
+instruction-exact.
+
+---
+
+## Instruments these laws were read with
+
+Not laws — the handles. Each was gated (§ the identity gate) before anything was
+concluded from it.
+
+* **`cc -Wa,-R`** — as1's own scheduler trace: per-block DAGs with
+  `before`/`aftercycles`/`maxhazard`/successor latencies and one record per
+  selection. Byte-inert, no patched binary, no profile to pin
+  ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)).
+* **`uopt -Wo,-zdbug:2`** — stock uopt writes `./uoptlist`: flow graph, unroll
+  trace, and the full itable in `printitab` form. No instrumented compiler
+  needed.
+* **`CDX_SYMTAB`** — the itable dump on the instrumented uopt. Frame home is
+  `raw10 + framesize` (two's complement), which is what turns a record into a
+  stack offset you can diff against a home census.
+* **The itable is value-numbered**, a hash table of expressions in
+  first-occurrence order: a repeated expression reuses its index and bumps its
+  version, so an index is stamped at the *first* appearance of that expression
+  — the property that makes a temp's birth site identifiable, and the property
+  that makes [L49](#l49-one-general-expression-temp-per-function-value-numbered)
+  true.
+* **The ucode carries no names.** `cfe -j` output holds the file name, the
+  procedure name and string literals; every local, parameter and temp is a bare
+  (class, offset) pair. There is no name to read for a temp short of `-g`, which
+  changes codegen.
+
 ---
 
 ## Claims a reader will find in older notes and should not believe
@@ -1198,6 +1632,14 @@ byte-exact ROM rebuild.
 | A ring-phase window is byte-exact iff one whole-function phase coordinate takes a fixed value | falsified by [L41](#l41-the-temp-ring-phase-is-a-seven-slot-vector-not-four-coordinates) | true only on the base it was measured on; the real state has more independent coordinates than the claim could see |
 | A donor-fusion kill works because the donor's definition precedes a loop with a use inside it | corrected by [L36](#l36-chargeb-exactly-a-store-placement-term) | direct instrumentation of `chargeB` shows the gate is store-placement, not loop membership; the loop supplied only the weight multiplier |
 | A re-deal is "worth 10 rows" (a band-relative improvement) | falsified by [L46](#l46-ring-quotiented-scores-are-not-positional-scores) | the same object scored positional 1045 once the ring-coset shift was accounted for |
+| The callee-save toll is a constant — a save/restore instruction price | corrected by [L56](#l56-the-callee-save-toll-is-a-saturating-size-term) | it is `clamp(nBB/4, 4, 60)`, a size term that saturates; every large procedure sees 60 |
+| A declined web is re-offered once another web opens the callee bank | retired by [L56](#l56-the-callee-save-toll-is-a-saturating-size-term) | 249 `p1dec` records, zero `p2dec`; a declined web splits and its fragments are new webs |
+| A plain local is memory-resident because its web loses the cost contest | corrected by [L55](#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins) | `save <= 0` strikes it before the contest; it emits no candidate record at all |
+| A copy relation can hand a web a forbidden colour (an `available0` bypass) | corrected by [L57](#l57-the-copy-relation-channel-available0-is-an-argmin-not-a-complement) | `available0` is the argmin of `f_cupcosts` over the **non-forbidden** colours |
+| The declaration list states the local supply; *N* locals is the ceiling at this frame size | falsified twice by [L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame) | an array whose base alone is addressed carries spendable bytes in its tail |
+| `a && b` as a value is expensive in every respelling | falsified by [L51](#l51-cfes-own--as-a-value-expansion-is-a-spelling-you-can-write) | cfe's own expansion, written out, is byte-identical at every site; the other spellings cost 264–860 rows |
+| There is always a materialised call result, so the cfe temp pool cannot be emptied | falsified by [L49](#l49-one-general-expression-temp-per-function-value-numbered) | the pool is one value-numbered symbol that re-mints; the sites are enumerable and were all removed |
+| Eight scheduler-tie rows are basin-invariant | corrected by [L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) | they were line-number-invariant; all eight fell to a whitespace-only edit |
 
 ---
 
