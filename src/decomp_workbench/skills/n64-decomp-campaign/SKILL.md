@@ -64,6 +64,15 @@ candidate reporting 1435 aligned rows against a 1865-row base while holding
 set on `words` instead and say so. `words=0` with `exact=true` is still the
 only matching claim.
 
+There is one explicit late-stage exception: after instruction counts and
+positional opcodes agree and `pool_exact=true`, run an allocation family with
+`campaign --rank-by temp-prefix`. It keeps a candidate whose first ugen-temp
+divergence moves later even if unrelated tail rows make `words` worse. Read
+`temp_prefix_exact`, `first_temp_divergence`, and `first_divergent_row`; do not
+substitute a scalar score for that trajectory. If an experiment declares
+`homologous_parameters`, follow a `campaign status` sibling suggestion only
+when it cites the measured one-parameter prefix gain that earned it.
+
 ## Choose the next experiment from the residual
 
 | Evidence | Work on | Do not start with |
@@ -147,6 +156,12 @@ retained `#line`/`.loc` evidence without guessing. Plan a force grid with
 reopen results with `oracle status`. A forced exact build tests a cause; it is
 not a source match.
 
+For ugen-local allocation, instrumented free-list events carry an emitted
+ordinal. Use `trace fifo --emission-map MAP.json` to join it to object row and
+source line. Never read the emitted ordinal itself as an object row: assembler
+folding makes that inference false, and the command reports missing calibration
+instead of making it.
+
 For a schedule residual, rebuilding with `-g0` is a layer-ownership probe. A
 collapse proves debug metadata constrains the `-g3` schedule and as1 can reach
 the target order; it does not prove the source shape is original. A freer
@@ -199,6 +214,9 @@ a frontend question until pass-boundary evidence proves otherwise.
    `decomp-workbench handoff audit PATH --dependency-root PROJECT`. Resolve
    every missing or untracked dependency; a file on the author's machine is
    not a reproducible handoff.
+7. Use `campaign package` to promote the recorded winner into the standard
+   checksummed scratch bundle; it revalidates campaign identities and refuses
+   a non-accepted candidate unless the mismatch override is explicit.
 
 Do not claim completion from normalized distance, a register-only report,
 cross-ROM structural evidence, a forced compiler result, or a decomp.me score.

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from decomp_workbench.campaign import (
+    campaign_result_sort_key,
     candidate_key,
     executable_identity,
     group_object_basins,
@@ -18,6 +19,9 @@ from decomp_workbench.campaign import (
     run_campaign,
 )
 from decomp_workbench.cli import parse_environment
+from decomp_workbench.compare import compare_instructions
+from decomp_workbench.model import CompileResult
+from decomp_workbench.objdump import parse_disassembly
 
 
 class CampaignArguments(TypedDict):
@@ -41,6 +45,71 @@ class StopOnExactArguments(TypedDict):
 
 
 class CampaignTests(unittest.TestCase):
+    def test_temp_prefix_ranking_preserves_later_progress_over_word_score(
+        self,
+    ) -> None:
+        target = parse_disassembly(
+            "  0: 8e0e0000 lw t6,0(s0)\n"
+            "  4: 8e0f0004 lw t7,4(s0)\n"
+            "  8: 8e180008 lw t8,8(s0)\n"
+            "  c: 8e19000c lw t9,12(s0)\n"
+        )
+        early = compare_instructions(
+            target,
+            parse_disassembly(
+                "  0: 8e080000 lw t0,0(s0)\n"
+                "  4: 8e0f0004 lw t7,4(s0)\n"
+                "  8: 8e180008 lw t8,8(s0)\n"
+                "  c: 8e19000c lw t9,12(s0)\n"
+            ),
+            target_name="target",
+            candidate_name="early",
+            symbol=None,
+        )
+        later_but_noisier = compare_instructions(
+            target,
+            parse_disassembly(
+                "  0: 8e0e0000 lw t6,0(s0)\n"
+                "  4: 8e0f0004 lw t7,4(s0)\n"
+                "  8: 8e080008 lw t0,8(s0)\n"
+                "  c: 8e09000c lw t1,12(s0)\n"
+            ),
+            target_name="target",
+            candidate_name="later",
+            symbol=None,
+        )
+        early_result = CompileResult(
+            source="early.c",
+            command=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+            object_path=None,
+            comparison=early,
+        )
+        later_result = CompileResult(
+            source="later.c",
+            command=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+            object_path=None,
+            comparison=later_but_noisier,
+        )
+
+        self.assertLess(early.word_mismatches, later_but_noisier.word_mismatches)
+        self.assertIsNotNone(early.temp_prefix_exact)
+        self.assertIsNotNone(later_but_noisier.temp_prefix_exact)
+        self.assertLess(
+            early.temp_prefix_exact or 0,
+            later_but_noisier.temp_prefix_exact or 0,
+        )
+        ordered = sorted(
+            [early_result, later_result],
+            key=lambda result: campaign_result_sort_key(result, rank_by="temp-prefix"),
+        )
+        self.assertEqual(ordered[0].source, "later.c")
+
     def test_compiler_identity_resolves_relative_executable(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             executable = Path(temp) / "compiler"

@@ -437,6 +437,56 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result.raw_word_mismatches, 0)
         self.assertEqual(result.relocation_metadata_mismatches, 0)
         self.assertEqual(result.relocation_target_mismatches, 1)
+        self.assertEqual(
+            result.relocation_target_differences,
+            [
+                {
+                    "instruction_index": 0,
+                    "relocation_index": 0,
+                    "target_instruction_offset": 0,
+                    "candidate_instruction_offset": 0,
+                    "target": {
+                        "offset": 0,
+                        "kind": "R_MIPS_26",
+                        "symbol": "callee",
+                        "addend": 4,
+                        "raw_target": "callee+0x4",
+                    },
+                    "candidate": {
+                        "offset": 0,
+                        "kind": "R_MIPS_26",
+                        "symbol": "other",
+                        "addend": 4,
+                        "raw_target": "other+0x4",
+                    },
+                }
+            ],
+        )
+
+    def test_positionally_opcode_exact_streams_never_gain_lcs_gaps(self) -> None:
+        target = parse_disassembly(
+            "  0: 01094021 addu t0,t0,t1\n"
+            "  4: 012a4821 addu t1,t1,t2\n"
+            "  8: 014b5021 addu t2,t2,t3\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 012a4821 addu t1,t1,t2\n"
+            "  4: 014b5021 addu t2,t2,t3\n"
+            "  8: 016c5821 addu t3,t3,t4\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        self.assertEqual(result.opcode_mismatches, 0)
+        self.assertEqual(result.aligned_gaps, 0)
+        self.assertEqual(result.alignment_method, "positional-opcode")
+        self.assertTrue(result.alignment_comparable)
 
     def test_raw_identity_is_scoped_to_instruction_words(self) -> None:
         instructions = parse_disassembly(TARGET)

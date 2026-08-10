@@ -92,12 +92,68 @@ def scratch_comparison_payload(item: Comparison) -> dict[str, object]:
     payload.update(
         accepted=score_exact,
         acceptance_basis=basis,
+        acceptance_summary=scratch_acceptance_line(item),
+        exact_scope="linked-function-after-relocation-field-masking",
         decomp_me_score_proxy_exact=score_exact,
         linked_function_exact=item.exact,
         raw_instruction_words_exact=item.raw_word_mismatches == 0,
         relocation_targets_exact=item.relocation_target_mismatches == 0,
     )
     return payload
+
+
+def scratch_acceptance_line(item: Comparison) -> str:
+    """Return the unambiguous first line for scratch acceptance."""
+
+    accepted, _ = scratch_score_acceptance(item)
+    if accepted:
+        return "ACCEPTED — raw instruction words and relocation targets agree"
+    reasons: list[str] = []
+    if item.raw_word_mismatches:
+        count = item.raw_word_mismatches
+        noun = "word" if count == 1 else "words"
+        verb = "differs" if count == 1 else "differ"
+        reasons.append(f"{count} raw instruction {noun} {verb}")
+    elif item.exact:
+        reasons.append("instruction text exact")
+    if item.relocation_target_mismatches:
+        count = item.relocation_target_mismatches
+        noun = "target" if count == 1 else "targets"
+        verb = "differs" if count == 1 else "differ"
+        reasons.append(f"{count} relocation {noun} {verb}")
+    if not item.exact and not item.raw_word_mismatches:
+        reasons.append("linked function differs")
+    return "NOT ACCEPTED — " + "; ".join(reasons)
+
+
+def relocation_target_difference_lines(item: Comparison) -> list[str]:
+    """Render target/candidate relocation details without requiring objdump."""
+
+    if not item.relocation_target_differences:
+        return []
+    lines = [
+        f"relocation target differences: {len(item.relocation_target_differences)}"
+    ]
+
+    def side(value: object) -> str:
+        if not isinstance(value, dict):
+            return "<missing>"
+        symbol = value.get("symbol") or "<none>"
+        addend = int(value.get("addend", 0))
+        suffix = f"{addend:+#x}" if addend else ""
+        return (
+            f"offset=0x{int(value['offset']):x} type={value['kind']} "
+            f"symbol={symbol}{suffix}"
+        )
+
+    for difference in item.relocation_target_differences:
+        lines.append(
+            f"  instruction {difference['instruction_index']} "
+            f"relocation {difference['relocation_index']}"
+        )
+        lines.append(f"    target    {side(difference.get('target'))}")
+        lines.append(f"    candidate {side(difference.get('candidate'))}")
+    return lines
 
 
 def comparison_payload(
@@ -236,6 +292,7 @@ def comparison_explanation_lines(
     if breakdown:
         lines.append(f"raw difference classes: {breakdown}")
     lines.extend(raw_versus_words_lines(item))
+    lines.extend(relocation_target_difference_lines(item))
     if item.diff_sites:
         classes = ", ".join(
             f"{name}={count}" for name, count in item.diff_site_classes.items()

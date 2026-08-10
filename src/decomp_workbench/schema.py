@@ -107,6 +107,38 @@ METRICS: tuple[Metric, ...] = (
         "aligned rows with a swapped commutative operand pair",
     ),
     Metric(
+        "pool_exact",
+        "pool_exact",
+        "whether the uopt-colored register lane stays exact for the full function",
+    ),
+    Metric(
+        "pool_prefix_exact",
+        "pool_prefix_exact",
+        "first aligned object row where the uopt-colored register lane diverges",
+    ),
+    Metric(
+        "temp_prefix_exact",
+        "temp_prefix_exact",
+        "first aligned object row where a ugen temp register lane diverges",
+    ),
+    Metric(
+        "first_temp_divergence",
+        "first_temp_divergence",
+        "class, lane slot, object row, registers, and rotation at the first "
+        "temp divergence",
+    ),
+    Metric(
+        "first_divergent_row",
+        "first_divergent_row",
+        "first aligned object row with a source-controlled difference",
+    ),
+    Metric(
+        "alignment_method",
+        "alignment_method",
+        "positional-opcode when equal-length opcode-identical streams bypass "
+        "LCS; otherwise lcs",
+    ),
+    Metric(
         "raw",
         "raw_word_mismatches",
         "positional 32-bit word differences before masking; literal identity "
@@ -275,6 +307,12 @@ METRICS: tuple[Metric, ...] = (
         "local decomp.me score proxy but not by linked-function exactness",
     ),
     Metric(
+        "relocation_target_differences",
+        "relocation_target_differences",
+        "per-relocation evidence for target symbol or addend differences, "
+        "including instruction and relocation positions",
+    ),
+    Metric(
         "unknown_relocations",
         "unknown_relocations",
         "relocation kinds without a precise field mask; prevents an exact "
@@ -407,6 +445,12 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
         "timeout_seconds",
         "timeout_seconds",
         "per-candidate compiler deadline; timed-out process groups are ended",
+    ),
+    Metric(
+        "rank_by",
+        "rank_by",
+        "campaign ordering policy: general comparison score, positional words, "
+        "or allocator temp-prefix progress",
     ),
     Metric(
         "object_basins",

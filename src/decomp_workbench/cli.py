@@ -51,6 +51,8 @@ from .collateral_cli import register_collateral_command
 from .compare import compare_instructions, compare_objects
 from .comparison_render import comparison_line as comparison_line
 from .comparison_render import (
+    relocation_target_difference_lines,
+    scratch_acceptance_line,
     scratch_comparison_payload,
     scratch_score_acceptance,
 )
@@ -134,6 +136,7 @@ from .toolchain import toolchain_status
 from .toolchain_cli import register_toolchain_commands
 from .trace import (
     alias_trace_summary,
+    parse_emission_map,
     parse_integer,
     parse_register,
     parse_trace,
@@ -175,6 +178,12 @@ CAMPAIGN_SUMMARY_KEYS = (
     "frame",
     "sha1",
     "sha256",
+    "pool_exact",
+    "pool_prefix_exact",
+    "temp_prefix_exact",
+    "first_temp_divergence",
+    "first_divergent_row",
+    "alignment_method",
 )
 
 
@@ -558,6 +567,8 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(f"scratch: {package.kind} ({display_path(package.path)})")
+        if comparison is not None:
+            print("acceptance: " + scratch_acceptance_line(comparison))
         metadata = package.public_metadata()
         identity = metadata.get("name") or metadata.get("project")
         slug = metadata.get("slug")
@@ -662,6 +673,9 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                 )
             if view is None:
                 print_comparison_explanation(comparison, cross_rom=False)
+            else:
+                for line in relocation_target_difference_lines(comparison):
+                    print(line)
             if args.show_diff:
                 print_diff_sites(comparison)
             if view is not None:
@@ -923,6 +937,23 @@ def render_compile_command(template: str, source: Path, output: Path) -> list[st
     return render_campaign_command(template, source, output)
 
 
+def allocation_progress_label(comparison: Comparison) -> str:
+    """Render the lane-prefix fields used by late-stage campaign ranking."""
+
+    pool = "exact" if comparison.pool_exact else str(comparison.pool_prefix_exact)
+    temp = (
+        "exact"
+        if comparison.temp_prefix_exact is None
+        else str(comparison.temp_prefix_exact)
+    )
+    first = (
+        "exact"
+        if comparison.first_divergent_row is None
+        else str(comparison.first_divergent_row)
+    )
+    return f"pool={pool} temp-prefix={temp} first-row={first}"
+
+
 def compile_rank_command(args: argparse.Namespace) -> int:
     """Compatibility ranking surface backed by the campaign engine."""
 
@@ -945,6 +976,7 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             stream_limit=args.stream_limit,
             artifact_dir=args.artifact_dir,
+            rank_by=args.rank_by,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -952,7 +984,6 @@ def compile_rank_command(args: argparse.Namespace) -> int:
     successes = [
         (item, item.comparison) for item in results if item.comparison is not None
     ]
-    successes.sort(key=lambda item: item[1].sort_key)
     failures = [item for item in results if item.comparison is None]
     ordered = [item for item, _ in successes] + failures
     if args.limit:
@@ -967,7 +998,12 @@ def compile_rank_command(args: argparse.Namespace) -> int:
         )
     else:
         for rank, (_, comparison) in enumerate(successes[: args.limit or None], 1):
-            print(f"{rank:3d} {comparison_line(comparison)}")
+            progress = (
+                f" [{allocation_progress_label(comparison)}]"
+                if args.rank_by == "temp-prefix"
+                else ""
+            )
+            print(f"{rank:3d} {comparison_line(comparison)}{progress}")
         for result in failures:
             detail = result.stderr.strip().splitlines()
             message = detail[-1] if detail else f"exit {result.returncode}"
@@ -1049,6 +1085,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                 timeout=args.timeout,
                 stop_on_exact=args.stop_on_exact,
                 experiment=experiment.as_dict() if experiment else None,
+                rank_by=args.rank_by,
             )
             effective_ledger = ledger_path
         results, duplicates = run_campaign(
@@ -1070,6 +1107,7 @@ def campaign_command(args: argparse.Namespace) -> int:
             artifact_dir=args.artifact_dir,
             candidate_metadata=candidate_metadata,
             selected_region=experiment.region if experiment else None,
+            rank_by=args.rank_by,
         )
         if manifest_path is not None:
             finish_manifest(
@@ -1103,7 +1141,7 @@ def campaign_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     shown = results[: args.limit] if args.limit else results
-    basins = group_object_basins(results)
+    basins = group_object_basins(results, rank_by=args.rank_by)
     unrun = len(duplicates) - len(results)
 
     def basin_summary(basin: list[CompileResult]) -> dict[str, object]:
@@ -1154,6 +1192,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "stopped_on_exact": bool(unrun) and args.stop_on_exact,
                     "source_files": sum(len(items) for items in duplicates.values()),
                     "timeout_seconds": args.timeout,
+                    "rank_by": args.rank_by,
                     "manifest": str(manifest_path) if manifest_path else None,
                     "ledger": str(effective_ledger) if effective_ledger else None,
                     "experiment": experiment.as_dict() if experiment else None,
@@ -1171,6 +1210,11 @@ def campaign_command(args: argparse.Namespace) -> int:
                 print(
                     f"{rank:3d} {comparison_line(result.comparison)} "
                     f"[{cache} {result.duration_seconds:.2f}s]"
+                    + (
+                        f" [{allocation_progress_label(result.comparison)}]"
+                        if args.rank_by == "temp-prefix"
+                        else ""
+                    )
                 )
             else:
                 detail = result.stderr.strip().splitlines()
@@ -1408,6 +1452,13 @@ def parse_register_list(value: str | None) -> list[int] | None:
 def trace_fifo_command(args: argparse.Namespace) -> int:
     try:
         events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+        emission_map = (
+            parse_emission_map(
+                json.loads(Path(args.emission_map).read_text(encoding="utf-8"))
+            )
+            if args.emission_map
+            else None
+        )
         initial = parse_register_list(args.initial)
         selected = parse_register_list(args.registers)
         list_address = parse_integer(args.list_address) if args.list_address else None
@@ -1418,6 +1469,7 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
             initial_queue=initial,
             registers=set(selected) if selected is not None else None,
             list_address=list_address,
+            emission_map=emission_map,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -1438,16 +1490,39 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
             f"{sum(event.action == 'allocate' for event in report.logical_events)} "
             f"max-live={report.max_live}"
         )
+        join = report.as_dict()["emission_join"]
+        if isinstance(join, dict) and join["with_emitted_index"]:
+            print(
+                "emission join: "
+                f"emitted={join['with_emitted_index']}/"
+                f"{join['logical_events']} rows={join['with_object_row']} "
+                f"source={join['with_source_line']} "
+                f"complete={'yes' if join['complete'] else 'no'}"
+            )
+            if join["calibration_required"]:
+                print(
+                    "note: emitted ordinals are not object rows; pass "
+                    "--emission-map to supply measured calibration"
+                )
         for violation in report.violations:
             print(f"VIOLATION {violation}", file=sys.stderr)
         if args.show_events:
             for event in report.logical_events:
+                emitted = (
+                    event.emitted_index if event.emitted_index is not None else "-"
+                )
+                object_row = event.object_row if event.object_row is not None else "-"
                 print(
                     f"{event.action:8s} v{event.value:<4d} "
                     f"{register_name(event.register):>3s} "
+                    f"emit={emitted:>5} "
+                    f"row={object_row:>5} "
                     f"source={event.source_line or '-':>5} "
                     f"trace={event.trace_line}"
                 )
+                if event.instruction or event.source_file:
+                    location = f"{event.source_file or '?'}:{event.source_line or '?'}"
+                    print(f"         {location}  {event.instruction or '-'}")
     return 1 if args.fail_on_violation and not report.valid else 0
 
 
@@ -1969,6 +2044,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fifo_parser.add_argument(
         "--list-address", help="only include appends for this list"
+    )
+    fifo_parser.add_argument(
+        "--emission-map",
+        help=(
+            "JSON mapping instrumented emitted indices to object rows and "
+            "optional source locations"
+        ),
     )
     fifo_parser.add_argument(
         "--show-events", action="store_true", help="print the logical event schedule"

@@ -9,6 +9,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from .commutative import CommutativeFinding, commutative_findings
 from .elf_instructions import true_instruction_count as elf_true_instruction_count
@@ -19,7 +20,7 @@ from .field_guide import (
     next_steps,
 )
 from .literal_pool import PoolReport
-from .model import Comparison, Instruction, display_path
+from .model import Comparison, Instruction, Relocation, display_path
 from .objdump import (
     cross_function_warning,
     dump_object,
@@ -273,6 +274,85 @@ def relocation_target_signature(
     return tuple((item.kind, item.symbol) for item in instruction.relocations)
 
 
+RELOCATION_ADDEND_RE = re.compile(
+    r"^(?P<symbol>.*?)(?P<addend>[+-](?:0x[0-9a-fA-F]+|\d+))$"
+)
+
+
+def relocation_target_parts(symbol: str | None) -> tuple[str | None, int]:
+    """Split GNU objdump's ``symbol+addend`` spelling for reports."""
+
+    if symbol is None:
+        return None, 0
+    match = RELOCATION_ADDEND_RE.match(symbol)
+    if match is None or not match.group("symbol"):
+        return symbol, 0
+    return match.group("symbol"), int(match.group("addend"), 0)
+
+
+def relocation_target_differences(
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
+) -> list[dict[str, object]]:
+    """Return every positional relocation target mismatch with both sides.
+
+    Missing instructions and missing relocation entries are represented by
+    ``None`` rather than compressed into a count. Offsets are retained for
+    both objects because an insertion can make the two coordinates differ.
+    """
+
+    differences: list[dict[str, object]] = []
+    width = max(len(target), len(candidate))
+    for index in range(width):
+        expected = target[index] if index < len(target) else None
+        actual = candidate[index] if index < len(candidate) else None
+        expected_relocations = expected.relocations if expected is not None else ()
+        actual_relocations = actual.relocations if actual is not None else ()
+        relocation_width = max(len(expected_relocations), len(actual_relocations))
+        for relocation_index in range(relocation_width):
+            left = (
+                expected_relocations[relocation_index]
+                if relocation_index < len(expected_relocations)
+                else None
+            )
+            right = (
+                actual_relocations[relocation_index]
+                if relocation_index < len(actual_relocations)
+                else None
+            )
+            left_signature = None if left is None else (left.kind, left.symbol)
+            right_signature = None if right is None else (right.kind, right.symbol)
+            if left_signature == right_signature:
+                continue
+
+            def payload(relocation: Relocation | None) -> dict[str, object] | None:
+                if relocation is None:
+                    return None
+                base, addend = relocation_target_parts(relocation.symbol)
+                return {
+                    "offset": relocation.offset,
+                    "kind": relocation.kind,
+                    "symbol": base,
+                    "addend": addend,
+                    "raw_target": relocation.symbol,
+                }
+
+            differences.append(
+                {
+                    "instruction_index": index,
+                    "relocation_index": relocation_index,
+                    "target_instruction_offset": (
+                        expected.address if expected is not None else None
+                    ),
+                    "candidate_instruction_offset": (
+                        actual.address if actual is not None else None
+                    ),
+                    "target": payload(left),
+                    "candidate": payload(right),
+                }
+            )
+    return differences
+
+
 # Integer and floating-point operations whose two source operands are
 # interchangeable.  A swap here is front-end expression shape, never register
 # allocation.
@@ -343,6 +423,17 @@ ALIGNMENT_GAP_KEYS: tuple[str, ...] = ("aligned_insertions", "aligned_deletions"
 OPCODE_MISMATCH_CAUTION_THRESHOLD = 2
 
 
+class AlignmentProgress(TypedDict):
+    """Machine-readable allocation progress extracted from one view."""
+
+    pool_exact: bool
+    pool_prefix_exact: int | None
+    temp_prefix_exact: int | None
+    first_temp_divergence: dict[str, object] | None
+    first_divergent_row: int | None
+    alignment_method: str
+
+
 def alignment_caution(
     *, insertions: int, deletions: int, opcode_mismatches: int
 ) -> str | None:
@@ -379,8 +470,9 @@ def aligned_residual_analysis(
     list[dict[str, object]],
     PoolReport | None,
     tuple[CommutativeFinding, ...],
+    AlignmentProgress,
 ]:
-    """Return LCS-aligned counts, gaps, residual sites, pool, and commutative findings.
+    """Return aligned evidence, including late-stage prefix progress.
 
     Positional counting misranked candidates in six recorded campaigns: one
     inserted instruction shifts every later position, so a candidate that is one
@@ -405,7 +497,7 @@ def aligned_residual_analysis(
 
     # ``view`` is built on top of this module, so the import is deferred rather
     # than inverting the layering for one call.
-    from .view import POOL, POOL_LAYOUT, RESIDUAL_CLASSES, build_view
+    from .view import POOL, POOL_LAYOUT, RESIDUAL_CLASSES, Lane, build_view
 
     if not target or not candidate:
         # There is nothing to align against, so every instruction the other side
@@ -429,7 +521,22 @@ def aligned_residual_analysis(
             }
             for index in range(max(len(target), len(candidate)))
         ]
-        return counts, gaps, sites, None, ()
+        empty_progress: AlignmentProgress = {
+            "pool_exact": not target and not candidate,
+            "pool_prefix_exact": 0,
+            "temp_prefix_exact": 0,
+            "first_temp_divergence": None,
+            "first_divergent_row": 0,
+            "alignment_method": "lcs",
+        }
+        return (
+            counts,
+            gaps,
+            sites,
+            None,
+            (),
+            empty_progress,
+        )
     view = build_view(
         target,
         candidate,
@@ -471,7 +578,68 @@ def aligned_residual_analysis(
             candidate_slots=view.pool.candidate_slots,
         )
     )
-    return counts, gaps, sites, pool, commutative_findings(view.rows)
+    pool_lanes = [lane for lane in view.lanes if lane.classification == "pool"]
+    temp_lanes = [
+        lane for lane in view.lanes if lane.classification in {"temp", "fp-temp"}
+    ]
+
+    def first_lane_divergence(lanes: Sequence[Lane]) -> Lane | None:
+        diverging = [lane for lane in lanes if lane.divergence_row is not None]
+        return min(
+            diverging,
+            key=lambda lane: (
+                lane.divergence_row if lane.divergence_row is not None else 1 << 30
+            ),
+            default=None,
+        )
+
+    first_pool = first_lane_divergence(pool_lanes)
+    first_temp = first_lane_divergence(temp_lanes)
+    first_temp_payload = None
+    if first_temp is not None:
+        assert first_temp.divergence is not None
+        assert first_temp.divergence_row is not None
+        slot = first_temp.divergence
+        target_registers = first_temp.target
+        candidate_registers = first_temp.candidate
+        first_temp_payload = {
+            "class": first_temp.classification,
+            "slot": slot,
+            "aligned_row": first_temp.divergence_row,
+            "target_register": (
+                target_registers[slot] if slot < len(target_registers) else None
+            ),
+            "candidate_register": (
+                candidate_registers[slot] if slot < len(candidate_registers) else None
+            ),
+            "rotation": first_temp.rotation,
+        }
+    pool_prefix = first_pool.divergence_row if first_pool is not None else None
+    temp_prefix = first_temp.divergence_row if first_temp is not None else None
+    progress: AlignmentProgress = {
+        "pool_exact": first_pool is None,
+        "pool_prefix_exact": pool_prefix,
+        "temp_prefix_exact": temp_prefix,
+        "first_temp_divergence": first_temp_payload,
+        "first_divergent_row": view.prefix_exact,
+        "alignment_method": (
+            "positional-opcode"
+            if len(target) == len(candidate)
+            and all(
+                left.opcode == right.opcode
+                for left, right in zip(target, candidate, strict=True)
+            )
+            else "lcs"
+        ),
+    }
+    return (
+        counts,
+        gaps,
+        sites,
+        pool,
+        commutative_findings(view.rows),
+        progress,
+    )
 
 
 def aligned_residual(
@@ -479,7 +647,7 @@ def aligned_residual(
 ) -> dict[str, int]:
     """Return the LCS-aligned residual counts, keyed for the report."""
 
-    counts, _, _, _, _ = aligned_residual_analysis(target, candidate)
+    counts, _, _, _, _, _ = aligned_residual_analysis(target, candidate)
     return counts
 
 
@@ -1066,9 +1234,15 @@ def compare_instructions(
         and fp_count == 0
         and target_frame == candidate_frame
     )
-    aligned, aligned_gaps, aligned_sites, pool, commutative = aligned_residual_analysis(
-        target, candidate
-    )
+    (
+        aligned,
+        aligned_gaps,
+        aligned_sites,
+        pool,
+        commutative,
+        progress,
+    ) = aligned_residual_analysis(target, candidate)
+    relocation_differences = relocation_target_differences(target, candidate)
     breakdown = raw_difference_breakdown(
         target, candidate, target_words, candidate_words
     )
@@ -1179,6 +1353,17 @@ def compare_instructions(
         diff_site_classes=site_classes,
         aligned_diff_sites=aligned_sites,
         commutative_findings=[item.as_dict() for item in commutative],
+        relocation_target_differences=relocation_differences,
+        pool_exact=progress["pool_exact"],
+        pool_prefix_exact=progress["pool_prefix_exact"],
+        temp_prefix_exact=progress["temp_prefix_exact"],
+        first_temp_divergence=(
+            dict(progress["first_temp_divergence"])
+            if isinstance(progress["first_temp_divergence"], dict)
+            else None
+        ),
+        first_divergent_row=progress["first_divergent_row"],
+        alignment_method=progress["alignment_method"],
         warnings=resolved_warnings,
         target_frame_layout=target_frame_layout,
         candidate_frame_layout=candidate_frame_layout,

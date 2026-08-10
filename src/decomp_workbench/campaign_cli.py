@@ -21,6 +21,7 @@ from .campaign_state import (
 )
 from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
 from .experiments import EXPERIMENT_SCHEMA, RegionConstraint
+from .scratch_bundle import bundle_scratch
 
 
 def _compact_parameter_evidence(family: dict[str, Any]) -> tuple[str, str]:
@@ -69,6 +70,24 @@ def _print_status(report: dict[str, Any]) -> None:
             print(
                 f"best: {best.get('source')} — {comparison.get('verdict')} "
                 f"aligned={comparison.get('aligned_total')} "
+                f"words={comparison.get('words', comparison.get('word_mismatches'))}"
+            )
+    best_temp = report.get("best_temp_prefix")
+    if isinstance(best_temp, dict) and best_temp.get("source") != (
+        best.get("source") if isinstance(best, dict) else None
+    ):
+        comparison = best_temp.get("comparison")
+        if isinstance(comparison, dict):
+            temp = comparison.get("temp_prefix_exact")
+            pool = (
+                "exact"
+                if comparison.get("pool_exact")
+                else comparison.get("pool_prefix_exact")
+            )
+            print(
+                f"best temp prefix: {best_temp.get('source')} — "
+                f"pool={pool} "
+                f"temp={'exact' if temp is None else temp} "
                 f"words={comparison.get('words', comparison.get('word_mismatches'))}"
             )
     print(
@@ -124,6 +143,13 @@ def _print_status(report: dict[str, Any]) -> None:
             print(f"    declared: {declared}")
     if report.get("hypothesis"):
         print(f"hypothesis: {report['hypothesis']}")
+    for suggestion in report.get("homologous_guidance", []):
+        print(
+            "homologous next: "
+            f"{suggestion['sibling_parameter']}={suggestion['winning_value']!r} — "
+            f"{suggestion['reason']}"
+        )
+        print(f"  parameters: {suggestion['suggested_parameters']}")
     print(f"manifest: {report['manifest']}")
 
 
@@ -204,6 +230,7 @@ def campaign_resume_command(args: argparse.Namespace) -> int:
                 artifact_dir=manifest.get("artifact_directory"),
                 candidate_metadata=candidate_metadata,
                 selected_region=selected_region,
+                rank_by=str(execution.get("rank_by", "auto")),
             )
             finish_manifest(
                 manifest_path,
@@ -358,6 +385,97 @@ def campaign_survey_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def campaign_package_command(args: argparse.Namespace) -> int:
+    """Promote a measured campaign winner into a paste-ready scratch bundle."""
+
+    try:
+        manifest_path = find_manifest(args.campaign, state_root=args.state_dir)
+        manifest = validate_resume(manifest_path)
+        report = build_status(manifest_path)
+        selected_key = "best_temp_prefix" if args.selection == "temp-prefix" else "best"
+        selected = report.get(selected_key)
+        if not isinstance(selected, dict):
+            raise ValueError("campaign has no successful candidate to package")
+        comparison = selected.get("comparison")
+        if not isinstance(comparison, dict):
+            raise ValueError("selected campaign candidate has no comparison evidence")
+        raw_value = comparison.get("raw", comparison.get("raw_word_mismatches"))
+        relocation_value = comparison.get("relocation_target_mismatches")
+        accepted = (
+            bool(comparison.get("exact"))
+            and isinstance(raw_value, int)
+            and raw_value == 0
+            and isinstance(relocation_value, int)
+            and relocation_value == 0
+        )
+        if not accepted and not args.allow_mismatch:
+            raise ValueError(
+                "selected candidate is not scratch-accepted; pass --allow-mismatch "
+                "only when intentionally packaging a near-match"
+            )
+        cache_key = selected.get("cache_key")
+        source_record = next(
+            (
+                item
+                for item in manifest.get("sources", [])
+                if isinstance(item, dict) and item.get("cache_key") == cache_key
+            ),
+            None,
+        )
+        if not isinstance(source_record, dict):
+            raise ValueError("selected source is absent from the campaign manifest")
+        source = Path(str(source_record["path"]))
+        if not source.is_file():
+            raise FileNotFoundError(
+                f"selected campaign source no longer exists: {source}"
+            )
+        result = bundle_scratch(
+            args.output,
+            target_assembly=args.target_assembly,
+            context=args.context,
+            source=source,
+            platform=args.platform,
+            compiler=args.compiler,
+            compiler_flags=args.compiler_flags,
+            diff_label=args.diff_label,
+            project=args.project,
+            preset=args.preset,
+            compiler_id=args.compiler_id,
+            language=args.language,
+            provenance={
+                "schema": "decomp-workbench-campaign-promotion-v1",
+                "campaign_identity": manifest["identity"],
+                "campaign_manifest": str(manifest_path),
+                "selection": args.selection,
+                "source_cache_key": cache_key,
+                "source_sha256": source_record["sha256"],
+                "scratch_accepted": accepted,
+                "comparison": comparison,
+            },
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    payload = {
+        "schema": "decomp-workbench-campaign-package-result-v1",
+        "output": result.output,
+        "source": str(source),
+        "selection": args.selection,
+        "scratch_accepted": accepted,
+        "manifest": result.manifest,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"campaign scratch bundle: {result.output}")
+        print(f"source: {source}")
+        print(f"acceptance: {'ACCEPTED' if accepted else 'MISMATCH ALLOWED'}")
+        print(
+            "next: verify SHA256SUMS, then follow the generated README.md paste order"
+        )
+    return 0
+
+
 _SURVEY_DESCRIPTION = (
     "Read a campaign working directory -- the one holding the stage "
     "directories -- and report what is in it: every stage by recency with its "
@@ -443,6 +561,36 @@ def register_campaign_cockpit_commands(
     export.add_argument("--format", choices=("json", "html"), default="html")
     export.add_argument("--json", action="store_true", help="emit result JSON")
     export.set_defaults(handler=campaign_export_command)
+
+    package = commands.add_parser(
+        "campaign-package",
+        help=argparse.SUPPRESS,
+        description=(
+            "Promote a validated campaign winner into a deterministic, "
+            "paste-ready decomp.me scratch bundle."
+        ),
+    )
+    package.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    package.add_argument("--state-dir", default=".decomp-workbench")
+    package.add_argument("--output", required=True)
+    package.add_argument(
+        "--selection",
+        choices=("score", "temp-prefix"),
+        default="score",
+    )
+    package.add_argument("--allow-mismatch", action="store_true")
+    package.add_argument("--target-assembly", required=True)
+    package.add_argument("--context", required=True)
+    package.add_argument("--platform", required=True)
+    package.add_argument("--compiler", required=True)
+    package.add_argument("--compiler-id")
+    package.add_argument("--language")
+    package.add_argument("--compiler-flags", default="")
+    package.add_argument("--diff-label", required=True)
+    package.add_argument("--project")
+    package.add_argument("--preset")
+    package.add_argument("--json", action="store_true", help="emit JSON")
+    package.set_defaults(handler=campaign_package_command)
 
     note = commands.add_parser(
         "campaign-note",

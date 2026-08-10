@@ -577,6 +577,7 @@ def _execute_candidates(
     candidate_metadata: Mapping[str, dict[str, Any]],
     selected_region: RegionConstraint | None,
     deduplicate_ledger: bool,
+    rank_by: str,
 ) -> list[CompileResult]:
     """Execute prepared candidates through one lifecycle and target image."""
 
@@ -677,7 +678,7 @@ def _execute_candidates(
                 future.cancel()
             terminate_running_compilers()
             raise
-    results.sort(key=sort_campaign_results_key(results))
+    results.sort(key=sort_campaign_results_key(results, rank_by=rank_by))
     return results
 
 
@@ -701,6 +702,7 @@ def run_campaign(
     artifact_dir: str | Path | None = None,
     candidate_metadata: dict[str, dict[str, Any]] | None = None,
     selected_region: RegionConstraint | None = None,
+    rank_by: str = "auto",
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
     """Compile a candidate set and return results in deterministic order.
 
@@ -719,6 +721,8 @@ def run_campaign(
         raise ValueError("--timeout must be positive")
     if stream_limit < 0:
         raise ValueError("--stream-limit must be non-negative")
+    if rank_by not in {"auto", "words", "temp-prefix"}:
+        raise ValueError("rank_by must be auto, words, or temp-prefix")
     target_path = Path(target).expanduser().resolve()
     if not target_path.is_file():
         raise FileNotFoundError(f"target object does not exist: {target_path}")
@@ -778,6 +782,7 @@ def run_campaign(
         candidate_metadata=candidate_metadata or {},
         selected_region=selected_region,
         deduplicate_ledger=False,
+        rank_by=rank_by,
     )
     return results, duplicates
 
@@ -799,6 +804,7 @@ def run_parameterized_campaign(
     timeout: float | None = 120.0,
     stream_limit: int = DEFAULT_STREAM_LIMIT,
     artifact_dir: str | Path | None = None,
+    rank_by: str = "auto",
 ) -> list[CompileResult]:
     """Run one source under many explicit environments in one campaign core."""
 
@@ -808,6 +814,8 @@ def run_parameterized_campaign(
         raise ValueError("--timeout must be positive")
     if stream_limit < 0:
         raise ValueError("--stream-limit must be non-negative")
+    if rank_by not in {"auto", "words", "temp-prefix"}:
+        raise ValueError("rank_by must be auto, words, or temp-prefix")
     target_path = Path(target).expanduser().resolve()
     if not target_path.is_file():
         raise FileNotFoundError(f"target object does not exist: {target_path}")
@@ -882,6 +890,7 @@ def run_parameterized_campaign(
         candidate_metadata=metadata,
         selected_region=None,
         deduplicate_ledger=True,
+        rank_by=rank_by,
     )
 
 
@@ -918,7 +927,7 @@ def region_score(
 
 
 def campaign_result_sort_key(
-    result: CompileResult, *, by_raw: bool = False
+    result: CompileResult, *, by_raw: bool = False, rank_by: str = "auto"
 ) -> tuple[object, ...]:
     """Rank region preservation before the ordinary whole-function metric.
 
@@ -939,7 +948,31 @@ def campaign_result_sort_key(
     comparison = result.comparison
     metric: tuple[object, ...] = ()
     if comparison is not None:
-        metric = comparison.raw_sort_key if by_raw else comparison.sort_key
+        if rank_by == "temp-prefix":
+            # This is a deliberate late-stage ordering. Pool stability is the
+            # gate; then a temp lane that remains exact farther through the
+            # function wins even when unrelated later rows make words worse.
+            # ``None`` means the lane never diverged, so it sorts ahead of any
+            # finite row. Shape-incompatible candidates remain behind the
+            # population for which the prefix comparison is meaningful.
+            temp_row = comparison.temp_prefix_exact
+            metric = (
+                comparison.alignment_method != "positional-opcode",
+                not comparison.pool_exact,
+                temp_row is not None,
+                -(
+                    temp_row
+                    if temp_row is not None
+                    else comparison.target_instructions + 1
+                ),
+                comparison.word_mismatches,
+                comparison.aligned_total,
+                comparison.candidate,
+            )
+        elif rank_by == "words":
+            metric = comparison.raw_sort_key
+        else:
+            metric = comparison.raw_sort_key if by_raw else comparison.sort_key
     return (
         comparison is None,
         *region_key,
@@ -950,6 +983,8 @@ def campaign_result_sort_key(
 
 def sort_campaign_results_key(
     results: Sequence[CompileResult],
+    *,
+    rank_by: str = "auto",
 ) -> Callable[[CompileResult], tuple[object, ...]]:
     """Return the ordering key this result set can honestly be sorted on."""
 
@@ -959,10 +994,16 @@ def sort_campaign_results_key(
         if result.comparison is not None
     }
     by_raw = len(statuses) > 1
-    return lambda result: campaign_result_sort_key(result, by_raw=by_raw)
+    return lambda result: campaign_result_sort_key(
+        result,
+        by_raw=by_raw,
+        rank_by=rank_by,
+    )
 
 
-def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileResult]]:
+def group_object_basins(
+    results: Iterable[CompileResult], *, rank_by: str = "auto"
+) -> list[list[CompileResult]]:
     """Group successful variants that compiled to the same function bytes.
 
     Source-equivalent experiments often look different while collapsing to one
@@ -970,23 +1011,20 @@ def group_object_basins(results: Iterable[CompileResult]) -> list[list[CompileRe
     overstating how many independent ideas it actually tested.
     """
 
+    materialized = list(results)
+    result_key = sort_campaign_results_key(materialized, rank_by=rank_by)
     buckets: dict[str, list[CompileResult]] = {}
-    for result in results:
+    for result in materialized:
         comparison = result.comparison
         if comparison is None:
             continue
         buckets.setdefault(comparison.candidate_sha256, []).append(result)
     grouped = list(buckets.values())
     for basin in grouped:
-        basin.sort(
-            key=lambda item: (
-                item.comparison.sort_key if item.comparison else (),
-                item.source,
-            )
-        )
+        basin.sort(key=result_key)
     grouped.sort(
         key=lambda basin: (
-            basin[0].comparison.sort_key if basin[0].comparison else (),
+            result_key(basin[0]),
             basin[0].comparison.candidate_sha256 if basin[0].comparison else "",
         )
     )

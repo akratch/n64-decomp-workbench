@@ -61,9 +61,15 @@ static void dkwb_trace_exit(int *unused) {
     }
     dkwb_trace_depth--;
 }
-static void dkwb_freelist(const char *event, unsigned reg) {
+#define DKWB_IBUFFER_FORWARD_CURSOR 0x10018e70u
+static long dkwb_emit_index(uint8_t *mem) {
+    if (mem == NULL) return -1;
+    return (long) MEM_U32(DKWB_IBUFFER_FORWARD_CURSOR) - 1;
+}
+static void dkwb_freelist(const char *event, unsigned reg, uint8_t *mem) {
     if (dkwb_trace_on()) {
-        fprintf(stderr, "DKWB-FREELIST %s reg=%u\n", event, reg & 0xffu);
+        fprintf(stderr, "DKWB-FREELIST %s reg=%u emitted=%ld\n",
+                event, reg & 0xffu, dkwb_emit_index(mem));
     }
 }
 #define DKWB_TRACE_FRAME(name) \
@@ -109,8 +115,12 @@ def instrument_ugen(
             additions.append(f'DKWB_TRACE_FRAME("{name}");')
             function_count += 1
         event = FREE_LIST_FUNCTIONS.get(name)
-        if event and re.search(r"\ba0\b", match.group("header")):
-            additions.append(f'dkwb_freelist("{event}", a0);')
+        if (
+            event
+            and re.search(r"\ba0\b", match.group("header"))
+            and re.search(r"\bmem\b", match.group("header"))
+        ):
+            additions.append(f'dkwb_freelist("{event}", a0, mem);')
             free_list_count += 1
         if not additions:
             return match.group(0)

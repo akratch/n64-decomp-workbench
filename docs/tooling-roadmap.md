@@ -195,14 +195,16 @@ statement owns object row R" stops being guesswork whenever a change is
 non-local, and "how many extra fp temporaries do we request before row 964"
 becomes a subtraction instead of a search.
 
-**Why it is not shipped yet.** The uopt.O half needs the ucode decoder above,
+**Current boundary.** The uopt.O half needs the ucode decoder above,
 which is itself deferred and for the same reason: the record arity table is
 empirical. Shipping the map without it would mean publishing record *indices*
 that the workbench cannot parse into records, which is a coordinate system with
-no origin. The `ugen` half is closer — it is an instrumentation profile plus a
-join — but it needs the emitted-instruction index to come from the pass rather
-than be inferred, and the workbench's `ugen` instrumentation is currently a
-shallow call/free-list locator with no emission hook.
+no origin. The `ugen` half now ships: `instrument ugen` stamps free-list events
+with the pass's forward-ibuffer ordinal, and `trace fifo --emission-map` joins a
+measured ordinal calibration to object row and source file/line. It does not
+infer that the ordinal is an object row; missing calibration remains null and
+is reported as required. The remaining map work is therefore the validated
+uopt-record range, not the ugen emission hook.
 
 **What did ship instead.** The half of this that needs no stage instrumentation
 at all is now `force-rows` (see

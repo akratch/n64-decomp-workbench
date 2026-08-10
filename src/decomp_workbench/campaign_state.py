@@ -109,6 +109,7 @@ def initialize_manifest(
     timeout: float | None,
     stop_on_exact: bool,
     experiment: dict[str, Any] | None = None,
+    rank_by: str = "auto",
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Create or extend the one manifest for a reproducible campaign identity."""
 
@@ -162,6 +163,7 @@ def initialize_manifest(
             "jobs": jobs,
             "timeout_seconds": timeout,
             "stop_on_exact": stop_on_exact,
+            "rank_by": rank_by,
         },
         "sources": sorted(source_records, key=lambda item: str(item["path"])),
         "experiment": experiment,
@@ -302,6 +304,21 @@ def _comparison_key(comparison: Mapping[str, Any]) -> tuple[object, ...]:
     )
 
 
+def _temp_prefix_key(comparison: Mapping[str, Any]) -> tuple[object, ...]:
+    """Rank the allocation-stable population by how late temps diverge."""
+
+    temp = comparison.get("temp_prefix_exact")
+    instructions = int(comparison.get("target_instructions", 0))
+    effective = instructions + 1 if temp is None else int(temp)
+    return (
+        comparison.get("alignment_method") != "positional-opcode",
+        not bool(comparison.get("pool_exact", False)),
+        -effective,
+        int(comparison.get("words", comparison.get("word_mismatches", 1 << 30))),
+        str(comparison.get("candidate", "")),
+    )
+
+
 def _compact_record(record: Mapping[str, Any]) -> dict[str, Any]:
     comparison = record.get("comparison")
     compact_comparison: dict[str, Any] | None = None
@@ -317,8 +334,18 @@ def _compact_record(record: Mapping[str, Any]) -> dict[str, Any]:
             "aligned_register",
             "aligned_constant",
             "aligned_commutative",
+            "pool_exact",
+            "pool_prefix_exact",
+            "temp_prefix_exact",
+            "first_temp_divergence",
+            "first_divergent_row",
+            "alignment_method",
             "words",
             "word_mismatches",
+            "raw",
+            "raw_word_mismatches",
+            "relocation_target_mismatches",
+            "relocation_metadata_mismatches",
             "candidate_sha1",
             "candidate_sha256",
         )
@@ -395,6 +422,110 @@ def _recover_experiment_metadata(
     return enriched, recovered
 
 
+def _homologous_guidance(
+    manifest: Mapping[str, Any],
+    successful: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Turn measured one-parameter prefix gains into sibling-branch probes.
+
+    Homology is declared by the generator, never guessed from parameter names.
+    A recommendation requires an observed pair that differs in exactly one
+    homologous parameter while every other parameter is held fixed, and it is
+    emitted only when the corresponding sibling assignment has not been run.
+    """
+
+    experiment = manifest.get("experiment")
+    if not isinstance(experiment, dict):
+        return []
+    groups = experiment.get("homologous_parameters", [])
+    if not isinstance(groups, list):
+        return []
+    observations: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    tested: set[str] = set()
+    for record in successful:
+        metadata = record.get("experiment")
+        comparison = record.get("comparison")
+        if not isinstance(metadata, dict) or not isinstance(comparison, dict):
+            continue
+        parameters = metadata.get("parameters")
+        if not isinstance(parameters, dict):
+            continue
+        tested.add(json.dumps(parameters, sort_keys=True, separators=(",", ":")))
+        observations.append((record, parameters, comparison))
+
+    def prefix_value(comparison: Mapping[str, Any]) -> int:
+        value = comparison.get("temp_prefix_exact")
+        if value is None:
+            # A lane that never diverges is stronger than every finite row.
+            return 1 << 30
+        return int(value)
+
+    guidance: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_group in groups:
+        if not isinstance(raw_group, list) or len(raw_group) < 2:
+            continue
+        group = [str(name) for name in raw_group]
+        for poorer_record, poorer, poorer_comparison in observations:
+            for better_record, better, better_comparison in observations:
+                changed = {
+                    name
+                    for name in set(poorer) | set(better)
+                    if poorer.get(name) != better.get(name)
+                }
+                if len(changed) != 1:
+                    continue
+                changed_name = next(iter(changed))
+                if changed_name not in group:
+                    continue
+                before = prefix_value(poorer_comparison)
+                after = prefix_value(better_comparison)
+                if after <= before:
+                    continue
+                winning_value = better.get(changed_name)
+                for sibling in group:
+                    if sibling == changed_name or poorer.get(sibling) == winning_value:
+                        continue
+                    suggested = dict(poorer)
+                    suggested[sibling] = winning_value
+                    serialized = json.dumps(
+                        suggested, sort_keys=True, separators=(",", ":")
+                    )
+                    if serialized in tested or serialized in seen:
+                        continue
+                    seen.add(serialized)
+                    before_label: object = "exact" if before == 1 << 30 else before
+                    after_label: object = "exact" if after == 1 << 30 else after
+                    guidance.append(
+                        {
+                            "group": group,
+                            "evidence_parameter": changed_name,
+                            "sibling_parameter": sibling,
+                            "winning_value": winning_value,
+                            "prefix_before": (None if before == 1 << 30 else before),
+                            "prefix_after": None if after == 1 << 30 else after,
+                            "words_before": poorer_comparison.get(
+                                "words", poorer_comparison.get("word_mismatches")
+                            ),
+                            "words_after": better_comparison.get(
+                                "words", better_comparison.get("word_mismatches")
+                            ),
+                            "evidence_sources": [
+                                poorer_record.get("source"),
+                                better_record.get("source"),
+                            ],
+                            "suggested_parameters": suggested,
+                            "reason": (
+                                f"changing {changed_name} alone moved the first "
+                                f"temp divergence from {before_label} "
+                                f"to {after_label}; "
+                                f"test the same value at homologous {sibling}"
+                            ),
+                        }
+                    )
+    return guidance
+
+
 def build_status(manifest_path: str | Path) -> dict[str, Any]:
     """Build the compact cockpit report from a manifest and its ledger."""
 
@@ -413,6 +544,11 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     best_record = min(
         successful,
         key=lambda record: _comparison_key(record["comparison"]),
+        default=None,
+    )
+    best_temp_prefix_record = min(
+        successful,
+        key=lambda record: _temp_prefix_key(record["comparison"]),
         default=None,
     )
     trajectory = []
@@ -457,6 +593,12 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
                     "aligned_total": comparison.get("aligned_total"),
                     "words": comparison.get("words", comparison.get("word_mismatches")),
                     "verdict": comparison.get("verdict"),
+                    "pool_exact": comparison.get("pool_exact"),
+                    "pool_prefix_exact": comparison.get("pool_prefix_exact"),
+                    "temp_prefix_exact": comparison.get("temp_prefix_exact"),
+                    "first_temp_divergence": comparison.get("first_temp_divergence"),
+                    "first_divergent_row": comparison.get("first_divergent_row"),
+                    "alignment_method": comparison.get("alignment_method"),
                     "best_aligned_total": (
                         best_so_far.get("aligned_total") if best_so_far else None
                     ),
@@ -540,11 +682,13 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
                 ),
             }
         )
+    homologous_guidance = _homologous_guidance(manifest, successful)
     return {
         "schema": STATUS_SCHEMA,
         "manifest": display_path(path),
         "identity": manifest["identity"],
         "status": manifest["status"],
+        "rank_by": manifest.get("execution", {}).get("rank_by", "auto"),
         "target": manifest["identity_inputs"]["target"],
         "symbol": manifest["identity_inputs"].get("symbol"),
         "prepared_candidates": len(prepared),
@@ -554,9 +698,15 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
         "failed_candidates": len(failures),
         "object_basins": basin_rows,
         "best": _compact_record(best_record) if best_record else None,
+        "best_temp_prefix": (
+            _compact_record(best_temp_prefix_record)
+            if best_temp_prefix_record
+            else None
+        ),
         "trajectory": trajectory,
         "basin_transitions": basin_transitions,
         "families": family_rows,
+        "homologous_guidance": homologous_guidance,
         "failures": failures,
         "warnings": warnings,
         "experiment": manifest.get("experiment"),

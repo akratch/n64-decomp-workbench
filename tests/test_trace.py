@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 
 from decomp_workbench.trace import (
+    EMISSION_MAP_SCHEMA,
     alias_trace_summary,
+    parse_emission_map,
     parse_register,
     parse_trace,
     replay_fifo,
@@ -120,6 +123,71 @@ class TraceTests(unittest.TestCase):
                 "move-end",
             ],
         )
+
+    def test_joins_fifo_events_to_emitted_rows_and_source(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ADD reg=14 emitted=257\n"
+            "DKWB-FREELIST ALLOC reg=14 emitted=258\n"
+            "DKWB-FREELIST FREE reg=14 emitted=259\n"
+        )
+        emission_map = parse_emission_map(
+            {
+                "schema": EMISSION_MAP_SCHEMA,
+                "entries": [
+                    {
+                        "emitted_index": 258,
+                        "object_row": 700,
+                        "source_file": "camera.c",
+                        "source_line": 412,
+                        "instruction": "sll t0,t1,2",
+                    },
+                    {
+                        "emitted_index": 259,
+                        "object_row": 701,
+                        "source_file": "camera.c",
+                        "source_line": 412,
+                    },
+                ],
+            }
+        )
+
+        report = replay_fifo(events, emission_map=emission_map)
+
+        self.assertTrue(report.valid, report.violations)
+        allocation = report.logical_events[0]
+        self.assertEqual(allocation.emitted_index, 258)
+        self.assertEqual(allocation.object_row, 700)
+        self.assertEqual(allocation.source_file, "camera.c")
+        self.assertEqual(allocation.source_line, 412)
+        self.assertEqual(allocation.instruction, "sll t0,t1,2")
+        join = cast(dict[str, Any], report.as_dict()["emission_join"])
+        self.assertTrue(join["complete"])
+        self.assertEqual(join["with_instruction"], 1)
+
+    def test_emitted_index_is_not_inferred_to_be_an_object_row(self) -> None:
+        report = replay_fifo(
+            parse_trace(
+                "DKWB-FREELIST ADD reg=14 emitted=257\n"
+                "DKWB-FREELIST ALLOC reg=14 emitted=258\n"
+            )
+        )
+        event = report.logical_events[0]
+        self.assertEqual(event.emitted_index, 258)
+        self.assertIsNone(event.object_row)
+        join = cast(dict[str, Any], report.as_dict()["emission_join"])
+        self.assertTrue(join["calibration_required"])
+
+    def test_emission_map_refuses_duplicate_ordinals(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicated"):
+            parse_emission_map(
+                {
+                    "schema": EMISSION_MAP_SCHEMA,
+                    "entries": [
+                        {"emitted_index": 1, "object_row": 2},
+                        {"emitted_index": 1, "object_row": 3},
+                    ],
+                }
+            )
 
 
 if __name__ == "__main__":

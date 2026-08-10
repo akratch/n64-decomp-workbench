@@ -26,7 +26,9 @@ class InstrumentTests(unittest.TestCase):
         self.assertEqual(result.free_list_hooks, 2)
         self.assertIn(MARKER, result.source)
         self.assertIn('DKWB_TRACE_FRAME("f_alloc_reg");', result.source)
-        self.assertIn('dkwb_freelist("ALLOC", a0);', result.source)
+        self.assertIn('dkwb_freelist("ALLOC", a0, mem);', result.source)
+        self.assertIn("emitted=%ld", result.source)
+        self.assertIn("DKWB_IBUFFER_FORWARD_CURSOR", result.source)
         self.assertNotIn('DKWB_TRACE_FRAME("helper");', result.source)
 
     def test_filter_retains_free_list_hook(self) -> None:

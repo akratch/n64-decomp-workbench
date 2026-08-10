@@ -47,6 +47,7 @@ def bundle_scratch(
     preset: str | None = None,
     compiler_id: str | None = None,
     language: str | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> ScratchBundleResult:
     """Copy scratch inputs and write a deterministic manifest and instructions."""
 
@@ -98,6 +99,8 @@ def bundle_scratch(
     }
     if project:
         manifest["project"] = project
+    if provenance:
+        manifest["provenance"] = provenance
 
     (output_path / "scratch.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",

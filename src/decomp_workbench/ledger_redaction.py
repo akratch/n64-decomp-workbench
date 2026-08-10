@@ -115,7 +115,12 @@ REDACTION_SCHEMA = "decomp-workbench-ledger-redaction-v1"
 #: explicitly rather than discovered by key name, because ``comparison.target``
 #: and ``provenance.target`` are *paths*, and a key-name walk would corrupt
 #: them.
-SITE_LISTS: tuple[str, ...] = ("diff_sites", "aligned_diff_sites", "register_diff")
+SITE_LISTS: tuple[str, ...] = (
+    "diff_sites",
+    "aligned_diff_sites",
+    "register_diff",
+    "relocation_target_differences",
+)
 
 #: Site-record keys carried through verbatim. This is an ALLOW-list, so the
 #: default for anything else is to drop it.
@@ -142,6 +147,9 @@ SITE_KEEP: frozenset[str] = frozenset(
         "candidate_word",
         "candidate_index",
         "candidate_registers",
+        "instruction_index",
+        "relocation_index",
+        "candidate_instruction_offset",
     }
 )
 
