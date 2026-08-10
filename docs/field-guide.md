@@ -17,8 +17,13 @@ kind of finding one stage earlier: the *preprocessor* as a variable, and lever
 without a directive. Levers 26-28 come from campaigns that ended past the
 usual finish line: recovering a stack frame whose allocation was already
 exact, cleaning up after a match, and winning a register that was *taken*
-rather than underpriced. The C snippets are illustrative shapes, not
-copy-paste patches: the *form* is the lever, the identifiers are yours.
+rather than underpriced. Levers 29-33 come from a campaign that closed a
+2057-instruction function to zero words, and they are the levers of a *full*
+frame: steering a register by what a call forbids rather than what a web costs,
+buying a local out of an array's tail, emptying the compiler's own temp pool,
+and the discovery that physical source line numbers reach the assembler's
+scheduler. The C snippets are illustrative shapes, not copy-paste patches: the
+*form* is the lever, the identifiers are yours.
 
 **Read the order as priority.** Levers 1-4 cost one variant each and can erase
 a hundred words. Do not touch the register sections until the instruction count
@@ -37,6 +42,7 @@ to a source change and back.
 - [When source search is over](#when-source-search-is-over)
 - [When the compiler itself is the variable](#when-the-compiler-itself-is-the-variable)
 - [When the preprocessor is the variable](#when-the-preprocessor-is-the-variable)
+- [When the line number is the variable](#when-the-line-number-is-the-variable)
 - [Dead families — do not spend variants here](#dead-families--do-not-spend-variants-here)
 
 ---
@@ -489,6 +495,20 @@ mandatory rather than a copy the optimizer may propagate away. The variable
 leaves the coloring contest entirely, freeing the register its web was
 occupying for whoever comes next.
 
+**The exact term it moves.** Aliasing does not lower a price; it feeds an
+eligibility gate. uopt strikes a web from coloring outright when its computed
+`save` is not strictly positive, where `save` is the web's gross reference
+weight minus one charge per use that needs a reload and one per def that needs
+a store — and an address-taken local is exactly the local whose uses reload and
+whose defs store. Measured on one function: a dead-code probe
+(`if (0) { f(&colour, …); }`, zero instructions) moved one web's store charge
+from 0 to 8. The gate is `> 0` and not `>= 0`, so a web whose charges exactly
+cancel its gross is struck; that last unit is worth chasing when a sweep stalls
+one charge short. Struck webs emit no candidate record at all, which is also how
+you recognize the state in a trace. See
+[compiler laws L55](compiler-laws/ido-5.3.md#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins)
+for the formula and its falsified rivals.
+
 That is the move when the target register is not *underpriced* but *taken*: on
 a tiled-blit function whose ROM packed ten callee-saved values into nine
 registers, no amount of reweighting could seat the tenth. Aliasing the one that
@@ -538,6 +558,76 @@ callee-saved color with `regsleft` exhausted.
 you: a web whose decision line carries `regsleft=0` is annotated with this
 lever, and `--desired-color` says so again when the color you asked for is held
 by an interfering web.
+
+### 29. Steer a register with an argument pin
+
+**Diff looks like:** `verdict=register-permutation` confined to one web — every
+site that reads one variable uses the neighbouring argument register (`a1` where
+the target has `a2`), instruction count and frame already exact, and every
+cost-side lever on that web has been tried.
+
+```c
+/* before: the carrier is dead across the call */
+text = (char *) langGet(0xa01c);
+sprintf(buffer, fmt, text, n + 1, (char *) langGet(0xa01d));
+
+/* after: the column carrier itself holds the value across the call whose
+   format argument pins a1, so a1 enters the web's forbidden set */
+k = (s32) langGet(0xa01c);
+sprintf(buffer, fmt, (char *) k, n + 1, (char *) langGet(0xa01d));
+```
+
+**Why:** `forbidden0` is seeded before the coloring worklist from two sources —
+the assigned colors on the web's adjacency list *and* the hard-register conflict
+vector. A web live across a call's argument setup inherits a forbid from every
+argument register that call pins. So the reachable move is not to make your
+register cheaper; it is to make the register you do *not* want **illegal**, by
+giving the value a live range that crosses a call pinning it. Zero instructions,
+frame unchanged.
+
+**Measured:** GE007 `mp_watch_menu_display` — a two-statement diff moved one
+web's forbidden mask `0x70000000 → 0x7a000000`, the web from `a1` to `a2`, and
+six sites to register-for-register exact at parity. Six earlier certificates in
+that campaign had each looked for an *arithmetic* route to the same flip and
+proved it impossible; the fact was never arithmetic.
+
+**The side effect to plan for.** The forbid follows the *whole* web, so a symbol
+carrying two roles inherits it for both. In the measured case the same symbol
+was also a loop index, which came out register-swapped against the target until
+the roles were split onto two symbols — see lever 31 for where the second symbol
+came from.
+
+**Points here:** `verdict=register-permutation` on a single web, a
+`force_declined` naming the register you want, and any campaign whose sweep of
+save/crossing weights on that web has closed.
+
+### 30. Write `a && b` as the compiler expands it
+
+**Diff looks like:** you need a predicate's *value* on a named carrier — to give
+it a live range (lever 29), to move it off a contested web, or to empty a temp
+pool (lever 32) — and every respelling you have tried detonates the allocator
+basin by hundreds of rows.
+
+```c
+/* cfe's own expansion of `v = a && b`, written out */
+v = (a == 0);
+if (v) { v = (b == 0); }
+```
+
+**Why:** cfe expands `&&` in value position into exactly that shape. Spelled
+that way, with a named local standing in for the pool temp, it is
+**byte-identical** to the operator at every site. Spelled any other way —
+`v = 0; if (a && b) v = 1;`, an `if/else`, or a branch-free `|`/`&`/`*` — it is
+a different u-code sequence and costs real rows.
+
+**Measured:** four `&&` sites, singly and in every pair and triple: byte-identical
+throughout. The same four sites under the other spellings measured 264–860 rows
+across four stages, and four impossibility certificates rested on that price
+before the expansion was written out.
+
+**Points here:** any lever that needs a predicate on a named carrier, and any
+"branch rewrite is unaffordable here" conclusion measured on a spelling other
+than this one.
 
 ---
 
@@ -1061,6 +1151,144 @@ acceptance still requires the authentic compiler and the target frame.
 `verdict=frame-layout` from `view`/`diagnose`, and
 `playbook=stack-frame-recovery`.
 
+### 31. Spend an array's unaddressed tail on a new local
+
+**Diff looks like:** you need one more registerizable local — a second symbol to
+split two roles apart (lever 29), a carrier for a hoist — and the frame is
+exactly full: adding a declaration moves the frame size and detonates a whole
+family of constant rows.
+
+```c
+/* before: 16 bytes of buffer, no room for another local */
+s32 textheight;
+char rankbuffer[16];
+
+/* after: the same frame, the same homes, one more local */
+s32 textheight; s32 m;      /* takes the array's last word */
+char rankbuffer[12];
+```
+
+**Why:** IDO reserves a home for every declared local, packed strictly top-down
+in declaration order, so any net change in the block moves every home below it.
+But an array whose **base only** is ever addressed — `addiu ?,sp,BASE` and
+nothing else — has bytes in its interior that no instruction names. Shrink it
+and declare the new local so the array's base stays put: the block length is
+unchanged, the frame is unchanged, every used home lands on its original offset,
+and a registerizable local appears out of nothing.
+
+**Check first, with the census, not by reading the C:** the array is eligible
+only if the object references its base and never an interior offset.
+
+**Measured:** GE007 `mp_watch_menu_display`. `[16] → [12]` plus one `s32`
+declared immediately before it: frame unchanged, nine register rows dead,
+because the function finally had a second symbol for a split role. It scales —
+`[8]` plus *two* new locals, one never referenced, is byte-identical to the
+one-local build. Declaration order is the whole trick: putting the new local on
+the other side of its neighbour costs 22 rows, and shrinking without refilling
+the hole costs 213–227.
+
+**Points here:** `playbook=stack-frame-recovery`, and any allocation lever
+blocked on "there is no free local at this frame size" — a ceiling that was
+stated twice in that campaign and was wrong both times.
+
+### 32. Empty the cfe expression-temp pool
+
+**Diff looks like:** the residue is a handful of constant rows that are one
+stack-home addend, repeated — your carrier lives at a local's home where the
+target uses a compiler temp's slot — and the frame is already exact.
+
+**Why:** cfe mints **one** pooled temp symbol per type class for expression
+values that need a home, and the temp region sits immediately below the locals
+block, its slots assigned in symbol-index order with the earliest-born symbol
+highest. A temp born early therefore outranks every later one permanently, and
+the only way to reach the higher slot is for the earlier temp not to exist. The
+pool is one value-numbered symbol that re-mints at the next materialisation when
+you delete a def — so killing sites one at a time looks like a wall. It is not:
+the materialisation classes are enumerable, and removing all of them leaves the
+function with no cfe temp at all.
+
+The classes measured on one function, each with its kill:
+
+| class | kill |
+|---|---|
+| a call used as a **non-final** argument of another call | hoist it to a local on the line above (free) — the *last* call-valued argument never temps, it goes `v0` → argument slot |
+| `a && b` in value position | lever 30 |
+| a ternary in an expression | expand to `if/else` with a named carrier |
+
+**Then spend what it releases.** A dead pool hands its 4 bytes to the *locals*
+block, never to another temp — so the payoff is one more declared local (lever
+31 is the other way to buy the same thing), not a second temp slot.
+
+**Measured:** ~120 respellings across four stages failed to kill the pool one
+site at a time, and two impossibility certificates were written from that.
+Enumerating the classes and removing all of them at once produced the campaign's
+first build with no cfe temp, which was what let a named local take the target's
+slot and closed the function.
+
+**Points here:** a constant-row residue that is one repeated home addend, a
+`CDX_SYMTAB`/`-Wo,-zdbug:2` itable ladder showing a temp between your locals and
+the target's, and any campaign that has been killing temp definition sites
+individually.
+
+## When the line number is the variable
+
+### 33. Fold statements to break an as1 scheduler tie
+
+**Diff looks like:** two adjacent instructions issue in the opposite order from
+the target, allocation and instruction count exact, and no source respelling
+moves them — a `schedule` verdict that has survived the lever 3 and lever 23
+probes.
+
+```c
+/* before: the `li` carries the smaller line number and wins every tie */
+if (game_over) { colour = 10; } else { colour = 0; }
+x = ((viewleft + offset) - colour) + 0x28;
+
+/* after: one physical line, so both candidates carry the same lineno and the
+   ready-list position decides */
+if (game_over) { colour = 10; } else { colour = 0; } x = ((viewleft + offset) - colour) + 0x28;
+```
+
+**Why:** as1's list scheduler picks the lexicographic minimum of
+`(start_time, −aftercycles, −latency, node->addr, node->lineno, ready-list
+position)`, and `node->lineno` is a **source line number**. With `node->addr` 0
+throughout a compiled TU, the line number is the last effective key. So physical
+line numbers are a codegen input at scheduling, and whitespace is a lever.
+
+Two consequences worth internalizing. A layout that keeps each statement on its
+own line can never flip a tie in the direction "later statement first" — keys
+1–4 are equal by construction and no legal C ordering gives the later statement
+the smaller number. And where one pair of statements must win *both* ways at two
+different cycles, only **equality** delivers it: an inversion fixes one cycle and
+breaks the other.
+
+**Read it directly — the trace is free and byte-inert:**
+
+```sh
+cc -Wa,-R ...            # as1 prints its DAG and one record per selection
+```
+
+The object built with `-R` is `cmp`-identical to the object built without it, so
+no instrumented assembler is needed for this era.
+
+**Measured:** GE007 `mp_watch_menu_display` — 2688 recorded selections, 59
+decided by `lineno`; eight differing rows, all of them `lineno` decisions, all
+eight killed by folding four `if/else` groups onto one physical line each. The
+token stream is byte-identical after whitespace normalisation, and instruction
+count, frame and frame layout were unchanged. Those eight rows had been recorded
+as basin-invariant across 21 respellings — every one of which happened to
+preserve the relative line order of the two tied instructions.
+
+**Where it has no purchase:** an allocation-class residue. In the same function,
+a later 13-word residue did not move under a dozen line layouts. Check the trace
+for a `lineno` tie at the site before spending variants here. And the lever is
+the line number, nothing else: splitting one of these statements into two to move
+an instruction earlier detonated the allocator at 936 rows.
+
+**Points here:** `verdict=schedule-mismatch` with identical allocation,
+`playbook=line-assignment-probe`, and any adjacent-instruction swap that survived
+lever 25.
+
 ## After the function matches
 
 ### 27. Minimize fake-match machinery without reopening exactness
@@ -1184,13 +1412,14 @@ valuable as any lever above.
 | `constant` / `constant-audit` | 1, then re-derive fakes |
 | `commutative-order` / `ast-shape` | 2 |
 | `schedule` / `g0-schedule-probe` | 3, 4, then 23, 24 |
-| `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 25, 4 |
+| `schedule` at `-g0`, allocation identical / `line-assignment-probe` | 23, 25, 33, 4 |
 | `structure` / `structure-buckets` | 1, 4, 24, 5, 6 |
 | `phase-shift` / `temp-fifo-phase` | 14, 15, 16 |
-| `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13, then 28 |
+| `allocation` / `pool-position` | 7, 8, 9, 10, 11, 12, 13, then 28, 29, 30 |
 | `register-permutation` / `forced-color-oracle` | 17, 18, then 19 |
-| `frame-layout` / `stack-frame-recovery` | 26 |
-| target register is *taken*, not underpriced / `pool-position` | 7-13, then 28 |
+| `frame-layout` / `stack-frame-recovery` | 26, 31, 32 |
+| target register is *taken*, not underpriced / `pool-position` | 7-13, then 28, 29 |
+| the frame is full and the lever needs one more symbol / `stack-frame-recovery` | 31, then 32 |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |

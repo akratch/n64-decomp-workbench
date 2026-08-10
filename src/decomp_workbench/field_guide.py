@@ -214,6 +214,40 @@ LEVER_ACTIONS: dict[int, str] = {
         "-- sweep the mark's placement innermost-first (140/131/106 words on "
         "one function) and check candidate_frame_size on every variant"
     ),
+    29: (
+        "when one web wants the neighbouring argument register, stop pricing "
+        "it and make the wrong register illegal: give the value a live range "
+        "across a call that pins that register, which seeds the web's "
+        "forbidden set from the hard-register conflict vector -- zero "
+        "instructions, and the forbid follows the whole web, so split the "
+        "roles onto two symbols if one carrier holds two"
+    ),
+    30: (
+        "spell a value-position `a && b` the way cfe expands it -- "
+        "`v = (a); if (v) { v = (b); }` -- which is byte-identical to the "
+        "operator, where `v = 0; if (a && b) v = 1;`, if/else and branch-free "
+        "forms cost hundreds of rows"
+    ),
+    31: (
+        "buy a registerizable local out of an array whose base alone is "
+        "addressed: shrink the array and declare the new local so the base "
+        "keeps its offset, and every other home, the block length and the "
+        "frame stay exactly as they were"
+    ),
+    32: (
+        "when the residue is one repeated stack-home addend against a "
+        "compiler temp's slot, empty cfe's expression-temp pool: it is one "
+        "value-numbered symbol that re-mints, so enumerate its "
+        "materialisation classes (call-as-non-final-argument, `&&` as a "
+        "value, ternaries) and kill them in one build, and spend what it "
+        "releases on a local"
+    ),
+    33: (
+        "fold the two statements onto one physical line so their instructions "
+        "tie on `lineno` and ready-list position decides -- as1's scheduler "
+        "reads source line numbers, and `cc -Wa,-R` prints the selection "
+        "records byte-inert"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -231,12 +265,20 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     # Lever 25 sits second: once 23 has told you the residue is line numbers,
     # 25 is what you reach for when the number you need is unreachable one
     # statement per physical line.
-    "line-assignment-probe": (23, 25, 4),
+    # Lever 33 sits after 25 for the same reason 25 sits after 23: it is the
+    # move for a tie 25's splice cannot express, because the deciding key is
+    # read by the assembler's scheduler rather than by cfe.
+    "line-assignment-probe": (23, 25, 33, 4),
     "structure-buckets": (1, 4, 24, 5, 6),
     "temp-fifo-phase": (14, 15, 16),
-    "pool-position": (7, 8, 9, 10, 11, 12, 13, 28),
+    # Levers 29 and 30 close the family: when the register is not underpriced
+    # but forbidden-adjacent, the reachable move is liveness (29), and 30 is
+    # the free spelling most carrier edits need to get there.
+    "pool-position": (7, 8, 9, 10, 11, 12, 13, 28, 29, 30),
     "forced-color-oracle": (17, 18, 19),
-    "stack-frame-recovery": (26,),
+    # A full frame is a frame-layout problem even when the frame size is
+    # already exact: 31 buys the symbol, 32 buys the slot.
+    "stack-frame-recovery": (26, 31, 32),
     "post-match-cleanup": (27,),
     # No `view` verdict reaches this one: two disassemblies cannot tell you
     # that the *frontend* was different. It is here so the levers the field

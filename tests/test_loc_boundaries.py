@@ -387,9 +387,12 @@ class FieldGuideRegistryTests(unittest.TestCase):
         self.assertIn(23, field_guide.sections())
 
     def test_the_new_playbook_and_the_old_one_both_reach_lever_23(self) -> None:
-        self.assertEqual(
-            field_guide.PLAYBOOK_LEVERS["line-assignment-probe"], (23, 25, 4)
-        )
+        # The roster grows as line-number mechanisms are found (33 is the
+        # assembler's scheduler reading source lines), so the property held
+        # here is the reachability and the opening order, not the exact set.
+        levers = field_guide.PLAYBOOK_LEVERS["line-assignment-probe"]
+        self.assertEqual(levers[:2], (23, 25))
+        self.assertIn(4, levers)
         self.assertIn(23, field_guide.PLAYBOOK_LEVERS["g0-schedule-probe"])
 
     def test_lever_25_follows_lever_23_on_the_line_assignment_playbook(self) -> None:

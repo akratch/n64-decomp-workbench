@@ -201,7 +201,10 @@ class StackFrameRecoveryTests(unittest.TestCase):
         self.assertIn("lever 26:", guidance)
 
     def test_playbook_and_shipped_section_are_reachable(self) -> None:
-        self.assertEqual(field_guide.PLAYBOOK_LEVERS["stack-frame-recovery"], (26,))
+        # 26 stays first: it is the lever for a frame that is the wrong size.
+        # 31 and 32 joined it because a frame that is the right size and full
+        # is the same reader's next question, not a different playbook.
+        self.assertEqual(field_guide.PLAYBOOK_LEVERS["stack-frame-recovery"][0], 26)
         self.assertEqual(
             field_guide.VERDICT_PLAYBOOKS["frame-layout-mismatch"],
             "stack-frame-recovery",
