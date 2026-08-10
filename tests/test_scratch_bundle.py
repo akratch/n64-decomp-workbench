@@ -33,6 +33,10 @@ class ScratchBundleTests(unittest.TestCase):
                 project="example",
                 compiler_id="ido7.1_c++",
                 language="C++",
+                provenance={
+                    "schema": "decomp-workbench-campaign-promotion-v1",
+                    "source_cache_key": "abc123",
+                },
             )
 
             output = Path(result.output)
@@ -45,6 +49,7 @@ class ScratchBundleTests(unittest.TestCase):
             self.assertEqual(manifest["project"], "example")
             self.assertEqual(manifest["decomp_me"]["compiler_id"], "ido7.1_c++")
             self.assertEqual(manifest["decomp_me"]["language"], "C++")
+            self.assertEqual(manifest["provenance"]["source_cache_key"], "abc123")
             self.assertEqual(len(manifest["files"]["target.s"]["sha256"]), 64)
             self.assertNotIn(str(root), (output / "scratch.json").read_text())
             self.assertIn(

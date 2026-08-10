@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Late-stage decomp campaigns now preserve the evidence that actually moves.**
+  Scratch checks lead with `ACCEPTED` or `NOT ACCEPTED` and list each differing
+  relocation offset/type/symbol/addend; equal-length opcode-identical streams
+  use positional alignment instead of acquiring repeated-block LCS gaps;
+  comparison and campaign JSON carry pool/temp exact-prefix metrics, with
+  `campaign --rank-by temp-prefix` for allocation work. Ugen free-list events
+  carry their measured emitted ordinal, and `trace fifo --emission-map` joins
+  it to object rows and source locations without equating the two coordinate
+  systems. Experiment manifests can declare homologous parameter groups, so
+  the cockpit proposes a sibling edit only after a controlled one-parameter
+  prefix gain. `campaign package` promotes a validated winner into a
+  checksummed, paste-ready scratch bundle with campaign provenance.
+
 - **The shift family is four commands, and it was driven by making a real
   matched project shiftable rather than by imagining one.** The experiment:
   pilotwings64, 100% matched and never designed for a shift, was given a

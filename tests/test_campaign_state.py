@@ -10,11 +10,53 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from decomp_workbench.campaign_state import bounded_export_status
+from decomp_workbench.campaign_state import _homologous_guidance, bounded_export_status
 from decomp_workbench.cli import main
 
 
 class CampaignStateTests(unittest.TestCase):
+    def test_homologous_guidance_requires_measured_single_parameter_gain(
+        self,
+    ) -> None:
+        manifest = {
+            "experiment": {"homologous_parameters": [["first", "second", "third"]]}
+        }
+        records = [
+            {
+                "source": "base.c",
+                "experiment": {
+                    "parameters": {
+                        "first": False,
+                        "second": False,
+                        "third": False,
+                    }
+                },
+                "comparison": {"temp_prefix_exact": 700, "words": 58},
+            },
+            {
+                "source": "first.c",
+                "experiment": {
+                    "parameters": {
+                        "first": True,
+                        "second": False,
+                        "third": False,
+                    }
+                },
+                # Total score regresses, but causal progress moves later.
+                "comparison": {"temp_prefix_exact": 732, "words": 379},
+            },
+        ]
+
+        guidance = _homologous_guidance(manifest, records)
+
+        self.assertEqual(len(guidance), 2)
+        self.assertEqual(
+            {item["sibling_parameter"] for item in guidance},
+            {"second", "third"},
+        )
+        self.assertTrue(all(item["prefix_before"] == 700 for item in guidance))
+        self.assertTrue(all(item["prefix_after"] == 732 for item in guidance))
+
     def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -66,6 +108,8 @@ class CampaignStateTests(unittest.TestCase):
                     str(root / "cache"),
                     "--state-dir",
                     str(state),
+                    "--rank-by",
+                    "temp-prefix",
                     "--json-summary",
                 ]
             )
@@ -76,6 +120,8 @@ class CampaignStateTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertTrue(manifest.is_file())
             self.assertTrue(ledger.is_file())
+            manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["execution"]["rank_by"], "temp-prefix")
 
             status, stdout, stderr = self.run_cli(
                 ["campaign", "status", str(manifest.parent), "--json"]
@@ -84,8 +130,81 @@ class CampaignStateTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
         self.assertEqual(report["schema"], "decomp-workbench-campaign-status-v1")
+        self.assertEqual(report["rank_by"], "temp-prefix")
         self.assertEqual(report["recorded_candidates"], 1)
         self.assertEqual(report["object_basins"][0]["variant_count"], 1)
+
+    def test_campaign_package_promotes_the_verified_winner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            source = root / "candidate.c"
+            target_assembly = root / "target.s"
+            context = root / "ctx.c"
+            target.write_bytes(b"target")
+            source.write_text("int candidate;\n", encoding="utf-8")
+            target_assembly.write_text("jr $ra\n nop\n", encoding="utf-8")
+            context.write_text("typedef int s32;\n", encoding="utf-8")
+            compiler, objdump = self.make_tools(root)
+            _, stdout, _ = self.run_cli(
+                [
+                    "campaign",
+                    str(target),
+                    str(source),
+                    "--compile-command",
+                    f"{sys.executable} {compiler} {{source}} {{output}}",
+                    "--objdump",
+                    str(objdump),
+                    "--symbol",
+                    "demo",
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--json-summary",
+                ]
+            )
+            manifest = Path(json.loads(stdout)["manifest"])
+            output = root / "scratch"
+
+            status, stdout, stderr = self.run_cli(
+                [
+                    "campaign",
+                    "package",
+                    str(manifest),
+                    "--output",
+                    str(output),
+                    "--target-assembly",
+                    str(target_assembly),
+                    "--context",
+                    str(context),
+                    "--platform",
+                    "n64",
+                    "--compiler",
+                    "IDO 5.3",
+                    "--compiler-id",
+                    "ido5.3",
+                    "--language",
+                    "C",
+                    "--compiler-flags=-O2 -mips2",
+                    "--diff-label",
+                    "demo",
+                    "--json",
+                ]
+            )
+
+            payload = json.loads(stdout)
+            scratch_manifest = json.loads(
+                (output / "scratch.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(status, 0)
+            self.assertEqual(stderr, "")
+            self.assertTrue(payload["scratch_accepted"])
+            self.assertEqual((output / "source.c").read_bytes(), source.read_bytes())
+            self.assertEqual(
+                scratch_manifest["provenance"]["campaign_identity"],
+                json.loads(manifest.read_text(encoding="utf-8"))["identity"],
+            )
 
     def test_campaign_note_survives_as_handoff_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

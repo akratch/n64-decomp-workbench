@@ -38,6 +38,7 @@ class ExperimentManifest:
     baseline: Path
     parameter_space: dict[str, list[Any]]
     candidates: dict[Path, dict[str, Any]]
+    homologous_parameters: tuple[tuple[str, ...], ...]
     region: RegionConstraint | None
     raw: dict[str, Any]
 
@@ -50,6 +51,9 @@ class ExperimentManifest:
             "parameter_space": self.parameter_space,
             "baseline": str(self.baseline),
             "manifest": str(self.path),
+            "homologous_parameters": [
+                list(group) for group in self.homologous_parameters
+            ],
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -64,6 +68,9 @@ class ExperimentManifest:
                 for source, parameters in sorted(
                     self.candidates.items(), key=lambda item: str(item[0])
                 )
+            ],
+            "homologous_parameters": [
+                list(group) for group in self.homologous_parameters
             ],
             "selected_region": self.region.as_dict() if self.region else None,
         }
@@ -165,12 +172,68 @@ def load_experiment(path: str | Path) -> ExperimentManifest:
         raise ValueError("experiment invariants must be an object")
     region_value = value.get("selected_region", invariants.get("selected_region"))
     region = _parse_region(region_value)
+    homologous_value = value.get("homologous_parameters", [])
+    if not isinstance(homologous_value, list):
+        raise ValueError("experiment homologous_parameters must be a list")
+    homologous: list[tuple[str, ...]] = []
+    claimed: set[str] = set()
+    for index, group_value in enumerate(homologous_value):
+        if (
+            not isinstance(group_value, list)
+            or len(group_value) < 2
+            or not all(isinstance(name, str) and name for name in group_value)
+        ):
+            raise ValueError(
+                f"experiment homologous_parameters group {index} must contain "
+                "at least two parameter names"
+            )
+        group = tuple(group_value)
+        if len(set(group)) != len(group):
+            raise ValueError(
+                f"experiment homologous_parameters group {index} contains duplicates"
+            )
+        unknown_homologs = set(group) - set(parameter_space)
+        if unknown_homologs:
+            raise ValueError(
+                f"experiment homologous_parameters group {index} has unknown "
+                "parameter(s): " + ", ".join(sorted(unknown_homologs))
+            )
+        overlap = claimed & set(group)
+        if overlap:
+            raise ValueError(
+                "experiment homologous_parameters groups overlap at: "
+                + ", ".join(sorted(overlap))
+            )
+        choices = [parameter_space[name] for name in group]
+        if any(options != choices[0] for options in choices[1:]):
+            raise ValueError(
+                f"experiment homologous_parameters group {index} must share "
+                "the same declared choices"
+            )
+        claimed.update(group)
+        homologous.append(group)
+    if homologous and baseline not in candidates:
+        raise ValueError(
+            "experiment baseline must appear in candidates with a parameter "
+            "assignment when homologous_parameters are declared"
+        )
+    if homologous:
+        baseline_assignment = candidates[baseline]
+        missing_homologs = {name for group in homologous for name in group} - set(
+            baseline_assignment
+        )
+        if missing_homologs:
+            raise ValueError(
+                "experiment baseline assignment is missing homologous "
+                "parameter(s): " + ", ".join(sorted(missing_homologs))
+            )
     return ExperimentManifest(
         path=manifest_path,
         family=family,
         baseline=baseline,
         parameter_space=parameter_space,
         candidates=candidates,
+        homologous_parameters=tuple(homologous),
         region=region,
         raw=value,
     )

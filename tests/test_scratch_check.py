@@ -171,6 +171,37 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertFalse(comparison["relocation_targets_exact"])
         self.assertFalse(comparison["decomp_me_score_proxy_exact"])
         self.assertEqual(comparison["acceptance_basis"], "relocation-target-mismatch")
+        self.assertEqual(
+            comparison["acceptance_summary"],
+            "NOT ACCEPTED — instruction text exact; 1 relocation target differs",
+        )
+        self.assertEqual(
+            comparison["exact_scope"],
+            "linked-function-after-relocation-field-masking",
+        )
+        difference = comparison["relocation_target_differences"][0]
+        self.assertEqual(difference["target"]["symbol"], "callee")
+        self.assertEqual(difference["candidate"]["symbol"], "other")
+
+    def test_terminal_leads_with_unambiguous_relocation_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_export(root)
+            (root / "target.objdump").write_text(RELOCATION_TARGET_DUMP)
+            (root / "current.objdump").write_text(RELOCATION_TARGET_NAME_MISMATCH_DUMP)
+            status, stdout, stderr = self.run_cli(
+                ["check-scratch", str(root), "--fail-on-mismatch"]
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertIn(
+            "acceptance: NOT ACCEPTED — instruction text exact; "
+            "1 relocation target differs",
+            stdout,
+        )
+        self.assertIn("symbol=callee", stdout)
+        self.assertIn("symbol=other", stdout)
 
     def test_terminal_calls_out_relocation_normalized_score_residue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

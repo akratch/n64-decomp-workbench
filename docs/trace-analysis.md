@@ -70,6 +70,32 @@ When `--list-address` is set, the replay keeps allocation records, which may
 not carry a list address, and accepts append records only from the selected
 list. Use `--json` when another solver will consume the logical schedule.
 
+Instrumented `DKWB-FREELIST` rows also carry `emitted=N`, the ugen forward
+ibuffer ordinal measured at the event. It is deliberately not called an object
+row: labels, directives, and assembler folding make those coordinate systems
+different. Supply a measured calibration document to complete the join:
+
+```json
+{
+  "schema": "decomp-workbench-ugen-emission-map-v1",
+  "entries": [
+    {"emitted_index": 258, "object_row": 700,
+     "instruction": "sll t0,t1,2",
+     "source_file": "camera.c", "source_line": 412}
+  ]
+}
+```
+
+```sh
+decomp-workbench trace fifo ugen.log \
+  --emission-map emission-map.json --show-events --json
+```
+
+Each logical allocation/free event then carries `emitted_index`, `object_row`,
+`instruction`, `source_file`, and `source_line`; `emission_join` reports
+coverage. Without a mapping, `calibration_required=true` and object rows remain
+null rather than being inferred.
+
 ### Why logical identities matter
 
 A physical sequence such as `t6,t4,t8,...` is not necessarily the allocator’s

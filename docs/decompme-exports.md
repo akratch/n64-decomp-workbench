@@ -20,6 +20,7 @@ decomp-workbench check-scratch examples/fixtures/decompme-export
 
 ```text
 scratch: decomp.me-export (examples/fixtures/decompme-export)
+acceptance: NOT ACCEPTED — 2 raw instruction words differ
 decomp.me display: score=20/127000 (99.98425%; context only)
 evidence: retained-objdump-text
 verdict=schedule-mismatch aligned_total=   2 ...
@@ -46,6 +47,13 @@ gates `raw_instruction_words_exact` and `relocation_targets_exact`. “Proxy” 
 intentional: only the site can report the site's result. The local report also
 includes metadata, evidence source, source-composition semantics, and next
 actions.
+
+The terminal leads with `ACCEPTED`/`NOT ACCEPTED`; JSON pairs `accepted` with
+`acceptance_basis`, `acceptance_summary`, and
+`exact_scope=linked-function-after-relocation-field-masking`. When relocation
+targets reject an otherwise exact instruction stream,
+`relocation_target_differences` and the terminal list each side's offset, type,
+symbol, and parsed addend.
 
 When linked exactness passes but the score proxy fails, inspect the
 `relocation-controlled` diff site. Match the target's relocation symbol and

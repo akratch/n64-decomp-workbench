@@ -72,6 +72,15 @@ def register_campaign_run_commands(
         default=20,
         help="maximum results to show",
     )
+    compile_rank.add_argument(
+        "--rank-by",
+        choices=("auto", "words", "temp-prefix"),
+        default="auto",
+        help=(
+            "candidate ordering: automatic aligned/positional safety, "
+            "positional words, or latest exact temp-lane prefix"
+        ),
+    )
     add_process_output_arguments(compile_rank)
     add_common_compare_arguments(compile_rank)
     compile_rank.set_defaults(handler=compile_rank_handler)
@@ -147,6 +156,15 @@ def register_campaign_run_commands(
         type=int,
         default=20,
         help="maximum results to show",
+    )
+    campaign.add_argument(
+        "--rank-by",
+        choices=("auto", "words", "temp-prefix"),
+        default="auto",
+        help=(
+            "candidate ordering: automatic aligned/positional safety, "
+            "positional words, or latest exact temp-lane prefix"
+        ),
     )
     add_process_output_arguments(campaign)
     add_common_compare_arguments(campaign)

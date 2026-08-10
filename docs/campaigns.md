@@ -126,6 +126,14 @@ The `decomp-workbench-experiment-v1` manifest records:
 - each parameter and its declared choice list;
 - every candidate path and unique parameter assignment;
 - an optional half-open `selected_region` instruction range.
+- optional `homologous_parameters`, explicit groups of sibling parameters
+  with the same choices.
+
+Homologous groups are not inferred from names. Their baseline must have a
+complete assignment. Once two measured candidates differ in exactly one group
+member, every other parameter is held fixed, and the temp prefix improves,
+`campaign status` proposes the equivalent untested sibling assignment. A worse
+total word score does not erase that causal prefix evidence.
 
 Validation checks paths, assignment membership, duplicate sources/assignments,
 grid size, and region bounds without compiling. Attach it to the run:
@@ -271,6 +279,20 @@ A candidate with a numerically worse score can still remove structural
 differences and leave only a register permutation. Inspect individual metrics,
 not only rank.
 
+For an opcode-stable allocation campaign, make that progression the ordering:
+
+```sh
+decomp-workbench campaign run target.o variants/*.c \
+  --compile-command './compile.sh {source} -o {output}' \
+  --rank-by temp-prefix --no-stop-on-exact
+```
+
+This gates on positional opcode alignment and an exact pool lane, then prefers
+the candidate whose ugen temp lane stays exact to the latest object row.
+`--rank-by words` remains available for a deliberately positional campaign;
+`auto` is the general default. All prefix fields are retained in full JSON,
+`--json-summary`, ledgers, status trajectories, and `best_temp_prefix`.
+
 ### Ranking is aligned-first
 
 Results are ordered by `aligned_total` — the LCS-aligned differing rows a
@@ -331,6 +353,23 @@ member source files, or consume `object_basins` from `--json-summary`. This is
 especially useful for declaration-order, folded-condition, and expression-form
 grids, where hundreds of source spellings may collapse to a handful of real
 allocator outcomes.
+
+## Promote a winner into a scratch
+
+```sh
+decomp-workbench campaign package CAMPAIGN \
+  --output scratch/demo \
+  --target-assembly target.s --context ctx.c \
+  --platform n64 --compiler 'IDO 5.3' --compiler-id ido5.3 \
+  --language C --compiler-flags='-O2 -mips2' --diff-label demo
+```
+
+The command revalidates the campaign's target, compiler, objdump, and source
+hashes, selects the score winner (or `--selection temp-prefix`), and refuses a
+candidate that is not raw-word and relocation-target exact unless
+`--allow-mismatch` is explicit. The resulting standard scratch bundle records
+the campaign identity, selected cache key, source hash, comparison evidence,
+and paste order.
 
 The first member and `best_metrics` in each basin are the best-ranked
 comparison in that basin, not the alphabetically first source. Basin identity

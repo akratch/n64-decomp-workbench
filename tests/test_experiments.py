@@ -24,6 +24,81 @@ from decomp_workbench.objdump import parse_disassembly
 
 
 class ExperimentTests(unittest.TestCase):
+    def test_homologous_parameters_are_explicit_and_share_choices(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = root / "baseline.c"
+            baseline.write_text("int baseline;\n", encoding="utf-8")
+            path = root / "experiment.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema": EXPERIMENT_SCHEMA,
+                        "family": "sibling-masks",
+                        "baseline": "baseline.c",
+                        "parameters": {
+                            "first": [False, True],
+                            "second": [False, True],
+                            "third": [False, True],
+                        },
+                        "homologous_parameters": [["first", "second", "third"]],
+                        "candidates": [
+                            {
+                                "source": "baseline.c",
+                                "parameters": {
+                                    "first": False,
+                                    "second": False,
+                                    "third": False,
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = load_experiment(path)
+
+        self.assertEqual(
+            manifest.homologous_parameters,
+            (("first", "second", "third"),),
+        )
+        self.assertEqual(
+            manifest.metadata_for(baseline)["homologous_parameters"],
+            [["first", "second", "third"]],
+        )
+
+    def test_homology_refuses_an_unassigned_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "baseline.c").write_text("int baseline;\n", encoding="utf-8")
+            (root / "variant.c").write_text("int variant;\n", encoding="utf-8")
+            path = root / "experiment.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema": EXPERIMENT_SCHEMA,
+                        "family": "sibling-masks",
+                        "baseline": "baseline.c",
+                        "parameters": {
+                            "first": [False, True],
+                            "second": [False, True],
+                        },
+                        "homologous_parameters": [["first", "second"]],
+                        "candidates": [
+                            {
+                                "source": "variant.c",
+                                "parameters": {"first": True, "second": False},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "baseline must appear"):
+                load_experiment(path)
+
     def test_campaign_cockpit_compacts_large_parameter_evidence(self) -> None:
         tested = [{"shape": str(index)} for index in range(64)]
         tested_text, declared_text = _compact_parameter_evidence(

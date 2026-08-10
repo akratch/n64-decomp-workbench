@@ -321,6 +321,16 @@ different subsequence of the target and its aligned total is no longer on the
 same scale as another candidate's. `compare` prints a one-line `caution:` in
 that case, ahead of the numbers it retracts.
 
+When instruction counts and every positional opcode agree, the stronger
+evidence wins: `alignment_method=positional-opcode` locks row N to row N and
+bypasses LCS. This prevents repeated sibling blocks from manufacturing gaps
+and false structure/constant guidance in a pure register-allocation residual.
+Other shapes retain `alignment_method=lcs`.
+
+Late-stage JSON also carries `pool_exact`, `pool_prefix_exact`,
+`temp_prefix_exact`, `first_temp_divergence`, and `first_divergent_row`.
+Prefix values are aligned object rows; `null` means that lane never diverged.
+
 **What it costs.** The alignment is quadratic in the worst case and runs once
 per comparison. Measured on a synthetic function with one inserted instruction
 and one recolored register: 500 instructions 0.02 s, 1500 0.10 s, 3000 0.29 s,
@@ -414,6 +424,11 @@ targets. It does not change generic linked-function exactness because two
 spellings may resolve to the same linked address. `check-scratch` requires it
 to be zero, together with raw instruction identity, for its local zero-score
 proxy.
+`relocation_target_differences` is the corresponding receipt: each record
+includes the instruction and relocation indices plus both sides' instruction
+offset, relocation offset, type, symbol, parsed addend, and original target
+spelling. `check-scratch` prints these records directly, so a relocation-only
+rejection no longer requires a second hand-written objdump parser.
 
 ### Linked-address aliases
 

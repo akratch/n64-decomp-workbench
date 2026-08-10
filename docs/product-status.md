@@ -63,8 +63,8 @@ same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
 The highest-value open depth work needs new measured evidence before it can be
 implemented honestly:
 
-- join ugen pool events to emitted-instruction indices, not only logical FIFO
-  identities;
+- decode the uopt intermediate stream deeply enough to add its record ranges
+  to the shipped ugen emitted-index/object-row/source join;
 - recover richer expression ancestry and final frame ownership from validated
   compiler fields;
 - add project-neutral mutation *recipes* only when equivalence conditions can

@@ -766,10 +766,19 @@ def _skeleton(
     cannot mispair by construction.
     """
 
-    target_keys = [alignment_key(item) for item in target]
-    candidate_keys = [alignment_key(item) for item in candidate]
     target_opcodes = [item.opcode for item in target]
     candidate_opcodes = [item.opcode for item in candidate]
+    if len(target) == len(candidate) and target_opcodes == candidate_opcodes:
+        # There is stronger evidence than an inferred subsequence alignment:
+        # every emitted position has the same mnemonic. In long, repetitive
+        # functions SequenceMatcher can align identical-looking rows across a
+        # sibling block and invent an insertion/deletion pair. That turns a
+        # pure allocation residual into false structural guidance. Lock the
+        # observed positions when opcode shape proves they correspond.
+        return [("equal", index, index) for index in range(len(target))]
+
+    target_keys = [alignment_key(item) for item in target]
+    candidate_keys = [alignment_key(item) for item in candidate]
     anchored = _pair(target_keys, candidate_keys, target_opcodes, candidate_opcodes)
     best = _alignment_score(anchored, target_keys, candidate_keys)
     if best[0] == min(len(target), len(candidate)):

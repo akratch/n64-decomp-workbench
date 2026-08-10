@@ -133,6 +133,26 @@ def make_record() -> dict[str, Any]:
             "diff_sites": make_diff_sites(),
             "aligned_diff_sites": make_aligned_sites(),
             "register_diff": make_register_sites(),
+            "relocation_target_differences": [
+                {
+                    "instruction_index": 4,
+                    "relocation_index": 0,
+                    "target_instruction_offset": 16,
+                    "candidate_instruction_offset": 16,
+                    "target": {
+                        "offset": 16,
+                        "kind": "R_MIPS_HI16",
+                        "symbol": "secret_target_symbol",
+                        "addend": 4,
+                    },
+                    "candidate": {
+                        "offset": 16,
+                        "kind": "R_MIPS_HI16",
+                        "symbol": "candidate_symbol",
+                        "addend": 4,
+                    },
+                }
+            ],
             "guidance": ["audit the earliest immediate against the target"],
         },
     }
@@ -207,6 +227,8 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
         for text, word in TARGET_SITES:
             self.assertNotIn(json.dumps(text)[1:-1], blob, f"{text!r} survived")
             self.assertNotIn(word, blob, f"{word!r} survived")
+        self.assertNotIn("secret_target_symbol", blob)
+        self.assertIn("candidate_symbol", blob)
 
     def test_written_ledger_contains_no_target_instruction_text(self) -> None:
         """End to end, through the one function that puts a ledger on disk."""

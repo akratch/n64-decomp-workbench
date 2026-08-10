@@ -61,6 +61,11 @@ After creating the scratch and downloading its export, switch to
 [`check-scratch`](decompme-exports.md) for object comparison and site-faithful
 recompilation.
 
+When the source is already a recorded campaign winner, use `campaign package`
+instead of selecting and copying it by hand. It emits this same bundle format
+and adds the campaign identity, source cache key/hash, selection mode, and
+acceptance evidence under `scratch.json`'s `provenance` field.
+
 ## Presets
 
 When a known decomp.me preset should be selected, record it with `--preset`.

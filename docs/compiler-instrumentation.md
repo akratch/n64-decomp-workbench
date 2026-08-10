@@ -43,7 +43,8 @@ DKWB_UGEN_TRACE=1 /path/to/traced-cc ...
 The generated source emits:
 
 - `DKWB-CALL` entry/exit records for selected `f_*` functions;
-- `DKWB-FREELIST` records at known allocator/free-list helper entries.
+- `DKWB-FREELIST` records at known allocator/free-list helper entries, stamped
+  with the current forward-ibuffer emitted ordinal.
 
 Restrict function tracing:
 
@@ -62,9 +63,12 @@ the n-th temporary get" that hooks there will see nothing and conclude wrongly.
 The two hooks that fire per allocation are `f_get_free_fp_reg` (`ALLOC_FP`,
 floating point) and `f_free_reg` (`FREE`).
 
-This is a shallow locator, not a complete allocator profile. The parser also
+This is a shallow allocator locator, not a complete allocator profile. The parser also
 accepts deeper `CODEX-*` queue events, but `instrument-ugen` does not emit all
-of them. Its call-frame helper uses the GCC/Clang `cleanup` attribute.
+of them. The emitted ordinal is a real pass coordinate, not an inferred object
+row; join it through `trace fifo --emission-map` as documented in
+[Trace analysis](trace-analysis.md). Its call-frame helper uses the GCC/Clang
+`cleanup` attribute.
 
 ## Pinned uopt profiles
 

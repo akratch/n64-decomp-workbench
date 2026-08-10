@@ -87,6 +87,21 @@ class Comparison:
     #: byte-identical and only its two operand loads are crossed. See
     #: ``decomp_workbench.commutative``.
     commutative_findings: list[dict[str, Any]] = field(default_factory=list)
+    #: Position-by-position relocation differences. The aggregate counts are
+    #: useful gates; these records are the source-editable receipt for them.
+    relocation_target_differences: list[dict[str, Any]] = field(default_factory=list)
+    #: Late-stage progress metrics from the aligned register lanes. They stay
+    #: visible even when a candidate's total word score gets worse while the
+    #: first allocation divergence moves substantially later.
+    pool_exact: bool = True
+    pool_prefix_exact: int | None = None
+    temp_prefix_exact: int | None = None
+    first_temp_divergence: dict[str, Any] | None = None
+    first_divergent_row: int | None = None
+    #: ``positional-opcode`` means equal-length, positionally opcode-identical
+    #: streams were deliberately kept row-for-row instead of passed through
+    #: an LCS that could manufacture gaps from repeated instruction text.
+    alignment_method: str = "lcs"
     #: Conditions that make the verdict itself untrustworthy, as opposed to
     #: findings about the code. A reader who ignores one of these is reading a
     #: correct answer to the wrong question, so renderers print them ahead of
