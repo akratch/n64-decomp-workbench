@@ -26,6 +26,7 @@ below them is reference you consult when you need it.
 | You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
 | You are about to conclude that no source form can reach your target | **[Case study: SSB64 unref_800036B4](../case-studies/ssb64-unref-800036B4.md)** |
 | A linked-function match still has a decomp.me score, or one visible register swap hides several allocator webs | **[Case study: SSSV func_802963D0](../case-studies/sssv-func-802963D0.md)** |
+| Your 100% project is assumed un-shiftable and nobody has measured it | **[Case study: Pilotwings 64 shiftability](../case-studies/pilotwings64-shiftability.md)** |
 | An exact source still contains suspicious fake-match scaffolding | **[Bounded carrier-substitution example](../examples/experiments/carrier-substitution/README.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 | You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](postmortem-2026-08-09-ge007.md)** |
