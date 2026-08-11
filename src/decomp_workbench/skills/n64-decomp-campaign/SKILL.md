@@ -39,6 +39,12 @@ and can reproduce `ctx.c` plus the language-aware `src.c`/`src.cxx` line reset
 and candidate composition with `--compile-command`. Its frontend line names
 the canonical compiler ID, language, expected driver, and frontend family;
 verify those before interpreting a compiler error. It never logs in or uploads.
+When a project object exists, add `--project-object` and optionally
+`--project-source`: report site metadata, scratch truth, and project truth as
+independent layers. Treat `context-only` as a context experiment, not a source
+regression. Only follow the unused-call-return occupancy hint when the command
+emits it; its C89, late-call, and coherent `$v0`/`$v1` gates are what make one
+scratch-only return-category probe defensible.
 
 The `next:` footer under every verdict names the matching field-guide
 levers and the exact `decomp-workbench guide <playbook|lever|verdict>` command
@@ -96,18 +102,27 @@ when the mismatch is caused by IDO code generation or register allocation.
    manifest when a generator produced the family.
 2. Change one family at a time: declaration order, carrier reuse, expression
    tree, loop spelling, literal type, or live-range boundary.
-3. Validate a `decomp-workbench-experiment-v1` sidecar with `experiment
-   validate` when parameters or a protected instruction region matter.
+3. Validate a `decomp-workbench-experiment-v1` sidecar when descriptive
+   parameters suffice. Use v2 for target-relative signals, serial absolute or
+   differential controls, and declared coverage. A required FAIL/UNKNOWN
+   control must stop before ordinary candidates; never bypass it.
 4. Compile variants through `decomp-workbench campaign` with an explicit
    compiler wrapper, working directory, and environment. The identity-checked
    manifest and append-only ledger are created under `.decomp-workbench/` by
    default.
+   When one wrapper exposes multiple lineages, record `--compiler-id`,
+   `--frontend`, `--language`, `--driver`, and `--backend`. Keep IRIX 4
+   `accom`, later `cfe`, and hybrid frontend/backend cells distinct.
 5. Compare every successful object; inspect `campaign status` so trajectory,
    failures, family space, and object basins survive interruption. Identical
    compiler outcomes do not masquerade as independent discoveries.
    Filter a large sweep with `compare --census KEY=VALUE` (exit 0 when every
    predicate holds, 3 when one fails) rather than writing another objdump and
    regular-expression layer.
+   Read required/optional signal transitions separately from the acceptance
+   trajectory. A mechanism signal can make a dominated result valuable; it
+   cannot make that result exact. Scope every negative to the printed coverage
+   conclusion and control state.
 6. Keep promising source/object pairs and the associated trace evidence.
    Treat a variant that fixes any subset of the residual as a new baseline
    and re-run the layout levers on top of it, even when its own score is
@@ -217,6 +232,11 @@ a frontend question until pass-boundary evidence proves otherwise.
 7. Use `campaign package` to promote the recorded winner into the standard
    checksummed scratch bundle; it revalidates campaign identities and refuses
    a non-accepted candidate unless the mismatch override is explicit.
+8. Prefer `campaign finish` before promotion. It freshly rebuilds the immutable
+   winner and records function, required-signal, optional scratch, collateral,
+   handoff, and project gates independently. Omitted gates must remain
+   `NOT RUN`. When required by the handoff, pass the resulting PASS receipt to
+   `campaign package --finish-receipt`.
 
 Do not claim completion from normalized distance, a register-only report,
 cross-ROM structural evidence, a forced compiler result, or a decomp.me score.

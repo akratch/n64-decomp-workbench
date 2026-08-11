@@ -163,6 +163,10 @@ class Comparison:
     #: narrowed with ``--symbol``, where a whole-section ELF read would answer
     #: a different question than "how long is this function".
     instruction_count_verified: bool = False
+    #: Code-free facts for every aligned row. Declarative campaign signals
+    #: consume this receipt instead of re-reading a whole section or retaining
+    #: target instruction text/words in the ledger.
+    aligned_row_receipts: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.
@@ -243,6 +247,8 @@ class CompileResult:
     artifacts: dict[str, str] = field(default_factory=dict)
     experiment: dict[str, Any] | None = None
     region: dict[str, Any] | None = None
+    signals: list[dict[str, Any]] = field(default_factory=list)
+    object_sha256: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)

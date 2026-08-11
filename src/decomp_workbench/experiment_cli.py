@@ -19,17 +19,28 @@ from .experiments import expected_parameter_combinations, load_experiment
 def experiment_validate_command(args: argparse.Namespace) -> int:
     try:
         manifest = load_experiment(args.manifest)
+        declared = expected_parameter_combinations(manifest)
+        excluded = int(manifest.coverage.get("excluded", 0))
+        proof = (
+            "Schema, paths, assignments, parameter membership, uniqueness, "
+            "and selected-region bounds validated"
+        )
+        if manifest.schema == "decomp-workbench-experiment-v2":
+            proof += (
+                "; signal/control references, control-source hash identity, "
+                "and coverage bounds validated"
+            )
         report = {
             **manifest.as_dict(),
-            "declared_combinations": expected_parameter_combinations(manifest),
+            "declared_combinations": declared,
             "described_candidates": len(manifest.candidates),
-            "complete_grid": (
-                len(manifest.candidates) == expected_parameter_combinations(manifest)
-            ),
-            "proof": (
-                "Schema, paths, assignments, parameter membership, uniqueness, "
-                "and selected-region bounds validated; no candidate was compiled."
-            ),
+            "complete_grid": len(manifest.candidates) == declared,
+            "accounted_combinations": len(manifest.candidates) + excluded,
+            "coverage_complete": len(manifest.candidates) + excluded == declared,
+            "signal_count": len(manifest.signals),
+            "control_count": len(manifest.controls),
+            "identity": manifest.identity_receipt(),
+            "proof": proof + "; no candidate was compiled.",
         }
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -43,6 +54,7 @@ def experiment_validate_command(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(f"experiment: {report['family']} ({report['path']})")
+        print(f"schema: {report['schema']}")
         print(
             f"candidates: {report['described_candidates']} described / "
             f"{report['declared_combinations']} Cartesian combination(s)"
@@ -50,6 +62,13 @@ def experiment_validate_command(args: argparse.Namespace) -> int:
         print(
             "grid: " + ("COMPLETE" if report["complete_grid"] else "PARTIAL (explicit)")
         )
+        if report["schema"] == "decomp-workbench-experiment-v2":
+            print(
+                f"executable evidence: {report['signal_count']} signal(s), "
+                f"{report['control_count']} control(s); coverage accounted "
+                f"{report['accounted_combinations']}/"
+                f"{report['declared_combinations']}"
+            )
         print(f"proof: {report['proof']}")
     return 0
 

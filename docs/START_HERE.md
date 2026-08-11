@@ -563,6 +563,27 @@ anything. Include the `view` output with it — "verdict `phase-shift`, temp lan
 rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 "13 words off" is not.
 
+If this came from a downloaded scratch, add the project object when you have
+it. `check-scratch --project-object ... --project-source ... --view` prints
+site metadata, scratch object truth, and project object truth separately. A
+project-exact/scratch-mismatch result means context is the variable; it is not
+a reason to rewrite already-matching project C. For the strict late `$v0`/
+`$v1` call-return shape, the command may propose one scratch-only return-type
+probe and explains every gate that earned it.
+
+For a generated family, experiment v2 can declare target-relative signals and
+serial baseline/differential controls. A broken or unknown required control
+stops before the candidate pool opens. Status then says whether the declared
+space was exhaustive, sampled, interrupted, invalid, or unknown instead of
+turning “zero hits” into an unqualified negative.
+
+When a recorded winner is exact, run `campaign finish`. It rebuilds outside
+the cache and keeps function, signal, scratch, translation-unit collateral,
+handoff, and project verification as independent gates. Anything you did not
+supply remains `NOT RUN`. Use its passing receipt with `campaign package
+--finish-receipt` when the handoff must prove which immutable source/object
+pair was finished.
+
 ---
 
 ## Where to go next
@@ -574,6 +595,7 @@ rotation +1 from slot 5, prefix exact to 12" is a question someone can answer.
 | you want every `view` option and the JSON schema | [Aligned mechanism view](view.md) |
 | you want every `compare` option and verdict rule | [Object comparison](object-comparison.md) |
 | you are running variant sweeps in bulk | [Candidate campaigns](campaigns.md) |
+| you are diagnosing scratch-vs-project context or finishing a winner | [Trustworthy endgame walkthrough](trustworthy-endgame-walkthrough.md) |
 | you need to generate the variant family, and to price the levers you inherited | [Sweeps](sweeps.md) |
 | a `schedule` residue survived `-g0` and every compiler you own | [Line-assignment probe](line-assignment-probe.md) |
 | ordinary source levers are exhausted and you have a calibrated trace | [Allocator oracle](oracle.md) |

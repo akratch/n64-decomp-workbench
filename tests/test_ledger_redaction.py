@@ -195,8 +195,28 @@ def make_result(**overrides: Any) -> CompileResult:
             diff_sites=make_diff_sites(),
             aligned_diff_sites=make_aligned_sites(),
             register_diff=make_register_sites(),
+            aligned_row_receipts=[
+                {
+                    "aligned_row": 0,
+                    "target_index": 0,
+                    "candidate_index": 0,
+                    "class": "register",
+                    "raw_exact": False,
+                    "relocation_aware_exact": False,
+                }
+            ],
         ),
         "cache_key": "abc123",
+        "signals": [
+            {
+                "id": "tail",
+                "kind": "target-rows-exact",
+                "required": True,
+                "status": "FAIL",
+                "requested_rows": [0],
+                "failed_rows": [0],
+            }
+        ],
     }
     fields.update(overrides)
     return CompileResult(**fields)
@@ -246,6 +266,8 @@ class LedgerCarriesNoTargetCodeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             record = write_ledger(Path(tmp))
         self.assertEqual(record["cache_key"], "abc123")
+        self.assertNotIn("aligned_row_receipts", record["comparison"])
+        self.assertEqual(record["signals"][0]["status"], "FAIL")
         sites = record["comparison"]["diff_sites"]
         self.assertEqual(len(sites), len(TARGET_SITES))
         self.assertEqual([site["index"] for site in sites], list(range(len(sites))))

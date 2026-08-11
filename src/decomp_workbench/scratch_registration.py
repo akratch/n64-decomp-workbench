@@ -52,6 +52,20 @@ def register_scratch_commands(
         "--source",
         help="candidate code to place after ctx.c; defaults to exported code.c",
     )
+    check.add_argument(
+        "--project-object",
+        help=(
+            "object produced by the normal project translation unit; compare it "
+            "against the same target without replacing scratch truth"
+        ),
+    )
+    check.add_argument(
+        "--project-source",
+        help=(
+            "optional project translation-unit source used only to qualify "
+            "context/prototype hypotheses; requires --project-object"
+        ),
+    )
     check.add_argument("--compile-cwd", help="working directory for the compiler")
     check.add_argument(
         "--env",

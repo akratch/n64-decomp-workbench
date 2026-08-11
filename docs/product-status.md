@@ -9,9 +9,10 @@ this page says what users can rely on now.
 | Job | Supported path |
 |---|---|
 | Explain one mismatch | `doctor` → `diagnose` → field-guide lever → rebuild |
-| Check a 99.xx% decomp.me result | `doctor ZIP` → `check-scratch --view` → optional site-faithful compile |
+| Check a 99.xx% decomp.me result | `doctor ZIP` → `check-scratch --view` → optional site-faithful compile/project truth differential |
 | Publish a proof repository | `handoff audit` → resolve missing/untracked dependencies → fresh-clone review |
-| Work a candidate family | `experiment validate` → `campaign` → `campaign status/note/resume/export` |
+| Work a candidate family | v1/v2 `experiment validate` → control preflight → `campaign` → status/note/resume/export |
+| Finish and promote a winner | immutable selection → `campaign finish` fresh/optional gates → optional receipt-gated `campaign package` |
 | Manage local state | default `.decomp-workbench/` manifests/ledgers/cache; recoverable `cache prune/restore` |
 | Establish pass ownership | `fidelity`, `pass diff`, calibrated `replay-as1` |
 | Identify compiler lineage | behavioral `fingerprint-toolchain`; hash-recorded `lineage` across caller-supplied objects |
@@ -78,12 +79,11 @@ These are depth extensions. A newcomer, project contributor, decomp.me user,
 campaign author, automation caller, and instrumentation specialist all have a
 complete supported path today.
 
-## Planned product campaign
+## Trustworthy endgames campaign
 
-The next cross-journey increment is scoped in
-[The trustworthy endgames campaign](trustworthy-endgames-campaign.md). It does
-not replace any complete journey above. It connects them with declarative
-function/row-scoped signals, mandatory experiment controls, project-vs-scratch
-context differentials, coverage-qualified conclusions, immutable winner
-promotion, and one auditable finish receipt. Every item is planned and remains
-outside the supported-capability table until its phase lands with tests.
+[The trustworthy endgames campaign](trustworthy-endgames-campaign.md) is now
+implemented: function/row-scoped signals, required serial controls,
+project-vs-scratch truth layers, coverage-qualified conclusions, compiler-cell
+identity (including IRIX 4 `accom`/later-backend hybrids), immutable promotion,
+and a fresh auditable finish receipt are supported paths. The design document
+remains the rationale and acceptance ledger; this page is the current claim.

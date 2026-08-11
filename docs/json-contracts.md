@@ -12,6 +12,7 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-comparison-v1`
 - `decomp-workbench-diagnosis-v1`
 - `decomp-workbench-campaign-status-v1`
+- `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
 - `decomp-workbench-trace-source-v1`
 
@@ -45,6 +46,27 @@ Canonical short keys such as `words`, `aligned_total`, and `frame` are the
 stable vocabulary. Deprecated long spellings remain emitted only for the
 documented compatibility window.
 
+Experiment-v2 and endgame additions are additive to existing report schemas:
+
+- comparisons expose `aligned_row_receipts`, a code-free row identity/class/
+  equality table used by signals;
+- campaign results expose `signals`, `object_sha256`, and `controls`;
+- campaign status exposes `acceptance_trajectory`, `mechanism_trajectory`,
+  `coverage`, and `conclusion_label`;
+- scratch checks expose `truth_layers`, `context_differential`,
+  `context_hypotheses`, and optional `project_comparison`;
+- finish files use `decomp-workbench-campaign-finish-v1`, with independent
+  gates whose status is `PASS`, `FAIL`, `UNKNOWN`, or `NOT RUN`.
+
+Signal/control machine statuses are exactly `PASS`, `FAIL`, and `UNKNOWN`.
+`UNKNOWN` blocks a required control; it never means false. Coverage conclusion
+labels are exactly `exhaustive-over-declared-space`,
+`sampled-over-declared-space`, `partial-interrupted`, `control-invalid`, and
+`coverage-unknown`. Consumers should switch on those fields rather than parse
+human reasons. Signal receipts deliberately contain no target instruction
+text or target words; normal ledger redaction still applies to other
+comparison detail.
+
 ## Failure
 
 A representative error is:
@@ -75,6 +97,11 @@ remain in the message or an optional `details` object.
 | `1` | a requested match/validation gate failed, or no usable rows existed |
 | `2` | invalid input, missing capability, or failed external stage |
 | `3` | the report was produced, but at least one `--census` predicate was false |
+
+A failed required campaign control returns 2 because the experiment is
+invalid and ordinary candidates were not scheduled. `campaign finish` returns
+1 when it wrote a valid receipt with one or more evaluated gates failing, and
+2 when it could not produce a trustworthy receipt.
 
 State and readiness are data, not automatically process failures. For example,
 successful partial `toolchain calibrate` returns zero with

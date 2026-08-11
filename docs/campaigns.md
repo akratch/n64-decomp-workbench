@@ -55,6 +55,10 @@ or identity prefix.
 - experiment-family tested assignments, declared parameter space, and whether
   a family is still moving or has collapsed;
 - the active `note`/hypothesis and interrupted-ledger warnings.
+- serial control status, declared/visited/excluded coverage, and one of five
+  honest conclusion labels;
+- required and optional signal transitions, including a mechanism improvement
+  from a candidate whose total score is worse.
 
 Large parameter grids stay compact in the terminal: `status` prints the tested
 assignment count plus a three-row sample and summarizes oversized declared
@@ -128,6 +132,82 @@ The `decomp-workbench-experiment-v1` manifest records:
 - an optional half-open `selected_region` instruction range.
 - optional `homologous_parameters`, explicit groups of sibling parameters
   with the same choices.
+
+Version 1 remains supported unchanged. Use
+`decomp-workbench-experiment-v2` only when the experiment needs executable
+claims. It adds four small signal kinds, serial controls, and coverage:
+
+```json
+{
+  "schema": "decomp-workbench-experiment-v2",
+  "family": "dispatch-spelling",
+  "baseline": "baseline.c",
+  "parameters": {"shape": ["if", "switch"]},
+  "candidates": [
+    {"source": "if.c", "parameters": {"shape": "if"}},
+    {"source": "switch.c", "parameters": {"shape": "switch"}}
+  ],
+  "signals": [
+    {
+      "id": "late-tail",
+      "kind": "target-rows-exact",
+      "rows": [120, 121, 122],
+      "comparison": "relocation-aware",
+      "required": true
+    }
+  ],
+  "controls": [
+    {
+      "id": "known-baseline",
+      "candidate": "baseline.c",
+      "expect": {"words": 16, "signals": {"late-tail": "PASS"}}
+    }
+  ],
+  "coverage": {"method": "exhaustive", "excluded": 0}
+}
+```
+
+Signals are predicates over the comparator's already-selected function, never
+a second object reader. `target-rows-exact` and `target-region-exact` use
+target-relative aligned rows, so inserting a candidate instruction before the
+range cannot move the question. `metrics` checks registered comparison keys;
+`residual-classes` permits or forbids the five source-controlled classes.
+Receipts contain indices, classes, and booleans—not target words or assembly.
+A required signal ranks failures behind passing candidates but never changes
+the built-in definition of `exact`.
+
+Controls compile serially before the ordinary job pool. An absolute control
+reproduces expected metrics, signal states, object hash, or return code. A
+differential control requires two control candidates to differ at named paths
+such as `object_sha256`, `metrics.words`, or `signals.late-tail`; this is the
+canary for a wrapper that ignored a force or environment knob. Required
+`FAIL` or `UNKNOWN` exits 2 and schedules zero ordinary candidates. Control
+source hashes participate in the experiment identity, so changing one refuses
+resume.
+
+Coverage is derived from ledger assignments and the declared Cartesian grid.
+The declaration may state a method, sampling note, and excluded count; every
+nonzero exclusion requires a reason and cannot exceed the grid. Status uses
+exactly these conclusion labels: `exhaustive-over-declared-space`,
+`sampled-over-declared-space`, `partial-interrupted`, `control-invalid`, and
+`coverage-unknown`. None means “historical source proven.”
+
+Migrating v1 to v2 is additive: change the schema and add only the fields the
+experiment can prove. Do not add a ceremonial control or guessed coverage.
+Projects that need none of these features should keep v1.
+
+## Keep compiler/frontends as distinct experiment cells
+
+The same wrapper can select materially different compilation lineages. Add an
+explicit cell to the normal campaign invocation, for example
+`--compiler-id IDO-5.3 --frontend 'IRIX 4.x accom' --language c89 --driver
+cc-irix4 --backend 'IDO 5.3 ugen'`.
+
+These fields join the cache key, campaign identity, controls, resume, and
+finish receipts. This keeps an IRIX 4 `accom` frontend distinct from later
+`cfe` even when both feed the same backend or emit through a final-object
+wrapper. Signals inspect the selected final function and make no ELF or
+intermediate-format assumption.
 
 Homologous groups are not inferred from names. Their baseline must have a
 complete assignment. Once two measured candidates differ in exactly one group
@@ -203,6 +283,28 @@ Each JSONL record includes:
 - cache status;
 - comparison metrics and object hashes;
 - paths that produced the same prepared key, when applicable.
+
+When declared, the record also carries the compiler envelope, signal receipts,
+full object SHA-256, and control provenance. Existing campaigns without those
+fields keep their old cache identity.
+
+## Finish and promote one immutable winner
+
+`campaign finish CAMPAIGN` selects a recorded source/cache key, verifies its
+source and cached-object hashes, then performs a fresh no-cache rebuild. The
+receipt keeps six gates independent: fresh function exactness, required
+signals, optional scratch context, optional translation-unit collateral,
+optional handoff audit, and an optional caller-supplied project command.
+Omitted gates remain `NOT RUN`; function exactness never silently promotes
+them to PASS. JSON and self-contained HTML reports are written exclusively and
+are never overwritten.
+
+After a passing JSON finish, `campaign package --finish-receipt finish.json ...`
+can require that exact receipt. Packaging verifies campaign identity, cache
+key, source hash, and recorded-object hash before placing the receipt path in
+the scratch provenance. Without `--finish-receipt`, the existing immutable
+winner checks still apply.
+The promoted provenance records both the receipt path and its SHA-256.
 
 A candidate that fails — a compiler error, a 120-second default `--timeout`,
 an unreadable object, or an unexpected error inside the comparison — is

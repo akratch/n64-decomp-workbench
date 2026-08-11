@@ -151,9 +151,9 @@ LEVER_ACTIONS: dict[int, str] = {
         "for a genuinely free FIFO rotation"
     ),
     17: (
-        "only when the residue contains a move/copy: drop `void` for a K&R "
-        "implicit-int return type on the declaration AND the definition; "
-        "one variant"
+        "only with a copy-shaped residue OR check-scratch's measured late "
+        "v0/v1 call-return occupancy hypothesis: test one explicit `int`/K&R "
+        "return-category variant at the declaration and definition"
     ),
     18: (
         "only when the residue contains a move/copy: give a genuinely "
@@ -416,9 +416,11 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "a one-bijection assembly residue is one downstream outcome, not proof "
         "of one source web; use forbidden-color producers to count the blockers.",
         "don't have one? first inspect the residue for an actual move/copy "
-        "site. If one exists, levers 17 and 18 are one variant each. If the "
-        "residue is only a register bijection with no copy-shaped site, skip "
-        "both and go directly to lever 19; a clean forced-color cascade is a "
+        "site, or run check-scratch --view with a project object to test the "
+        "strict late v0/v1 call-return occupancy shape. If either gate fires, "
+        "lever 17 is one variant; lever 18 still requires a visible copy and "
+        "repeated source expression. Otherwise go directly to lever 19; a "
+        "clean forced-color cascade is a "
         "legitimate stopping point - record it, bundle the scratch, take the "
         "next function.",
         "when source variants plateau, use campaign --show-basins; hundreds "

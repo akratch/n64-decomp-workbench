@@ -553,7 +553,7 @@ independently reused numbers — two different stages each produced an "L84",
 two each produced an "L60", and so on. The numbers below are this page's own,
 assigned in the order the mechanism was nailed down; they do not match any
 stage's internal numbering, and no stage's internal numbering is used
-anywhere else on this page. [The p1 decision arithmetic](../p1-decision-arithmetic.md)
+anywhere else on this page. [The p1 decision arithmetic](https://github.com/akratch/n64-decomp-workbench/blob/main/docs/p1-decision-arithmetic.md)
 walks the whole formula end to end with a worked example; this section is the
 per-fact reference it cites.
 
@@ -918,7 +918,7 @@ to a zero-cost plant at such a site, because the register a plant would need
 to reuse is never actually a colour. A zero-cost route at such a site is
 therefore always evidence of a **missing temp in the decompiled C**, not a
 free lever — see the campaign postmortem's
-["split machine temp" and "missing local" error classes](../postmortem-2026-08-09-ge007.md).
+["split machine temp" and "missing local" error classes](https://github.com/akratch/n64-decomp-workbench/blob/main/docs/postmortem-2026-08-09-ge007.md).
 
 **Receipt — T1**, consistent with L13's and L27's independent measurements
 of the same ring.

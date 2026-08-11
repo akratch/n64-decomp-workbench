@@ -311,6 +311,30 @@ uses the existing ledger. A mismatch is a refused resume, not a cache hit.
 Inspect cache state with `cache status`. `cache prune` is a dry run by default;
 `--apply` moves entries to recoverable trash and prints the restore command.
 
+If one wrapper selects multiple historical frontends, pass the explicit
+compiler envelope: `--compiler-id`, `--frontend`, `--language`, `--driver`,
+and `--backend`. An IRIX 4 `accom` cell and a later `cfe` cell must not share a
+cache identity merely because the final wrapper or backend path is identical.
+Empty envelopes preserve old cache keys.
+
+## A campaign stopped before compiling candidates
+
+Read the control receipt. A required `FAIL` means the baseline or requested
+differential contradicted its declaration. `UNKNOWN` means the metric, signal,
+object hash, or successful compile needed to answer the control was absent; it
+also blocks. This is exit 2 by design, and zero ordinary candidates were
+scheduled. Fix the wrapper, selected symbol, control source, or expectation;
+do not weaken a measured control just to open the pool.
+
+## Campaign finish says NOT RUN
+
+`NOT RUN` is not failure and not success. It means the optional gate was not
+supplied: scratch context, collateral reference object, handoff directory, or
+project command. Supply the corresponding option when that gate belongs to
+your definition of done. A finish receipt is globally ready only when every
+evaluated gate passes; omitted gates remain visible so a downstream reviewer
+can decide whether they were required.
+
 ## A campaign wrapper works manually but fails in the workbench
 
 Check whether the wrapper assumes it starts in the project root. Candidate

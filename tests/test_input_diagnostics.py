@@ -376,7 +376,9 @@ class MissingCandidateTests(unittest.TestCase):
     #: sentence on stderr, nothing on stdout. Only the absent path fails, so
     #: the target dumps normally and the candidate is the one that stops it.
     @staticmethod
-    def _absent(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+    def _absent(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
         target = command[-1]
         if "nonexistent" in target:
             return subprocess.CompletedProcess(
@@ -437,7 +439,7 @@ class MissingCandidateTests(unittest.TestCase):
 
             def unreadable(
                 command: list[str], **kwargs: object
-            ) -> subprocess.CompletedProcess:
+            ) -> subprocess.CompletedProcess[str]:
                 return subprocess.CompletedProcess(
                     command, 1, "", "objdump: file format not recognized\n"
                 )

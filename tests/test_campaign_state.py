@@ -206,6 +206,212 @@ class CampaignStateTests(unittest.TestCase):
                 json.loads(manifest.read_text(encoding="utf-8"))["identity"],
             )
 
+    def test_campaign_finish_freshly_rebuilds_and_preserves_not_run_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            source = root / "candidate.c"
+            target.write_bytes(b"target")
+            source.write_text("int candidate;\n", encoding="utf-8")
+            compiler, objdump = self.make_tools(root)
+            status, stdout, _ = self.run_cli(
+                [
+                    "campaign",
+                    str(target),
+                    str(source),
+                    "--compile-command",
+                    f"{sys.executable} {compiler} {{source}} {{output}}",
+                    "--objdump",
+                    str(objdump),
+                    "--symbol",
+                    "demo",
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--json-summary",
+                ]
+            )
+            self.assertEqual(status, 0)
+            manifest = Path(json.loads(stdout)["manifest"])
+            receipt = root / "finish.json"
+            status, _, stderr = self.run_cli(
+                [
+                    "campaign",
+                    "finish",
+                    str(manifest),
+                    "--output",
+                    str(receipt),
+                ]
+            )
+            report = json.loads(receipt.read_text(encoding="utf-8"))
+            timeout_script = root / "project-timeout.py"
+            timeout_script.write_text(
+                "import time\nprint('x' * 200, flush=True)\ntime.sleep(5)\n",
+                encoding="utf-8",
+            )
+            timeout_receipt = root / "finish-timeout.json"
+            timeout_status, _, _ = self.run_cli(
+                [
+                    "campaign",
+                    "finish",
+                    str(manifest),
+                    "--output",
+                    str(timeout_receipt),
+                    "--project-command",
+                    f"{sys.executable} {timeout_script}",
+                    "--project-timeout",
+                    "0.1",
+                    "--stream-limit",
+                    "16",
+                ]
+            )
+            timeout_report = json.loads(timeout_receipt.read_text(encoding="utf-8"))
+            timeout_artifact = Path(
+                timeout_report["gates"]["project_verification"]["evidence"][
+                    "artifacts"
+                ]["stdout"]
+            ).is_file()
+            html_receipt = root / "finish.html"
+            html_status, _, _ = self.run_cli(
+                [
+                    "campaign",
+                    "finish",
+                    str(manifest),
+                    "--output",
+                    str(html_receipt),
+                    "--format",
+                    "html",
+                ]
+            )
+            html_document = html_receipt.read_text(encoding="utf-8")
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertTrue(report["ready"])
+        self.assertEqual(report["gates"]["fresh_function"]["status"], "PASS")
+        self.assertEqual(report["gates"]["required_signals"]["status"], "PASS")
+        self.assertEqual(report["gates"]["scratch_context"]["status"], "NOT RUN")
+        self.assertNotEqual(
+            report["winner"]["recorded_object"],
+            report["winner"].get("fresh_object"),
+        )
+        self.assertIsNotNone(report["winner"]["fresh_object_sha256"])
+        timeout_evidence = timeout_report["gates"]["project_verification"]["evidence"]
+        self.assertEqual(timeout_status, 1)
+        self.assertEqual(timeout_evidence["returncode"], 124)
+        self.assertTrue(timeout_evidence["stdout_truncated"])
+        self.assertGreater(timeout_evidence["stdout_bytes"], 16)
+        self.assertTrue(timeout_artifact)
+        self.assertEqual(html_status, 0)
+        self.assertIn("Machine-readable receipt", html_document)
+        self.assertIn("decomp-workbench-campaign-finish-v1", html_document)
+        self.assertIn("NOT RUN", html_document)
+
+    def test_campaign_finish_refuses_a_mutated_cached_object_and_overwrite(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            source = root / "candidate.c"
+            target.write_bytes(b"target")
+            source.write_text("int candidate;\n", encoding="utf-8")
+            compiler, objdump = self.make_tools(root)
+            _, stdout, _ = self.run_cli(
+                [
+                    "campaign",
+                    str(target),
+                    str(source),
+                    "--compile-command",
+                    f"{sys.executable} {compiler} {{source}} {{output}}",
+                    "--objdump",
+                    str(objdump),
+                    "--symbol",
+                    "demo",
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--json-summary",
+                ]
+            )
+            payload = json.loads(stdout)
+            manifest = Path(payload["manifest"])
+            receipt = root / "finish.json"
+            first_status, _, _ = self.run_cli(
+                ["campaign", "finish", str(manifest), "--output", str(receipt)]
+            )
+            overwrite_status, _, overwrite_error = self.run_cli(
+                ["campaign", "finish", str(manifest), "--output", str(receipt)]
+            )
+            selected_key = payload["results"][0]["cache_key"]
+            (root / "cache" / f"{selected_key}.o").write_bytes(b"tampered")
+            tamper_status, _, tamper_error = self.run_cli(
+                [
+                    "campaign",
+                    "finish",
+                    str(manifest),
+                    "--output",
+                    str(root / "second.json"),
+                ]
+            )
+
+        self.assertEqual(first_status, 0)
+        self.assertEqual(overwrite_status, 2)
+        self.assertIn("refusing to overwrite", overwrite_error)
+        self.assertEqual(tamper_status, 2)
+        self.assertIn("cached object hash changed", tamper_error)
+
+    def test_campaign_finish_keeps_project_failure_separate_from_function_pass(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            source = root / "candidate.c"
+            target.write_bytes(b"target")
+            source.write_text("int candidate;\n", encoding="utf-8")
+            compiler, objdump = self.make_tools(root)
+            _, stdout, _ = self.run_cli(
+                [
+                    "campaign",
+                    str(target),
+                    str(source),
+                    "--compile-command",
+                    f"{sys.executable} {compiler} {{source}} {{output}}",
+                    "--objdump",
+                    str(objdump),
+                    "--symbol",
+                    "demo",
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--json-summary",
+                ]
+            )
+            manifest = Path(json.loads(stdout)["manifest"])
+            receipt = root / "finish-with-project.json"
+            status, _, stderr = self.run_cli(
+                [
+                    "campaign",
+                    "finish",
+                    str(manifest),
+                    "--output",
+                    str(receipt),
+                    "--project-command",
+                    f"{sys.executable} -c 'raise SystemExit(7)'",
+                ]
+            )
+            report = json.loads(receipt.read_text(encoding="utf-8"))
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertFalse(report["ready"])
+        self.assertEqual(report["gates"]["fresh_function"]["status"], "PASS")
+        self.assertEqual(report["gates"]["project_verification"]["status"], "FAIL")
+
     def test_campaign_note_survives_as_handoff_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -394,6 +600,93 @@ class CampaignStateTests(unittest.TestCase):
         self.assertEqual(continued_stderr, "")
         self.assertEqual(len(final_records), 2)
         self.assertEqual(final_status, "exact")
+
+    def test_resume_preserves_v2_candidate_metadata_and_signals(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.o"
+            target.write_bytes(b"target")
+            baseline = root / "baseline.c"
+            baseline.write_text("int baseline;\n", encoding="utf-8")
+            sources = [root / "first.c", root / "second.c"]
+            for index, source in enumerate(sources):
+                source.write_text(f"int candidate = {index};\n", encoding="utf-8")
+            experiment = root / "experiment.json"
+            experiment.write_text(
+                json.dumps(
+                    {
+                        "schema": "decomp-workbench-experiment-v2",
+                        "family": "resume-v2",
+                        "baseline": "baseline.c",
+                        "parameters": {"shape": ["first", "second"]},
+                        "candidates": [
+                            {
+                                "source": source.name,
+                                "parameters": {"shape": source.stem},
+                            }
+                            for source in sources
+                        ],
+                        "signals": [
+                            {
+                                "id": "tail",
+                                "kind": "target-rows-exact",
+                                "rows": [1],
+                                "required": True,
+                            }
+                        ],
+                        "coverage": {"method": "exhaustive", "excluded": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            compiler, objdump = self.make_tools(root)
+            _, stdout, _ = self.run_cli(
+                [
+                    "campaign",
+                    str(target),
+                    *(str(source) for source in sources),
+                    "--compile-command",
+                    f"{sys.executable} {compiler} {{source}} {{output}}",
+                    "--objdump",
+                    str(objdump),
+                    "--symbol",
+                    "demo",
+                    "--jobs",
+                    "1",
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--experiment-manifest",
+                    str(experiment),
+                    "--json-summary",
+                ]
+            )
+            payload = json.loads(stdout)
+            manifest = Path(payload["manifest"])
+            ledger = Path(payload["ledger"])
+            resumed, _, stderr = self.run_cli(
+                [
+                    "campaign",
+                    "resume",
+                    str(manifest),
+                    "--continue-after-exact",
+                ]
+            )
+            records = [
+                json.loads(line)
+                for line in ledger.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(resumed, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(len(records), 2)
+        self.assertEqual(
+            records[1]["experiment"]["schema"],
+            "decomp-workbench-experiment-v2",
+        )
+        self.assertEqual(records[1]["experiment"]["signals"], ["tail"])
+        self.assertEqual(records[1]["signals"][0]["status"], "PASS")
 
 
 if __name__ == "__main__":

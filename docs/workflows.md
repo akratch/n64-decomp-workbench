@@ -46,6 +46,12 @@ the site's own target/current objects. Add `--compile-command` when you need to
 test a local candidate with the site's context and source-line reset. See
 [decomp.me export checking](decompme-exports.md).
 
+When the same source is exact in the project but not in the scratch, pass the
+project object and source to the same command. The first screen calls the
+result `context-only` and, only for the measured late C89 `$v0`/`$v1` shape,
+offers one scratch-only call-return declaration probe. Project, scratch, and
+site facts remain separate JSON layers.
+
 ## Object mismatch
 
 ```sh
@@ -117,6 +123,17 @@ prefix ends, and names the lever family. `view-dumps` runs the same analysis on
 retained objdump text. See [Aligned mechanism view](view.md).
 
 ## Candidate search
+
+For a parameterized generator, use experiment v1 for descriptive provenance
+or v2 for executable signals, serial controls, and declared coverage. Record
+frontend identity (`compiler-id`, frontend, language, driver, backend) when
+testing IRIX 4 `accom`, later `cfe`, or a hybrid. Required controls fail closed
+before parallel work; target-relative signal transitions remain visible even
+when the candidate is score-dominated.
+
+After an exact campaign result, use `campaign finish` for a fresh no-cache
+rebuild and the optional scratch, collateral, handoff, and project gates. A
+gate you did not request is `NOT RUN`, never implied PASS.
 
 Use `campaign` once you can compile one arbitrary source path to one output
 path:

@@ -103,6 +103,8 @@ Use it when:
 
 - your candidate is close, but the remaining mismatch is hard to classify;
 - you are compiling many source variants and need caching plus a durable ledger;
+- a sweep needs row/function-scoped signals, baseline/differential controls,
+  honest coverage, or a fresh auditable finish receipt;
 - the instruction shape matches but register allocation does not;
 - a function already matches and you want to remove fake-match machinery
   without losing exactness;
@@ -308,13 +310,13 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Can one command tell me exactness, mechanism, and the next lever? | `diagnose`, `diagnose-dumps` | Comparison plus decisive aligned evidence, one input load |
 | Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
 | Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
-| Does this downloaded scratch really match? | `check-scratch` | Browser score context, aligned object truth, optional site-faithful recompile |
+| Does this downloaded scratch really match, or only differ from the exact project because of context? | `check-scratch` | Browser score context, independent scratch/project truth, optional site-faithful recompile |
 | The footer named a playbook — what is it? | `guide` | The field-guide levers for a playbook, verdict, or lever number |
 | The counts differ, so every later row is charged — how far is it really? | `align`, `align-dumps` | The edit script (replaced, inserted, deleted) and the instructions a source change must actually move, instead of what one insertion cost positionally |
 | Is this candidate wrong, or the same allocation rotated one register along? | `phase`, `phase-dumps` | Per row slot, the ring coset that would make it match **and** the positional count it really scores, so a rotation is never recorded as a win |
 | Which candidate is closest? | `rank` | Stable structural and exact ranking |
-| How do I run and reopen hundreds of variants safely? | `campaign`, `campaign status/resume/export` | Parallel builds, cache, durable state, trajectory and HTML |
-| How do I describe a generated family? | `experiment validate` | Parameter/path/grid validation and selected-region contract |
+| How do I run and reopen hundreds of variants safely? | `campaign`, `campaign status/resume/export/finish` | Controls before scale, parallel builds, cache, coverage/mechanism trajectories, fresh finish receipt |
+| How do I describe a generated family? | `experiment validate` | v1 parameter/path/grid provenance or v2 signals, controls, and coverage |
 | How do I manage the object cache? | `cache status/prune/restore` | Dry-run cleanup and recoverable trash |
 | What events are present in this trace? | `trace-summary` | Event, register, and source-line counts |
 | Is temp-register reuse following a FIFO? | `trace-fifo` | Validated queue and physical-to-logical value schedule |

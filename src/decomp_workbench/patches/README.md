@@ -7,10 +7,11 @@ workbench already reads — the records `trace-cascade --grammar` marks
 CAMPAIGN-LOCAL — kept as diffs so that the reader side never again outlives the
 producer side.
 
-That has happened. `ssb64-ovl8-irix4/tools/README.md` records the original CDX
-patch as **lost**: the instrumented `uopt` binary survived, the source that
-made it did not, and two later campaigns paid for the recovery. These files are
-the receipt, not the compiler.
+That has happened. The retained, non-redistributable ssb64 IRIX4 campaign log
+records the original CDX patch as **lost**: the instrumented `uopt` binary
+survived, the source that made it did not, and two later campaigns paid for the
+recovery. That private archive is provenance, not a published workbench
+dependency. These files are the receipt, not the compiler.
 
 | Patch | Adds | Record grammar |
 |---|---|---|

@@ -75,6 +75,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("note", "persist the active hypothesis for status and handoff"),
         ("export", "write bounded shareable JSON or HTML evidence"),
         ("package", "promote a winner into a paste-ready scratch bundle"),
+        ("finish", "freshly rebuild a winner and audit every integration gate"),
     ),
     "experiment": (
         ("validate", "check paths, parameter assignments, and region bounds"),
@@ -194,6 +195,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("campaign", "note"): "campaign-note",
     ("campaign", "export"): "campaign-export",
     ("campaign", "package"): "campaign-package",
+    ("campaign", "finish"): "campaign-finish",
     ("note", "add"): "note-add",
     ("note", "reserve"): "note-reserve",
     ("note", "list"): "note-list",
@@ -242,6 +244,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
 HIDDEN_FLAT_COMMANDS = frozenset(
     {
         "campaign-export",
+        "campaign-finish",
         "campaign-note",
         "campaign-package",
         "campaign-resume",

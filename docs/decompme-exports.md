@@ -36,6 +36,14 @@ This screen deliberately keeps three answers separate:
   with `current.o`, or
   redistributable `target.objdump` with `current.objdump`.
 
+`check-scratch` now prints the same separation as a truth stack. Site metadata
+is context, the scratch object is one measured layer, and an optional project
+object is another. Supply `--project-object PROJECT.o` (and optionally
+`--project-source UNIT.c`) to compare that project-selected function with the
+export's `target.o`. A project-exact/scratch-mismatch pair is classified
+`context-only`; neither layer overwrites the other. `--project-source` requires
+the project object because source text alone is not object truth.
+
 The saved browser score never overrides freshly measured object evidence. For
 a scratch, `--fail-on-mismatch` returns `1` unless every raw instruction word
 and known relocation entry agrees. This is deliberately stricter than
@@ -139,6 +147,16 @@ Use `--source candidate.c` to test a local candidate in place of exported
 site's line-one reset. `--keep-composed` makes the exact compiler input
 inspectable; `--keep-object` retains the resulting object.
 
+For one tightly measured C89 shape, the truth stack offers a safe
+call-contract probe. It requires an otherwise shape-stable register-only
+residual, exactly one coherent `$v0`/`$v1` web late in the function, a nearby
+direct call, and an explicit `void` declaration for that callee in the scratch
+context. C++, non-C89 frontends, structural residues, unrelated registers, or
+an early/far call suppress the hint. The action is deliberately one
+scratch-only `int callee();` experiment; it is a hypothesis about unused-return
+register occupancy, not proof of the historical prototype and never an
+instruction to edit project source blindly.
+
 ## Read a schedule residual without overclaiming it
 
 The fixture reproduces the last shape of a real endgame: two different `li`
@@ -161,3 +179,8 @@ it.
 relocation layout match. It does not prove the translation unit, linked image,
 or game is healthy. Finish with the project's normal full build, link/ROM
 comparison, and collateral checks.
+
+For a recorded candidate, `campaign finish` turns that order into one receipt:
+fresh function and required-signal gates always run; scratch, collateral,
+handoff, and the caller's project/ROM command run only when supplied and remain
+`NOT RUN` otherwise.

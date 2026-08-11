@@ -176,6 +176,57 @@ class CampaignTests(unittest.TestCase):
             )
             self.assertNotEqual(first, third)
 
+    def test_candidate_key_separates_irix4_and_later_frontend_cells(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "candidate.c"
+            target = root / "target.o"
+            compiler = root / "wrapper"
+            source.write_text("int value;\n", encoding="utf-8")
+            target.write_bytes(b"target")
+            compiler.write_text("#!/bin/sh\n", encoding="utf-8")
+            command = [str(compiler), str(source), "{cache_object}"]
+            legacy = candidate_key(
+                source,
+                command=command,
+                target=target,
+                symbol="demo",
+                environment={},
+                compilation_envelope={
+                    "frontend": "IRIX 4.x accom",
+                    "backend": "IDO 5.3 ugen",
+                },
+            )
+            later = candidate_key(
+                source,
+                command=command,
+                target=target,
+                symbol="demo",
+                environment={},
+                compilation_envelope={
+                    "frontend": "IDO 5.3 cfe",
+                    "backend": "IDO 5.3 ugen",
+                },
+            )
+            unqualified = candidate_key(
+                source,
+                command=command,
+                target=target,
+                symbol="demo",
+                environment={},
+            )
+            empty = candidate_key(
+                source,
+                command=command,
+                target=target,
+                symbol="demo",
+                environment={},
+                compilation_envelope={},
+            )
+
+        self.assertNotEqual(legacy, later)
+        self.assertEqual(unqualified, empty)
+
     def test_candidate_keys_are_path_sensitive(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

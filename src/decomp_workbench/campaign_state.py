@@ -60,6 +60,8 @@ def campaign_identity(
     environment: Mapping[str, str],
     objdump: str,
     toolchain: str | Path | None = None,
+    experiment: Mapping[str, Any] | None = None,
+    compilation_envelope: Mapping[str, str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return a stable run identity and its human-auditable inputs."""
 
@@ -83,6 +85,8 @@ def campaign_identity(
         },
         "objdump": executable_identity([objdump], cwd=compile_cwd),
     }
+    if compilation_envelope:
+        payload["compile"]["envelope"] = dict(sorted(compilation_envelope.items()))
     if toolchain is not None:
         report = toolchain_status(toolchain)
         manifest_path = Path(report["directory"]) / TOOLCHAIN_MANIFEST_NAME
@@ -93,6 +97,8 @@ def campaign_identity(
             "manifest": str(manifest_path),
             "manifest_sha256": file_sha256(manifest_path),
         }
+    if experiment is not None:
+        payload["experiment"] = dict(experiment)
     return hashlib.sha256(_canonical_json(payload)).hexdigest(), payload
 
 
@@ -179,6 +185,7 @@ def finish_manifest(
     prepared: int,
     exact: bool,
     interrupted: bool = False,
+    control_invalid: bool = False,
 ) -> dict[str, Any]:
     """Atomically record the terminal state of a campaign invocation."""
 
@@ -186,14 +193,34 @@ def finish_manifest(
     manifest = load_manifest(manifest_path)
     manifest["updated_at_unix"] = time.time()
     manifest["status"] = (
-        "interrupted" if interrupted else "exact" if exact else "complete"
+        "control-invalid"
+        if control_invalid
+        else "interrupted"
+        if interrupted
+        else "exact"
+        if exact
+        else "complete"
     )
     manifest["last_run"] = {
         "results": results,
         "prepared": prepared,
         "exact": exact,
         "interrupted": interrupted,
+        "control_invalid": control_invalid,
     }
+    _write_json_atomic(manifest_path, manifest)
+    return manifest
+
+
+def record_control_preflight(
+    path: str | Path, report: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Persist one immutable-by-campaign control receipt before ordinary work."""
+
+    manifest_path = resolve_manifest(path)
+    manifest = load_manifest(manifest_path)
+    manifest["control_preflight"] = dict(report)
+    manifest["updated_at_unix"] = time.time()
     _write_json_atomic(manifest_path, manifest)
     return manifest
 
@@ -351,14 +378,22 @@ def _compact_record(record: Mapping[str, Any]) -> dict[str, Any]:
         )
         compact_comparison = {key: comparison.get(key) for key in keys}
     return {
+        "recorded_at_unix": record.get("recorded_at_unix"),
         "source": record.get("source"),
         "returncode": record.get("returncode"),
         "cached": record.get("cached"),
         "duration_seconds": record.get("duration_seconds"),
         "cache_key": record.get("cache_key"),
+        "object_sha256": record.get("object_sha256"),
+        "source_sha256": (
+            record.get("provenance", {}).get("source_sha256")
+            if isinstance(record.get("provenance"), dict)
+            else None
+        ),
         "comparison": compact_comparison,
         "experiment": record.get("experiment"),
         "region": record.get("region"),
+        "signals": record.get("signals", []),
     }
 
 
@@ -552,8 +587,11 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
         default=None,
     )
     trajectory = []
+    mechanism_trajectory: list[dict[str, Any]] = []
+    signal_state: dict[str, str] = {}
     best_so_far: Mapping[str, Any] | None = None
     basins: dict[str, list[str]] = {}
+    basin_signals: dict[str, dict[str, set[str]]] = {}
     families: dict[str, list[dict[str, Any]]] = {}
     failures = []
     previous_basin: str | None = None
@@ -567,6 +605,11 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
                 best_so_far = comparison
             sha = str(comparison.get("candidate_sha256", "unknown"))
             basins.setdefault(sha, []).append(str(record.get("source", "unknown")))
+            for signal in record.get("signals", []):
+                if isinstance(signal, dict) and isinstance(signal.get("id"), str):
+                    basin_signals.setdefault(sha, {}).setdefault(
+                        str(signal["id"]), set()
+                    ).add(str(signal.get("status", "UNKNOWN")))
             experiment = record.get("experiment")
             if isinstance(experiment, dict):
                 family = str(experiment.get("family", "unclassified"))
@@ -605,6 +648,28 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
                     "region": record.get("region"),
                 }
             )
+            signals = record.get("signals", [])
+            if isinstance(signals, list):
+                for signal in signals:
+                    if not isinstance(signal, dict) or not isinstance(
+                        signal.get("id"), str
+                    ):
+                        continue
+                    signal_id = str(signal["id"])
+                    status = str(signal.get("status", "UNKNOWN"))
+                    previous = signal_state.get(signal_id)
+                    if previous != status:
+                        mechanism_trajectory.append(
+                            {
+                                "record": index,
+                                "source": record.get("source"),
+                                "signal": signal_id,
+                                "required": bool(signal.get("required")),
+                                "from": previous,
+                                "to": status,
+                            }
+                        )
+                    signal_state[signal_id] = status
         else:
             failures.append(
                 {
@@ -627,6 +692,10 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
             "candidate_sha256": sha,
             "variant_count": len(sources),
             "sources": sources,
+            "signals": {
+                signal: sorted(statuses)
+                for signal, statuses in sorted(basin_signals.get(sha, {}).items())
+            },
         }
         for sha, sources in basins.items()
     ]
@@ -683,6 +752,89 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
             }
         )
     homologous_guidance = _homologous_guidance(manifest, successful)
+    experiment_definition = manifest.get("experiment")
+    control_preflight = manifest.get(
+        "control_preflight",
+        {"status": "NOT DECLARED", "passed": True, "receipts": []},
+    )
+    coverage: dict[str, Any]
+    conclusion_label: str
+    if isinstance(experiment_definition, dict):
+        parameter_space = experiment_definition.get("parameters", {})
+        declared = 1
+        if isinstance(parameter_space, dict):
+            for choices in parameter_space.values():
+                if isinstance(choices, list):
+                    declared *= len(choices)
+                else:
+                    declared = 0
+                    break
+        else:
+            declared = 0
+        visited_assignments = {
+            json.dumps(
+                record.get("experiment", {}).get("parameters", {}),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            for record in records
+            if isinstance(record.get("experiment"), dict)
+        }
+        declaration = experiment_definition.get("coverage", {})
+        excluded = (
+            int(declaration.get("excluded", 0)) if isinstance(declaration, dict) else 0
+        )
+        visited = len(visited_assignments)
+        unvisited = max(0, declared - visited - excluded) if declared else None
+        if manifest.get("status") == "control-invalid" or not bool(
+            control_preflight.get("passed", True)
+            if isinstance(control_preflight, dict)
+            else True
+        ):
+            conclusion_label = "control-invalid"
+        elif manifest.get("status") == "interrupted":
+            conclusion_label = "partial-interrupted"
+        elif not declared:
+            conclusion_label = "coverage-unknown"
+        elif visited + excluded >= declared:
+            conclusion_label = "exhaustive-over-declared-space"
+        else:
+            conclusion_label = "sampled-over-declared-space"
+        coverage = {
+            "declared_assignments": declared or None,
+            "visited_assignments": visited,
+            "excluded_assignments": excluded,
+            "unvisited_assignments": unvisited,
+            "method": (
+                declaration.get("method", "explicit-candidates")
+                if isinstance(declaration, dict)
+                else "explicit-candidates"
+            ),
+            "sampling": (
+                declaration.get("sampling") if isinstance(declaration, dict) else None
+            ),
+            "exclusion_reason": (
+                declaration.get("exclusion_reason")
+                if isinstance(declaration, dict)
+                else None
+            ),
+            "conclusion": conclusion_label,
+        }
+    else:
+        conclusion_label = "coverage-unknown"
+        coverage = {
+            "declared_assignments": None,
+            "visited_assignments": len(records),
+            "excluded_assignments": 0,
+            "unvisited_assignments": None,
+            "method": "unmeasured",
+            "sampling": None,
+            "exclusion_reason": None,
+            "conclusion": conclusion_label,
+        }
+    for family_row in family_rows:
+        family_row["coverage"] = coverage
+        family_row["conclusion_label"] = conclusion_label
     return {
         "schema": STATUS_SCHEMA,
         "manifest": display_path(path),
@@ -704,12 +856,17 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
             else None
         ),
         "trajectory": trajectory,
+        "acceptance_trajectory": trajectory,
+        "mechanism_trajectory": mechanism_trajectory,
         "basin_transitions": basin_transitions,
         "families": family_rows,
         "homologous_guidance": homologous_guidance,
         "failures": failures,
         "warnings": warnings,
         "experiment": manifest.get("experiment"),
+        "controls": control_preflight,
+        "coverage": coverage,
+        "conclusion_label": conclusion_label,
         "hypothesis": manifest.get("hypothesis"),
     }
 
@@ -749,6 +906,18 @@ def validate_resume(manifest_path: str | Path) -> dict[str, Any]:
             or file_sha256(manifest_path) != toolchain["manifest_sha256"]
         ):
             raise ValueError("toolchain identity changed; start a new campaign")
+    experiment = identity_inputs.get("experiment")
+    if isinstance(experiment, dict):
+        from .experiments import load_experiment
+
+        experiment_path = experiment.get("path")
+        if not isinstance(experiment_path, str):
+            raise ValueError("campaign experiment identity is incomplete")
+        current_experiment = load_experiment(experiment_path).identity_receipt()
+        if current_experiment != experiment:
+            raise ValueError(
+                "experiment controls/signals/coverage changed; start a new campaign"
+            )
     for source in manifest.get("sources", []):
         path = Path(source["path"])
         if not path.is_file():
@@ -790,6 +959,7 @@ def bounded_export_status(status: dict[str, Any]) -> dict[str, Any]:
     bounds: dict[str, dict[str, Any]] = {}
     for name, limit in (
         ("trajectory", EXPORT_TRAJECTORY_LIMIT),
+        ("mechanism_trajectory", EXPORT_TRANSITION_LIMIT),
         ("basin_transitions", EXPORT_TRANSITION_LIMIT),
         ("failures", EXPORT_FAILURE_LIMIT),
     ):
@@ -801,6 +971,7 @@ def bounded_export_status(status: dict[str, Any]) -> dict[str, Any]:
             "included": len(selected),
             "truncated": truncated,
         }
+    result["acceptance_trajectory"] = result["trajectory"]
 
     basins = []
     omitted_basin_sources = 0

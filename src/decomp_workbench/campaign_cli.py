@@ -9,18 +9,26 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .campaign import run_campaign
+from .campaign import file_sha256, run_campaign
+from .campaign_finish import finish_campaign
 from .campaign_state import (
     build_status,
     export_status,
     find_manifest,
     finish_manifest,
+    record_control_preflight,
     remaining_sources,
     update_hypothesis,
     validate_resume,
 )
 from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
-from .experiments import EXPERIMENT_SCHEMA, RegionConstraint
+from .experiment_controls import run_control_preflight
+from .experiments import (
+    EXPERIMENT_SCHEMA,
+    RegionConstraint,
+    SignalSpec,
+    load_experiment,
+)
 from .scratch_bundle import bundle_scratch
 
 
@@ -95,6 +103,28 @@ def _print_status(report: dict[str, Any]) -> None:
         f"{report['failed_candidates']} failed, "
         f"{report['remaining_candidates']} remaining"
     )
+    controls = report.get("controls", {})
+    if isinstance(controls, dict) and controls.get("status") != "NOT DECLARED":
+        print(
+            f"controls: {controls.get('passed_required', 0)}/"
+            f"{controls.get('required', 0)} required PASS "
+            f"({controls.get('status')})"
+        )
+    coverage = report.get("coverage")
+    if isinstance(coverage, dict):
+        declared = coverage.get("declared_assignments")
+        if declared is None:
+            print(
+                f"coverage: unknown denominator; "
+                f"{coverage.get('visited_assignments', 0)} visited "
+                f"[{coverage.get('conclusion')}]"
+            )
+        else:
+            print(
+                f"coverage: {coverage.get('visited_assignments', 0)}/{declared} "
+                f"visited, {coverage.get('excluded_assignments', 0)} excluded "
+                f"[{coverage.get('conclusion')}]"
+            )
     if report["trajectory"]:
         values = [
             int(point["best_aligned_total"])
@@ -116,6 +146,15 @@ def _print_status(report: dict[str, Any]) -> None:
                 for value in values[-60:]
             )
             print(f"trajectory: {values[0]} {sparkline} {values[-1]} (best aligned)")
+    if report.get("mechanism_trajectory"):
+        transitions = report["mechanism_trajectory"]
+        print(f"mechanism transitions: {len(transitions)}")
+        for transition in transitions[-8:]:
+            print(
+                f"  #{transition['record']} {transition['signal']}: "
+                f"{transition['from'] or 'UNMEASURED'} -> {transition['to']} "
+                f"({transition['source']})"
+            )
     if report["object_basins"]:
         variants = sum(int(item["variant_count"]) for item in report["object_basins"])
         print(
@@ -185,23 +224,77 @@ def campaign_resume_command(args: argparse.Namespace) -> int:
             experiment = manifest.get("experiment")
             candidate_metadata = None
             selected_region = None
+            signal_specs: tuple[SignalSpec, ...] = ()
             if isinstance(experiment, dict):
-                parameters_by_source = {
-                    str(item["source"]): item.get("parameters", {})
-                    for item in experiment.get("candidates", [])
-                    if isinstance(item, dict) and "source" in item
-                }
-                candidate_metadata = {
-                    str(source["cache_key"]): {
-                        "schema": EXPERIMENT_SCHEMA,
-                        "family": experiment["family"],
-                        "parameters": parameters_by_source.get(str(source["path"]), {}),
-                        "parameter_space": experiment.get("parameters", {}),
-                        "baseline": experiment.get("baseline"),
-                        "manifest": experiment.get("path"),
+                experiment_path = experiment.get("path")
+                loaded_experiment = (
+                    load_experiment(str(experiment_path))
+                    if isinstance(experiment_path, str)
+                    else None
+                )
+                if loaded_experiment is not None:
+                    signal_specs = loaded_experiment.signals
+                    if loaded_experiment.controls and not bool(
+                        manifest.get("control_preflight", {}).get("passed")
+                    ):
+                        control_report = run_control_preflight(
+                            loaded_experiment,
+                            target=inputs["target"]["path"],
+                            template=compile_info["template"],
+                            cache_dir=manifest["cache_directory"],
+                            objdump=inputs["objdump"]["requested"],
+                            symbol=inputs.get("symbol"),
+                            section=inputs["section"],
+                            environment=compile_info["environment"],
+                            compile_cwd=compile_info["working_directory"],
+                            timeout=(
+                                args.timeout
+                                if args.timeout is not None
+                                else execution["timeout_seconds"]
+                            ),
+                            stream_limit=65536,
+                            artifact_dir=manifest.get("artifact_directory"),
+                            compilation_envelope=compile_info.get("envelope", {}),
+                        )
+                        record_control_preflight(manifest_path, control_report)
+                        if not control_report["passed"]:
+                            finish_manifest(
+                                manifest_path,
+                                results=0,
+                                prepared=len(manifest["sources"]),
+                                exact=False,
+                                control_invalid=True,
+                            )
+                            raise ValueError(
+                                "required experiment control failed; ordinary "
+                                "candidates were not scheduled"
+                            )
+                if loaded_experiment is not None:
+                    candidate_metadata = {
+                        str(source["cache_key"]): loaded_experiment.metadata_for(
+                            str(source["path"])
+                        )
+                        for source in manifest["sources"]
                     }
-                    for source in manifest["sources"]
-                }
+                else:
+                    parameters_by_source = {
+                        str(item["source"]): item.get("parameters", {})
+                        for item in experiment.get("candidates", [])
+                        if isinstance(item, dict) and "source" in item
+                    }
+                    candidate_metadata = {
+                        str(source["cache_key"]): {
+                            "schema": experiment.get("schema", EXPERIMENT_SCHEMA),
+                            "family": experiment["family"],
+                            "parameters": parameters_by_source.get(
+                                str(source["path"]), {}
+                            ),
+                            "parameter_space": experiment.get("parameters", {}),
+                            "baseline": experiment.get("baseline"),
+                            "manifest": experiment.get("path"),
+                        }
+                        for source in manifest["sources"]
+                    }
                 region = experiment.get("selected_region")
                 if isinstance(region, dict):
                     selected_region = RegionConstraint(
@@ -230,6 +323,8 @@ def campaign_resume_command(args: argparse.Namespace) -> int:
                 artifact_dir=manifest.get("artifact_directory"),
                 candidate_metadata=candidate_metadata,
                 selected_region=selected_region,
+                signal_specs=signal_specs,
+                compilation_envelope=compile_info.get("envelope", {}),
                 rank_by=str(execution.get("rank_by", "auto")),
             )
             finish_manifest(
@@ -281,6 +376,20 @@ def _render_html(report: dict[str, Any]) -> str:
             "</tr>"
         )
     table = "\n".join(rows) or '<tr><td colspan="5">No results yet.</td></tr>'
+    coverage = campaign.get("coverage", {})
+    controls = campaign.get("controls", {})
+    mechanism_rows = (
+        "\n".join(
+            "<li>"
+            f"#{int(item['record'])} {html.escape(str(item['signal']))}: "
+            f"{html.escape(str(item.get('from') or 'UNMEASURED'))} → "
+            f"{html.escape(str(item['to']))} "
+            f"({html.escape(str(item.get('source')))})"
+            "</li>"
+            for item in campaign.get("mechanism_trajectory", [])
+        )
+        or "<li>No declared signal transitions.</li>"
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -302,12 +411,19 @@ pre {{ overflow: auto; padding: 1rem; background: #8881; }}
 <p>{int(campaign["recorded_candidates"])} recorded candidate(s),
 {len(campaign["object_basins"])} object basin(s),
 {int(campaign["remaining_candidates"])} remaining.</p>
+<p><strong>Controls:</strong>
+{html.escape(str(controls.get("status", "NOT DECLARED")))}.
+<strong>Coverage:</strong> {html.escape(str(coverage.get("visited_assignments", 0)))} /
+{html.escape(str(coverage.get("declared_assignments") or "unknown"))} visited;
+conclusion={html.escape(str(coverage.get("conclusion", "coverage-unknown")))}.</p>
 <p class="proof">{html.escape(str(report["proof"]))}</p>
 <h2>Trajectory</h2>
 <table>
 <thead><tr><th>#</th><th>Source</th><th>Verdict</th><th>Aligned</th><th>Words</th></tr></thead>
 <tbody>{table}</tbody>
 </table>
+<h2>Mechanism trajectory</h2>
+<ul>{mechanism_rows}</ul>
 <details><summary>Machine-readable evidence</summary>
 <pre id="report">{html.escape(serialized)}</pre>
 </details>
@@ -429,6 +545,49 @@ def campaign_package_command(args: argparse.Namespace) -> int:
             raise FileNotFoundError(
                 f"selected campaign source no longer exists: {source}"
             )
+        recorded_source_hash = selected.get("source_sha256")
+        if (
+            recorded_source_hash is not None
+            and recorded_source_hash != source_record.get("sha256")
+        ):
+            raise ValueError(
+                "selected ledger record and campaign manifest disagree on the "
+                "source hash; refusing mutable promotion"
+            )
+        cache_object = Path(str(manifest["cache_directory"])) / f"{cache_key}.o"
+        if not cache_object.is_file():
+            raise FileNotFoundError(
+                "selected immutable campaign object is absent from cache: "
+                f"{cache_object}"
+            )
+        actual_object_hash = file_sha256(cache_object)
+        recorded_object_hash = selected.get("object_sha256")
+        if (
+            recorded_object_hash is not None
+            and actual_object_hash != recorded_object_hash
+        ):
+            raise ValueError(
+                "selected cached object hash changed; refusing source/object promotion"
+            )
+        finish_receipt: dict[str, Any] | None = None
+        finish_receipt_hash: str | None = None
+        if args.finish_receipt:
+            finish_path = Path(args.finish_receipt).expanduser().resolve()
+            finish_receipt_hash = file_sha256(finish_path)
+            finish_receipt = json.loads(finish_path.read_text(encoding="utf-8"))
+            winner = finish_receipt.get("winner", {})
+            if (
+                finish_receipt.get("schema") != "decomp-workbench-campaign-finish-v1"
+                or finish_receipt.get("status") != "PASS"
+                or finish_receipt.get("campaign_identity") != manifest["identity"]
+                or not isinstance(winner, dict)
+                or winner.get("cache_key") != cache_key
+                or winner.get("source_sha256") != source_record["sha256"]
+                or winner.get("recorded_object_sha256") != actual_object_hash
+            ):
+                raise ValueError(
+                    "finish receipt is not a passing receipt for this immutable winner"
+                )
         result = bundle_scratch(
             args.output,
             target_assembly=args.target_assembly,
@@ -449,8 +608,18 @@ def campaign_package_command(args: argparse.Namespace) -> int:
                 "selection": args.selection,
                 "source_cache_key": cache_key,
                 "source_sha256": source_record["sha256"],
+                "object_sha256": actual_object_hash,
+                "recorded_at_unix": selected.get("recorded_at_unix"),
+                "ledger_record_cache_key": cache_key,
+                "target_sha256": manifest["identity_inputs"]["target"]["sha256"],
                 "scratch_accepted": accepted,
                 "comparison": comparison,
+                "finish_receipt": (
+                    str(Path(args.finish_receipt).expanduser().resolve())
+                    if finish_receipt is not None
+                    else None
+                ),
+                "finish_receipt_sha256": finish_receipt_hash,
             },
         )
     except (OSError, ValueError) as error:
@@ -474,6 +643,48 @@ def campaign_package_command(args: argparse.Namespace) -> int:
             "next: verify SHA256SUMS, then follow the generated README.md paste order"
         )
     return 0
+
+
+def campaign_finish_command(args: argparse.Namespace) -> int:
+    """Freshly rebuild a winner and record every integration gate separately."""
+
+    try:
+        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        report, output = finish_campaign(
+            manifest,
+            selection=args.selection,
+            output=args.output,
+            format=args.format,
+            scratch_context=args.scratch_context,
+            scratch_compile_command=args.scratch_compile_command,
+            collateral_reference=args.collateral_reference,
+            handoff=args.handoff,
+            project_command=args.project_command,
+            project_timeout=args.project_timeout,
+            stream_limit=args.stream_limit,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "schema": "decomp-workbench-campaign-finish-result-v1",
+                    "output": str(output),
+                    "status": report["status"],
+                    "ready": report["ready"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(f"campaign finish: {report['status']}")
+        for name, gate in report["gates"].items():
+            print(f"  {name.replace('_', ' ')}: {gate['status']} — {gate['reason']}")
+        print(f"receipt: {output}")
+    return 0 if report["ready"] else 1
 
 
 _SURVEY_DESCRIPTION = (
@@ -579,6 +790,10 @@ def register_campaign_cockpit_commands(
         default="score",
     )
     package.add_argument("--allow-mismatch", action="store_true")
+    package.add_argument(
+        "--finish-receipt",
+        help="require a passing JSON campaign-finish receipt for the selected winner",
+    )
     package.add_argument("--target-assembly", required=True)
     package.add_argument("--context", required=True)
     package.add_argument("--platform", required=True)
@@ -591,6 +806,31 @@ def register_campaign_cockpit_commands(
     package.add_argument("--preset")
     package.add_argument("--json", action="store_true", help="emit JSON")
     package.set_defaults(handler=campaign_package_command)
+
+    finish = commands.add_parser(
+        "campaign-finish",
+        help=argparse.SUPPRESS,
+        description=(
+            "Freshly rebuild one immutable winner and record function, signal, "
+            "scratch, collateral, handoff, and project gates independently."
+        ),
+    )
+    finish.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    finish.add_argument("--state-dir", default=".decomp-workbench")
+    finish.add_argument(
+        "--selection", choices=("score", "temp-prefix"), default="score"
+    )
+    finish.add_argument("--output")
+    finish.add_argument("--format", choices=("json", "html"), default="json")
+    finish.add_argument("--scratch-context")
+    finish.add_argument("--scratch-compile-command")
+    finish.add_argument("--collateral-reference")
+    finish.add_argument("--handoff")
+    finish.add_argument("--project-command")
+    finish.add_argument("--project-timeout", type=float, default=120.0)
+    finish.add_argument("--stream-limit", type=int, default=65536)
+    finish.add_argument("--json", action="store_true", help="emit result JSON")
+    finish.set_defaults(handler=campaign_finish_command)
 
     note = commands.add_parser(
         "campaign-note",

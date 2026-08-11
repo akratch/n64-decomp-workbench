@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Trustworthy campaign endgames now fail closed and finish with receipts.**
+  `check-scratch` separates site metadata, scratch-object truth, and optional
+  project-object truth, with one tightly gated C89 unused-call-return occupancy
+  probe for the measured late `$v0`/`$v1` shape. Experiment v2 adds
+  target-relative signals, serial absolute/differential controls, and honest
+  declared/visited/excluded coverage; required failed or unknown controls
+  schedule zero candidate work. Campaign cache and resume identity can record
+  compiler build, frontend, language, driver, and backend, keeping IRIX 4
+  `accom` distinct from later `cfe` or hybrid cells. Status/export retain
+  acceptance and mechanism trajectories, immutable source/object receipts,
+  and five coverage-qualified conclusion labels. `campaign finish` freshly
+  rebuilds a recorded winner and writes independent function, signal, scratch,
+  collateral, handoff, and project gates as exclusive JSON/HTML; `campaign
+  package --finish-receipt` can require that passing immutable receipt.
+
 - **Three instruments a campaign built by hand are now the tool's, and the
   patch that made one of them is kept rather than remembered.** `trace-frame`
   prints the frame ladder — every stack slot a procedure owns, lowest first,

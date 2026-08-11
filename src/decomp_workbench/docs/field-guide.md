@@ -774,9 +774,17 @@ consistent register substitution downstream that unifies the two sides.
 
 ### 17. K&R implicit-int return type
 
-**Gate:** use this only when the residue contains an actual `move`/copy-shaped
-site. A pure register bijection with no copy site is not evidence for this
-lever; skip to lever 19.
+**Gate:** use this for either of two measured shapes:
+
+1. the residue contains an actual `move`/copy-shaped site; or
+2. `check-scratch --view --project-object ...` reports a late, coherent
+   `$v0↔$v1` pool web after a direct call, the scratch declares that callee
+   `void`, opcode/temp shape is stable, and the normal project object is exact.
+
+A generic register bijection after a call is not enough. The second route is a
+conservative one-variant probe for invisible return-register occupancy, not
+proof of the historical prototype. C++ and frontends without C89 implicit
+declaration semantics are excluded.
 
 ```c
 /* before */  void objprint(struct Obj *o) { ... }
@@ -785,7 +793,10 @@ lever; skip to lever 19.
 
 **Why:** 1999-era sources routinely declare functions with no return type, and
 `void` versus implicit `int` changes ugen's coalescing decision — on `objprint`
-an entire `move` instruction appeared only under the non-void return.
+an entire `move` instruction appeared only under the non-void return. A second
+campaign exposed the invisible form: an unused call return still occupied
+`$v0`, which changed a later pool web from `$v0` to `$v1` without emitting a
+move at the call.
 
 **When a candidate is exactly one coalescing copy short, try this before
 anything else.** It is one variant. Patch the declaration *and* the definition:

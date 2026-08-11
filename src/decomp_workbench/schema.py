@@ -366,6 +366,12 @@ METRICS: tuple[Metric, ...] = (
         "LCS-aligned residual sites anchored to target instruction indices",
     ),
     Metric(
+        "aligned_row_receipts",
+        "aligned_row_receipts",
+        "code-free per-row alignment receipts used by declarative signals: "
+        "indices, class, and raw/relocation-aware equality only",
+    ),
+    Metric(
         "commutative_findings",
         "commutative_findings",
         "commutative operand pairs with the source edit each one names, "
@@ -471,6 +477,11 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
         "experiment",
         "experiment",
         "transformation family, parameter space, and selected-region invariant",
+    ),
+    Metric(
+        "controls",
+        "controls",
+        "serial experiment-control preflight and its provenance receipts",
     ),
     Metric("results", "results", "per-candidate records, best rank first"),
 )

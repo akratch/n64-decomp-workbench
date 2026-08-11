@@ -30,12 +30,12 @@ next: all visible register differences form one bijection (f0->f1): report one d
       one visible bijection does NOT prove one source web or one source edit: inspect the desired color's interference producers; a staggered ladder of invisible blockers can cause the outcome.
       callee-saved tie-breaks resist blind source search; use a forced color probe to measure the smallest causal web set before choosing more variants.
       field guide levers for playbook=forced-color-oracle:
-        lever 17: only when the residue contains a move/copy: drop `void` for a K&R implicit-int return type on the declaration AND the definition; one variant
+        lever 17: only with a copy-shaped residue OR check-scratch's measured late v0/v1 call-return occupancy hypothesis: test one explicit `int`/K&R return-category variant at the declaration and definition
         lever 18: only when the residue contains a move/copy: give a genuinely repeated expression a named intermediate so the coalesced copy lands on the other value
         lever 19: the callee-saved tie-break is a uopt ordering decision: force the smallest measured causal web set (often one, sometimes a staggered blocker ladder), inspect every cascade, and compare paired formation, save/totalsave, and decision-trace order; no one scalar is priority proof
       read them: decomp-workbench guide forced-color-oracle
       have an instrumented toolchain? docs/compiler-instrumentation.md, then decomp-workbench diagnose ... --emit-force-spec force.json and decomp-workbench oracle plan TRACE.log to build the two-phase grid.
-      don't have one? first inspect the residue for an actual move/copy site. If one exists, levers 17 and 18 are one variant each. If the residue is only a register bijection with no copy-shaped site, skip both and go directly to lever 19; a clean forced-color cascade is a legitimate stopping point - record it, bundle the scratch, take the next function.
+      don't have one? first inspect the residue for an actual move/copy site, or run check-scratch --view with a project object to test the strict late v0/v1 call-return occupancy shape. If either gate fires, lever 17 is one variant; lever 18 still requires a visible copy and repeated source expression. Otherwise go directly to lever 19; a clean forced-color cascade is a legitimate stopping point - record it, bundle the scratch, take the next function.
 ```
 
 The two-branch line matters more than it looks. "Prefer a forced color probe on

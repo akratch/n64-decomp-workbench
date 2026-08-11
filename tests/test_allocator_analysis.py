@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from decomp_workbench.allocator_analysis import (
     compare_semantic_webs,
@@ -618,7 +619,7 @@ NO_DETAIL = (
 class AlignmentDiagnosisTests(unittest.TestCase):
     """`common=0` must say which inputs failed, and whether a rebuild helps."""
 
-    def diagnose(self, target: str, candidate: str) -> dict:
+    def diagnose(self, target: str, candidate: str) -> dict[str, Any]:
         return compare_semantic_webs(
             parse_globalcolor_trace(target),
             parse_globalcolor_trace(candidate),

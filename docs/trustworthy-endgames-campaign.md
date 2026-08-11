@@ -1,10 +1,19 @@
 # The trustworthy endgames campaign
 
-> **Status: planned — 2026-08-11.** This is an implementation campaign, not a
-> claim that the features below already ship. It turns the measured failures of
-> a 501-object, 0/133-word SSB64 campaign into project-neutral workbench
-> contracts. Existing commands remain the foundation; this plan extends them
-> instead of opening a parallel workflow.
+> **Implementation status (2026-08-11): shipped.** Phases 1–5 are implemented
+> with synthetic integration coverage: independent scratch/project truth,
+> experiment-v2 signals and serial controls, compiler/frontend envelopes,
+> coverage-qualified conclusions and mechanism trajectories, immutable
+> promotion, fresh finish receipts, documentation, packaged-skill guidance, and
+> an asset-free end-to-end walkthrough. Live inputs remain local-only by the
+> acceptance policy below; their hashes and metrics may be recorded without
+> redistributing target material. The local SSB64 acceptance receipt is
+> [recorded here](live-acceptance-2026-08-11.md).
+
+The campaign originated in the measured failures of a 501-object, 0/133-word
+SSB64 campaign and turns them into project-neutral workbench contracts.
+Existing commands remain the foundation; the implementation extends them
+instead of opening a parallel workflow.
 
 Late-stage decompilation has two different failure modes that look the same to
 the person doing the work:
@@ -434,9 +443,11 @@ Likely touchpoints:
 
 Acceptance:
 
-- the measured SSB64 bundle reports scratch 3, project 0, one context-only pool
-  web, and the call-contract probe;
-- changing `void` to `int` in the local acceptance copy produces scratch 0;
+- the measured SSB64 bundle reports scratch 3, project 0, and one context-only
+  late register web while suppressing the call-contract probe because no
+  qualifying direct call is nearby;
+- a redistributable positive fixture with the measured call shape offers
+  exactly one scratch-only `int` declaration probe;
 - C++, non-C89, and unrelated post-call substitutions do not receive the hint;
 - scratch-only invocations remain byte-for-byte compatible in their existing
   headline and exit behavior;
@@ -634,8 +645,9 @@ the repository.
 
 The campaign is complete when all of these are true:
 
-1. The downloaded-scratch story reaches the correct call-contract probe from
-   one command without reading raw assembly.
+1. The downloaded-scratch story reaches the correct context-only diagnosis
+   from one command, and call-contract advice appears only when its direct-call
+   and declaration evidence is actually present.
 2. A project contributor can see “project exact, scratch context differs”
    without either result overriding the other.
 3. A campaign with a broken detector, ignored force, stale baseline, or wrong

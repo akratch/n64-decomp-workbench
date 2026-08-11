@@ -16,12 +16,13 @@ import unittest
 from pathlib import Path
 
 from decomp_workbench.as1_reorganize import (
+    Selection,
     mips_mnemonic,
     parse_as1_reorganize_trace,
     to_dkwb_records,
 )
 from decomp_workbench.cli import main
-from decomp_workbench.scheduler import parse_scheduler_trace
+from decomp_workbench.scheduler import SchedulerEvent, parse_scheduler_trace
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "traces" / "as1-reorganize.log"
@@ -37,7 +38,7 @@ def run_cli(arguments: list[str]) -> tuple[int, str, str]:
     return status, stdout.getvalue(), stderr.getvalue()
 
 
-def parse() -> tuple[list, list, list]:
+def parse() -> tuple[list[Selection], list[SchedulerEvent], list[str]]:
     return parse_as1_reorganize_trace(FIXTURE.read_text(encoding="utf-8"))
 
 
@@ -131,7 +132,10 @@ class ParseTests(unittest.TestCase):
     def test_candidates_are_kept_with_the_selection(self) -> None:
         selections, _events, _ignored = parse()
         self.assertEqual(len(selections[0].candidates), 3)
-        self.assertEqual(selections[0].winner.node, 0)
+        winner = selections[0].winner
+        self.assertIsNotNone(winner)
+        assert winner is not None
+        self.assertEqual(winner.node, 0)
 
     def test_unrelated_assembler_chatter_is_retained_not_dropped(self) -> None:
         _selections, _events, ignored = parse()

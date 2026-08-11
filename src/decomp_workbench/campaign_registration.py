@@ -102,6 +102,20 @@ def register_campaign_run_commands(
         help="verified real-copy toolchain; supplies its path-sensitive environment",
     )
     campaign.add_argument(
+        "--compiler-id",
+        help="canonical compiler build identity for this campaign cell",
+    )
+    campaign.add_argument(
+        "--frontend",
+        help="frontend family, such as IRIX 4.x accom or later cfe",
+    )
+    campaign.add_argument("--language", help="source language/dialect for this cell")
+    campaign.add_argument("--driver", help="historical or wrapper driver identity")
+    campaign.add_argument(
+        "--backend",
+        help="backend identity when a historical frontend feeds a later backend",
+    )
+    campaign.add_argument(
         "--cache-dir",
         default=".decomp-workbench/cache",
         help="content-cache directory",
@@ -120,8 +134,8 @@ def register_campaign_run_commands(
     campaign.add_argument(
         "--experiment-manifest",
         help=(
-            "decomp-workbench-experiment-v1 sidecar describing family, "
-            "parameters, candidates, and optional selected region"
+            "experiment-v1/v2 sidecar describing family and candidates; v2 may "
+            "also declare signals, controls, and coverage"
         ),
     )
     campaign.add_argument(

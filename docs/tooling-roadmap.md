@@ -263,9 +263,10 @@ and `nocs=` is the compressed divisor `((n - 2) >> 2) + 2`, not the occurrence
 count — so `save * nocs` is not "saving times uses", and `trace-webs` no longer
 prints those three numbers in the shape of an equation.
 
-**Prototype:** `p3h/LOG.md` §0 and the env-gated, validity-gated
-`ido53-globalcolor-recomp/build/5.3/uopt.c` patch in the
-`ge007-object-interaction` campaign, whose binary lives in `p3h/tc/`.
+**Prototype:** §0 of the retained, non-redistributable p3h campaign log and
+the env-gated, validity-gated `uopt.c` patch in the
+`ge007-object-interaction` campaign. The compiler binary is also retained only
+in that private campaign archive; neither is a published workbench dependency.
 
 ## Open, observed 2026-08-08 (UX round)
 

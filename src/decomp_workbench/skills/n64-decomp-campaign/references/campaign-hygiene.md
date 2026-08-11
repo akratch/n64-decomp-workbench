@@ -12,9 +12,20 @@ For each campaign, retain a small manifest or ledger containing:
 - trace command and focus when traces informed the decision;
 - final project verifier command and result.
 
+Use experiment v2 when claims need enforcement: target-relative signal
+receipts, absolute/differential controls run before scale, and a coverage
+declaration whose exclusions are bounded and explained. Keep the compiler
+envelope explicit—frontend, driver, language, backend, and canonical build—so
+an IRIX 4 frontend cell cannot collapse into a later frontend's cache basin.
+
 Use `decomp-workbench campaign` for the cache and JSONL ledger. Store candidate
 source outside the active project translation unit unless the project itself
 requires an integration test.
+
+Promote by immutable cache key, source hash, and full object hash. `campaign
+finish` performs a fresh rebuild; optional scratch, collateral, handoff, and
+project checks are separate gates and must not be summarized as run when their
+receipt says `NOT RUN`.
 
 ## Keep public proof useful and safe
 

@@ -471,6 +471,7 @@ def aligned_residual_analysis(
     PoolReport | None,
     tuple[CommutativeFinding, ...],
     AlignmentProgress,
+    list[dict[str, object]],
 ]:
     """Return aligned evidence, including late-stage prefix progress.
 
@@ -497,7 +498,16 @@ def aligned_residual_analysis(
 
     # ``view`` is built on top of this module, so the import is deferred rather
     # than inverting the layering for one call.
-    from .view import POOL, POOL_LAYOUT, RESIDUAL_CLASSES, Lane, build_view
+    from .view import (
+        DISPLACEMENT,
+        MATCH,
+        POOL,
+        POOL_LAYOUT,
+        RELOCATION,
+        RESIDUAL_CLASSES,
+        Lane,
+        build_view,
+    )
 
     if not target or not candidate:
         # There is nothing to align against, so every instruction the other side
@@ -536,6 +546,17 @@ def aligned_residual_analysis(
             None,
             (),
             empty_progress,
+            [
+                {
+                    "aligned_row": index,
+                    "target_index": index if target else None,
+                    "candidate_index": index if candidate else None,
+                    "class": "structural",
+                    "raw_exact": False,
+                    "relocation_aware_exact": False,
+                }
+                for index in range(max(len(target), len(candidate)))
+            ],
         )
     view = build_view(
         target,
@@ -632,6 +653,18 @@ def aligned_residual_analysis(
             else "lcs"
         ),
     }
+    row_receipts: list[dict[str, object]] = [
+        {
+            "aligned_row": row.index,
+            "target_index": row.target_index,
+            "candidate_index": row.candidate_index,
+            "class": row.classification,
+            "raw_exact": row.classification == MATCH,
+            "relocation_aware_exact": row.classification
+            in {MATCH, DISPLACEMENT, RELOCATION, POOL},
+        }
+        for row in view.rows
+    ]
     return (
         counts,
         gaps,
@@ -639,6 +672,7 @@ def aligned_residual_analysis(
         pool,
         commutative_findings(view.rows),
         progress,
+        row_receipts,
     )
 
 
@@ -647,7 +681,7 @@ def aligned_residual(
 ) -> dict[str, int]:
     """Return the LCS-aligned residual counts, keyed for the report."""
 
-    counts, _, _, _, _, _ = aligned_residual_analysis(target, candidate)
+    counts, _, _, _, _, _, _ = aligned_residual_analysis(target, candidate)
     return counts
 
 
@@ -1241,6 +1275,7 @@ def compare_instructions(
         pool,
         commutative,
         progress,
+        row_receipts,
     ) = aligned_residual_analysis(target, candidate)
     relocation_differences = relocation_target_differences(target, candidate)
     breakdown = raw_difference_breakdown(
@@ -1385,6 +1420,7 @@ def compare_instructions(
             and target_true_instructions is not None
             and candidate_true_instructions is not None
         ),
+        aligned_row_receipts=row_receipts,
     )
 
 

@@ -25,6 +25,7 @@ SCHEMAS: dict[str, str] = {
     "audit-handoff": "decomp-workbench-handoff-audit-v1",
     "campaign": "decomp-workbench-campaign-v1",
     "campaign-export": "decomp-workbench-campaign-export-result-v1",
+    "campaign-finish": "decomp-workbench-campaign-finish-result-v1",
     "campaign-note": "decomp-workbench-campaign-note-v1",
     "campaign-package": "decomp-workbench-campaign-package-result-v1",
     "campaign-resume": "decomp-workbench-campaign-status-v1",

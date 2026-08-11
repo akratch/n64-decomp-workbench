@@ -15,7 +15,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from . import __version__
 from .agent_skill import install_agent_skill
@@ -40,6 +40,7 @@ from .campaign_state import (
     campaign_identity,
     finish_manifest,
     initialize_manifest,
+    record_control_preflight,
 )
 from .cascade_cli import register_cascade_commands
 from .cli_options import (
@@ -57,6 +58,11 @@ from .comparison_render import (
     scratch_score_acceptance,
 )
 from .context_lint_cli import register_context_commands
+from .context_truth import (
+    build_truth_stack,
+    call_contract_hypotheses,
+    truth_stack_lines,
+)
 from .diagnose_cli import register_diagnose_commands
 from .diagnosis import diagnose_instructions, diagnose_objects
 from .discovery import (
@@ -68,7 +74,12 @@ from .discovery import (
 from .environment import merge_toolchain_environment
 from .environment import parse_environment as parse_environment
 from .experiment_cli import register_experiment_commands
-from .experiments import load_experiment, validate_campaign_sources
+from .experiment_controls import run_control_preflight
+from .experiments import (
+    EXPERIMENT_SCHEMA_V2,
+    load_experiment,
+    validate_campaign_sources,
+)
 from .fidelity_cli import (
     register_fidelity_command,
     register_instrument_gate_command,
@@ -497,6 +508,9 @@ def check_scratch_command(args: argparse.Namespace) -> int:
     if args.source and not args.compile_command:
         print("error: --source requires --compile-command", file=sys.stderr)
         return 2
+    if args.project_source and not args.project_object:
+        print("error: --project-source requires --project-object", file=sys.stderr)
+        return 2
     if args.timeout <= 0:
         print("error: --timeout must be positive", file=sys.stderr)
         return 2
@@ -505,11 +519,57 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         return 2
     try:
         package = load_scratch(args.scratch)
+        project_comparison: Comparison | None = None
+        hypotheses: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="decomp-workbench-scratch-") as temp:
+            workspace = Path(temp)
             comparison, view, compile_report, evidence = _scratch_comparison(
                 package,
                 args,
-                Path(temp),
+                workspace,
+            )
+            if args.project_object:
+                if "target.o" not in package.files:
+                    raise ValueError(
+                        "--project-object requires target.o in the scratch export"
+                    )
+                target_object = package.materialize("target.o", workspace)
+                if args.view:
+                    project_comparison = diagnose_objects(
+                        target_object,
+                        args.project_object,
+                        objdump=args.objdump,
+                        symbol=args.symbol
+                        or (
+                            package.metadata.get("diff_label")
+                            if isinstance(package.metadata.get("diff_label"), str)
+                            else None
+                        ),
+                        section=args.section,
+                        register_profile=args.register_profile,
+                    ).comparison
+                else:
+                    project_comparison = compare_objects(
+                        target_object,
+                        args.project_object,
+                        objdump=args.objdump,
+                        symbol=args.symbol
+                        or (
+                            package.metadata.get("diff_label")
+                            if isinstance(package.metadata.get("diff_label"), str)
+                            else None
+                        ),
+                        section=args.section,
+                    )
+                project_comparison.target = f"{display_path(package.path)}:target.o"
+                project_comparison.candidate = display_path(args.project_object)
+            hypotheses = call_contract_hypotheses(
+                package=package,
+                scratch=comparison,
+                view=view,
+                project=project_comparison,
+                project_source=args.project_source,
+                frontend=scratch_frontend(package),
             )
     except ScratchCompileFailure as error:
         if args.json:
@@ -533,8 +593,16 @@ def check_scratch_command(args: argparse.Namespace) -> int:
         scratch_score(package.metadata) if package.kind == "decomp.me-export" else None
     )
     actions = _scratch_next_actions(package, comparison, evidence)
+    if hypotheses:
+        actions.insert(0, str(hypotheses[0]["action"]))
     hardening = scratch_context_hardening(package)
     frontend = scratch_frontend(package)
+    truth_stack = build_truth_stack(
+        external_score=score,
+        scratch=comparison,
+        project=project_comparison,
+        hypotheses=hypotheses,
+    )
     scratch_payload: dict[str, object] = {
         "path": display_path(package.path),
         "kind": package.kind,
@@ -554,6 +622,10 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             "frontend": frontend,
         },
         "context_hardening": hardening,
+        "truth_layers": truth_stack["layers"],
+        "context_differential": truth_stack["context_differential"],
+        "context_hypotheses": truth_stack["context_hypotheses"],
+        "truth": truth_stack,
         "comparison": (
             scratch_comparison_payload(comparison) if comparison is not None else None
         ),
@@ -561,11 +633,19 @@ def check_scratch_command(args: argparse.Namespace) -> int:
             view.as_dict(report_regs=args.report_regs) if view is not None else None
         ),
         "compile": compile_report,
+        "project_comparison": (
+            scratch_comparison_payload(project_comparison)
+            if project_comparison is not None
+            else None
+        ),
         "next_actions": actions,
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
+        if args.project_object or hypotheses:
+            for line in truth_stack_lines(truth_stack):
+                print(line)
         print(f"scratch: {package.kind} ({display_path(package.path)})")
         if comparison is not None:
             print("acceptance: " + scratch_acceptance_line(comparison))
@@ -693,6 +773,8 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                     painter=Painter(resolve_color(args.color)),
                 ):
                     print(line)
+        if project_comparison is not None:
+            print("project comparison: " + comparison_line(project_comparison))
         # A comparison already rendered its own guidance above. The action
         # list remains in JSON as the machine-readable equivalent, while the
         # terminal gets only genuinely additional handoff steps.
@@ -1020,6 +1102,11 @@ def campaign_command(args: argparse.Namespace) -> int:
         return 2
     manifest_path: Path | None = None
     effective_ledger: str | Path | None = args.ledger
+    control_report: dict[str, Any] = {
+        "status": "NOT DECLARED",
+        "passed": True,
+        "receipts": [],
+    }
     try:
         if args.no_ledger and args.ledger:
             raise ValueError("--ledger and --no-ledger are mutually exclusive")
@@ -1031,6 +1118,17 @@ def campaign_command(args: argparse.Namespace) -> int:
             if args.compile_cwd
             else Path.cwd().resolve()
         )
+        compilation_envelope = {
+            key: value
+            for key, value in {
+                "compiler_id": args.compiler_id,
+                "frontend": args.frontend,
+                "language": args.language,
+                "driver": args.driver,
+                "backend": args.backend,
+            }.items()
+            if value
+        }
         target = Path(args.target).expanduser().resolve()
         if not target.is_file():
             raise FileNotFoundError(f"target object does not exist: {target}")
@@ -1053,6 +1151,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                 compile_cwd=compile_cwd,
                 section=args.section,
                 objdump=objdump,
+                compilation_envelope=compilation_envelope,
             )
         candidate_metadata = (
             {
@@ -1072,6 +1171,13 @@ def campaign_command(args: argparse.Namespace) -> int:
                 environment=environment,
                 objdump=objdump,
                 toolchain=args.toolchain,
+                experiment=(
+                    experiment.identity_receipt()
+                    if experiment is not None
+                    and experiment.schema == EXPERIMENT_SCHEMA_V2
+                    else None
+                ),
+                compilation_envelope=compilation_envelope,
             )
             manifest_path, ledger_path, _ = initialize_manifest(
                 candidates,
@@ -1088,6 +1194,56 @@ def campaign_command(args: argparse.Namespace) -> int:
                 rank_by=args.rank_by,
             )
             effective_ledger = ledger_path
+        if experiment is not None and experiment.controls:
+            control_report = run_control_preflight(
+                experiment,
+                target=target,
+                template=args.compile_command,
+                cache_dir=args.cache_dir,
+                objdump=objdump,
+                symbol=args.symbol,
+                section=args.section,
+                environment=environment,
+                compile_cwd=compile_cwd,
+                timeout=args.timeout,
+                stream_limit=args.stream_limit,
+                artifact_dir=args.artifact_dir,
+                compilation_envelope=compilation_envelope,
+            )
+            if manifest_path is not None:
+                record_control_preflight(manifest_path, control_report)
+            if not control_report["passed"]:
+                if manifest_path is not None:
+                    finish_manifest(
+                        manifest_path,
+                        results=0,
+                        prepared=len(candidates),
+                        exact=False,
+                        control_invalid=True,
+                    )
+                failure_payload: dict[str, Any] = {
+                    "schema": "decomp-workbench-campaign-v1",
+                    "status": "control-invalid",
+                    "manifest": str(manifest_path) if manifest_path else None,
+                    "controls": control_report,
+                    "unique_candidates": 0,
+                    "prepared_candidates": len(candidates),
+                    "results": [],
+                }
+                if args.json or args.json_summary:
+                    print(json.dumps(failure_payload, indent=2, sort_keys=True))
+                else:
+                    print(
+                        "controls: FAIL — ordinary candidates were not scheduled",
+                        file=sys.stderr,
+                    )
+                    for receipt in control_report["receipts"]:
+                        print(
+                            f"  {receipt['id']}: {receipt['status']} — "
+                            f"{receipt['reason']}",
+                            file=sys.stderr,
+                        )
+                return 2
         results, duplicates = run_campaign(
             args.sources,
             target=target,
@@ -1107,6 +1263,8 @@ def campaign_command(args: argparse.Namespace) -> int:
             artifact_dir=args.artifact_dir,
             candidate_metadata=candidate_metadata,
             selected_region=experiment.region if experiment else None,
+            signal_specs=experiment.signals if experiment else (),
+            compilation_envelope=compilation_envelope,
             rank_by=args.rank_by,
         )
         if manifest_path is not None:
@@ -1176,6 +1334,8 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "duration_seconds": item.duration_seconds,
                     "experiment": item.experiment,
                     "region": item.region,
+                    "signals": item.signals,
+                    "object_sha256": item.object_sha256,
                     "comparison": (
                         selected_fields(comparison, CAMPAIGN_SUMMARY_KEYS)
                         if comparison
@@ -1196,6 +1356,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "manifest": str(manifest_path) if manifest_path else None,
                     "ledger": str(effective_ledger) if effective_ledger else None,
                     "experiment": experiment.as_dict() if experiment else None,
+                    "controls": control_report,
                     "object_basins": [basin_summary(basin) for basin in basins],
                     "results": serialized_results,
                 },
@@ -1204,6 +1365,11 @@ def campaign_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        if control_report["status"] != "NOT DECLARED":
+            print(
+                f"controls: {control_report['passed_required']}/"
+                f"{control_report['required']} required PASS"
+            )
         for rank, result in enumerate(shown, 1):
             if result.comparison:
                 cache = "cache" if result.cached else "built"

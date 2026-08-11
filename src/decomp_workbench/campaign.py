@@ -22,7 +22,8 @@ from typing import Any
 
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
 from .compare import TargetObject, compare_candidate, load_target
-from .experiments import RegionConstraint
+from .experiment_signals import evaluate_signals, required_signals_pass
+from .experiments import RegionConstraint, SignalSpec
 from .ledger_redaction import load_or_create_salt, redact_record, warn_if_unredacted
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
@@ -257,6 +258,7 @@ def candidate_key(
     compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
+    compilation_envelope: Mapping[str, str] | None = None,
 ) -> str:
     """Build a stable key from the inputs controlled by the workbench."""
 
@@ -269,6 +271,7 @@ def candidate_key(
         compile_cwd=compile_cwd,
         section=section,
         objdump=objdump,
+        compilation_envelope=compilation_envelope,
     )
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -284,11 +287,12 @@ def candidate_provenance(
     compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
+    compilation_envelope: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Return the explicit inputs represented by a campaign cache key."""
 
     resolved_cwd = (compile_cwd or Path.cwd()).expanduser().resolve()
-    return {
+    provenance: dict[str, object] = {
         "schema": LEDGER_SCHEMA,
         "source": str(source.expanduser().resolve()),
         "source_sha256": file_sha256(source),
@@ -304,6 +308,9 @@ def candidate_provenance(
         "section": section,
         "environment": dict(sorted(environment.items())),
     }
+    if compilation_envelope:
+        provenance["compilation_envelope"] = dict(sorted(compilation_envelope.items()))
+    return provenance
 
 
 def prepare_candidates(
@@ -316,6 +323,7 @@ def prepare_candidates(
     compile_cwd: Path | None = None,
     section: str = ".text",
     objdump: str | None = None,
+    compilation_envelope: Mapping[str, str] | None = None,
 ) -> tuple[list[Candidate], dict[str, list[str]]]:
     """Resolve and deduplicate candidates by reproducibility key."""
 
@@ -337,6 +345,7 @@ def prepare_candidates(
             compile_cwd=compile_cwd,
             section=section,
             objdump=objdump,
+            compilation_envelope=compilation_envelope,
         )
         encoded = json.dumps(provenance, sort_keys=True, separators=(",", ":")).encode(
             "utf-8"
@@ -372,6 +381,7 @@ def _compile_candidate(
     artifact_dir: Path | None,
     experiment: dict[str, Any] | None,
     selected_region: RegionConstraint | None,
+    signal_specs: tuple[SignalSpec, ...],
 ) -> CompileResult:
     started = time.monotonic()
     cached_object = cache_dir / f"{candidate.cache_key}.o"
@@ -419,8 +429,10 @@ def _compile_candidate(
                 os.replace(temporary_cache, cached_object)
 
     comparison: Comparison | None = None
+    object_sha256: str | None = None
     kept: str | None = None
     if returncode == 0 and cached_object.is_file():
+        object_sha256 = file_sha256(cached_object)
         try:
             comparison = compare_candidate(
                 target,
@@ -451,6 +463,7 @@ def _compile_candidate(
         if comparison is not None and selected_region is not None
         else None
     )
+    signals = evaluate_signals(signal_specs, comparison)
     return CompileResult(
         source=display_path(candidate.source),
         command=command,
@@ -469,6 +482,8 @@ def _compile_candidate(
         artifacts=streams.artifacts,
         experiment=experiment,
         region=region,
+        signals=signals,
+        object_sha256=object_sha256,
     )
 
 
@@ -507,13 +522,21 @@ def append_ledger(
     See :mod:`decomp_workbench.ledger_redaction`.
     """
 
+    result_payload = result.as_dict()
+    comparison_payload = result_payload.get("comparison")
+    if isinstance(comparison_payload, dict):
+        # Signals have already reduced row receipts to the declared predicate
+        # outcomes. Keeping one receipt per aligned row in every automatic
+        # ledger record would make large campaigns scale with function length
+        # for evidence status/export never consumes.
+        comparison_payload.pop("aligned_row_receipts", None)
     record = {
         "schema": LEDGER_SCHEMA,
         "recorded_at_unix": time.time(),
         "duplicate_sources": duplicate_sources,
         "provenance": provenance,
         "execution": {"timeout_seconds": timeout},
-        **result.as_dict(),
+        **result_payload,
     }
     warning = warn_if_unredacted(path)
     if warning is not None:
@@ -576,6 +599,7 @@ def _execute_candidates(
     artifact_path: Path | None,
     candidate_metadata: Mapping[str, dict[str, Any]],
     selected_region: RegionConstraint | None,
+    signal_specs: tuple[SignalSpec, ...],
     deduplicate_ledger: bool,
     rank_by: str,
 ) -> list[CompileResult]:
@@ -608,6 +632,7 @@ def _execute_candidates(
                 comparison=None,
                 cache_key=candidate.cache_key,
                 experiment=candidate_metadata.get(candidate.cache_key),
+                signals=evaluate_signals(signal_specs, None),
             )
 
     def record(
@@ -649,6 +674,7 @@ def _execute_candidates(
                         artifact_dir=artifact_path,
                         experiment=candidate_metadata.get(candidate.cache_key),
                         selected_region=selected_region,
+                        signal_specs=signal_specs,
                     )
                 ] = candidate
 
@@ -702,6 +728,8 @@ def run_campaign(
     artifact_dir: str | Path | None = None,
     candidate_metadata: dict[str, dict[str, Any]] | None = None,
     selected_region: RegionConstraint | None = None,
+    signal_specs: tuple[SignalSpec, ...] = (),
+    compilation_envelope: Mapping[str, str] | None = None,
     rank_by: str = "auto",
 ) -> tuple[list[CompileResult], dict[str, list[str]]]:
     """Compile a candidate set and return results in deterministic order.
@@ -758,6 +786,7 @@ def run_campaign(
         compile_cwd=compile_cwd_path,
         section=section,
         objdump=objdump_path,
+        compilation_envelope=compilation_envelope,
     )
     target_object = load_target(
         target_path, objdump=objdump_path, symbol=symbol, section=section
@@ -781,6 +810,7 @@ def run_campaign(
         artifact_path=artifact_path,
         candidate_metadata=candidate_metadata or {},
         selected_region=selected_region,
+        signal_specs=signal_specs,
         deduplicate_ledger=False,
         rank_by=rank_by,
     )
@@ -889,6 +919,7 @@ def run_parameterized_campaign(
         artifact_path=artifact_path,
         candidate_metadata=metadata,
         selected_region=None,
+        signal_specs=(),
         deduplicate_ledger=True,
         rank_by=rank_by,
     )
@@ -937,6 +968,7 @@ def campaign_result_sort_key(
     stop being a common scale there.
     """
 
+    signal_key: tuple[object, ...] = (not required_signals_pass(result.signals),)
     region = result.region
     region_key: tuple[object, ...] = ()
     if region is not None:
@@ -975,6 +1007,7 @@ def campaign_result_sort_key(
             metric = comparison.raw_sort_key if by_raw else comparison.sort_key
     return (
         comparison is None,
+        *signal_key,
         *region_key,
         metric,
         result.source,
