@@ -77,3 +77,13 @@ implemented honestly:
 These are depth extensions. A newcomer, project contributor, decomp.me user,
 campaign author, automation caller, and instrumentation specialist all have a
 complete supported path today.
+
+## Planned product campaign
+
+The next cross-journey increment is scoped in
+[The trustworthy endgames campaign](trustworthy-endgames-campaign.md). It does
+not replace any complete journey above. It connects them with declarative
+function/row-scoped signals, mandatory experiment controls, project-vs-scratch
+context differentials, coverage-qualified conclusions, immutable winner
+promotion, and one auditable finish receipt. Every item is planned and remains
+outside the supported-capability table until its phase lands with tests.
