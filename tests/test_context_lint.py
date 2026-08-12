@@ -14,6 +14,7 @@ from decomp_workbench.cli import main
 from decomp_workbench.context_lint import (
     ExpressionError,
     analyze_expression,
+    duplicate_file_scope_definitions,
     file_scope_definitions,
     lint_files,
     lint_sources,
@@ -341,6 +342,47 @@ class FileScopeDefinitionTests(unittest.TestCase):
     def test_typedef_names_are_recognized(self) -> None:
         names = file_scope_definitions("typedef unsigned int u32;\n")
         self.assertIn("u32", names)
+
+    def test_duplicates_retain_every_source_and_line(self) -> None:
+        findings = duplicate_file_scope_definitions(
+            (
+                ("ctx.c", "static int shared = 0;\nint only_ctx = 1;\n"),
+                ("code.c", "\nstatic int shared = 2;\n"),
+                ("extra.c", "static int shared = 3;\n"),
+            )
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["symbol"], "shared")
+        self.assertEqual(
+            findings[0]["occurrences"],
+            [
+                {"source": "ctx.c", "line": 1},
+                {"source": "code.c", "line": 2},
+                {"source": "extra.c", "line": 1},
+            ],
+        )
+
+    def test_context_duplicates_cli_is_machine_readable_and_gateable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ctx = Path(temporary) / "ctx.c"
+            code = Path(temporary) / "code.c"
+            ctx.write_text("static int shared = 0;\n", encoding="utf-8")
+            code.write_text("static int shared = 1;\n", encoding="utf-8")
+            status, stdout, stderr = run_cli(
+                [
+                    "context",
+                    "duplicates",
+                    str(ctx),
+                    str(code),
+                    "--fail-on-findings",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout)
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertEqual(payload["schema"], "decomp-workbench-context-duplicates-v1")
+        self.assertEqual(payload["findings"][0]["symbol"], "shared")
 
 
 class LintFilesTests(unittest.TestCase):

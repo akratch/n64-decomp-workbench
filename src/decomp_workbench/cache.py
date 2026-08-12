@@ -21,6 +21,23 @@ DURATION_UNITS = {
     "d": 24 * 60 * 60,
     "w": 7 * 24 * 60 * 60,
 }
+SIZE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[kmgt]?i?b?)?", re.I)
+SIZE_UNITS = {
+    "": 1,
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "kib": 1024,
+    "m": 1024**2,
+    "mb": 1024**2,
+    "mib": 1024**2,
+    "g": 1024**3,
+    "gb": 1024**3,
+    "gib": 1024**3,
+    "t": 1024**4,
+    "tb": 1024**4,
+    "tib": 1024**4,
+}
 
 
 @dataclass(frozen=True)
@@ -60,6 +77,32 @@ def parse_duration(value: str) -> float:
     return seconds
 
 
+def parse_size(value: str) -> int:
+    """Parse a byte limit such as ``500MiB`` or ``2G``."""
+
+    match = SIZE_RE.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(f"invalid size {value!r}; use values such as 500MiB or 2G")
+    unit = (match.group("unit") or "").lower()
+    if unit not in SIZE_UNITS:
+        raise ValueError(f"invalid size unit in {value!r}")
+    size = int(float(match.group("value")) * SIZE_UNITS[unit])
+    if size <= 0:
+        raise ValueError("size must be positive")
+    return size
+
+
+def format_bytes(size: int) -> str:
+    """Return a compact IEC byte count while preserving exact bytes in JSON."""
+
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if value < 1024 or unit == "GiB":
+            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TiB"
+
+
 def cache_entries(path: str | Path) -> list[CacheEntry]:
     """List regular cache files without following directory symlinks."""
 
@@ -69,7 +112,7 @@ def cache_entries(path: str | Path) -> list[CacheEntry]:
     if not root.is_dir():
         raise NotADirectoryError(f"cache path is not a directory: {root}")
     entries: list[CacheEntry] = []
-    for item in root.iterdir():
+    for item in root.rglob("*"):
         if item.is_symlink() or not item.is_file():
             continue
         stat = item.stat()
@@ -90,12 +133,14 @@ def cache_status(path: str | Path) -> dict[str, Any]:
     root = Path(path).expanduser().resolve()
     now = time.time()
     entries = cache_entries(root)
+    total = sum(item.bytes for item in entries)
     return {
         "schema": CACHE_STATUS_SCHEMA,
         "path": str(root),
         "exists": root.is_dir(),
         "files": len(entries),
-        "bytes": sum(item.bytes for item in entries),
+        "bytes": total,
+        "human_bytes": format_bytes(total),
         "oldest_modified_at_unix": (entries[0].modified_at_unix if entries else None),
         "newest_modified_at_unix": (entries[-1].modified_at_unix if entries else None),
         "entries": [item.as_dict(now=now) for item in entries],
@@ -105,7 +150,9 @@ def cache_status(path: str | Path) -> dict[str, Any]:
 def prune_cache(
     path: str | Path,
     *,
-    older_than: float,
+    older_than: float | None = None,
+    max_size: int | None = None,
+    keep_recent: int = 0,
     apply: bool,
     trash_root: str | Path,
 ) -> dict[str, Any]:
@@ -117,12 +164,36 @@ def prune_cache(
     """
 
     root = Path(path).expanduser().resolve()
+    if older_than is None and max_size is None:
+        raise ValueError("prune needs --older-than, --max-size, or both")
+    if older_than is not None and older_than <= 0:
+        raise ValueError("older_than must be positive")
+    if max_size is not None and max_size <= 0:
+        raise ValueError("max_size must be positive")
+    if keep_recent < 0:
+        raise ValueError("keep_recent must be non-negative")
     now = time.time()
-    selected = [
-        item
-        for item in cache_entries(root)
-        if now - item.modified_at_unix >= older_than
-    ]
+    entries = cache_entries(root)
+    protected = {item.path for item in entries[-keep_recent:]} if keep_recent else set()
+    selected_paths = {
+        item.path
+        for item in entries
+        if older_than is not None
+        and now - item.modified_at_unix >= older_than
+        and item.path not in protected
+    }
+    if max_size is not None:
+        remaining_bytes = sum(
+            item.bytes for item in entries if item.path not in selected_paths
+        )
+        for item in entries:
+            if remaining_bytes <= max_size:
+                break
+            if item.path in selected_paths or item.path in protected:
+                continue
+            selected_paths.add(item.path)
+            remaining_bytes -= item.bytes
+    selected = [item for item in entries if item.path in selected_paths]
     destination: Path | None = None
     moved: list[dict[str, str]] = []
     if apply and selected:
@@ -136,7 +207,8 @@ def prune_cache(
             suffix += 1
         destination.mkdir(parents=True)
         for entry in selected:
-            target = destination / entry.path.name
+            target = destination / entry.path.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.replace(entry.path, target)
             except OSError as error:
@@ -152,6 +224,11 @@ def prune_cache(
         "path": str(root),
         "mode": "applied" if apply else "dry-run",
         "older_than_seconds": older_than,
+        "max_size_bytes": max_size,
+        "keep_recent": keep_recent,
+        "cache_bytes_before": sum(item.bytes for item in entries),
+        "cache_bytes_after": sum(item.bytes for item in entries)
+        - sum(item.bytes for item in selected),
         "selected_files": len(selected),
         "selected_bytes": sum(item.bytes for item in selected),
         "trash_directory": str(destination) if destination else None,
@@ -170,10 +247,12 @@ def restore_pruned_cache(trash_directory: str | Path, cache_dir: str | Path) -> 
         raise NotADirectoryError(f"trash directory does not exist: {source}")
     destination.mkdir(parents=True, exist_ok=True)
     items = [
-        item for item in source.iterdir() if not item.is_symlink() and item.is_file()
+        item for item in source.rglob("*") if not item.is_symlink() and item.is_file()
     ]
     conflicts = [
-        destination / item.name for item in items if (destination / item.name).exists()
+        destination / item.relative_to(source)
+        for item in items
+        if (destination / item.relative_to(source)).exists()
     ]
     if conflicts:
         rendered = ", ".join(str(item) for item in sorted(conflicts))
@@ -183,7 +262,8 @@ def restore_pruned_cache(trash_directory: str | Path, cache_dir: str | Path) -> 
 
     restored = 0
     for item in items:
-        target = destination / item.name
+        target = destination / item.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
         try:
             # A hard link creates the destination exclusively and makes the
             # same-filesystem move recoverable until the source name is

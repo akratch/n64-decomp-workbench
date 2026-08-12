@@ -197,9 +197,13 @@ per-statement barriers the ROM's build evidently had reappear.
 
 The fix in practice:
 
-```sh
-acpp <the TU's normal defines> sprite.c > sprite.i
-cc -c <the TU's normal -O2 -mips2 flags> sprite.i
+```bash
+# Replace these example arrays with sprite.c's exact project arguments.
+cpp_flags=(-DVERSION_US -Iinclude)
+compiler_flags=(-O2 -mips2)
+
+acpp "${cpp_flags[@]}" sprite.c > sprite.i
+cc -c "${compiler_flags[@]}" sprite.i
 ```
 
 Preprocess externally with `acpp`, then compile the resulting `.i` — instead

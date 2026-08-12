@@ -17,6 +17,7 @@ from .campaign import (
     file_sha256,
     render_compile_command,
 )
+from .experiment_signals import required_signals_pass
 from .model import display_path
 from .toolchain import MANIFEST_NAME as TOOLCHAIN_MANIFEST_NAME
 from .toolchain import toolchain_status
@@ -25,6 +26,7 @@ MANIFEST_SCHEMA = "decomp-workbench-campaign-manifest-v1"
 STATUS_SCHEMA = "decomp-workbench-campaign-status-v1"
 EXPORT_SCHEMA = "decomp-workbench-campaign-export-v1"
 DEFAULT_STATE_ROOT = Path(".decomp-workbench")
+SOURCE_RETENTION_POLICIES = frozenset({"leaders", "exact", "all", "none"})
 EXPORT_TRAJECTORY_LIMIT = 2000
 EXPORT_TRANSITION_LIMIT = 2000
 EXPORT_FAILURE_LIMIT = 256
@@ -42,6 +44,13 @@ def _write_json_atomic(path: Path, value: object) -> None:
         json.dumps(value, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    os.replace(temporary, path)
+
+
+def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_bytes(payload)
     os.replace(temporary, path)
 
 
@@ -81,6 +90,7 @@ def campaign_identity(
             "template": template,
             "working_directory": str(compile_cwd),
             "environment": dict(sorted(environment.items())),
+            "environment_mode": "sealed",
             "compiler": executable_identity(command, cwd=compile_cwd),
         },
         "objdump": executable_identity([objdump], cwd=compile_cwd),
@@ -116,9 +126,12 @@ def initialize_manifest(
     stop_on_exact: bool,
     experiment: dict[str, Any] | None = None,
     rank_by: str = "auto",
+    retain_sources: str = "leaders",
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Create or extend the one manifest for a reproducible campaign identity."""
 
+    if retain_sources not in SOURCE_RETENTION_POLICIES:
+        raise ValueError("source retention must be leaders, exact, all, or none")
     target_name = Path(identity_inputs["target"]["path"]).stem
     label = identity_inputs.get("symbol") or target_name
     root = Path(state_root).expanduser().resolve()
@@ -128,14 +141,25 @@ def initialize_manifest(
         Path(ledger).expanduser().resolve() if ledger else campaign_dir / "ledger.jsonl"
     )
     now = time.time()
-    source_records = [
-        {
-            "path": str(candidate.source),
-            "sha256": candidate.provenance["source_sha256"],
-            "cache_key": candidate.cache_key,
-        }
-        for candidate in candidates
-    ]
+    source_records: list[dict[str, Any]] = []
+    for candidate in candidates:
+        digest = str(candidate.provenance["source_sha256"])
+        suffix = candidate.source.suffix if candidate.source.suffix else ".c"
+        staged = campaign_dir / "source-staging" / f"{digest}{suffix}"
+        if not staged.is_file():
+            _write_bytes_atomic(staged, candidate.source.read_bytes())
+        if file_sha256(staged) != digest:
+            raise ValueError(f"retained source hash mismatch: {staged}")
+        source_records.append(
+            {
+                "path": str(candidate.source),
+                "sha256": digest,
+                "cache_key": candidate.cache_key,
+                "staged_path": str(staged),
+                "retained_path": None,
+                "retention": "staged",
+            }
+        )
     if manifest_path.is_file():
         manifest = load_manifest(manifest_path)
         if manifest.get("identity") != identity:
@@ -147,7 +171,19 @@ def initialize_manifest(
             for item in manifest.get("sources", [])
             if isinstance(item, dict) and "cache_key" in item
         }
-        existing.update({str(item["cache_key"]): item for item in source_records})
+        previous_policy = manifest.get("execution", {}).get("retain_sources", "leaders")
+        if previous_policy != retain_sources:
+            raise ValueError(
+                "campaign source retention policy changed; resume with "
+                f"{previous_policy!r} or start a new campaign"
+            )
+        for item in source_records:
+            key = str(item["cache_key"])
+            if key in existing:
+                prior = existing[key]
+                item["retained_path"] = prior.get("retained_path")
+                item["retention"] = prior.get("retention", "staged")
+            existing[key] = item
         source_records = list(existing.values())
         created = manifest.get("created_at_unix", now)
     else:
@@ -170,6 +206,7 @@ def initialize_manifest(
             "timeout_seconds": timeout,
             "stop_on_exact": stop_on_exact,
             "rank_by": rank_by,
+            "retain_sources": retain_sources,
         },
         "sources": sorted(source_records, key=lambda item: str(item["path"])),
         "experiment": experiment,
@@ -266,6 +303,7 @@ def find_manifest(
     selector: str | Path | None = None,
     *,
     state_root: str | Path = DEFAULT_STATE_ROOT,
+    require_explicit_when_ambiguous: bool = False,
 ) -> Path:
     """Resolve an explicit campaign or select the most recently updated one."""
 
@@ -287,6 +325,12 @@ def find_manifest(
     if not manifests:
         detail = f" matching {selector!r}" if selector is not None else ""
         raise FileNotFoundError(f"no campaign manifest found{detail} under {root}")
+    if selector is None and len(manifests) > 1 and require_explicit_when_ambiguous:
+        names = ", ".join(sorted(item.parent.name for item in manifests))
+        raise ValueError(
+            "more than one campaign exists; select one explicitly before a "
+            f"mutating action: {names}"
+        )
     if len(manifests) > 1 and selector is not None:
         names = ", ".join(sorted(item.parent.name for item in manifests))
         raise ValueError(f"campaign selector {selector!r} is ambiguous: {names}")
@@ -322,12 +366,228 @@ def read_ledger(path: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
     return records, warnings
 
 
-def _comparison_key(comparison: Mapping[str, Any]) -> tuple[object, ...]:
+def _alignment_comparable(comparison: Mapping[str, Any]) -> bool:
+    """Read the explicit flag, with a safe fallback for older ledgers."""
+
+    if "alignment_comparable" in comparison:
+        return bool(comparison["alignment_comparable"])
+    return int(comparison.get("aligned_gaps", 0) or 0) == 0
+
+
+def _effective_rank_by(
+    records: list[dict[str, Any]], *, requested: str
+) -> tuple[str, bool]:
+    """Resolve ``auto`` once for the whole persisted candidate population."""
+
+    unsafe = any(
+        not _alignment_comparable(comparison)
+        for record in records
+        if isinstance((comparison := record.get("comparison")), dict)
+    )
+    if requested == "auto":
+        return ("words" if unsafe else "aligned_total"), unsafe
+    return requested, unsafe
+
+
+def _comparison_key(
+    comparison: Mapping[str, Any], *, ranked_by: str = "aligned_total"
+) -> tuple[object, ...]:
+    words = int(comparison.get("words", comparison.get("word_mismatches", 1 << 30)))
+    aligned = int(comparison.get("aligned_total", 1 << 30))
+    unknown = comparison.get("unknown_relocations", [])
+    unknown_count = len(unknown) if isinstance(unknown, list) else 0
+    relocation_metadata = int(
+        comparison.get(
+            "reloc_meta", comparison.get("relocation_metadata_mismatches", 0)
+        )
+    )
+    candidate = str(comparison.get("candidate", ""))
+    if ranked_by == "temp-prefix":
+        return _temp_prefix_key(comparison)
+    if ranked_by == "words":
+        return (
+            words,
+            int(comparison.get("raw_word_mismatches", words)),
+            unknown_count,
+            relocation_metadata,
+            int(comparison.get("opcodes", comparison.get("opcode_mismatches", 0))),
+            aligned,
+            abs(int(comparison.get("instruction_delta", 0))),
+            candidate,
+        )
     return (
-        int(comparison.get("aligned_total", 1 << 30)),
-        int(comparison.get("words", comparison.get("word_mismatches", 1 << 30))),
+        aligned,
+        words,
+        unknown_count,
+        relocation_metadata,
         int(comparison.get("norm", comparison.get("normalized_distance", 1 << 30))),
-        str(comparison.get("candidate", "")),
+        int(comparison.get("registers", comparison.get("register_mismatches", 0))),
+        abs(int(comparison.get("instruction_delta", 0))),
+        candidate,
+    )
+
+
+def _record_key(
+    record: Mapping[str, Any], *, ranked_by: str = "aligned_total"
+) -> tuple[object, ...]:
+    """Mirror the live campaign's signal, region, and metric ordering."""
+
+    comparison = record.get("comparison")
+    signals = record.get("signals", [])
+    signal_key = (
+        not required_signals_pass(signals if isinstance(signals, list) else []),
+    )
+    region = record.get("region")
+    region_key: tuple[object, ...] = ()
+    if isinstance(region, dict):
+        region_key = (
+            not bool(region.get("exact")),
+            int(region.get("selected_mismatches", 1 << 30)),
+            int(region.get("outside_mismatches", 1 << 30)),
+        )
+    metric = (
+        _comparison_key(comparison, ranked_by=ranked_by)
+        if isinstance(comparison, dict)
+        else ()
+    )
+    return (
+        not isinstance(comparison, dict),
+        *signal_key,
+        *region_key,
+        metric,
+        str(record.get("source", "")),
+    )
+
+
+def _retention_leaders(records: list[dict[str, Any]], *, ranked_by: str) -> set[str]:
+    """Return cache keys that advanced score, exactness, or a mechanism signal."""
+
+    leaders: set[str] = set()
+    best: tuple[object, ...] | None = None
+    signal_state: dict[str, str] = {}
+    for record in records:
+        key = str(record.get("cache_key", ""))
+        comparison = record.get("comparison")
+        if key and isinstance(comparison, dict):
+            rank = _record_key(record, ranked_by=ranked_by)
+            if best is None or rank < best:
+                leaders.add(key)
+                best = rank
+            if bool(comparison.get("exact")):
+                leaders.add(key)
+        changed_signal = False
+        for signal in record.get("signals", []):
+            if not isinstance(signal, dict) or not isinstance(signal.get("id"), str):
+                continue
+            signal_id = str(signal["id"])
+            status = str(signal.get("status", "UNKNOWN"))
+            if signal_state.get(signal_id) != status:
+                changed_signal = True
+            signal_state[signal_id] = status
+        if key and changed_signal:
+            leaders.add(key)
+    return leaders
+
+
+def finalize_source_retention(manifest_path: str | Path) -> dict[str, Any]:
+    """Promote the requested durable source set and prune staging copies.
+
+    Unrun candidates always remain staged so an exact stop or interruption
+    cannot make a later resume impossible.
+    """
+
+    path = resolve_manifest(manifest_path)
+    manifest = load_manifest(path)
+    records, _ = read_ledger(manifest["ledger"])
+    policy = str(manifest.get("execution", {}).get("retain_sources", "leaders"))
+    represented = {
+        str(record.get("cache_key")) for record in records if record.get("cache_key")
+    }
+    if policy == "all":
+        keep = {
+            str(item.get("cache_key"))
+            for item in manifest.get("sources", [])
+            if isinstance(item, dict)
+        }
+    elif policy == "exact":
+        keep = {
+            str(record.get("cache_key"))
+            for record in records
+            if isinstance(record.get("comparison"), dict)
+            and bool(record["comparison"].get("exact"))
+        }
+    elif policy == "leaders":
+        requested = str(manifest.get("execution", {}).get("rank_by", "auto"))
+        ranked_by, _ = _effective_rank_by(records, requested=requested)
+        keep = _retention_leaders(records, ranked_by=ranked_by)
+    else:
+        keep = set()
+    keep.update(
+        str(item.get("cache_key"))
+        for item in manifest.get("sources", [])
+        if isinstance(item, dict) and str(item.get("cache_key")) not in represented
+    )
+
+    retained_directory = path.parent / "sources"
+    kept_stage_paths: set[Path] = set()
+    for item in manifest.get("sources", []):
+        if not isinstance(item, dict):
+            continue
+        staged_value = item.get("staged_path")
+        staged = Path(str(staged_value)) if staged_value else None
+        key = str(item.get("cache_key", ""))
+        if key not in keep:
+            continue
+        suffix = Path(str(item.get("path", "source.c"))).suffix or ".c"
+        retained = retained_directory / f"{item['sha256']}{suffix}"
+        retained.parent.mkdir(parents=True, exist_ok=True)
+        if not retained.is_file() and staged is not None and staged.is_file():
+            os.replace(staged, retained)
+        if not retained.is_file() or file_sha256(retained) != item.get("sha256"):
+            raise ValueError(f"durable source retention failed: {retained}")
+        item["retained_path"] = str(retained)
+        item["retention"] = "pending" if key not in represented else "retained"
+        if staged is not None:
+            kept_stage_paths.add(staged)
+
+    retained_paths = {
+        Path(str(item["retained_path"]))
+        for item in manifest.get("sources", [])
+        if isinstance(item, dict) and item.get("retained_path")
+    }
+    for item in manifest.get("sources", []):
+        if not isinstance(item, dict):
+            continue
+        staged_value = item.get("staged_path")
+        staged = Path(str(staged_value)) if staged_value else None
+        if (
+            staged is not None
+            and staged.is_file()
+            and staged not in kept_stage_paths
+            and staged not in retained_paths
+        ):
+            staged.unlink()
+            item["retention"] = "not-retained"
+            item["staged_path"] = None
+    manifest["updated_at_unix"] = time.time()
+    _write_json_atomic(path, manifest)
+    return manifest
+
+
+def durable_source_path(source_record: Mapping[str, Any]) -> Path:
+    """Return a source copy whose content still matches the manifest."""
+
+    expected = str(source_record.get("sha256", ""))
+    for field in ("retained_path", "staged_path", "path"):
+        value = source_record.get(field)
+        if not value:
+            continue
+        candidate = Path(str(value))
+        if candidate.is_file() and file_sha256(candidate) == expected:
+            return candidate
+    raise FileNotFoundError(
+        "campaign source and its retained copy are unavailable or changed: "
+        f"{source_record.get('path')}"
     )
 
 
@@ -576,9 +836,13 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     successful = [
         record for record in records if isinstance(record.get("comparison"), dict)
     ]
+    requested_rank_by = str(manifest.get("execution", {}).get("rank_by", "auto"))
+    ranked_by, alignment_ranking_unsafe = _effective_rank_by(
+        successful, requested=requested_rank_by
+    )
     best_record = min(
         successful,
-        key=lambda record: _comparison_key(record["comparison"]),
+        key=lambda record: _record_key(record, ranked_by=ranked_by),
         default=None,
     )
     best_temp_prefix_record = min(
@@ -590,6 +854,8 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     mechanism_trajectory: list[dict[str, Any]] = []
     signal_state: dict[str, str] = {}
     best_so_far: Mapping[str, Any] | None = None
+    best_aligned_total_so_far: int | None = None
+    best_words_so_far: int | None = None
     basins: dict[str, list[str]] = {}
     basin_signals: dict[str, dict[str, set[str]]] = {}
     families: dict[str, list[dict[str, Any]]] = {}
@@ -599,10 +865,23 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     for index, record in enumerate(records, 1):
         comparison = record.get("comparison")
         if isinstance(comparison, dict):
-            if best_so_far is None or _comparison_key(comparison) < _comparison_key(
-                best_so_far
-            ):
-                best_so_far = comparison
+            if best_so_far is None or _record_key(
+                record, ranked_by=ranked_by
+            ) < _record_key(best_so_far, ranked_by=ranked_by):
+                best_so_far = record
+            aligned_total = int(comparison.get("aligned_total", 1 << 30))
+            words_value = comparison.get(
+                "words", comparison.get("word_mismatches", 1 << 30)
+            )
+            words = int(words_value) if words_value is not None else 1 << 30
+            best_aligned_total_so_far = (
+                aligned_total
+                if best_aligned_total_so_far is None
+                else min(best_aligned_total_so_far, aligned_total)
+            )
+            best_words_so_far = (
+                words if best_words_so_far is None else min(best_words_so_far, words)
+            )
             sha = str(comparison.get("candidate_sha256", "unknown"))
             basins.setdefault(sha, []).append(str(record.get("source", "unknown")))
             for signal in record.get("signals", []):
@@ -642,9 +921,8 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
                     "first_temp_divergence": comparison.get("first_temp_divergence"),
                     "first_divergent_row": comparison.get("first_divergent_row"),
                     "alignment_method": comparison.get("alignment_method"),
-                    "best_aligned_total": (
-                        best_so_far.get("aligned_total") if best_so_far else None
-                    ),
+                    "best_aligned_total": best_aligned_total_so_far,
+                    "best_words": best_words_so_far,
                     "region": record.get("region"),
                 }
             )
@@ -709,7 +987,7 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     for family, family_records in sorted(families.items()):
         family_best = min(
             family_records,
-            key=lambda record: _comparison_key(record["comparison"]),
+            key=lambda record: _record_key(record, ranked_by=ranked_by),
         )
         family_basins = {
             str(record["comparison"].get("candidate_sha256"))
@@ -835,12 +1113,27 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
     for family_row in family_rows:
         family_row["coverage"] = coverage
         family_row["conclusion_label"] = conclusion_label
+    source_records = [item for item in prepared if isinstance(item, dict)]
+    source_retention = {
+        "policy": manifest.get("execution", {}).get("retain_sources", "leaders"),
+        "retained": sum(
+            1 for item in source_records if item.get("retention") == "retained"
+        ),
+        "pending": sum(
+            1 for item in source_records if item.get("retention") == "pending"
+        ),
+        "not_retained": sum(
+            1 for item in source_records if item.get("retention") == "not-retained"
+        ),
+    }
     return {
         "schema": STATUS_SCHEMA,
         "manifest": display_path(path),
         "identity": manifest["identity"],
         "status": manifest["status"],
-        "rank_by": manifest.get("execution", {}).get("rank_by", "auto"),
+        "rank_by": requested_rank_by,
+        "ranked_by": ranked_by,
+        "alignment_ranking_unsafe": alignment_ranking_unsafe,
         "target": manifest["identity_inputs"]["target"],
         "symbol": manifest["identity_inputs"].get("symbol"),
         "prepared_candidates": len(prepared),
@@ -868,11 +1161,19 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
         "coverage": coverage,
         "conclusion_label": conclusion_label,
         "hypothesis": manifest.get("hypothesis"),
+        "source_retention": source_retention,
     }
 
 
-def validate_resume(manifest_path: str | Path) -> dict[str, Any]:
-    """Refuse resume if any identity-bearing external input has changed."""
+def validate_resume(
+    manifest_path: str | Path, *, allow_retained_sources: bool = False
+) -> dict[str, Any]:
+    """Refuse use when an identity-bearing external input is unavailable.
+
+    Resume requires the original path because source paths can affect compiler
+    output. Finish/package may use an immutable retained copy and then let the
+    fresh comparison prove whether a changed path matters.
+    """
 
     manifest = load_manifest(manifest_path)
     identity_inputs = manifest["identity_inputs"]
@@ -920,12 +1221,18 @@ def validate_resume(manifest_path: str | Path) -> dict[str, Any]:
             )
     for source in manifest.get("sources", []):
         path = Path(source["path"])
+        if path.is_file() and file_sha256(path) == source["sha256"]:
+            continue
+        if allow_retained_sources:
+            durable_source_path(source)
+            continue
         if not path.is_file():
-            raise FileNotFoundError(f"campaign source no longer exists: {path}")
-        if file_sha256(path) != source["sha256"]:
-            raise ValueError(
-                f"campaign source hash changed: {path}; start a new campaign"
+            raise FileNotFoundError(
+                f"campaign source no longer exists at its identity-bearing "
+                f"path: {path}; the retained copy remains available for finish "
+                "and package, but resume could change path-sensitive output"
             )
+        raise ValueError(f"campaign source hash changed: {path}; start a new campaign")
     return manifest
 
 

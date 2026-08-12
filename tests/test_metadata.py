@@ -35,6 +35,13 @@ class MetadataTests(unittest.TestCase):
         for path in (ROOT / "case-studies").glob("*.md"):
             self.assertTrue(path.is_file())
 
+    def test_release_tree_excludes_uncleared_cv64_payloads(self) -> None:
+        scratches = ROOT / "examples" / "cv64" / "scratches"
+        files = [path for path in scratches.rglob("*") if path.is_file()]
+        self.assertEqual(files, [])
+        manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+        self.assertNotIn("cv64/scratches", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

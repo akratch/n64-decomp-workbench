@@ -1,8 +1,0 @@
-{
-  "candidate_instructions": 18,
-  "exact": false,
-  "normalized_distance": 2,
-  "note": "Pool scan matches except for two independent address instructions.",
-  "target_instructions": 18,
-  "word_mismatches": 2
-}

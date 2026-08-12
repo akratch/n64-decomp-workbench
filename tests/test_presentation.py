@@ -138,6 +138,16 @@ class HtmlParityTests(unittest.TestCase):
         self.assertIn('scope="row"', self.document)
         self.assertIn('<html lang="en">', self.document)
 
+    def test_shared_accessibility_shell_is_present(self) -> None:
+        self.assertIn('<meta name="theme-color"', self.document)
+        self.assertIn('<a class="skip-link" href="#main-content">', self.document)
+        self.assertIn('<main id="main-content">', self.document)
+        self.assertIn("<details open>", self.document)
+        self.assertIn("<caption>", self.document)
+        self.assertIn('class="table-scroll"', self.document)
+        self.assertIn(":focus-visible", self.document)
+        self.assertIn("details > * { display: block !important; }", self.document)
+
     def test_the_identity_chip_never_claims_to_be_the_site_score(self) -> None:
         self.assertIn("aligned identical 18/24", self.document)
         self.assertIn("not decomp.me", self.document)

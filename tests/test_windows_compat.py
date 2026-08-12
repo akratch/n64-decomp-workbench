@@ -12,9 +12,23 @@ from pathlib import Path
 from decomp_workbench.artifacts import capture_streams
 from decomp_workbench.cache import cache_status, prune_cache
 from decomp_workbench.campaign import CompilerTimeoutError, run_compiler
+from decomp_workbench.cli import main
+from decomp_workbench.notes import add_note, merge_notes
 
 
 class WindowsCompatibilityTests(unittest.TestCase):
+    def test_the_complete_cli_imports_and_renders_help(self) -> None:
+        self.assertEqual(main([]), 0)
+
+    def test_note_merge_uses_a_native_portable_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "NOTES.md"
+            log.write_text("# Notes\n", encoding="utf-8")
+            add_note(log, identifier="WB-1", title="portable")
+            merged = merge_notes(log)
+            self.assertEqual([item.identifier for item in merged], ["WB-1"])
+            self.assertIn("WB-1", log.read_text(encoding="utf-8"))
+
     def test_compiler_timeout_ends_the_direct_wrapper(self) -> None:
         started = time.monotonic()
         with self.assertRaises(CompilerTimeoutError):

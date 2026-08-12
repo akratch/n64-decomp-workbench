@@ -20,6 +20,8 @@ from decomp_workbench.score import (
     ScoreError,
     ScoreSpec,
     TargetSpec,
+    WordScore,
+    build_guidance,
     label_addresses,
     parse_control_spec,
     read_rom_window,
@@ -270,6 +272,54 @@ class ScoreReportTests(unittest.TestCase):
         self.assertEqual(report.function.relocation_floor, 1)
         self.assertFalse(report.controls_broken)
         self.assertIn("relocation floor", "".join(report.guidance))
+
+    def test_object_mismatch_guidance_names_the_real_candidate(self) -> None:
+        target = TargetSpec(kind="object", target_object="target.o")
+        guidance = build_guidance(
+            matched=False,
+            function_score=WordScore(
+                label="demo",
+                mode="function",
+                note=None,
+                candidate_size=4,
+                target_size=4,
+                diff_words=1,
+                relocation_floor=0,
+                diff_positions=(0,),
+                candidate_sha256="0" * 64,
+                matched=False,
+            ),
+            controls_broken=False,
+            target=target,
+            function_symbol="demo",
+            candidate="run/objects/best.o",
+        )
+        self.assertIn("target.o run/objects/best.o", guidance[0])
+        self.assertNotIn("<candidate.o>", guidance[0])
+
+    def test_between_guidance_does_not_invent_a_function_symbol(self) -> None:
+        guidance = build_guidance(
+            matched=False,
+            function_score=WordScore(
+                label="before..after",
+                mode="between",
+                note=None,
+                candidate_size=4,
+                target_size=4,
+                diff_words=1,
+                relocation_floor=0,
+                diff_positions=(0,),
+                candidate_sha256="0" * 64,
+                matched=False,
+            ),
+            controls_broken=False,
+            target=TargetSpec(kind="rom", rom="base.z64", rom_offset=0),
+            function_symbol=None,
+            candidate="candidate.o",
+        )
+        self.assertIn("selected with `--between`", guidance[0])
+        self.assertIn("diagnose-dumps", guidance[0])
+        self.assertNotIn("--function", guidance[0])
 
     def test_broken_control_marks_the_whole_run(self) -> None:
         control_text = """

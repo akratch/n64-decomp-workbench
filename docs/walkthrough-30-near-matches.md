@@ -31,9 +31,11 @@ volume does not predict cost:
 Rank by **verdict class**. The word count is a tiebreaker inside a class, not a
 sort key across classes.
 
-`compare` ranks candidates *of one function* on `aligned_total` rather than
-`words` for the same reason the second bullet exists — that is a within-function
-improvement, and it does not make either number a way to order a backlog.
+For a fully gap-free set, `compare` ranks candidates *of one function* on
+`aligned_total` rather than `words` for the same reason the second bullet exists.
+If any candidate required alignment gaps, the shared scale is gone and the
+command falls back to positional `words` with a caution. Neither number is a
+way to order a backlog across functions.
 
 ---
 

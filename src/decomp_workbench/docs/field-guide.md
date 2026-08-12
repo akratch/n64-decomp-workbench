@@ -976,10 +976,14 @@ register allocation identical — `verdict=schedule-mismatch` — on a `-g0`
 build, so [lever 3](#3-the--g0-diagnostic) has nothing left to collapse and
 every compiler version you try produces the same output.
 
-```sh
-# IDO's external preprocessor, then compile the preprocessed unit
-acpp <defines> <includes> file.c > file.i
-cc -c <the same flags the project already uses> file.i
+```bash
+# Replace these example arrays with the translation unit's exact arguments.
+cpp_flags=(-DVERSION_US -Iinclude)
+compiler_flags=(-O2 -mips2)
+
+# IDO's external preprocessor, then compile the preprocessed unit.
+acpp "${cpp_flags[@]}" file.c > file.i
+cc -c "${compiler_flags[@]}" file.i
 ```
 
 **Why:** cfe takes each statement's source line number from its *preprocessed*
@@ -1315,6 +1319,14 @@ the suspicious constructs without calling them dead:
 ```sh
 decomp-workbench experiment inspect-source exact.c
 ```
+
+The inventory marks every finding `safe_automatic_removal=false` and attaches
+the review question that makes the construct unsafe to delete blindly. Empty
+controls can evaluate a side-effecting condition or preserve a statement-line
+boundary; cancelled arithmetic can retain volatile reads, promotions, or
+overflow behavior; a static can be real state. The command's cleanup checklist
+therefore ends at full-object collateral and the project link/ROM verifier,
+not at a shorter-looking function.
 
 Turn related declaration/use changes into named, exact-text transformations.
 Preserve one transformation per measured mechanism or object-basin

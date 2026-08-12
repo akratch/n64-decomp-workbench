@@ -66,7 +66,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 __all__ = [
     "CONTEXT_LINT_SCHEMA",
@@ -74,6 +74,7 @@ __all__ = [
     "Finding",
     "LintReport",
     "analyze_expression",
+    "duplicate_file_scope_definitions",
     "file_scope_definitions",
     "lint_files",
     "lint_sources",
@@ -89,6 +90,16 @@ CONTEXT_LINT_SCHEMA = "decomp-workbench-context-lint-v1"
 #: both sort against this so "findings sorted most-severe first" is one fact,
 #: not a promise kept separately by two renderers.
 _SEVERITY_ORDER: dict[str, int] = {"high": 0, "medium": 1, "info": 2, "note": 3}
+
+
+class DefinitionOccurrence(TypedDict):
+    source: str
+    line: int
+
+
+class DuplicateDefinition(TypedDict):
+    symbol: str
+    occurrences: list[DefinitionOccurrence]
 
 
 # ---------------------------------------------------------------------------
@@ -1034,6 +1045,27 @@ def file_scope_definitions(text: str) -> dict[str, int]:
             if name is not None:
                 names.setdefault(name, lineno)
     return names
+
+
+def duplicate_file_scope_definitions(
+    sources: Sequence[tuple[str, str]],
+) -> tuple[DuplicateDefinition, ...]:
+    """Return approximate file-scope definitions repeated across sources.
+
+    A finding requires the same name in at least two different inputs. Each
+    occurrence retains its source label and line so the report is actionable
+    beyond the two-file decomp.me case.
+    """
+
+    occurrences: dict[str, list[DefinitionOccurrence]] = {}
+    for source, text in sources:
+        for symbol, line in file_scope_definitions(text).items():
+            occurrences.setdefault(symbol, []).append({"source": source, "line": line})
+    return tuple(
+        {"symbol": symbol, "occurrences": items}
+        for symbol, items in sorted(occurrences.items())
+        if len(items) > 1
+    )
 
 
 # ---------------------------------------------------------------------------

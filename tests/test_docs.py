@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -63,9 +64,14 @@ class DocumentationTests(unittest.TestCase):
 
     def test_readme_reference_links_are_defined(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        definitions = set(REFERENCE_RE.findall(readme))
+        definition_list = REFERENCE_RE.findall(readme)
+        definitions = set(definition_list)
         uses = set(REFERENCE_USE_RE.findall(readme))
         self.assertEqual(uses - definitions, set())
+        duplicates = {
+            name: count for name, count in Counter(definition_list).items() if count > 1
+        }
+        self.assertEqual(duplicates, {})
 
 
 if __name__ == "__main__":

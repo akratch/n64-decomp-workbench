@@ -58,13 +58,20 @@ def render_matrix_human(report: MatrixReport) -> None:
         print("")
         print(f"CAUTION: {report.caution}")
     print("")
-    if report.attractors and report.attractors[0].diff_words == 0:
-        print("next: decomp-workbench guide <verdict> for any remaining lever work")
-    else:
-        print(
-            "next: decomp-workbench diagnose <target> "
-            f"{report.run_dir}/objects/<best-variant>.o --function <name>"
+    if report.attractors:
+        best_labels = set(report.attractors[0].members)
+        best = next(
+            (
+                item
+                for item in report.variants
+                if item.label in best_labels and item.score is not None
+            ),
+            None,
         )
+        if best is not None:
+            assert best.score is not None
+            for step in best.score.guidance:
+                print(f"next: {step}")
 
 
 def matrix_command(args: argparse.Namespace) -> int:

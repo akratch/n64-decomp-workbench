@@ -11,8 +11,11 @@ With IDO-style drivers, `-K` commonly retains intermediates and `-S` emits
 assembly. Confirm the flags used by your project:
 
 ```sh
-cc -K -c <project flags> unit.c -o unit.o
+cc -K -c -O2 -mips2 unit.c -o unit.o
 ```
+
+The flags above are an executable example, not a universal preset. Replace
+`-O2 -mips2` with the exact flags from the project's normal compile command.
 
 You need a human-readable `unit.s`; as0/as1 will recreate the binasm,
 symbol-table, and object outputs.

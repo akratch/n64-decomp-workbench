@@ -13,7 +13,9 @@ from .campaign import file_sha256, run_campaign
 from .campaign_finish import finish_campaign
 from .campaign_state import (
     build_status,
+    durable_source_path,
     export_status,
+    finalize_source_retention,
     find_manifest,
     finish_manifest,
     record_control_preflight,
@@ -22,6 +24,7 @@ from .campaign_state import (
     validate_resume,
 )
 from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
+from .compare import MIXED_ALIGNMENT_CAUTION
 from .experiment_controls import run_control_preflight
 from .experiments import (
     EXPERIMENT_SCHEMA,
@@ -29,6 +32,7 @@ from .experiments import (
     SignalSpec,
     load_experiment,
 )
+from .html_report import document_shell
 from .scratch_bundle import bundle_scratch
 
 
@@ -71,6 +75,23 @@ def _print_status(report: dict[str, Any]) -> None:
         f"{report['prepared_candidates']} candidate(s), "
         f"{len(report['object_basins'])} object basin(s)"
     )
+    ranked_by = str(report.get("ranked_by", report.get("rank_by", "auto")))
+    requested_rank = str(report.get("rank_by", "auto"))
+    requested_note = (
+        f" (requested {requested_rank})" if requested_rank != ranked_by else ""
+    )
+    print(f"ranking: {ranked_by}{requested_note}")
+    if bool(report.get("alignment_ranking_unsafe")) and requested_rank == "auto":
+        print(MIXED_ALIGNMENT_CAUTION)
+    retention = report.get("source_retention")
+    if isinstance(retention, dict):
+        print(
+            "sources: "
+            f"policy={retention.get('policy')} "
+            f"retained={retention.get('retained')} "
+            f"pending={retention.get('pending')} "
+            f"not-retained={retention.get('not_retained')}"
+        )
     best = report.get("best")
     if isinstance(best, dict):
         comparison = best.get("comparison")
@@ -125,11 +146,15 @@ def _print_status(report: dict[str, Any]) -> None:
                 f"visited, {coverage.get('excluded_assignments', 0)} excluded "
                 f"[{coverage.get('conclusion')}]"
             )
-    if report["trajectory"]:
+    if report["trajectory"] and ranked_by != "temp-prefix":
+        trajectory_field = (
+            "best_words" if ranked_by == "words" else "best_aligned_total"
+        )
+        trajectory_label = "best words" if ranked_by == "words" else "best aligned"
         values = [
-            int(point["best_aligned_total"])
+            int(point[trajectory_field])
             for point in report["trajectory"]
-            if point["best_aligned_total"] is not None
+            if point.get(trajectory_field) is not None
         ]
         if values:
             levels = ".:-=+*#%@"
@@ -145,7 +170,9 @@ def _print_status(report: dict[str, Any]) -> None:
                 ]
                 for value in values[-60:]
             )
-            print(f"trajectory: {values[0]} {sparkline} {values[-1]} (best aligned)")
+            print(
+                f"trajectory: {values[0]} {sparkline} {values[-1]} ({trajectory_label})"
+            )
     if report.get("mechanism_trajectory"):
         transitions = report["mechanism_trajectory"]
         print(f"mechanism transitions: {len(transitions)}")
@@ -208,7 +235,11 @@ def campaign_status_command(args: argparse.Namespace) -> int:
 
 def campaign_resume_command(args: argparse.Namespace) -> int:
     try:
-        manifest_path = find_manifest(args.campaign, state_root=args.state_dir)
+        manifest_path = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
         manifest = validate_resume(manifest_path)
         previously_exact = manifest.get("status") == "exact"
         already_exact = (
@@ -327,6 +358,7 @@ def campaign_resume_command(args: argparse.Namespace) -> int:
                 compilation_envelope=compile_info.get("envelope", {}),
                 rank_by=str(execution.get("rank_by", "auto")),
             )
+            finalize_source_retention(manifest_path)
             finish_manifest(
                 manifest_path,
                 results=len(results),
@@ -363,7 +395,6 @@ def campaign_resume_command(args: argparse.Namespace) -> int:
 
 def _render_html(report: dict[str, Any]) -> str:
     campaign = report["campaign"]
-    serialized = json.dumps(report, indent=2, sort_keys=True)
     rows = []
     for point in campaign["trajectory"]:
         rows.append(
@@ -390,27 +421,19 @@ def _render_html(report: dict[str, Any]) -> str:
         )
         or "<li>No declared signal transitions.</li>"
     )
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>decomp-workbench campaign report</title>
-<style>
-:root {{ color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }}
-body {{ max-width: 72rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }}
-table {{ border-collapse: collapse; width: 100%; }}
-th, td {{ border-bottom: 1px solid #8886; padding: .45rem; text-align: left; }}
-code, pre {{ font-family: ui-monospace, monospace; }}
-pre {{ overflow: auto; padding: 1rem; background: #8881; }}
-.proof {{ border-left: .25rem solid #a86; padding-left: 1rem; }}
-</style>
-</head>
-<body>
+    ranking_note = (
+        " (alignment gaps made aligned totals incomparable)"
+        if campaign.get("alignment_ranking_unsafe")
+        else ""
+    )
+    body = f"""
 <h1>Campaign {html.escape(str(campaign["status"]))}</h1>
 <p>{int(campaign["recorded_candidates"])} recorded candidate(s),
 {len(campaign["object_basins"])} object basin(s),
 {int(campaign["remaining_candidates"])} remaining.</p>
+<p><strong>Ranking:</strong>
+{html.escape(str(campaign.get("ranked_by", campaign.get("rank_by", "auto"))))}
+{html.escape(ranking_note)}.</p>
 <p><strong>Controls:</strong>
 {html.escape(str(controls.get("status", "NOT DECLARED")))}.
 <strong>Coverage:</strong> {html.escape(str(coverage.get("visited_assignments", 0)))} /
@@ -418,18 +441,14 @@ pre {{ overflow: auto; padding: 1rem; background: #8881; }}
 conclusion={html.escape(str(coverage.get("conclusion", "coverage-unknown")))}.</p>
 <p class="proof">{html.escape(str(report["proof"]))}</p>
 <h2>Trajectory</h2>
-<table>
+<div class="table-scroll"><table><caption>Candidate trajectory</caption>
 <thead><tr><th>#</th><th>Source</th><th>Verdict</th><th>Aligned</th><th>Words</th></tr></thead>
 <tbody>{table}</tbody>
-</table>
+</table></div>
 <h2>Mechanism trajectory</h2>
 <ul>{mechanism_rows}</ul>
-<details><summary>Machine-readable evidence</summary>
-<pre id="report">{html.escape(serialized)}</pre>
-</details>
-</body>
-</html>
 """
+    return document_shell("decomp-workbench campaign report", body, report)
 
 
 def campaign_export_command(args: argparse.Namespace) -> int:
@@ -464,7 +483,11 @@ def campaign_export_command(args: argparse.Namespace) -> int:
 
 def campaign_note_command(args: argparse.Namespace) -> int:
     try:
-        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
         updated = update_hypothesis(manifest, args.note)
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -505,8 +528,12 @@ def campaign_package_command(args: argparse.Namespace) -> int:
     """Promote a measured campaign winner into a paste-ready scratch bundle."""
 
     try:
-        manifest_path = find_manifest(args.campaign, state_root=args.state_dir)
-        manifest = validate_resume(manifest_path)
+        manifest_path = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        manifest = validate_resume(manifest_path, allow_retained_sources=True)
         report = build_status(manifest_path)
         selected_key = "best_temp_prefix" if args.selection == "temp-prefix" else "best"
         selected = report.get(selected_key)
@@ -540,7 +567,7 @@ def campaign_package_command(args: argparse.Namespace) -> int:
         )
         if not isinstance(source_record, dict):
             raise ValueError("selected source is absent from the campaign manifest")
-        source = Path(str(source_record["path"]))
+        source = durable_source_path(source_record)
         if not source.is_file():
             raise FileNotFoundError(
                 f"selected campaign source no longer exists: {source}"
@@ -649,7 +676,11 @@ def campaign_finish_command(args: argparse.Namespace) -> int:
     """Freshly rebuild a winner and record every integration gate separately."""
 
     try:
-        manifest = find_manifest(args.campaign, state_root=args.state_dir)
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
         report, output = finish_campaign(
             manifest,
             selection=args.selection,

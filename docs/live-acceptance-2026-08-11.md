@@ -1,5 +1,10 @@
 # Trustworthy endgame live acceptance — 2026-08-11
 
+> **Dated acceptance receipt.** This is immutable campaign evidence, not the
+> current release status. Use [Product status](product-status.md) and the
+> [quality checklist](workbench-quality-checklist.md) for current claims and
+> open release gates.
+
 This receipt records hashes and comparison facts only. It contains no ROM
 bytes, target disassembly, proprietary compiler binary, or target object.
 

@@ -28,9 +28,19 @@ class PreflightTests(unittest.TestCase):
             objdump = root / "objdump"
             objdump.write_text(
                 "#!/usr/bin/env python3\n"
-                "print('00000000 <decomp_workbench_preflight>:')\n"
-                "print('   0: 03e00008  jr $ra')\n"
-                "print('   4: 00000000  nop')\n",
+                "import sys\n"
+                "if '--version' in sys.argv:\n"
+                " print('GNU objdump test double')\n"
+                "elif '--disassemble=probe_func' in sys.argv:\n"
+                " print('00000000 <probe_func>:')\n"
+                " print('   0: 0c000000  jal 0 <probe_func>')\n"
+                " print('      0: R_MIPS_26 probe_external')\n"
+                " print('   4: 03e00008  jr $ra')\n"
+                " print('   8: 00000000  nop')\n"
+                "else:\n"
+                " print('00000000 <decomp_workbench_preflight>:')\n"
+                " print('   0: 03e00008  jr $ra')\n"
+                " print('   4: 00000000  nop')\n",
                 encoding="utf-8",
             )
             objdump.chmod(0o755)

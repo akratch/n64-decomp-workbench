@@ -184,12 +184,11 @@ class Comparison:
     def sort_key(self) -> tuple[int, int, int, int, int, int, int, str]:
         """Rank on the aligned residual, with the positional count as a tiebreak.
 
-        Positional word counts misranked candidates in six recorded campaigns:
-        an inserted instruction shifts everything after it, so the candidate one
-        edit away sorts below a candidate with a dozen unrelated allocation
-        differences. The aligned residual is the ranking number; ``words`` still
-        separates two candidates of the same aligned shape, where it is exactly
-        the right question.
+        For a fully gap-free result set, positional word counts misranked
+        candidates in six recorded campaigns: an inserted instruction shifts
+        everything after it. The aligned residual is then the ranking number;
+        callers must select :attr:`raw_sort_key` for the whole set when any
+        candidate required gaps.
         """
 
         return (

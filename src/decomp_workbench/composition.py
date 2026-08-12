@@ -402,12 +402,33 @@ def inspect_source(path: str | Path) -> dict[str, Any]:
         if SELF_CANCEL_RE.search(line):
             kinds.append("self-cancelling-arithmetic")
         for kind in kinds:
+            questions = {
+                "function-scope-static-candidate": (
+                    "Does this object carry program state, or only affect storage and "
+                    "allocation? Group its declaration and every use in one measured "
+                    "edit."
+                ),
+                "empty-control": (
+                    "Is the condition side-effect-free, and does this physical "
+                    "statement boundary affect line assignment or allocation?"
+                ),
+                "zero-arithmetic": (
+                    "Are operand evaluation, volatile reads, promotions, and overflow "
+                    "behavior preserved if this is changed?"
+                ),
+                "self-cancelling-arithmetic": (
+                    "Are repeated evaluations, volatile reads, and signed-overflow "
+                    "behavior preserved if this is changed?"
+                ),
+            }
             findings.append(
                 {
                     "line": number,
                     "kind": kind,
                     "source": stripped,
                     "claim": "syntactic-candidate-only",
+                    "safe_automatic_removal": False,
+                    "review_question": questions[kind],
                 }
             )
     duplicates = [
@@ -415,11 +436,15 @@ def inspect_source(path: str | Path) -> dict[str, Any]:
         for source, lines in sorted(seen_lines.items())
         if len(lines) > 1
     ]
+    inventory_by_kind = dict(
+        sorted(collections.Counter(item["kind"] for item in findings).items())
+    )
     return {
         "schema": SOURCE_INSPECTION_SCHEMA,
         "source": str(source_path),
         "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
         "finding_count": len(findings),
+        "inventory_by_kind": inventory_by_kind,
         "findings": findings,
         "duplicate_empty_controls": duplicates,
         "proof": (
@@ -431,6 +456,17 @@ def inspect_source(path: str | Path) -> dict[str, Any]:
             "mechanisms in a composition manifest, then compile every candidate "
             "against exact binary and collateral gates."
         ),
+        "cleanup_gates": [
+            "Preserve the exact baseline source/object receipt.",
+            "Encode one justified declaration/use or control-shape mechanism per "
+            "transformation.",
+            "Compile the bounded set with the stock lineage and --no-stop-on-exact.",
+            "Review every surviving mutation diff; a clean text check is not semantic "
+            "proof.",
+            "Require raw words, relocation targets, instruction count, and frame to "
+            "remain exact.",
+            "Run object collateral and the project's normal link/ROM verification.",
+        ],
     }
 
 

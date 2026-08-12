@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-08-12
+
+- **Documentation and worked examples now carry executable, tested contracts.**
+  Case studies participate in command-shape checks; shell fences reject fake
+  angle-bracket arguments; scratch verification uses the cross-platform
+  workbench instead of macOS-only `shasum`; the complete asset-free endgame
+  walkthrough runs in CI; and curated CV64 result JSON is explicitly separated
+  from live CLI schemas. Historical records point readers to current product
+  status, while uncleared third-party CV64 payloads are removed rather than
+  being implicitly swept under the repository's CC0 license.
+
+- **The workbench now fails closed at the seams that most often create false
+  confidence.** Objdump auto-discovery must pass a real synthetic MIPS ELF,
+  symbol-filter, instruction-syntax, and relocation probe; compiler campaigns
+  run with a sealed environment plus explicit `--inherit-env`; campaign source
+  retention is content-addressed and policy-driven; ambiguous mutating campaign
+  commands require an explicit manifest. `next --json` exposes executable argv
+  and expected signals, cache pruning supports size/age/LRU policies with
+  recoverable nested trash, Windows runs the full suite, and all HTML reports
+  share an accessible offline shell. A strict, preview-first
+  `.decomp-workbench.toml` project layer adds configured object commands and
+  reproducible campaigns without guessing an objdiff unit, while `context
+  duplicates` makes cross-fragment redeclarations a first-class check. Ranking
+  falls back to positional words for the whole population when any candidate
+  has alignment gaps, consistently across live runs, persisted status, source
+  retention, and exports.
 
 - **Trustworthy campaign endgames now fail closed and finish with receipts.**
   `check-scratch` separates site metadata, scratch-object truth, and optional

@@ -122,6 +122,7 @@ def experiment_inspect_source_command(args: argparse.Namespace) -> int:
         print(f"source inspection: {report['finding_count']} candidate construct(s)")
         for item in report["findings"]:
             print(f"line {item['line']}: {item['kind']}: {item['source']}")
+            print(f"  ask: {item['review_question']}")
         for item in report["duplicate_empty_controls"]:
             print(
                 "duplicate empty control: "
@@ -129,6 +130,9 @@ def experiment_inspect_source_command(args: argparse.Namespace) -> int:
             )
         print(f"proof: {report['proof']}")
         print(f"next gate: {report['next_gate']}")
+        print("cleanup gates:")
+        for number, gate in enumerate(report["cleanup_gates"], 1):
+            print(f"  {number}. {gate}")
     return 0
 
 

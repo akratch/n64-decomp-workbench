@@ -14,7 +14,7 @@ this exact screen from top to bottom.*
 
 ## You have an almost-matched function. Now what?
 
-**→ Read [docs/START_HERE.md](docs/START_HERE.md).** Ten minutes, in order,
+**→ Read [docs/START_HERE.md](docs/START_HERE.md).** A short guided tour,
 with every command runnable right now against fixtures in this repository — no
 ROM, no compiler, no toolchain, no AI.
 
@@ -37,7 +37,7 @@ Three pages are the entire workflow:
 
 | Page | What it is for |
 |---|---|
-| [Start here](docs/START_HERE.md) | One function, ten minutes: diagnose → lever → repeat |
+| [Start here](docs/START_HERE.md) | One function, guided tour: diagnose → lever → repeat |
 | [Field guide](docs/field-guide.md) | "The diff looks like X" → the C that moves it, with the measured effect |
 | [Backlog walkthrough](docs/walkthrough-30-near-matches.md) | Thirty near matches: batch triage, and which classes to knock out first |
 
@@ -52,12 +52,21 @@ Everything below is reference.
 
 ## Try it in 60 seconds
 
-Install (Python 3.10 or newer, no runtime dependencies):
+Install from a checkout (Python 3.10 or newer; Python 3.10 installs one small
+TOML compatibility dependency). For a standalone command, `pipx` keeps the
+workbench isolated from system Python as recommended by the
+[Python Packaging User Guide](https://packaging.python.org/en/latest/guides/installing-stand-alone-command-line-tools/):
 
 ```sh
 git clone https://github.com/akratch/n64-decomp-workbench.git
 cd n64-decomp-workbench
-python3 -m pip install -e .
+pipx install .
+```
+
+Or, inside an activated virtual environment:
+
+```sh
+python3 -m pip install .
 ```
 
 Compare two fixture dumps whose raw words differ only in relocated fields:
@@ -119,6 +128,27 @@ comparison needs a GNU-compatible MIPS objdump. Compiler tracing and pass replay
 need binaries supplied by your project.
 
 ## Use it in a decomp project
+
+Preview a portable project config, then write it only after the inferred and
+explicit inputs look right:
+
+```sh
+decomp-workbench project init . \
+  --target target.o --candidate candidate.o \
+  --symbol function_name
+# After reviewing the preview:
+decomp-workbench project init . \
+  --target target.o --candidate candidate.o \
+  --symbol function_name --write
+decomp-workbench project diagnose
+```
+
+Discovery recognizes objdiff, Splat, and common build metadata but refuses to
+guess which of many objects is authoritative. See [project
+configuration](docs/project-configuration.md).
+The same file can hold an explicit compile-one argv, sealed environment, and
+frontend/backend lineage for `project campaign candidates/*.c`; no generic
+Makefile is guessed into an executable campaign.
 
 Compare one function, out of your normal full-translation-unit build:
 
@@ -405,8 +435,10 @@ boundaries in one place.
 
 Comparison, ranking, campaigns, scratch bundling, trace parsing, and pass
 replay are adapters: bring your own object files, objdump, compiler wrapper,
-scratch inputs, traces, or pass binaries. These workflows support IDO 5.3 and
-7.1 when the project supplies the corresponding toolchain.
+scratch inputs, traces, or pass binaries. These workflows support explicit
+IRIX 4.x frontend cells and IDO 5.3/7.1 pipelines when the project supplies the
+corresponding toolchain; instrumentation remains profile-specific. See the
+[IDO support matrix][ido-support].
 
 The packaged uopt patch profiles are intentionally narrower. They accept
 generated `uopt.c` from one pinned IDO 5.3 static-recomp revision, verify its
@@ -414,8 +446,11 @@ SHA-256 and source anchors, and reject unknown input by default. The generic
 ugen instrumenter supports a broader but shallower call/free-list trace.
 
 The repository contains no ROMs, target objects, proprietary compiler
-binaries, or extracted non-code game assets. The attributed CV64 materials are
-limited to complete single-function scratch handoffs.
+binaries, generated third-party contexts, extracted target assembly, or game
+assets. The [CV64 campaign record](examples/cv64/README.md) retains aggregate
+measurements and a local regeneration recipe, while the uncleared scratch
+payloads remain excluded as recorded by its
+[notice](examples/cv64/NOTICE.md).
 
 ## Development
 
@@ -444,13 +479,13 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/campaigns.md
 [decompme-exports]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/decompme-exports.md
 [agent-skill]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/agent-skill.md
+[ido-support]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/ido-support.md
 [compiler-instrumentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/compiler-instrumentation.md
 [tooling-roadmap]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/tooling-roadmap.md
 [elite-product-review]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/elite-product-review-2026-07-29.md
 [contributing]: https://github.com/akratch/n64-decomp-workbench/blob/main/CONTRIBUTING.md
 [cv64-examples]: https://github.com/akratch/n64-decomp-workbench/blob/main/examples/cv64/README.md
 [documentation]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/README.md
-[ido-support]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/ido-support.md
 [object-comparison]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/object-comparison.md
 [final-function-campaigns]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/final-function-campaigns.md
 [pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md

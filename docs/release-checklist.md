@@ -19,7 +19,12 @@ workbench; compiler and game inputs have separate fidelity gates.
    external provenance link, which remains a network check.
 3. Check the source tree for ROMs, objects, compiler binaries, credentials,
    absolute user paths, and generated build products.
-4. Review `git diff --check` and the complete staged diff.
+4. Audit every attributed third-party example. Confirm the CV64 scratch
+   payloads remain absent as required by
+   [`examples/cv64/NOTICE.md`](../examples/cv64/NOTICE.md). Attribution,
+   absence of a ROM file, and a public upstream repository are not substitutes
+   for redistribution permission.
+5. Review `git diff --check` and the complete staged diff.
 
 ## Automated checks
 
@@ -27,7 +32,7 @@ workbench; compiler and game inputs have separate fidelity gates.
 python -m unittest discover -s tests -v
 bandit -r src -ll
 codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
-actionlint .github/workflows/ci.yml
+actionlint .github/workflows/*.yml
 ruff check src tests
 ruff format --check src tests
 mypy src tests
@@ -66,6 +71,7 @@ decomp-workbench oracle plan examples/traces/oracle.log --json
 decomp-workbench experiment validate \
   examples/experiments/statement-grouping/experiment.json --json
 decomp-workbench commands --json
+decomp-workbench project init . --json
 ```
 
 Inspect both archives. The wheel should contain only the Python package and
@@ -75,6 +81,9 @@ by `MANIFEST.in`, including `.i` preprocessor fixtures. Install the skill from
 each artifact into a temporary destination and validate its `SKILL.md`. Scan
 both member lists for ROM/object/compiler extensions and inspect every
 unexpected binary member.
+
+Do not publish while an uncleared third-party payload is present in either
+archive.
 
 ## Toolchain-dependent checks
 
@@ -102,6 +111,17 @@ substituted by the package's synthetic unit tests.
 1. Build distributions from the exact clean commit to be tagged.
 2. Create an annotated `vX.Y.Z` tag and verify that the documentation URLs in
    package metadata resolve at that tag.
-3. Publish only the artifacts built from the tagged commit.
+3. Push the tag. `.github/workflows/release.yml` refuses a tag that differs
+   from `pyproject.toml`, refuses development versions, rebuilds and checks both
+   artifacts, then publishes them through the protected `pypi` environment and
+   PyPI trusted publishing. Require manual approval on that environment and
+   review it before approving the run. The official publisher also creates
+   PEP 740 publish attestations for both artifacts by default; verify that the
+   release files show those attestations on PyPI. See the official
+   [PyPA publishing guide](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/)
+   and [PyPI attestation documentation](https://docs.pypi.org/attestations/producing-attestations/).
+   For the first release, register a pending publisher with owner `akratch`,
+   repository `n64-decomp-workbench`, workflow `release.yml`, and environment
+   `pypi` before pushing the tag.
 4. Install the published wheel in a new environment and rerun the smoke test.
 5. Record artifact hashes and the published project URL in the release notes.

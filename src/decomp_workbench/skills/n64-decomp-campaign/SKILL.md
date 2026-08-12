@@ -31,6 +31,13 @@ Run `decomp-workbench diagnose` or `diagnose-dumps` before choosing an
 experiment. It loads each input once and returns both exact comparison truth
 and the decisive aligned mechanism view. Use `compare` for a compact gate and
 `view --show-all` for every hunk. Record the verdict, not only a scalar score.
+For a long-lived project, preview `decomp-workbench project init` and commit a
+reviewed `.decomp-workbench.toml`; `project next`, `project compare`,
+`project diagnose`, and `project campaign` then reuse the same resolved object,
+sealed environment, and compiler lineage without guessing an objdiff unit or
+Makefile target. Agents should read `commands --json` for capability/safety
+metadata and execute `next --json`'s `command_argv`, not its shell-rendered
+display string.
 
 When the input is a downloaded decomp.me ZIP, start with
 `decomp-workbench check-scratch SCRATCH.zip --view`. It reads the site's own
@@ -110,6 +117,12 @@ when the mismatch is caused by IDO code generation or register allocation.
    compiler wrapper, working directory, and environment. The identity-checked
    manifest and append-only ledger are created under `.decomp-workbench/` by
    default.
+   Campaigns use a sealed environment: pass fixed values with `--env` and opt
+   specific host values in with repeatable `--inherit-env`. Unnamed host state
+   must not reach the compiler or its cache identity. Keep the default
+   `--retain-sources leaders` unless the experiment needs `exact`, `all`, or
+   `none`; retained candidates are content-addressed so a finish/package step
+   does not depend on a mutable source glob still existing.
    When one wrapper exposes multiple lineages, record `--compiler-id`,
    `--frontend`, `--language`, `--driver`, and `--backend`. Keep IRIX 4
    `accom`, later `cfe`, and hybrid frontend/backend cells distinct.

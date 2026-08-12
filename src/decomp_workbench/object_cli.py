@@ -271,7 +271,8 @@ def rank_command(args: argparse.Namespace) -> int:
             )
         except (OSError, RuntimeError) as error:
             errors.append({"candidate": candidate, "error": str(error)})
-    comparisons, mixed_alignment = rank_comparisons(comparisons)
+    mixed_alignment = len({item.alignment_comparable for item in comparisons}) > 1
+    comparisons, alignment_ranking_unsafe = rank_comparisons(comparisons)
     limited = comparisons[: args.limit] if args.limit else comparisons
     if args.json:
         print(
@@ -279,8 +280,11 @@ def rank_command(args: argparse.Namespace) -> int:
                 {
                     "results": [item.as_dict() for item in limited],
                     "errors": errors,
-                    "ranked_by": "words" if mixed_alignment else "aligned_total",
+                    "ranked_by": (
+                        "words" if alignment_ranking_unsafe else "aligned_total"
+                    ),
                     "mixed_alignment": mixed_alignment,
+                    "alignment_ranking_unsafe": alignment_ranking_unsafe,
                 },
                 indent=2,
                 sort_keys=True,
@@ -288,7 +292,7 @@ def rank_command(args: argparse.Namespace) -> int:
         )
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
-        if mixed_alignment:
+        if alignment_ranking_unsafe:
             print(MIXED_ALIGNMENT_CAUTION)
         for rank, item in enumerate(limited, 1):
             for line in warning_lines(item.warnings):

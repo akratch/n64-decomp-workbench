@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -41,6 +43,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -75,6 +79,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -90,9 +96,9 @@ jobs:
         if: runner.os == 'macOS'
         run: python -m unittest discover -s tests -v
 
-      - name: Validate Windows process and filesystem contracts
+      - name: Run the full suite on Windows
         if: runner.os == 'Windows'
-        run: python -m unittest discover -s tests -p "test_windows_compat.py" -v
+        run: python -m unittest discover -s tests -v
 
   package:
     name: Build distributions
@@ -101,6 +107,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7

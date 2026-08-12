@@ -542,7 +542,8 @@ def build_guidance(
     function_score: WordScore,
     controls_broken: bool,
     target: TargetSpec,
-    function_label: str,
+    function_symbol: str | None,
+    candidate: str,
 ) -> list[str]:
     """Return the ``next:`` guidance lines for one score report."""
 
@@ -565,19 +566,28 @@ def build_guidance(
         # the CONTROLS BROKEN line above already says what to do about that.
         # Nothing here should imply the function itself still has diffs.
         return lines
+    if function_symbol is None:
+        lines.append(
+            "This range was selected with `--between` because it has no "
+            "function symbol, while `diagnose` addresses symbolized "
+            "functions. Keep scoring this range with `score`/`matrix`, or "
+            "extract comparable target and candidate objdump windows and "
+            "pass those to `decomp-workbench diagnose-dumps`."
+        )
+        return lines
     if target.kind == "object" and target.target_object:
         lines.append(
             "Run `decomp-workbench diagnose "
-            f"{display_path(target.target_object)} <candidate.o> --function "
-            f"{function_label}` for full mechanism classification of the "
+            f"{display_path(target.target_object)} {candidate} --function "
+            f"{function_symbol}` for full mechanism classification of the "
             "remaining diff words."
         )
     else:
         lines.append(
             "The target came from raw ROM bytes, so `diagnose` needs a "
-            "comparable target object to run against; export one, or run "
-            "`decomp-workbench guide <verdict>` for lever guidance on the "
-            "remaining diff words."
+            "comparable target object to run against. Export one, then pass "
+            f"that object and `{candidate}` to `decomp-workbench diagnose "
+            f"--function {function_symbol}`."
         )
     return lines
 
@@ -616,7 +626,8 @@ def score_report(
         function_score=function_score,
         controls_broken=controls_broken,
         target=spec.target,
-        function_label=window.label,
+        function_symbol=spec.function,
+        candidate=candidate_display,
     )
     screen = build_screen_line(
         window.instructions,

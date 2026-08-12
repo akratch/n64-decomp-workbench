@@ -10,11 +10,63 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from decomp_workbench.campaign_state import _homologous_guidance, bounded_export_status
+from decomp_workbench.campaign_state import (
+    _effective_rank_by,
+    _homologous_guidance,
+    _record_key,
+    bounded_export_status,
+    find_manifest,
+)
 from decomp_workbench.cli import main
 
 
 class CampaignStateTests(unittest.TestCase):
+    def test_persisted_ranking_uses_words_when_every_candidate_has_gaps(
+        self,
+    ) -> None:
+        records = [
+            {
+                "source": "misleading-aligned.c",
+                "signals": [],
+                "comparison": {
+                    "alignment_comparable": False,
+                    "aligned_total": 1,
+                    "words": 90,
+                },
+            },
+            {
+                "source": "actual-leader.c",
+                "signals": [],
+                "comparison": {
+                    "alignment_comparable": False,
+                    "aligned_total": 30,
+                    "words": 10,
+                },
+            },
+        ]
+
+        ranked_by, unsafe = _effective_rank_by(records, requested="auto")
+        ordered = sorted(
+            records, key=lambda record: _record_key(record, ranked_by=ranked_by)
+        )
+
+        self.assertEqual(ranked_by, "words")
+        self.assertTrue(unsafe)
+        self.assertEqual(ordered[0]["source"], "actual-leader.c")
+
+    def test_mutating_selection_refuses_to_guess_between_campaigns(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            for name in ("first", "second"):
+                directory = state / "campaigns" / name
+                directory.mkdir(parents=True)
+                (directory / "manifest.json").write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "select one explicitly"):
+                find_manifest(
+                    state_root=state,
+                    require_explicit_when_ambiguous=True,
+                )
+
     def test_homologous_guidance_requires_measured_single_parameter_gain(
         self,
     ) -> None:
@@ -120,6 +172,8 @@ class CampaignStateTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertTrue(manifest.is_file())
             self.assertTrue(ledger.is_file())
+            self.assertEqual(payload["ranked_by"], "temp-prefix")
+            self.assertFalse(payload["alignment_ranking_unsafe"])
             manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
             self.assertEqual(manifest_payload["execution"]["rank_by"], "temp-prefix")
 
@@ -131,6 +185,8 @@ class CampaignStateTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertEqual(report["schema"], "decomp-workbench-campaign-status-v1")
         self.assertEqual(report["rank_by"], "temp-prefix")
+        self.assertEqual(report["ranked_by"], "temp-prefix")
+        self.assertFalse(report["alignment_ranking_unsafe"])
         self.assertEqual(report["recorded_candidates"], 1)
         self.assertEqual(report["object_basins"][0]["variant_count"], 1)
 
@@ -143,6 +199,7 @@ class CampaignStateTests(unittest.TestCase):
             context = root / "ctx.c"
             target.write_bytes(b"target")
             source.write_text("int candidate;\n", encoding="utf-8")
+            source_payload = source.read_bytes()
             target_assembly.write_text("jr $ra\n nop\n", encoding="utf-8")
             context.write_text("typedef int s32;\n", encoding="utf-8")
             compiler, objdump = self.make_tools(root)
@@ -165,6 +222,11 @@ class CampaignStateTests(unittest.TestCase):
                 ]
             )
             manifest = Path(json.loads(stdout)["manifest"])
+            manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+            retained = Path(manifest_payload["sources"][0]["retained_path"])
+            self.assertTrue(retained.is_file())
+            self.assertEqual(retained.read_bytes(), source_payload)
+            source.unlink()
             output = root / "scratch"
 
             status, stdout, stderr = self.run_cli(
@@ -200,7 +262,7 @@ class CampaignStateTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertEqual(stderr, "")
             self.assertTrue(payload["scratch_accepted"])
-            self.assertEqual((output / "source.c").read_bytes(), source.read_bytes())
+            self.assertEqual((output / "source.c").read_bytes(), source_payload)
             self.assertEqual(
                 scratch_manifest["provenance"]["campaign_identity"],
                 json.loads(manifest.read_text(encoding="utf-8"))["identity"],
@@ -307,6 +369,9 @@ class CampaignStateTests(unittest.TestCase):
         self.assertIn("Machine-readable receipt", html_document)
         self.assertIn("decomp-workbench-campaign-finish-v1", html_document)
         self.assertIn("NOT RUN", html_document)
+        self.assertIn('<a class="skip-link" href="#main-content">', html_document)
+        self.assertIn('<main id="main-content">', html_document)
+        self.assertIn("<details open>", html_document)
 
     def test_campaign_finish_refuses_a_mutated_cached_object_and_overwrite(
         self,
@@ -509,6 +574,10 @@ class CampaignStateTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertIn("<!doctype html>", document)
         self.assertIn("Machine-readable evidence", document)
+        self.assertIn('<a class="skip-link" href="#main-content">', document)
+        self.assertIn('<main id="main-content">', document)
+        self.assertIn("<details open>", document)
+        self.assertIn("<caption>", document)
         self.assertNotIn("https://", document)
         self.assertEqual(second_status, 2)
         self.assertIn("refusing to overwrite", second_stderr)

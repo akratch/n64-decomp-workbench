@@ -1,8 +1,0 @@
-{
-  "candidate_instructions": 10,
-  "exact": false,
-  "normalized_distance": 2,
-  "note": "Control flow matches; two independent address instructions are scheduled oppositely.",
-  "target_instructions": 10,
-  "word_mismatches": 2
-}

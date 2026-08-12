@@ -91,7 +91,7 @@ split-threshold: 400 char(s)   shift-lines: 20
 split-statements vs baseline: 115 word(s) differ
 global-shift vs baseline:     0 word(s) differ
 verdict: line-sensitive
-LINE-SENSITIVE: statement line assignment participates in scheduling. next: field-guide lever 23 (preprocessor line assignment) — try acpp preprocessing: acpp <defines> file.c > file.i && cc -c <flags> file.i
+LINE-SENSITIVE: statement line assignment participates in scheduling. next: field-guide lever 23 (preprocessor line assignment) — follow the copyable acpp recipe in docs/line-assignment-probe.md with this translation unit's exact defines, include paths, and compiler flags
 next: retarget one statement: re-run with --tie STATEMENT=LINE ...
 next: add --target-object/--target-bytes so the tie is scored ...
 run directory: .decomp-workbench/probe-lines/probe-lines-a1b2c3
@@ -227,9 +227,13 @@ them all onto the invocation's single starting line. Preprocess with it
 instead of the default, and `cfe` sees the statement-line boundaries the
 macro's author actually wrote:
 
-```sh
-acpp <defines> file.c > file.i
-cc -c <flags> file.i
+```bash
+# Replace these example arrays with the translation unit's exact arguments.
+cpp_flags=(-DVERSION_US -Iinclude)
+compiler_flags=(-O2 -mips2)
+
+acpp "${cpp_flags[@]}" file.c > file.i
+cc -c "${compiler_flags[@]}" file.i
 ```
 
 This is field-guide lever 23 (preprocessor line assignment). It is the fix a

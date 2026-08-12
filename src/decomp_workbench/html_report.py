@@ -43,8 +43,21 @@ WEB_HUES = (
 STYLE = """
 :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
 body { max-width: 92rem; margin: 0 auto 4rem; padding: 0 1rem 2rem; line-height: 1.45; }
-h1, h2, h3 { line-height: 1.15; }
-a { color: inherit; }
+h1, h2, h3 { line-height: 1.15; scroll-margin-top: 6rem; }
+a { color: inherit; text-underline-offset: .15em; }
+a:focus-visible, summary:focus-visible {
+  outline: 3px solid Highlight;
+  outline-offset: 3px;
+}
+.skip-link {
+  position: absolute;
+  left: .75rem;
+  top: -4rem;
+  z-index: 20;
+  background: Canvas;
+  padding: .5rem;
+}
+.skip-link:focus { top: .75rem; }
 .verdict-bar {
   position: sticky;
   top: 0;
@@ -74,6 +87,7 @@ a { color: inherit; }
   padding: .5rem 1rem;
   font-weight: 600;
 }
+.table-scroll { max-width: 100%; overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
 th, td {
   border-bottom: 1px solid #8885;
@@ -84,7 +98,12 @@ th, td {
 th { background: Canvas; font-size: .85rem; }
 code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 pre { overflow: auto; padding: 1rem; background: #8881; }
-td.num { text-align: right; width: 4rem; opacity: .55; }
+td.num {
+  text-align: right;
+  width: 4rem;
+  opacity: .55;
+  font-variant-numeric: tabular-nums;
+}
 td.asm { white-space: pre; }
 tr.context td.asm { opacity: .6; }
 tr.diverge { background: #d77b1614; }
@@ -109,30 +128,48 @@ tr.diverge td.num { opacity: 1; font-weight: 700; }
 li.lever code { background: #8881; padding: .1rem .35rem; border-radius: .2rem; }
 ol li { margin-bottom: .3rem; }
 @media print {
-  details { display: block; }
+  details > * { display: block !important; }
+  details > summary { display: none !important; }
   .verdict-bar { position: static; }
 }
 """
 
 
-def _document(title: str, body: str, payload: dict[str, Any]) -> str:
+def document_shell(
+    title: str,
+    body: str,
+    payload: dict[str, Any],
+    *,
+    evidence_label: str = "Machine-readable evidence",
+    extra_style: str = "",
+) -> str:
+    """Wrap one report in the shared accessible, offline document shell."""
+
     serialized = html.escape(json.dumps(payload, indent=2, sort_keys=True))
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#202124">
 <title>{html.escape(title)}</title>
-<style>{STYLE}</style>
+<style>{STYLE}\n{extra_style}</style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to report</a>
+<main id="main-content">
 {body}
-<details><summary>Machine-readable evidence</summary>
+<details open><summary>{html.escape(evidence_label)}</summary>
 <pre id="report">{serialized}</pre>
 </details>
+</main>
 </body>
 </html>
 """
+
+
+def _document(title: str, body: str, payload: dict[str, Any]) -> str:
+    return document_shell(title, body, payload)
 
 
 def _hue(number: int) -> str:
@@ -140,7 +177,10 @@ def _hue(number: int) -> str:
 
 
 def _swatch(number: int) -> str:
-    return f'<span class="swatch" style="background:{_hue(number)}"></span>'
+    return (
+        f'<span aria-hidden="true" class="swatch" '
+        f'style="background:{_hue(number)}"></span>'
+    )
 
 
 def _range(value: tuple[int, int] | None) -> str:
@@ -202,13 +242,14 @@ def _hunk_section(
     return f"""<section class="hunk" id="hunk-{hunk.hunk}">
 <h3><a href="#hunk-{hunk.hunk}">Hunk {hunk.hunk}</a></h3>
 <p class="meta">{meta}</p>
-<table>
+<div class="table-scroll"><table>
+<caption>Aligned instructions for hunk {hunk.hunk}</caption>
 <thead><tr>
 <th scope="col">#</th><th scope="col">Target</th>
 <th scope="col">Candidate</th><th scope="col">Substitution</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
-</table>
+</table></div>
 </section>"""
 
 
@@ -238,6 +279,7 @@ def _lanes_section(view: MechanismView) -> str:
         blocks.append(
             f"""<h3>{html.escape(lane.classification)}</h3>
 <div class="lanes"><table>
+<caption>{html.escape(lane.classification)} register lane</caption>
 <tbody>
 <tr><th scope="row">target</th>
 {_lane_cells(lane.target, total, lane.divergence)}</tr>
@@ -281,13 +323,14 @@ def _webs_section(view: MechanismView, hunk_of_row: dict[int, int]) -> str:
         )
     return f"""<h2>Webs</h2>
 <p class="meta">One consistent substitution may explain many sites.</p>
-<table>
+<div class="table-scroll"><table>
+<caption>Consistent register substitutions</caption>
 <thead><tr>
 <th scope="col">Web</th><th scope="col">Substitution</th>
 <th scope="col">Sites</th><th scope="col">Hunks</th><th scope="col">Rows</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
-</table>"""
+</table></div>"""
 
 
 LEVER_RE = re.compile(r"^\s*lever (\d+):\s*(.+)$")

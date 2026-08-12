@@ -154,6 +154,21 @@ class AlignmentGapTests(unittest.TestCase):
         self.assertFalse(mixed)
         self.assertEqual([item.candidate for item in ordered], ["near.o", "far.o"])
 
+    def test_two_gapped_candidates_still_rank_on_positional_words(self) -> None:
+        first, second = perturbed(), perturbed()
+        first.candidate = "aligned-looks-near.o"
+        first.aligned_total = 1
+        first.word_mismatches = 20
+        second.candidate = "positional-near.o"
+        second.aligned_total = 5
+        second.word_mismatches = 10
+        ordered, by_raw = rank_comparisons([first, second])
+        self.assertTrue(by_raw)
+        self.assertEqual(
+            [item.candidate for item in ordered],
+            ["positional-near.o", "aligned-looks-near.o"],
+        )
+
 
 class AlignmentReportSurfaceTests(unittest.TestCase):
     """Every scoring surface owes the reader the same three numbers."""
@@ -292,6 +307,7 @@ class AlignmentReportSurfaceTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertTrue(payload["mixed_alignment"])
         self.assertEqual(payload["ranked_by"], "words")
+        self.assertTrue(payload["alignment_ranking_unsafe"])
         self.assertEqual(payload["results"][0]["candidate"], "renamed.o")
 
 

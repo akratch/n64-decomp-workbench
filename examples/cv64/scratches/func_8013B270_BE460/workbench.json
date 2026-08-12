@@ -1,8 +1,0 @@
-{
-  "candidate_instructions": 19,
-  "exact": true,
-  "normalized_distance": 0,
-  "note": "Exact after excluding unreachable end-of-section alignment padding.",
-  "target_instructions": 19,
-  "word_mismatches": 0
-}

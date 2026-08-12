@@ -405,6 +405,8 @@ class MatrixCliTests(unittest.TestCase):
         self.assertIn(str(run_dir), stdout)
         self.assertIn("ATTR", stdout)
         self.assertIn("next:", stdout)
+        self.assertNotIn("<best-variant>", stdout)
+        self.assertNotIn("<verdict>", stdout)
 
     def test_json_output_has_the_matrix_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -118,7 +118,7 @@ Read the line left to right:
 | Field | Meaning |
 |---|---|
 | `verdict` | the mechanism, not the volume — this is the field that decides your next move |
-| `aligned_total` | LCS-aligned differences: **the number to rank candidates by**. (LCS = longest common subsequence — the same alignment idea behind `diff`, which is why an inserted instruction doesn't cascade into unrelated positional noise) |
+| `aligned_total` | LCS-aligned differences: the clearest whole-function residual count. (LCS = longest common subsequence — the same alignment idea behind `diff`, which is why an inserted instruction doesn't cascade into unrelated positional noise) |
 | `words` | relocation-aware positional differences: the matching oracle at zero, a tiebreaker above it |
 | `raw` | literal word differences, including linker-controlled fields |
 | `regs`, `fp` | how many differences are register-only |
@@ -329,8 +329,10 @@ aligned residual classes: aligned_structural=1
 alignment gaps: insertions=1 deletions=0 (opcodes=10, words=11, raw=11)
 ```
 
-Eleven positional words, one aligned difference — and `aligned_total` is the
-number `rank` and `campaign` sort on, because `words` is the one that misranks.
+Eleven positional words, one aligned difference. The aligned view is the right
+way to understand this candidate, but its gap means that count is not a safe
+ranking scale against another candidate. `rank` and `campaign` therefore sort
+any set containing a gapped candidate on `words` and print the caution above.
 Now the aligned truth in full:
 
 ```sh
@@ -351,13 +353,15 @@ instructions shifted by one slot, and the eleventh was a branch whose encoded
 offset moved because of the insertion. On a real function this effect has been
 measured at 635 positional words against an aligned truth of 27 structural plus
 8 register. If you are triaging a batch by `words=`, you are sorting by noise —
-which is why `aligned_total=` leads the line and owns the ranking.
+which is why `aligned_total=` leads the line and owns the ranking only for a
+fully gap-free candidate set.
 
-**With one limit, and the run above printed it.** `gaps=` counts the rows the aligner filled on one side only. Once a candidate
-has any, it is aligned against a *different subsequence* of the target than a
-gap-free candidate is, so its `aligned_total` is the honest description of
-**that** candidate and not a number to read against another one's. `rank` and
-`campaign` detect a mixed set and order it on `words=` instead, and say so.
+**With one limit, and the run above printed it.** `gaps=` counts the rows the
+aligner filled on one side only. Once any candidate has a gap, it may be aligned
+against a different target subsequence from every other candidate—even another
+gapped candidate. Its `aligned_total` remains an honest description of that
+one diff, but not a shared ranking scale. `rank` and `campaign` order the whole
+set on `words=` instead, and say so.
 
 ---
 
@@ -391,7 +395,11 @@ One dimension per attempt. Rebuild the translation unit normally, re-run
 `view`, and read the same four sections. You are looking for one of three
 outcomes:
 
-- **`words` fell** — right family, keep going in that direction.
+- **the metric selected for this experiment improved and its required signals
+  still pass** — evidence for that family, not proof. Whole-function campaigns
+  normally rank the comparison's structured sort key; allocation work may
+  explicitly use `--rank-by temp-prefix`, where a longer exact prefix can be
+  useful even if `words` temporarily rises.
 - **`words` unchanged and the lanes are unchanged** — the change was inert.
   IDO drops a great deal: bare discarded expressions (`x == x;`,
   `(void)(x & mask);`) and unused declarations produce no codegen at all.

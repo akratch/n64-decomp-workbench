@@ -48,6 +48,17 @@ def _compare_dumps(target: str, candidate: str, *, symbol: str | None) -> Compar
 
 
 def next_command(args: argparse.Namespace) -> int:
+    if args.proc is not None and not args.trace:
+        print("error: --proc requires --trace FILE", file=sys.stderr)
+        return 2
+    for option, value in (
+        ("--src", args.src),
+        ("--symbol-map", args.symbol_map),
+        ("--trace", args.trace),
+    ):
+        if value is not None and not Path(value).is_file():
+            print(f"error: {option} file does not exist: {value}", file=sys.stderr)
+            return 2
     try:
         if getattr(args, "dumps", False):
             comparison = _compare_dumps(args.target, args.candidate, symbol=args.symbol)
@@ -70,6 +81,13 @@ def next_command(args: argparse.Namespace) -> int:
         target=args.target,
         candidate=args.candidate,
         source=args.src,
+        dumps=args.dumps,
+        symbol=args.symbol,
+        section=args.section,
+        objdump=args.objdump,
+        symbol_map=args.symbol_map,
+        trace=args.trace,
+        proc=args.proc,
     )
     if args.json:
         payload: dict[str, Any] = plan.as_dict()
@@ -99,6 +117,28 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--src",
         metavar="FILE",
         help="the candidate's C source, so region attribution names a real path",
+    )
+    parser.add_argument(
+        "--symbol-map",
+        metavar="FILE",
+        help=(
+            "linked JSON or nm-style symbol map; when relocation fields are "
+            "the only residue, emit a complete alias-proof command"
+        ),
+    )
+    parser.add_argument(
+        "--trace",
+        metavar="FILE",
+        help=(
+            "allocator trace for this exact candidate; when allocation owns "
+            "the residue, emit a concrete oracle plan instead of a placeholder"
+        ),
+    )
+    parser.add_argument(
+        "--proc",
+        type=int,
+        metavar="N",
+        help="procedure number inside --trace, forwarded to oracle plan",
     )
     parser.add_argument(
         "--all",

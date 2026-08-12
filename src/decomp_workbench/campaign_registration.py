@@ -57,6 +57,16 @@ def register_campaign_run_commands(
         help="compiler environment entry; repeatable",
     )
     compile_rank.add_argument(
+        "--inherit-env",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "copy this host variable into the otherwise sealed compiler "
+            "environment and cache identity; repeatable"
+        ),
+    )
+    compile_rank.add_argument(
         "--compile-cwd",
         help="working directory for compiler processes",
     )
@@ -152,6 +162,16 @@ def register_campaign_run_commands(
         help="compiler environment included in the cache key; repeatable",
     )
     campaign.add_argument(
+        "--inherit-env",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "copy this host variable into the otherwise sealed compiler "
+            "environment and campaign identity; repeatable"
+        ),
+    )
+    campaign.add_argument(
         "--compile-cwd",
         help="working directory for compiler processes; included in the cache key",
     )
@@ -164,6 +184,15 @@ def register_campaign_run_commands(
     campaign.add_argument(
         "--keep-objects",
         help="directory in which to retain compiled objects",
+    )
+    campaign.add_argument(
+        "--retain-sources",
+        choices=("leaders", "exact", "all", "none"),
+        default="leaders",
+        help=(
+            "durable source policy (default: leaders); unrun candidates stay "
+            "staged so resume remains possible"
+        ),
     )
     campaign.add_argument(
         "--limit",

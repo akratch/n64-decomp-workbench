@@ -1,5 +1,9 @@
 # Field notes — SSB64 `drawbitmap` campaign (2026-07-31)
 
+> **Historical field record.** Measurements and failures are preserved as
+> observed on the date above. Use [Product status](product-status.md) and the
+> current command guides for supported syntax and capabilities.
+
 Live-fire observations from matching `drawbitmap` (libultra sprite library,
 `sprite.c`, SSB64 US; IDO 7.1, `-O2 -mips2`; 1479 instructions). Full
 narrative: [case study](../case-studies/ssb64-drawbitmap.md). Project-neutral;

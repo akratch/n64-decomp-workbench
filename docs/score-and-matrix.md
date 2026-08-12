@@ -126,9 +126,11 @@ visibleFuncBefore..visibleFuncAfter (between): size 64/64, diff words 3 (+0 relo
   table, so --function cannot find them; --between locates the bytes between
   two surrounding symbols IDO did keep.
 verdict: MISMATCH
-next: The target came from raw ROM bytes, so `diagnose` needs a comparable
-      target object to run against; export one, or run `decomp-workbench
-      guide <verdict>` for lever guidance on the remaining diff words.
+next: This range was selected with `--between` because it has no function
+      symbol, while `diagnose` addresses symbolized functions. Keep scoring
+      this range with `score`/`matrix`, or extract comparable target and
+      candidate objdump windows and pass those to `decomp-workbench
+      diagnose-dumps`.
 ```
 
 The note is always printed alongside a `--between` result, not just in
@@ -234,7 +236,8 @@ B       12  ido-7.1-r4000
 NOTE: attractor A contains 2 differently-labeled variants that produced
 identical bytes: ido-5.3-r4000, ido-5.3-r4300
 
-next: decomp-workbench guide <verdict> for any remaining lever work
+next: Diff words are zero outside the relocation floor and every control is
+clean. Run the project's normal link/ROM verification for the final proof.
 ```
 
 Two differently-labeled variants landing in the same attractor is called out

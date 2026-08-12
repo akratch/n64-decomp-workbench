@@ -1,0 +1,48 @@
+{
+  "compiler": "IDO 7.1",
+  "compiler_flags": "-Wab,-r4300_mul -non_shared -G0 -Xcpluscomm -mips2 -O2",
+  "project": "k64ret/cv64@5307217aa772019b7576cad3cb2c545e88e0394a",
+  "results": [
+    {
+      "candidate_instructions": 62,
+      "exact": false,
+      "normalized_distance": 2,
+      "symbol": "menuButton_selectNextOption",
+      "target_instructions": 63,
+      "word_mismatches": 57
+    },
+    {
+      "candidate_instructions": 19,
+      "exact": true,
+      "normalized_distance": 0,
+      "symbol": "func_8013B270_BE460",
+      "target_instructions": 19,
+      "word_mismatches": 0
+    },
+    {
+      "candidate_instructions": 6,
+      "exact": true,
+      "normalized_distance": 0,
+      "symbol": "func_800012C0_1EC0",
+      "target_instructions": 6,
+      "word_mismatches": 0
+    },
+    {
+      "candidate_instructions": 10,
+      "exact": false,
+      "normalized_distance": 2,
+      "symbol": "func_800010A0_1CA0",
+      "target_instructions": 10,
+      "word_mismatches": 2
+    },
+    {
+      "candidate_instructions": 18,
+      "exact": false,
+      "normalized_distance": 2,
+      "symbol": "func_800010C8_1CC8",
+      "target_instructions": 18,
+      "word_mismatches": 2
+    }
+  ],
+  "schema": "decomp-workbench-recorded-example-v1"
+}

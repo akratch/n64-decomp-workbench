@@ -123,4 +123,10 @@ class CompositionTests(unittest.TestCase):
 
         self.assertEqual(report["finding_count"], 4)
         self.assertEqual(report["duplicate_empty_controls"][0]["count"], 2)
+        self.assertEqual(report["inventory_by_kind"]["empty-control"], 2)
+        self.assertTrue(
+            all(not item["safe_automatic_removal"] for item in report["findings"])
+        )
+        self.assertTrue(all(item["review_question"] for item in report["findings"]))
+        self.assertIn("object collateral", report["cleanup_gates"][-1])
         self.assertIn("syntax inventory only", report["proof"])

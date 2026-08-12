@@ -59,6 +59,8 @@ class ScratchBundleTests(unittest.TestCase):
             readme = (output / "README.md").read_text()
             self.assertIn("Preset** to **Custom", readme)
             self.assertIn("canonical compiler id `ido7.1_c++`", readme)
+            self.assertIn("decomp-workbench check-scratch .", readme)
+            self.assertNotIn("shasum", readme)
 
     def test_refuses_a_nonempty_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

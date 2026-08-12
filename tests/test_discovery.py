@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from decomp_workbench.cli import build_parser, main
+from decomp_workbench.discovery import COMMAND_MAP, command_registry_errors
 
 DUMP = """
 00000000 <demo>:
@@ -47,6 +48,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("object compare", stdout)
         self.assertNotIn("trace globalcolor", stdout)
 
+    def test_every_group_without_an_operation_is_successful_discovery(self) -> None:
+        for group in COMMAND_MAP:
+            with self.subTest(group=group):
+                status, stdout, stderr = self.run_cli([group])
+                self.assertEqual(status, 0)
+                self.assertEqual(stderr, "")
+                self.assertIn(f"\n{group}\n", stdout)
+
+    def test_the_command_registry_and_live_parser_cannot_drift(self) -> None:
+        self.assertEqual(command_registry_errors(build_parser()), ())
+
     def test_command_map_has_a_versioned_json_form(self) -> None:
         status, stdout, stderr = self.run_cli(["commands", "--json"])
         payload = json.loads(stdout)
@@ -54,6 +66,19 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertEqual(payload["schema"], "decomp-workbench-command-map-v1")
         self.assertIn("campaign", payload["groups"])
+        diagnose = next(
+            item
+            for item in payload["groups"]["object"]
+            if item["command"] == "diagnose"
+        )
+        self.assertEqual(
+            diagnose["invocation"], ["decomp-workbench", "object", "diagnose"]
+        )
+        self.assertEqual(diagnose["report_schema"], "decomp-workbench-diagnosis-v1")
+        self.assertFalse(diagnose["safety"]["network"])
+        self.assertEqual(
+            payload["automation"]["failure_schema"], "decomp-workbench-error-v1"
+        )
 
     def test_legacy_aliases_stay_parseable_without_polluting_help(self) -> None:
         parser = build_parser()
@@ -82,6 +107,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("diagnose", stdout)
                 self.assertIn("status", stdout)
                 self.assertIn("oracle", stdout)
+                self.assertIn("handoff", stdout)
 
     def test_completions_include_nested_operations_and_live_options(self) -> None:
         for shell in ("bash", "zsh", "fish", "powershell"):

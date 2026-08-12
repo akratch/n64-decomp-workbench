@@ -1,5 +1,9 @@
 # Postmortem: GE007 `object_interaction` (2026-08-09)
 
+> **Historical campaign record.** The source-error taxonomy remains useful,
+> but command syntax and product coverage are current only in
+> [Product status](product-status.md) and the live command guides.
+
 **Who this is for:** you have a function that is close — instruction count
 exact, frame exact, most of the register file exact — with a small,
 stubborn residual that has survived real effort. You suspect every

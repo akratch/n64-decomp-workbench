@@ -132,11 +132,11 @@ class CommandContentTests(unittest.TestCase):
         self.assertEqual(len(region), 1)
         self.assertIn("--by-region work/champion.c", region[0].command)
 
-    def test_without_a_source_the_step_says_how_to_supply_one(self) -> None:
+    def test_without_a_source_no_placeholder_command_is_emitted(self) -> None:
         plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
         region = [step for step in plan.steps if step.rank == RANK_ATTRIBUTION]
-        self.assertIn("--by-region SRC.c", region[0].command)
-        self.assertIn("--src", region[0].why)
+        self.assertEqual(region, [])
+        self.assertNotIn("SRC.c", " ".join(step.command for step in plan.steps))
 
     def test_an_allocation_residue_routes_to_the_force_ceiling_first(self) -> None:
         """The step campaigns take last and should take first.
@@ -147,12 +147,31 @@ class CommandContentTests(unittest.TestCase):
         spelling of the construct will either.
         """
 
-        plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
+        comparison = compare_instructions(
+            parse_disassembly(
+                assemble(body("addu v0,a0,a1"), symbol=SYMBOL), symbol=SYMBOL
+            ),
+            parse_disassembly(
+                assemble(body("addu t0,a0,a1"), symbol=SYMBOL), symbol=SYMBOL
+            ),
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=SYMBOL,
+        )
+        plan = plan_next_steps(
+            comparison,
+            target="target.o",
+            candidate="candidate.o",
+            source="work.c",
+            trace="allocator.log",
+            proc=7,
+        )
         self.assertEqual(plan.verdict, "allocation-mismatch")
         force = [step for step in plan.steps if "oracle plan" in step.command]
         self.assertEqual(len(force), 1)
         self.assertIn("before spending builds on source variants", force[0].why)
         self.assertIn("ceiling", force[0].why)
+        self.assertIn("allocator.log --proc 7", force[0].command)
         commands = [step.command for step in plan.steps]
         self.assertLess(
             commands.index(force[0].command),
@@ -163,13 +182,27 @@ class CommandContentTests(unittest.TestCase):
         plan = plan_of(body("addu v0,a0,a1"), body("addu v0,a0,a1", "nop", "nop"))
         self.assertNotIn("oracle plan", " ".join(step.command for step in plan.steps))
 
+    def test_an_allocation_residue_without_a_trace_has_no_placeholder(self) -> None:
+        plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
+        commands = " ".join(step.command for step in plan.steps)
+        self.assertNotIn("TRACE.log", commands)
+        self.assertNotIn("--proc N", commands)
+
     def test_a_match_routes_to_the_whole_object_gate(self) -> None:
         rows = body("addu v0,a0,a1")
         plan = plan_of(rows, rows)
         self.assertTrue(plan.matched)
         commands = " ".join(step.command for step in plan.steps)
-        self.assertIn("fidelity", commands)
         self.assertIn("object-collateral", commands)
+
+    def test_actions_expose_argv_without_requiring_shell_parsing(self) -> None:
+        plan = plan_of(body("addu v0,a0,a1"), body("addu t0,a0,a1"))
+        for step in plan.steps:
+            payload = step.as_dict()
+            self.assertEqual(payload["command_argv"][0], "decomp-workbench")
+            self.assertEqual(payload["command_argv"][1:], list(step.argv))
+            self.assertEqual(payload["safety"], "read-only")
+            self.assertTrue(payload["expected_signal"])
 
 
 class RenderTests(unittest.TestCase):
@@ -225,8 +258,76 @@ class NextCommandTests(unittest.TestCase):
         self.assertTrue(payload["steps"])
         for step in payload["steps"]:
             self.assertIn("command", step)
+            self.assertIn("command_argv", step)
             self.assertIn("why", step)
             self.assertIn("kind", step)
+
+    def test_dump_actions_keep_the_input_kind_and_function_selector(self) -> None:
+        arguments = [
+            "next-dumps",
+            str(FIXTURES / "phase-shift-target.objdump"),
+            str(FIXTURES / "phase-shift-candidate.objdump"),
+            "--function",
+            "animStep",
+            "--json",
+        ]
+        status, output, error = self.run_cli(arguments)
+        self.assertEqual((status, error), (0, ""))
+        payload = json.loads(output)
+        input_actions = [
+            step["command_argv"]
+            for step in payload["steps"]
+            if len(step["command_argv"]) > 1
+            and step["command_argv"][1].endswith("-dumps")
+        ]
+        self.assertTrue(input_actions)
+        for argv in input_actions:
+            self.assertIn("--function", argv)
+            self.assertIn("animStep", argv)
+        commands = " ".join(step["command"] for step in payload["steps"])
+        self.assertNotIn("TRACE.log", commands)
+        self.assertNotIn("SRC.c", commands)
+
+    def test_fixture_backed_dump_actions_execute(self) -> None:
+        arguments = [
+            "next-dumps",
+            str(FIXTURES / "phase-shift-target.objdump"),
+            str(FIXTURES / "phase-shift-candidate.objdump"),
+            "--function",
+            "animStep",
+            "--json",
+        ]
+        status, output, _ = self.run_cli(arguments)
+        self.assertEqual(status, 0)
+        for step in json.loads(output)["steps"]:
+            with self.subTest(action=step["action"]):
+                action_status, _, action_error = self.run_cli(step["command_argv"][1:])
+                self.assertEqual(action_status, 0, action_error)
+
+    def test_optional_action_inputs_must_exist(self) -> None:
+        base = [
+            "next-dumps",
+            str(FIXTURES / "phase-shift-target.objdump"),
+            str(FIXTURES / "phase-shift-candidate.objdump"),
+        ]
+        for option in ("--src", "--symbol-map", "--trace"):
+            with self.subTest(option=option):
+                status, _, error = self.run_cli([*base, option, "absent-input"])
+                self.assertEqual(status, 2)
+                self.assertIn("file does not exist", error)
+
+    def test_proc_requires_trace(self) -> None:
+        status, _, error = self.run_cli(
+            [
+                "next-dumps",
+                str(FIXTURES / "phase-shift-target.objdump"),
+                str(FIXTURES / "phase-shift-candidate.objdump"),
+                "--proc",
+                "7",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("--proc requires --trace", error)
 
     def test_a_missing_input_is_a_clear_error(self) -> None:
         status, _, error = self.run_cli(["next", "absent-a.o", "absent-b.o"])

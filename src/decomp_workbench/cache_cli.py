@@ -8,7 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .cache import cache_status, parse_duration, prune_cache, restore_pruned_cache
+from .cache import (
+    cache_status,
+    format_bytes,
+    parse_duration,
+    parse_size,
+    prune_cache,
+    restore_pruned_cache,
+)
 from .discovery import subcommand_listing_handler
 
 DEFAULT_CACHE = ".decomp-workbench/cache"
@@ -25,8 +32,8 @@ def cache_status_command(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(
-            f"cache: {report['files']} file(s), {report['bytes']} byte(s) "
-            f"({report['path']})"
+            f"cache: {report['files']} file(s), {report['human_bytes']} "
+            f"({report['bytes']} bytes; {report['path']})"
         )
         if not report["exists"]:
             print("state: empty (the cache directory has not been created yet)")
@@ -35,10 +42,13 @@ def cache_status_command(args: argparse.Namespace) -> int:
 
 def cache_prune_command(args: argparse.Namespace) -> int:
     try:
-        older_than = parse_duration(args.older_than)
+        older_than = parse_duration(args.older_than) if args.older_than else None
+        max_size = parse_size(args.max_size) if args.max_size else None
         report = prune_cache(
             args.cache_dir,
             older_than=older_than,
+            max_size=max_size,
+            keep_recent=args.keep_recent,
             apply=args.apply,
             trash_root=args.trash_dir,
         )
@@ -50,7 +60,7 @@ def cache_prune_command(args: argparse.Namespace) -> int:
     else:
         print(
             f"cache prune {report['mode']}: {report['selected_files']} file(s), "
-            f"{report['selected_bytes']} byte(s)"
+            f"{format_bytes(report['selected_bytes'])}"
         )
         if args.apply and report["trash_directory"]:
             print(f"moved to: {report['trash_directory']}")
@@ -108,9 +118,20 @@ def register_cache_commands(commands: argparse._SubParsersAction[Any]) -> None:
     )
     prune.add_argument(
         "--older-than",
-        required=True,
         metavar="DURATION",
         help="minimum age, for example 30d, 12h, or 1w2d",
+    )
+    prune.add_argument(
+        "--max-size",
+        metavar="SIZE",
+        help="select least-recent files until the cache is at most this size",
+    )
+    prune.add_argument(
+        "--keep-recent",
+        type=int,
+        default=0,
+        metavar="N",
+        help="protect the N most recently used files from either policy",
     )
     prune.add_argument(
         "--apply",

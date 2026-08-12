@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -52,7 +53,7 @@ def main() -> int:
         target = root / "target.s"
         context = root / "ctx.c"
         compiler = root / "compile.py"
-        objdump = root / "objdump"
+        objdump = root / ("objdump.cmd" if os.name == "nt" else "objdump")
         experiment = root / "experiment.json"
         baseline.write_text("int demo(void) { return 0; }\n", encoding="utf-8")
         candidate.write_text("int demo(void) { return 1; }\n", encoding="utf-8")
@@ -64,14 +65,23 @@ def main() -> int:
             "pathlib.Path(sys.argv[1]).read_bytes())\n",
             encoding="utf-8",
         )
-        objdump.write_text(
-            "#!/usr/bin/env python3\n"
-            "print('00000000 <demo>:')\n"
-            "print('   0: 03e00008  jr $ra')\n"
-            "print('   4: 00000000  nop')\n",
-            encoding="utf-8",
-        )
-        objdump.chmod(0o755)
+        if os.name == "nt":
+            objdump.write_text(
+                "@echo off\n"
+                "echo 00000000 ^<demo^>:\n"
+                "echo    0: 03e00008  jr $ra\n"
+                "echo    4: 00000000  nop\n",
+                encoding="utf-8",
+            )
+        else:
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
         experiment.write_text(
             json.dumps(
                 {

@@ -29,12 +29,14 @@ below them is reference you consult when you need it.
 | Your 100% project is assumed un-shiftable and nobody has measured it | **[Case study: Pilotwings 64 shiftability](../case-studies/pilotwings64-shiftability.md)** |
 | An exact source still contains suspicious fake-match scaffolding | **[Bounded carrier-substitution example](../examples/experiments/carrier-substitution/README.md)** |
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
+| You want the release-facing acceptance checklist across every user journey | **[Workbench quality checklist](workbench-quality-checklist.md)** |
+| You repeatedly diagnose one project/object pair and want portable defaults | **[Project configuration](project-configuration.md)** |
 | You want the implemented product campaign for controlled sweeps, project-vs-scratch context truth, immutable promotion, and auditable finish receipts | **[Trustworthy endgames campaign](trustworthy-endgames-campaign.md)** |
 | You want those endgame gates in one asset-free runnable journey | **[Trustworthy endgame walkthrough](trustworthy-endgame-walkthrough.md)** |
 | You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](postmortem-2026-08-09-ge007.md)** |
 
-New here? [Start here](START_HERE.md) takes ten minutes, and every command in
-it runs against shipped fixtures — no ROM, no compiler, no toolchain.
+New here? [Start here](START_HERE.md) is a short guided tour, and every command
+in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 
 ## The commands
 
@@ -99,6 +101,8 @@ dp64 set, [2026-07-30](field-notes-2026-07-30-ssb64.md) for the SSB64
 frontend-lineage campaign, and
 [2026-08-09](postmortem-2026-08-09-ge007.md) for the GE007
 `object_interaction` campaign that produced this page's newest compiler laws.
+The [2026-08-11 acceptance receipt](live-acceptance-2026-08-11.md) is a dated
+proof record, not a rolling release-status page.
 Use [Product status](product-status.md) for current syntax and support
 claims.
 

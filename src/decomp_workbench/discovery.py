@@ -9,6 +9,8 @@ import sys
 from collections.abc import Callable, Mapping
 from typing import Any, NoReturn
 
+from .reporting import schema_for
+
 #: One readable word in place of argparse's generated choice list.
 COMMAND_METAVAR = "COMMAND"
 
@@ -94,7 +96,18 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("list", "render the log's entries plus the pending sidecar notes"),
         ("merge", "append pending notes to the log under an exclusive lock"),
     ),
-    "context": (("lint", "audit #if/#elif guards for the undefined-identifier trap"),),
+    "context": (
+        ("lint", "audit #if/#elif guards for the undefined-identifier trap"),
+        ("duplicates", "find file-scope definitions repeated across fragments"),
+    ),
+    "project": (
+        ("init", "preview discovery and explicitly write durable defaults"),
+        ("show", "show resolved target, candidate, symbol, and tool defaults"),
+        ("next", "run next from the configured object pair"),
+        ("compare", "run compare from the configured object pair"),
+        ("diagnose", "run diagnose from the configured object pair"),
+        ("campaign", "run a campaign from configured build and lineage inputs"),
+    ),
     "trace": (
         ("cascade", "every round of one allocator site's decision cascade"),
         ("order", "the p1 colouring order, with the same-save ties named"),
@@ -273,6 +286,8 @@ HIDDEN_FLAT_COMMANDS = frozenset(
 def rewrite_group_alias(arguments: list[str]) -> list[str]:
     """Translate a journey spelling to its stable flat implementation."""
 
+    if len(arguments) == 1 and arguments[0] in COMMAND_MAP:
+        return ["commands", "--group", arguments[0]]
     if len(arguments) < 2:
         return arguments
     command = GROUP_ALIASES.get((arguments[0], arguments[1]))
@@ -280,14 +295,119 @@ def rewrite_group_alias(arguments: list[str]) -> list[str]:
 
 
 def command_map_payload() -> dict[str, Any]:
+    def safety(group: str, command: str) -> dict[str, object]:
+        stateful = {
+            ("cache", "restore"),
+            ("campaign", "finish"),
+            ("campaign", "note"),
+            ("campaign", "package"),
+            ("campaign", "resume"),
+            ("campaign", "run"),
+            ("note", "add"),
+            ("note", "merge"),
+            ("note", "reserve"),
+            ("oracle", "force"),
+            ("oracle", "sweep"),
+            ("project", "campaign"),
+            ("toolchain", "calibrate"),
+            ("toolchain", "init"),
+        }
+        explicit_output = {
+            ("campaign", "export"),
+            ("experiment", "compose"),
+            ("instrument", "alias"),
+            ("instrument", "fidelity"),
+            ("instrument", "gate"),
+            ("instrument", "globalcolor"),
+            ("instrument", "scheduler"),
+            ("instrument", "ugen"),
+            ("instrument", "uopt"),
+            ("oracle", "export"),
+            ("pass", "replay-as1"),
+            ("project", "init"),
+            ("scratch", "bundle"),
+            ("shift", "plan"),
+            ("sweep", "commute"),
+            ("sweep", "copies"),
+            ("sweep", "fuse"),
+            ("sweep", "hoist"),
+            ("sweep", "regress"),
+        }
+        dry_run_default = (group, command) in {
+            ("cache", "prune"),
+            ("project", "init"),
+        }
+        external_process = group == "object" or (group, command) in {
+            ("campaign", "finish"),
+            ("campaign", "resume"),
+            ("campaign", "run"),
+            ("instrument", "fidelity"),
+            ("instrument", "gate"),
+            ("oracle", "force"),
+            ("oracle", "sweep"),
+            ("pass", "replay-as1"),
+            ("project", "compare"),
+            ("project", "diagnose"),
+            ("project", "next"),
+            ("project", "campaign"),
+            ("scratch", "check"),
+            ("scratch", "doctor"),
+            ("shift", "rehearse"),
+            ("sweep", "ingest"),
+            ("toolchain", "calibrate"),
+            ("toolchain", "fingerprint"),
+        }
+        return {
+            "default": (
+                "dry-run"
+                if dry_run_default
+                else "stateful"
+                if (group, command) in stateful
+                else "writes-explicit-output"
+                if (group, command) in explicit_output
+                else "read-only"
+            ),
+            "external_process": external_process,
+            "network": False,
+            "destructive": False,
+        }
+
+    report_overrides = {
+        ("project", "campaign"): "campaign",
+        ("project", "compare"): "compare",
+        ("project", "diagnose"): "diagnose",
+        ("project", "next"): "next",
+    }
     return {
         "schema": "decomp-workbench-command-map-v1",
         "groups": {
             group: [
-                {"command": command, "description": description}
+                {
+                    "command": command,
+                    "invocation": ["decomp-workbench", group, command],
+                    "description": description,
+                    "report_schema": schema_for(
+                        report_overrides.get(
+                            (group, command),
+                            GROUP_ALIASES.get((group, command), f"{group}-{command}"),
+                        )
+                    ),
+                    "safety": safety(group, command),
+                }
                 for command, description in entries
             ]
             for group, entries in COMMAND_MAP.items()
+        },
+        "automation": {
+            "success": "one versioned JSON document when --json is supported",
+            "failure_schema": "decomp-workbench-error-v1",
+            "exit_codes": {
+                "0": "success",
+                "1": "gate/no-result",
+                "2": "usage/capability/process",
+                "3": "census-failed",
+            },
+            "next_actions": "next reports command_argv, safety, and expected_signal",
         },
         "compatibility": (
             "Existing flat command names remain supported; grouped spellings "
@@ -440,6 +560,39 @@ def _operation_options(
                 else []
             )
     return result
+
+
+def command_registry_errors(parser: argparse.ArgumentParser) -> tuple[str, ...]:
+    """Return journey-map entries absent from the live parser.
+
+    Command implementations remain in focused modules; this validates the
+    seam that generates grouped help, aliases, and completion from one map.
+    """
+
+    top_children: dict[str, argparse.ArgumentParser] = {}
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            top_children.update(action.choices)
+    errors: list[str] = []
+    for group, entries in COMMAND_MAP.items():
+        group_parser = top_children.get(group)
+        if group_parser is None:
+            errors.append(f"missing command group: {group}")
+        nested: set[str] = set()
+        if group_parser is not None:
+            for action in group_parser._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    nested.update(action.choices)
+        for operation, _description in entries:
+            alias = GROUP_ALIASES.get((group, operation))
+            if alias is not None:
+                if alias not in top_children:
+                    errors.append(
+                        f"{group} {operation} aliases missing command {alias}"
+                    )
+            elif operation not in nested:
+                errors.append(f"missing grouped command: {group} {operation}")
+    return tuple(errors)
 
 
 def render_completion(parser: argparse.ArgumentParser, shell: str) -> str:
@@ -651,6 +804,7 @@ def register_discovery_commands(
     for group in (
         "object",
         "scratch",
+        "handoff",
         "note",
         "probe",
         "sweep",

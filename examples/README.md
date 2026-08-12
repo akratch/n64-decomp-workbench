@@ -1,12 +1,25 @@
 # Examples
 
-Most files in this directory are synthetic or reduced text intended for
-redistribution. [The CV64 walkthrough](cv64/README.md) is a separately
-attributed set of complete, single-function scratch materials; it contains no
-ROM or extracted non-code assets.
+Files in this directory are synthetic or reduced text intended for
+redistribution. The [CV64 campaign record](cv64/README.md) preserves only
+aggregate, code-free measurements and a local regeneration recipe; its
+third-party scratch payloads are intentionally absent.
 
 Run every command below from the repository root. CI executes these same
 commands from that directory, so the examples cannot quietly drift.
+
+## Complete trustworthy endgame
+
+```sh
+python3 examples/trustworthy-endgame/run.py
+```
+
+This synthetic, asset-free program exercises scratch truth, a required
+control, exhaustive experiment coverage, compiler-envelope identity, fresh
+finish verification, and receipt-gated packaging in one temporary journey.
+CI asserts its final JSON. See the
+[walkthrough](../docs/trustworthy-endgame-walkthrough.md) for the gates and
+[its README](trustworthy-endgame/README.md) for the runnable entry point.
 
 ## Object comparison fixtures
 

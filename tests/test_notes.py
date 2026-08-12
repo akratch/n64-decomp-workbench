@@ -151,6 +151,18 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(merge_notes(self.log), ())
         self.assertEqual(self.log.read_text(encoding="utf-8"), before)
 
+    def test_concurrent_merges_append_each_note_once(self) -> None:
+        for number in range(54, 62):
+            add_note(self.log, identifier=f"WB-{number}", title="once")
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            merged = list(pool.map(lambda _: merge_notes(self.log), range(8)))
+
+        text = self.log.read_text(encoding="utf-8")
+        for number in range(54, 62):
+            self.assertEqual(text.count(f"## WB-{number} — once"), 1)
+        self.assertEqual(sum(len(batch) for batch in merged), 8)
+
     def test_a_duplicate_identifier_is_reported_not_resolved(self) -> None:
         add_note(self.log, identifier="WB-01", title="a second WB-01")
         self.assertEqual(merged_view(self.log).duplicate_ids, ("WB-01",))

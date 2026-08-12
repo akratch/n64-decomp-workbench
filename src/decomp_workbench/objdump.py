@@ -11,8 +11,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import struct
 import subprocess
+import tempfile
 from collections.abc import Sequence
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from .elf_instructions import MINIMUM_ELIDED_RUN
@@ -36,12 +40,267 @@ RELOCATION_RE = re.compile(
 SYMBOL_RE = re.compile(r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$")
 
 
+@dataclass(frozen=True)
+class ObjdumpProbe:
+    """Measured GNU/MIPS capabilities for one executable."""
+
+    executable: str
+    compatible: bool
+    version: str | None
+    checks: tuple[tuple[str, bool], ...]
+    error: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "compatible": self.compatible,
+            "version": self.version,
+            "checks": {name: passed for name, passed in self.checks},
+            "error": self.error,
+        }
+
+
+def _mips_probe_object() -> bytes:
+    """Return a tiny deterministic MIPS ELF32 object with one relocation.
+
+    This is generated rather than shipped as an opaque binary so the doctor
+    probe remains auditable and works from source checkouts and wheels alike.
+    It exercises the exact format, symbol filtering, instruction syntax, and
+    relocation syntax consumed by :func:`dump_object`.
+    """
+
+    def align(value: int, boundary: int = 4) -> int:
+        return (value + boundary - 1) & ~(boundary - 1)
+
+    text = struct.pack(">III", 0x0C000000, 0x03E00008, 0x00000000)
+    relocation = struct.pack(">II", 0, (1 << 8) | 4)  # R_MIPS_26, symbol 1
+    strings = b"\0probe_external\0probe_func\0"
+    external_name = strings.index(b"probe_external")
+    function_name = strings.index(b"probe_func")
+    symbols = b"".join(
+        (
+            b"\0" * 16,
+            struct.pack(">IIIBBH", external_name, 0, 0, 0x10, 0, 0),
+            struct.pack(">IIIBBH", function_name, 0, len(text), 0x12, 0, 1),
+        )
+    )
+    section_names = b"\0.text\0.rel.text\0.symtab\0.strtab\0.shstrtab\0"
+
+    offset = 52
+    text_offset = offset
+    offset = align(text_offset + len(text))
+    relocation_offset = offset
+    offset = align(relocation_offset + len(relocation))
+    symbols_offset = offset
+    offset = align(symbols_offset + len(symbols))
+    strings_offset = offset
+    offset = align(strings_offset + len(strings))
+    section_names_offset = offset
+    section_headers_offset = align(section_names_offset + len(section_names))
+
+    identifier = b"\x7fELF\x01\x02\x01\x00" + b"\0" * 8
+    header = struct.pack(
+        ">16sHHIIIIIHHHHHH",
+        identifier,
+        1,  # relocatable
+        8,  # EM_MIPS
+        1,
+        0,
+        0,
+        section_headers_offset,
+        0x10001007,  # o32, MIPS I
+        52,
+        0,
+        0,
+        40,
+        6,
+        5,
+    )
+
+    def section_name(name: bytes) -> int:
+        return section_names.index(name)
+
+    sections = b"".join(
+        (
+            b"\0" * 40,
+            struct.pack(
+                ">IIIIIIIIII",
+                section_name(b".text"),
+                1,
+                0x6,
+                0,
+                text_offset,
+                len(text),
+                0,
+                0,
+                4,
+                0,
+            ),
+            struct.pack(
+                ">IIIIIIIIII",
+                section_name(b".rel.text"),
+                9,
+                0,
+                0,
+                relocation_offset,
+                len(relocation),
+                3,
+                1,
+                4,
+                8,
+            ),
+            struct.pack(
+                ">IIIIIIIIII",
+                section_name(b".symtab"),
+                2,
+                0,
+                0,
+                symbols_offset,
+                len(symbols),
+                4,
+                1,
+                4,
+                16,
+            ),
+            struct.pack(
+                ">IIIIIIIIII",
+                section_name(b".strtab"),
+                3,
+                0,
+                0,
+                strings_offset,
+                len(strings),
+                0,
+                0,
+                1,
+                0,
+            ),
+            struct.pack(
+                ">IIIIIIIIII",
+                section_name(b".shstrtab"),
+                3,
+                0,
+                0,
+                section_names_offset,
+                len(section_names),
+                0,
+                0,
+                1,
+                0,
+            ),
+        )
+    )
+    image = bytearray(section_headers_offset + len(sections))
+    image[: len(header)] = header
+    image[text_offset : text_offset + len(text)] = text
+    image[relocation_offset : relocation_offset + len(relocation)] = relocation
+    image[symbols_offset : symbols_offset + len(symbols)] = symbols
+    image[strings_offset : strings_offset + len(strings)] = strings
+    image[section_names_offset : section_names_offset + len(section_names)] = (
+        section_names
+    )
+    image[section_headers_offset:] = sections
+    return bytes(image)
+
+
+@lru_cache(maxsize=32)
+def _probe_objdump_cached(executable: str, modified_ns: int, size: int) -> ObjdumpProbe:
+    del modified_ns, size  # cache identity; content is read by the subprocess
+    version: str | None = None
+    checks = {
+        "mips_elf32": False,
+        "symbol_filter": False,
+        "gnu_instruction_syntax": False,
+        "mips_relocations": False,
+    }
+    try:
+        version_result = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+        )
+        version_lines = (version_result.stdout or version_result.stderr).splitlines()
+        version = version_lines[0].strip() if version_lines else None
+        with tempfile.TemporaryDirectory(
+            prefix="decomp-workbench-objdump-probe-"
+        ) as tmp:
+            probe = Path(tmp) / "mips-probe.o"
+            probe.write_bytes(_mips_probe_object())
+            result = subprocess.run(
+                [
+                    executable,
+                    "-d",
+                    "-r",
+                    "-z",
+                    "-j",
+                    ".text",
+                    str(probe),
+                    "--disassemble=probe_func",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+            )
+        checks["mips_elf32"] = result.returncode == 0
+        checks["symbol_filter"] = "<probe_func>:" in result.stdout
+        instructions = parse_disassembly(result.stdout, symbol="probe_func")
+        checks["gnu_instruction_syntax"] = [item.word for item in instructions] == [
+            "0c000000",
+            "03e00008",
+            "00000000",
+        ]
+        checks["mips_relocations"] = bool(
+            instructions
+            and instructions[0].relocations
+            and instructions[0].relocations[0].kind == "R_MIPS_26"
+            and instructions[0].relocations[0].symbol == "probe_external"
+        )
+        compatible = all(checks.values())
+        detail = (
+            (result.stderr.strip() or result.stdout.strip()) if not compatible else ""
+        )
+        error = None if compatible else (detail.splitlines()[-1] if detail else None)
+        return ObjdumpProbe(
+            executable=executable,
+            compatible=compatible,
+            version=version,
+            checks=tuple(checks.items()),
+            error=error or (None if compatible else "capability probe failed"),
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return ObjdumpProbe(
+            executable=executable,
+            compatible=False,
+            version=version,
+            checks=tuple(checks.items()),
+            error=str(error),
+        )
+
+
+def probe_objdump(executable: str) -> ObjdumpProbe:
+    """Measure whether ``executable`` satisfies the workbench contract."""
+
+    path = Path(executable).resolve()
+    stat = path.stat()
+    return _probe_objdump_cached(str(path), stat.st_mtime_ns, stat.st_size)
+
+
 def discover_objdump(explicit: str | None = None) -> str:
-    """Find a usable MIPS objdump, preferring an explicit path."""
+    """Find a capability-proven MIPS objdump, preferring an explicit path."""
 
     if explicit:
         path = Path(explicit).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
+            # Explicit wrappers are an advanced escape hatch and may only
+            # understand project objects, not the synthetic probe. Doctor
+            # still measures an explicitly supplied executable; ordinary
+            # object commands let its real invocation be the referee.
             return str(path.resolve())
         found = shutil.which(explicit)
         if found:
@@ -56,15 +315,24 @@ def discover_objdump(explicit: str | None = None) -> str:
         "mips-linux-gnu-objdump",
         "objdump",
     ]
+    rejected: list[str] = []
     for candidate in candidates:
         path = Path(candidate).expanduser()
+        candidate_path: str | None = None
         if path.is_file() and os.access(path, os.X_OK):
-            return str(path.resolve())
-        found = shutil.which(candidate)
-        if found:
-            return found
+            candidate_path = str(path.resolve())
+        else:
+            candidate_path = shutil.which(candidate)
+        if not candidate_path:
+            continue
+        probe = probe_objdump(candidate_path)
+        if probe.compatible:
+            return probe.executable
+        rejected.append(f"{candidate_path}: {probe.error}")
+    detail = f"; rejected incompatible tools: {'; '.join(rejected)}" if rejected else ""
     raise FileNotFoundError(
-        "could not find objdump; pass --objdump /path/to/mips64-elf-objdump"
+        "could not find a GNU-compatible MIPS objdump; install MIPS GNU "
+        "binutils or pass --objdump /path/to/mips64-elf-objdump" + detail
     )
 
 

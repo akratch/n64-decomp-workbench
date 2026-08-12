@@ -48,7 +48,9 @@ or identity prefix.
 
 `status` reports:
 
-- best candidate and an ASCII best-aligned trajectory;
+- best candidate, the effective ranking scale, and an ASCII trajectory on that
+  scale (`words` or aligned total; prefix campaigns keep their richer row
+  trajectory in JSON);
 - successful, failed, and remaining candidates;
 - how many source variants collapsed into each function-byte basin;
 - basin transitions rather than only the final rank;
@@ -403,15 +405,19 @@ then the relocation, normalized-distance, register, and instruction-delta keys,
 then the source path. `rank`, `compile-rank`, `campaign`, and the object-basin
 ordering all use that one key.
 
-**Unless the set is mixed.** `gaps=` counts aligned rows the aligner filled on
-one side only. A candidate with gaps was aligned against a different
-subsequence of the target than a gap-free candidate was, so the two aligned
-totals are not on one scale — a gapped candidate has been observed reporting
+**Unless any candidate has gaps.** `gaps=` counts aligned rows the aligner
+filled on one side only. A candidate with gaps may be aligned against a
+different target subsequence from every other candidate, including another
+gapped candidate, so their aligned totals are not on one scale — one has
+been observed reporting
 1435 aligned rows against a 1865-row base while holding 2918 mismatching words
-and 1807 opcode mismatches. When a result set contains both kinds, `rank` and
-`campaign` order it on `words` instead, `rank --json` records
-`ranked_by: "words"` and `mixed_alignment: true`, and the terminal prints
-`caution: candidates differ in alignment gap status`.
+and 1807 opcode mismatches. When a result set contains any gapped candidate,
+`rank` and `campaign` order it on `words` instead; `rank --json` records
+`ranked_by: "words"` and `alignment_ranking_unsafe: true`, while
+`mixed_alignment` separately says whether gap-free and gapped results were both
+present. Persisted campaign status, family winners, retained-source leaders,
+terminal trajectories, and HTML exports resolve the same whole-population rule;
+resuming or exporting a campaign cannot silently switch back to aligned totals.
 
 The reason is measured, not aesthetic: positional counting shifts on every
 insertion, and it misranked candidates in six recorded campaigns. In one, a

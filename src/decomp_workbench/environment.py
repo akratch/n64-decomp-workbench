@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .instrument_uopt import parse_force_specification
@@ -24,6 +26,36 @@ def parse_environment(values: list[str]) -> dict[str, str]:
         result[name] = content
     if "CDX_FORCE" in result:
         parse_force_specification(result["CDX_FORCE"])
+    return result
+
+
+def resolve_compiler_environment(
+    explicit: Mapping[str, str],
+    inherited_names: Sequence[str] = (),
+    *,
+    host: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build the exact environment passed to a compiler process.
+
+    Campaigns are sealed by default. Host values enter only by name through
+    ``--inherit-env`` and then become ordinary identity-bearing values in the
+    returned mapping. Explicit values win so a command line remains locally
+    understandable even when a same-named host variable exists.
+    """
+
+    source = os.environ if host is None else host
+    result = dict(explicit)
+    for name in inherited_names:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"invalid inherited environment name: {name!r}")
+        if name in result:
+            continue
+        if name not in source:
+            raise ValueError(
+                f"--inherit-env requested {name}, but it is not set in the host "
+                "environment"
+            )
+        result[name] = source[name]
     return result
 
 

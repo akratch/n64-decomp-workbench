@@ -1,8 +1,0 @@
-{
-  "candidate_instructions": 6,
-  "exact": true,
-  "normalized_distance": 0,
-  "note": "Exact list splice with an alias-preserving right-node temporary.",
-  "target_instructions": 6,
-  "word_mismatches": 0
-}

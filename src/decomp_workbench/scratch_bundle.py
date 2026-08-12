@@ -143,7 +143,7 @@ def _bundle_readme(manifest: dict[str, Any]) -> str:
 This directory is upload-neutral: creating it does not contact decomp.me.
 
 1. Open <https://www.decomp.me/new>.
-2. Select platform `{settings["platform"]}`.
+2. Choose platform `{settings["platform"]}`.
 {selection}
 
 Then use diff label `{settings["diff_label"]}`, paste `target.s` into **Target
@@ -156,7 +156,8 @@ If a preset was not selected, use these compiler flags:
    {settings["compiler_flags"]}
    ```
 
-Run `shasum -a 256 -c SHA256SUMS` before sharing to verify the three copied
-inputs. `scratch.json` contains the same settings and content identities in a
-machine-readable form.
+Run `decomp-workbench check-scratch .` from this directory before sharing. It
+verifies `SHA256SUMS`, the manifest, and the three copied inputs consistently
+on every supported platform. `scratch.json` contains the same settings and
+content identities in a machine-readable form.
 """

@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 #: directory can never turn into a test case.
 DOCUMENTS = (
     ROOT / "README.md",
+    *sorted((ROOT / "case-studies").glob("*.md")),
     *sorted((ROOT / "docs").glob("*.md")),
     *sorted((ROOT / "examples").rglob("*.md")),
 )
@@ -57,6 +58,7 @@ RUNNABLE_MARKERS = (
 
 SHELL_LANGUAGES = frozenset({"sh", "shell", "bash", "console"})
 FENCE_RE = re.compile(r"^\s*```(\S*)\s*$")
+PSEUDO_SHELL_PLACEHOLDER_RE = re.compile(r"<[A-Za-z][^>\n]*>")
 
 
 class DocumentedCommand(NamedTuple):
@@ -301,6 +303,29 @@ class DocumentedCommandTests(unittest.TestCase):
                 failures.append(
                     f"{relative}:{line}: `{PROGRAM} {' '.join(argv)}`\n  {error}"
                 )
+        self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_shell_blocks_do_not_use_fake_angle_bracket_arguments(self) -> None:
+        """Shell fences must be pasteable commands, not pseudo syntax.
+
+        Uppercase fixture names such as ``TARGET.o`` remain useful, but
+        ``acpp <defines>`` is parsed by a shell as input redirection and fails
+        before the named tool runs. Prose and text transcripts can still use
+        angle brackets when they are genuinely illustrative.
+        """
+
+        failures: list[str] = []
+        for document in DOCUMENTS:
+            for line, info, body in fenced_blocks(document):
+                if info.lower() not in SHELL_LANGUAGES:
+                    continue
+                for offset, source_line in enumerate(body, start=1):
+                    placeholder = PSEUDO_SHELL_PLACEHOLDER_RE.search(source_line)
+                    if placeholder is not None:
+                        relative = document.relative_to(ROOT)
+                        failures.append(
+                            f"{relative}:{line + offset}: {placeholder.group(0)}"
+                        )
         self.assertEqual(failures, [], "\n".join(failures))
 
     def test_the_parse_check_reaches_the_whole_documentation(self) -> None:

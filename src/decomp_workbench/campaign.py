@@ -155,7 +155,10 @@ def run_compiler(
         text=True,
         encoding="utf-8",
         errors="replace",
-        env={**os.environ, **environment},
+        # The mapping is the complete build environment, not an overlay.
+        # Inheriting the host here made compiler output depend on values absent
+        # from campaign identity and cache keys.
+        env=environment,
         cwd=compile_cwd,
         **process_group_arguments(),
     ) as process:
@@ -307,6 +310,7 @@ def candidate_provenance(
         "symbol": symbol,
         "section": section,
         "environment": dict(sorted(environment.items())),
+        "environment_mode": "sealed",
     }
     if compilation_envelope:
         provenance["compilation_envelope"] = dict(sorted(compilation_envelope.items()))
@@ -962,10 +966,10 @@ def campaign_result_sort_key(
 ) -> tuple[object, ...]:
     """Rank region preservation before the ordinary whole-function metric.
 
-    ``by_raw`` swaps the whole-function metric for the positional word counts.
-    It is set for a run whose candidates did not all align the same way: see
+    ``by_raw`` swaps the whole-function metric for positional word counts. It
+    is set for a run containing any gapped candidate: see
     :func:`~decomp_workbench.compare.rank_comparisons` for why aligned rows
-    stop being a common scale there.
+    stop being a common scale there, even between two gapped candidates.
     """
 
     signal_key: tuple[object, ...] = (not required_signals_pass(result.signals),)
@@ -1021,12 +1025,11 @@ def sort_campaign_results_key(
 ) -> Callable[[CompileResult], tuple[object, ...]]:
     """Return the ordering key this result set can honestly be sorted on."""
 
-    statuses = {
-        result.comparison.alignment_comparable
+    by_raw = any(
+        not result.comparison.alignment_comparable
         for result in results
         if result.comparison is not None
-    }
-    by_raw = len(statuses) > 1
+    )
     return lambda result: campaign_result_sort_key(
         result,
         by_raw=by_raw,

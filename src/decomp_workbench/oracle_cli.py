@@ -22,6 +22,7 @@ from .campaign import (
 from .cli_options import add_symbol_argument
 from .environment import merge_toolchain_environment, parse_environment
 from .globalcolor import parse_globalcolor_trace
+from .html_report import document_shell
 from .instrument_uopt import parse_force_specification
 from .objdump import discover_objdump
 from .oracle import oracle_diff, oracle_plan, run_oracle_campaign
@@ -463,36 +464,17 @@ def _render_oracle_html(report: dict[str, Any]) -> str:
             f"<td>{html.escape(status)}</td>"
             "</tr>"
         )
-    serialized = html.escape(json.dumps(report, indent=2, sort_keys=True))
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>decomp-workbench oracle report</title>
-<style>
-:root {{ color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }}
-body {{ max-width: 76rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }}
-table {{ border-collapse: collapse; width: 100%; }}
-th, td {{ border-bottom: 1px solid #8886; padding: .45rem; text-align: left; }}
-code, pre {{ font-family: ui-monospace, monospace; }}
-pre {{ overflow: auto; padding: 1rem; background: #8881; }}
-.proof {{ border-left: .25rem solid #a86; padding-left: 1rem; }}
-</style>
-</head>
-<body>
+    body = f"""
 <h1>Allocator oracle evidence</h1>
 <p>{int(report["completed_forces"])}/{int(report["planned_forces"])} force(s);
 signature: <strong>{html.escape(str(report.get("signature") or "none"))}</strong>.</p>
 <p class="proof">{html.escape(str(report["proof"]))}</p>
-<table>
+<div class="table-scroll"><table><caption>Measured force endpoints</caption>
 <thead><tr><th>Force</th><th>Register</th><th>Words</th><th>Aligned</th><th>Evidence</th></tr></thead>
 <tbody>{"".join(rows) or '<tr><td colspan="5">No force results.</td></tr>'}</tbody>
-</table>
-<details><summary>Machine-readable evidence</summary><pre>{serialized}</pre></details>
-</body>
-</html>
+</table></div>
 """
+    return document_shell("decomp-workbench oracle report", body, report)
 
 
 def oracle_export_command(args: argparse.Namespace) -> int:

@@ -1,5 +1,9 @@
 # Field notes — SSB64 ovl8 frontend-lineage campaign (2026-07-29/30)
 
+> **Historical field record.** Measurements and failures are preserved as
+> observed on the dates above. Use [Product status](product-status.md) and the
+> current command guides for supported syntax and capabilities.
+
 Live-fire observations from the SSB64 debug-overlay campaign
 (`func_ovl8_803781A4` and three siblings; IDO 7.1 backend, -O2 -mips2).
 Project-neutral; no ROMs, objects, or proprietary artifacts. The full

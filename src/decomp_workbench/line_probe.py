@@ -802,8 +802,9 @@ def classify_verdict(
             VERDICT_LINE_SENSITIVE,
             "LINE-SENSITIVE: statement line assignment participates in "
             "scheduling. next: field-guide lever 23 (preprocessor line "
-            "assignment) — try acpp preprocessing: "
-            "acpp <defines> file.c > file.i && cc -c <flags> file.i",
+            "assignment) — follow the copyable acpp recipe in "
+            "docs/line-assignment-probe.md with this translation unit's "
+            "exact defines, include paths, and compiler flags",
         )
     return (
         VERDICT_NOT_LINE_SENSITIVE,

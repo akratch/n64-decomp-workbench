@@ -459,6 +459,16 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
         "or allocator temp-prefix progress",
     ),
     Metric(
+        "ranked_by",
+        "ranked_by",
+        "effective campaign ordering scale after alignment-safety resolution",
+    ),
+    Metric(
+        "alignment_ranking_unsafe",
+        "alignment_ranking_unsafe",
+        "whether any candidate's alignment gaps made aligned totals incomparable",
+    ),
+    Metric(
         "object_basins",
         "object_basins",
         "distinct compared-function bytes, with the variants that reached each",

@@ -1428,26 +1428,25 @@ def compare_instructions(
 #: a reader who does not know that is reading a different table than the one
 #: they ran yesterday.
 MIXED_ALIGNMENT_CAUTION = (
-    "caution: candidates differ in alignment gap status -- ordered by raw "
-    "words, not aligned rows"
+    "caution: one or more candidates required alignment gaps -- ordered by "
+    "positional words, not aligned rows"
 )
 
 
 def rank_comparisons(items: Sequence[Comparison]) -> tuple[list[Comparison], bool]:
-    """Order candidates, and say whether aligned rows were trustworthy.
+    """Order candidates, and say whether positional ranking was required.
 
-    Aligned rows are the right ranking metric for a set of candidates the
-    aligner treated the same way; they are not a common scale once some of the
-    set forced gaps and some did not, because each gapped candidate is aligned
-    against a different subsequence of the target.  A mixed set is therefore
-    ordered on the positional word counts, which mean the same thing for every
-    candidate, and the caller is told so it can say so.
+    Aligned rows are the right ranking metric only while every candidate is
+    gap-free. Each gapped candidate may align against a different subsequence
+    of the target; sharing the state "has gaps" does not put two such
+    candidates back on one scale. Any gapped input therefore moves the whole
+    set to positional word counts, and the caller is told so it can say so.
     """
 
     ordered = list(items)
-    mixed = len({item.alignment_comparable for item in ordered}) > 1
-    ordered.sort(key=lambda item: item.raw_sort_key if mixed else item.sort_key)
-    return ordered, mixed
+    by_raw = any(not item.alignment_comparable for item in ordered)
+    ordered.sort(key=lambda item: item.raw_sort_key if by_raw else item.sort_key)
+    return ordered, by_raw
 
 
 def resolve_true_instructions(

@@ -549,6 +549,18 @@ class ScratchCheckTests(unittest.TestCase):
         self.assertIn("object workflow: LIMITED", stdout)
         self.assertIn("explicit objdump", stdout)
 
+    def test_doctor_rejects_an_executable_that_cannot_read_mips_elf(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fake = Path(temporary) / "objdump"
+            fake.write_text("#!/bin/sh\necho not-a-mips-objdump\n", encoding="utf-8")
+            fake.chmod(0o755)
+            status, stdout, stderr = self.run_cli(["doctor", "--objdump", str(fake)])
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stderr, "")
+        self.assertIn("object workflow: LIMITED", stdout)
+        self.assertIn("not GNU/MIPS compatible", stdout)
+
 
 class ContextNewlineWarningTests(unittest.TestCase):
     """decomp.me inserts a source boundary even when ctx.c lacks a newline."""

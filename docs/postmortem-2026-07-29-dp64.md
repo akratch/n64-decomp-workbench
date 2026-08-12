@@ -1,5 +1,9 @@
 # Postmortem — the dp64 core campaign day (2026-07-29)
 
+> **Historical campaign record.** Outcomes and tool counts are preserved as
+> observed on the date above. Use [Product status](product-status.md) and the
+> current command guides for supported syntax and capabilities.
+
 One session, one day. Starting state: core 1738/1748 (99.43%), overall
 68.13%, no local toolchain, workbench 0.2.0 with 77 tests. Ending state:
 **47 functions matched and submitted** (PRs #275/#276, ready for review),

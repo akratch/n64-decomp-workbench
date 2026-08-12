@@ -33,11 +33,12 @@ once written, cannot be lost by a concurrent writer.*
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -89,6 +90,62 @@ class NoteError(ValueError):
     mode this module exists to prevent is a writer that believes it succeeded.
     A note command that cannot do its job must say so loudly.
     """
+
+
+def _write_all(descriptor: int, payload: bytes) -> None:
+    """Write and flush every byte; ``os.write`` may legally be short."""
+
+    offset = 0
+    while offset < len(payload):
+        written = os.write(descriptor, payload[offset:])
+        if written <= 0:
+            raise OSError("write returned no progress")
+        offset += written
+    os.fsync(descriptor)
+
+
+@contextmanager
+def _merge_lock(log: Path) -> Iterator[None]:
+    """Serialize one complete merge transaction on POSIX and Windows.
+
+    The sidecar lock always contains one byte because Windows' ``msvcrt``
+    locks byte ranges rather than whole files.  Imports are local so importing
+    the CLI never attempts to load a platform-specific module from the other
+    operating-system family.
+    """
+
+    directory = notes_directory(log)
+    directory.mkdir(parents=True, exist_ok=True)
+    lock_path = directory / ".merge.lock"
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            _write_all(descriptor, b"\0")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        if os.name == "nt":
+            import importlib
+
+            msvcrt: Any = importlib.import_module("msvcrt")
+            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import importlib
+
+                windows_lock: Any = importlib.import_module("msvcrt")
+                windows_lock.locking(descriptor, windows_lock.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
 
 
 @dataclass(frozen=True)
@@ -424,7 +481,7 @@ def reserve_identifiers(
                 f"could not write the reservation {target}: {error}"
             ) from error
         try:
-            os.write(descriptor, text.encode("utf-8"))
+            _write_all(descriptor, text.encode("utf-8"))
         finally:
             os.close(descriptor)
         claimed.append(
@@ -501,10 +558,11 @@ def add_note(
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     try:
         # O_EXCL is the collision check; the random token in the name makes it
-        # succeed. Written in one call so a reader never sees a partial note.
+        # succeed. The durable sidecar remains the source of truth even if a
+        # later whole-file rewrite clobbers the rendered log.
         descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         try:
-            os.write(descriptor, text.encode("utf-8"))
+            _write_all(descriptor, text.encode("utf-8"))
         finally:
             os.close(descriptor)
     except OSError as error:
@@ -620,31 +678,27 @@ def merge_notes(log: str | Path, *, dry_run: bool = False) -> tuple[Note, ...]:
     """
 
     path = Path(log)
-    pending = read_notes(path)
-    if not pending or dry_run:
-        return pending
-    sections = "\n\n".join(note.as_markdown() for note in pending)
+    if dry_run:
+        return read_notes(path)
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        with _merge_lock(path):
+            # Read inside the lock. Two mergers that read before taking the
+            # old log-file lock both appended the same pending notes.
+            pending = read_notes(path)
+            if not pending:
+                return ()
+            sections = "\n\n".join(note.as_markdown() for note in pending)
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            try:
+                _write_all(descriptor, ("\n" + sections + "\n").encode("utf-8"))
+            finally:
+                os.close(descriptor)
+            archive = notes_directory(path) / MERGED_DIRECTORY
+            archive.mkdir(parents=True, exist_ok=True)
+            for note in pending:
+                note.path.rename(archive / note.path.name)
+            return pending
+    except NoteError:
+        raise
     except OSError as error:
-        raise NoteError(f"could not open the log {path} to append: {error}") from error
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        try:
-            os.write(descriptor, ("\n" + sections + "\n").encode("utf-8"))
-        finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-    except OSError as error:
-        raise NoteError(f"could not append to the log {path}: {error}") from error
-    finally:
-        os.close(descriptor)
-    archive = notes_directory(path) / MERGED_DIRECTORY
-    archive.mkdir(parents=True, exist_ok=True)
-    for note in pending:
-        try:
-            note.path.rename(archive / note.path.name)
-        except OSError as error:
-            raise NoteError(
-                f"the log was updated but {note.path} could not be archived: {error}"
-            ) from error
-    return pending
+        raise NoteError(f"could not merge notes into {path}: {error}") from error

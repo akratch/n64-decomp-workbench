@@ -180,8 +180,9 @@ LEVER_ACTIONS: dict[int, str] = {
         "switch) before spending variants on the wrong one"
     ),
     23: (
-        "preprocess the TU with IDO's acpp (`acpp <defines> f.c > f.i && cc -c "
-        "<flags> f.i`): uopt/ugen honor statement line boundaries even at -g0"
+        "preprocess the TU with IDO's acpp using the project's exact defines "
+        "and include paths, then compile the .i with the project's exact "
+        "flags: uopt/ugen honor statement line boundaries even at -g0"
     ),
     24: (
         "run `decomp-workbench context lint` over the translation unit: an "
@@ -351,8 +352,9 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "no acpp in your toolchain? reflow the divergent statements onto their "
         "own source lines - token-identical, newlines only - and rebuild; same "
         "experiment, coarser dial.",
-        "have IDO's acpp? acpp <defines> file.c > file.i && cc -c <flags> "
-        "file.i, then diagnose again against the new listing.",
+        "have IDO's acpp? follow docs/line-assignment-probe.md's array-safe "
+        "recipe with the translation unit's exact defines, includes, and "
+        "compiler flags, then diagnose again against the new listing.",
         "measure it instead of guessing: decomp-workbench probe-lines UNIT.i "
         "--compile-command '... {input} -o {output}' --target-object TARGET.o "
         "compiles that reflow and a mandatory control, and scores both against "

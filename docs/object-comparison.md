@@ -295,7 +295,8 @@ link/map/ROM verifier.
 `compare` and `compare-dumps` therefore also report the LCS-aligned residual,
 computed by the same analysis `view` renders — not a second aligner:
 
-- `aligned_total` — the ranking number, and the sum of the five class counts;
+- `aligned_total` — the ranking number while every candidate is gap-free, and
+  the sum of the five class counts;
 - `aligned_structural`, `aligned_schedule`, `aligned_register`,
   `aligned_constant`, `aligned_commutative` — the residual split by mechanism.
 

@@ -33,7 +33,16 @@ that list unchanged.
 `decomp-workbench commands --json` is the versioned discovery surface. Existing
 flat command names and journey spellings return the same report:
 `object diagnose` is an alias of `diagnose`, and `campaign status` is an alias
-of `campaign-status`.
+of `campaign-status`. Each discovery entry includes executable `invocation`
+argv, its `report_schema`, and conservative safety metadata (`default`,
+`external_process`, `network`, and `destructive`). The metadata describes the
+default path; command help remains authoritative for optional output flags.
+
+`next --json` is the action surface. Every proposed step carries
+`command_argv`, a shell-rendered `command` for humans, `safety`, and an
+`expected_signal` that says what evidence would make the step informative.
+Agents should execute argv directly and evaluate the expected signal instead
+of scraping prose or invoking a shell string.
 
 Comparison metric labels, JSON keys, census keys, and ledger fields share one
 registry. Run:
@@ -46,13 +55,20 @@ Canonical short keys such as `words`, `aligned_total`, and `frame` are the
 stable vocabulary. Deprecated long spellings remain emitted only for the
 documented compatibility window.
 
+Rank reports name the selected scale as `ranked_by`. If any candidate required
+alignment gaps, `alignment_ranking_unsafe=true` and the whole set is ordered on
+positional `words`; two gapped candidates are not assumed to share an aligned
+scale. `mixed_alignment` is retained as the narrower fact that both gap-free
+and gapped candidates were present.
+
 Experiment-v2 and endgame additions are additive to existing report schemas:
 
 - comparisons expose `aligned_row_receipts`, a code-free row identity/class/
   equality table used by signals;
 - campaign results expose `signals`, `object_sha256`, and `controls`;
 - campaign status exposes `acceptance_trajectory`, `mechanism_trajectory`,
-  `coverage`, and `conclusion_label`;
+  `coverage`, `conclusion_label`, requested `rank_by`, effective `ranked_by`,
+  and `alignment_ranking_unsafe`;
 - scratch checks expose `truth_layers`, `context_differential`,
   `context_hypotheses`, and optional `project_comparison`;
 - finish files use `decomp-workbench-campaign-finish-v1`, with independent
@@ -66,6 +82,11 @@ labels are exactly `exhaustive-over-declared-space`,
 human reasons. Signal receipts deliberately contain no target instruction
 text or target words; normal ledger redaction still applies to other
 comparison detail.
+
+The CV64 campaign record also uses
+`decomp-workbench-recorded-example-v1`. That is aggregate historical metadata,
+not a schema emitted by a CLI command and not a substitute for a fresh
+comparison.
 
 ## Failure
 

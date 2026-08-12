@@ -1,5 +1,9 @@
 # Skill feed — content for n64-decomp-campaign (from dp64 campaigns, 2026-07-29)
 
+> **Historical drafting record.** This file preserves the source material that
+> fed the bundled skill. Use [Agent skill](agent-skill.md) and the installed
+> `SKILL.md` for the current agent workflow.
+
 Each entry names the skill file it should land in. Source evidence: five
 campaigns (3 matched, 2 mapped) + one from-scratch authoring run + one
 compiler-instrumentation deep-dive, all on IDO 5.3 `-O2 -g3 -mips2`.

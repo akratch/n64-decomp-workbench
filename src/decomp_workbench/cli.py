@@ -22,6 +22,8 @@ from .agent_skill import install_agent_skill
 from .align_cli import register_align_commands
 from .allocator_cli import register_allocator_commands
 from .artifacts import capture_streams
+from .cache import cache_status as inspect_cache
+from .cache import format_bytes
 from .cache_cli import register_cache_commands
 from .campaign import (
     Candidate,
@@ -38,6 +40,7 @@ from .campaign_cli import register_campaign_cockpit_commands
 from .campaign_registration import register_campaign_run_commands
 from .campaign_state import (
     campaign_identity,
+    finalize_source_retention,
     finish_manifest,
     initialize_manifest,
     record_control_preflight,
@@ -49,7 +52,7 @@ from .cli_options import (
     add_process_output_arguments,
 )
 from .collateral_cli import register_collateral_command
-from .compare import compare_instructions, compare_objects
+from .compare import MIXED_ALIGNMENT_CAUTION, compare_instructions, compare_objects
 from .comparison_render import comparison_line as comparison_line
 from .comparison_render import (
     relocation_target_difference_lines,
@@ -71,7 +74,7 @@ from .discovery import (
     register_discovery_commands,
     rewrite_group_alias,
 )
-from .environment import merge_toolchain_environment
+from .environment import merge_toolchain_environment, resolve_compiler_environment
 from .environment import parse_environment as parse_environment
 from .experiment_cli import register_experiment_commands
 from .experiment_controls import run_control_preflight
@@ -107,7 +110,7 @@ from .matrix_cli import register_matrix_command
 from .model import Comparison, CompileResult, display_path
 from .next_cli import register_next_command
 from .notes_cli import register_note_commands
-from .objdump import discover_objdump, dump_object, parse_disassembly
+from .objdump import discover_objdump, dump_object, parse_disassembly, probe_objdump
 from .object_cli import (
     compare_command,
     compare_dumps_command,
@@ -122,6 +125,7 @@ from .pass_adapter_cli import register_pass_adapter_command
 from .pass_replay import ListingEdit, replay_as1
 from .phase_cli import register_phase_commands
 from .preflight import compile_preflight
+from .project_cli import register_project_commands
 from .relocation_cli import register_relocation_command
 from .reporting import SCHEMAS, error_report, render_json, run_json_handler
 from .scheduler_cli import register_scheduler_commands
@@ -793,20 +797,18 @@ def doctor_command(args: argparse.Namespace) -> int:
     objdump_path: str | None = None
     objdump_error: str | None = None
     objdump_version: str | None = None
+    objdump_checks: dict[str, bool] = {}
     try:
         objdump_path = discover_objdump(args.objdump)
-        version = subprocess.run(
-            [objdump_path, "--version"],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=3,
-        )
-        lines = (version.stdout or version.stderr).splitlines()
-        objdump_version = lines[0].strip() if lines else None
-    except FileNotFoundError as error:
+        probe = probe_objdump(objdump_path)
+        objdump_version = probe.version
+        objdump_checks = dict(probe.checks)
+        if not probe.compatible:
+            objdump_error = (
+                f"objdump is not GNU/MIPS compatible: {objdump_path} ({probe.error})"
+            )
+            objdump_path = None
+    except (FileNotFoundError, RuntimeError) as error:
         objdump_error = str(error)
     except (OSError, subprocess.TimeoutExpired) as error:
         objdump_error = f"could not query objdump: {error}"
@@ -836,20 +838,20 @@ def doctor_command(args: argparse.Namespace) -> int:
             objdump_error = f"object reader failed the supplied target.o: {error}"
 
     cache = Path(args.cache_dir).expanduser().resolve()
-    cache_files: list[Path] = []
     cache_error: str | None = None
     try:
-        if cache.is_dir():
-            cache_files = [item for item in cache.rglob("*") if item.is_file()]
-        cache_bytes = sum(item.stat().st_size for item in cache_files)
+        cache_report = inspect_cache(cache)
+        cache_files = int(cache_report["files"])
+        cache_bytes = int(cache_report["bytes"])
     except OSError as error:
+        cache_files = 0
         cache_bytes = 0
         cache_error = str(error)
     cache_large = cache_bytes >= 1024 * 1024 * 1024
     object_status = (
         "verified"
         if object_verified
-        else "detected"
+        else "ready"
         if objdump_path and not object_required
         else "limited"
     )
@@ -895,7 +897,7 @@ def doctor_command(args: argparse.Namespace) -> int:
         "cache": {
             "path": display_path(cache),
             "exists": cache.is_dir(),
-            "files": len(cache_files),
+            "files": cache_files,
             "bytes": cache_bytes,
             "large": cache_large,
             "error": cache_error,
@@ -905,6 +907,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             "status": object_status,
             "objdump": objdump_path,
             "version": objdump_version,
+            "capabilities": objdump_checks,
             "error": objdump_error,
         },
         "scratch": (
@@ -929,24 +932,27 @@ def doctor_command(args: argparse.Namespace) -> int:
         print("retained objdump workflow: READY (no compiler or object reader needed)")
         if object_status == "verified":
             print(f"object workflow: VERIFIED ({objdump_path})")
-        elif object_status == "detected":
-            print(f"object workflow: DETECTED ({objdump_path})")
-            print("object format support: checked when the first object is read")
+        elif object_status == "ready":
+            print(f"object workflow: READY ({objdump_path})")
+            print(
+                "object format support: VERIFIED (GNU syntax, MIPS ELF + relocations)"
+            )
         else:
             print("object workflow: LIMITED")
             print(f"  {objdump_error}")
         cache_label = "UNREADABLE" if cache_error else "LARGE" if cache_large else "OK"
         print(
-            f"campaign cache: {cache_label} - {len(cache_files)} file(s), "
-            f"{cache_bytes} byte(s) ({display_path(cache)})"
+            f"campaign cache: {cache_label} - {cache_files} file(s), "
+            f"{format_bytes(cache_bytes)} ({cache_bytes} bytes; {display_path(cache)})"
         )
         if cache_error:
             print(f"  error: {cache_error}")
         if cache_large:
             print(
-                "  note: inspect this content cache before pruning it; "
-                "doctor never deletes campaign evidence"
+                "  next: decomp-workbench cache prune --max-size 1GiB "
+                f"--cache-dir {shlex.quote(str(cache))}"
             )
+            print("  note: this is a dry run; add --apply only after inspection")
         if package:
             print(f"scratch: VALID ({package.kind}; {len(package.files)} file(s))")
             command = ["decomp-workbench", "check-scratch", str(package.path)]
@@ -974,6 +980,7 @@ def doctor_command(args: argparse.Namespace) -> int:
     return (
         1
         if (object_required and not object_verified)
+        or (args.objdump is not None and objdump_path is None)
         or cache_error
         or (preflight is not None and not preflight["ready"])
         or (
@@ -1036,6 +1043,30 @@ def allocation_progress_label(comparison: Comparison) -> str:
     return f"pool={pool} temp-prefix={temp} first-row={first}"
 
 
+def campaign_ranking_label(results: list[CompileResult], *, requested: str) -> str:
+    """Name the scale that actually ordered one campaign result set."""
+
+    if requested != "auto":
+        return requested
+    return (
+        "words"
+        if any(
+            item.comparison is not None and not item.comparison.alignment_comparable
+            for item in results
+        )
+        else "aligned_total"
+    )
+
+
+def campaign_alignment_ranking_unsafe(results: list[CompileResult]) -> bool:
+    """Say whether aligned totals lack a common scale for this population."""
+
+    return any(
+        item.comparison is not None and not item.comparison.alignment_comparable
+        for item in results
+    )
+
+
 def compile_rank_command(args: argparse.Namespace) -> int:
     """Compatibility ranking surface backed by the campaign engine."""
 
@@ -1043,6 +1074,7 @@ def compile_rank_command(args: argparse.Namespace) -> int:
         environment = parse_environment(args.env)
         if args.toolchain:
             environment = merge_toolchain_environment(environment, args.toolchain)
+        environment = resolve_compiler_environment(environment, args.inherit_env)
         results, _ = run_campaign(
             args.sources,
             target=args.target,
@@ -1067,6 +1099,7 @@ def compile_rank_command(args: argparse.Namespace) -> int:
         (item, item.comparison) for item in results if item.comparison is not None
     ]
     failures = [item for item in results if item.comparison is None]
+    ranked_by = campaign_ranking_label(results, requested=args.rank_by)
     ordered = [item for item, _ in successes] + failures
     if args.limit:
         ordered = ordered[: args.limit]
@@ -1079,6 +1112,8 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        if ranked_by == "words" and args.rank_by == "auto":
+            print(MIXED_ALIGNMENT_CAUTION)
         for rank, (_, comparison) in enumerate(successes[: args.limit or None], 1):
             progress = (
                 f" [{allocation_progress_label(comparison)}]"
@@ -1113,6 +1148,7 @@ def campaign_command(args: argparse.Namespace) -> int:
         environment = parse_environment(args.env)
         if args.toolchain:
             environment = merge_toolchain_environment(environment, args.toolchain)
+        environment = resolve_compiler_environment(environment, args.inherit_env)
         compile_cwd = (
             Path(args.compile_cwd).expanduser().resolve()
             if args.compile_cwd
@@ -1192,6 +1228,7 @@ def campaign_command(args: argparse.Namespace) -> int:
                 stop_on_exact=args.stop_on_exact,
                 experiment=experiment.as_dict() if experiment else None,
                 rank_by=args.rank_by,
+                retain_sources=args.retain_sources,
             )
             effective_ledger = ledger_path
         if experiment is not None and experiment.controls:
@@ -1268,6 +1305,7 @@ def campaign_command(args: argparse.Namespace) -> int:
             rank_by=args.rank_by,
         )
         if manifest_path is not None:
+            finalize_source_retention(manifest_path)
             finish_manifest(
                 manifest_path,
                 results=len(results),
@@ -1300,6 +1338,7 @@ def campaign_command(args: argparse.Namespace) -> int:
         return 2
     shown = results[: args.limit] if args.limit else results
     basins = group_object_basins(results, rank_by=args.rank_by)
+    ranked_by = campaign_ranking_label(results, requested=args.rank_by)
     unrun = len(duplicates) - len(results)
 
     def basin_summary(basin: list[CompileResult]) -> dict[str, object]:
@@ -1353,6 +1392,10 @@ def campaign_command(args: argparse.Namespace) -> int:
                     "source_files": sum(len(items) for items in duplicates.values()),
                     "timeout_seconds": args.timeout,
                     "rank_by": args.rank_by,
+                    "ranked_by": ranked_by,
+                    "alignment_ranking_unsafe": campaign_alignment_ranking_unsafe(
+                        results
+                    ),
                     "manifest": str(manifest_path) if manifest_path else None,
                     "ledger": str(effective_ledger) if effective_ledger else None,
                     "experiment": experiment.as_dict() if experiment else None,
@@ -1365,6 +1408,8 @@ def campaign_command(args: argparse.Namespace) -> int:
             )
         )
     else:
+        if ranked_by == "words" and args.rank_by == "auto":
+            print(MIXED_ALIGNMENT_CAUTION)
         if control_report["status"] != "NOT DECLARED":
             print(
                 f"controls: {control_report['passed_required']}/"
@@ -2090,6 +2135,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_campaign_cockpit_commands(commands)
     register_cache_commands(commands)
     register_context_commands(commands)
+    register_project_commands(commands, dispatch=main)
 
     instrument_parser = commands.add_parser(
         "instrument-ugen",

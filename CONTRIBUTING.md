@@ -15,9 +15,10 @@ ruff format --check src tests
 mypy src tests
 ```
 
-The core package intentionally uses the Python standard library. Optional
-integrations may have dependencies, but keep them isolated and document their
-failure mode when unavailable.
+The core package intentionally uses the Python standard library on Python 3.11
+and newer; Python 3.10 installs `tomli` solely for compatible project-config
+parsing. Keep optional integrations isolated and document their failure mode
+when unavailable.
 
 ## Reporting an issue
 
@@ -59,6 +60,12 @@ An instrumentation profile must include:
 
 Do not commit original compiler binaries or generated sources whose
 redistribution terms are unclear.
+
+Worked examples that include third-party source, generated context, or
+assembly derived from a game binary need an explicit notice and a recorded
+redistribution basis. Attribution or a public upstream repository alone is not
+enough. If that basis cannot be recorded, commit a reproducible recipe and
+synthetic metadata instead of the payload.
 
 ## Licensing
 

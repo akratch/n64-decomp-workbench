@@ -1,14 +1,13 @@
-"""Integrity checks for the complete Castlevania 64 scratch examples."""
+"""Integrity and redistribution checks for the code-free CV64 campaign record."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-SCRATCHES = ROOT / "examples" / "cv64" / "scratches"
+CV64 = ROOT / "examples" / "cv64"
 EXPECTED_EXACT = {
     "func_800010A0_1CA0": False,
     "func_800010C8_1CC8": False,
@@ -16,66 +15,39 @@ EXPECTED_EXACT = {
     "func_8013B270_BE460": True,
     "menuButton_selectNextOption": False,
 }
-REQUIRED_FILES = {
-    "README.md",
-    "SHA256SUMS",
-    "context.c",
-    "scratch.json",
-    "source.c",
-    "target.s",
-    "workbench.json",
-}
 
 
 class Cv64ExampleTests(unittest.TestCase):
-    def test_complete_scratch_bundles_are_self_consistent(self) -> None:
-        bundles = {
-            path.name: path
-            for path in SCRATCHES.iterdir()
-            if path.is_dir() and not path.name.startswith(".")
-        }
-        self.assertEqual(set(bundles), set(EXPECTED_EXACT))
-
-        for name, bundle in bundles.items():
-            with self.subTest(bundle=name):
+    def test_recorded_results_are_self_consistent(self) -> None:
+        payload = json.loads((CV64 / "results.json").read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema"], "decomp-workbench-recorded-example-v1")
+        self.assertEqual(payload["compiler"], "IDO 7.1")
+        results = {item["symbol"]: item for item in payload["results"]}
+        self.assertEqual(set(results), set(EXPECTED_EXACT))
+        for symbol, exact in EXPECTED_EXACT.items():
+            with self.subTest(symbol=symbol):
+                self.assertEqual(results[symbol]["exact"], exact)
                 self.assertEqual(
-                    {path.name for path in bundle.iterdir() if path.is_file()},
-                    REQUIRED_FILES,
+                    results[symbol]["normalized_distance"] == 0,
+                    exact,
                 )
 
-                scratch = json.loads(
-                    (bundle / "scratch.json").read_text(encoding="utf-8")
-                )
-                self.assertEqual(
-                    scratch["schema"], "decomp-workbench-scratch-bundle-v1"
-                )
-                self.assertEqual(scratch["decomp_me"]["compiler"], "IDO 7.1")
-                self.assertEqual(scratch["decomp_me"]["diff_label"], name)
+    def test_uncleared_scratch_payloads_are_absent(self) -> None:
+        scratches = CV64 / "scratches"
+        files = [path for path in scratches.rglob("*") if path.is_file()]
+        self.assertEqual(files, [])
+        forbidden_names = {"context.c", "source.c", "target.s", "SHA256SUMS"}
+        self.assertEqual(
+            {path.name for path in CV64.rglob("*") if path.name in forbidden_names},
+            set(),
+        )
 
-                target = (bundle / "target.s").read_text(encoding="utf-8")
-                self.assertEqual(target.count("glabel "), 1)
-                self.assertIn(f"glabel {name}", target)
+    def test_notice_records_the_resolved_release_gate(self) -> None:
+        notice = (CV64 / "NOTICE.md").read_text(encoding="utf-8")
+        self.assertIn("does not grant a license", notice)
+        self.assertIn("payloads are not present", notice)
+        self.assertIn("redistribution basis", notice)
 
-                checksums = {}
-                for line in (
-                    (bundle / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
-                ):
-                    digest, filename = line.split("  ", maxsplit=1)
-                    checksums[filename] = digest
-                self.assertEqual(
-                    checksums,
-                    {
-                        filename: metadata["sha256"]
-                        for filename, metadata in scratch["files"].items()
-                    },
-                )
-                for filename, expected_digest in checksums.items():
-                    actual_digest = hashlib.sha256(
-                        (bundle / filename).read_bytes()
-                    ).hexdigest()
-                    self.assertEqual(actual_digest, expected_digest)
 
-                workbench = json.loads(
-                    (bundle / "workbench.json").read_text(encoding="utf-8")
-                )
-                self.assertEqual(workbench["exact"], EXPECTED_EXACT[name])
+if __name__ == "__main__":
+    unittest.main()

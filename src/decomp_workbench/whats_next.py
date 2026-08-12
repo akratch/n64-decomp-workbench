@@ -55,18 +55,35 @@ RANK_LABELS = {
 
 @dataclass(frozen=True)
 class Step:
-    """One recommended command with the reason it comes where it does."""
+    """One executable, read-only recommendation and why it comes next.
+
+    ``argv`` is the source of truth.  The shell spelling is rendered only at
+    the presentation boundary; callers must never have to parse prose back
+    into arguments, and quoting cannot silently discard a selector.
+    """
 
     rank: int
-    command: str
+    argv: tuple[str, ...]
     why: str
+    action: str
+    expected_signal: str
+
+    @property
+    def command(self) -> str:
+        """Return a paste-ready shell spelling of the typed arguments."""
+
+        return shlex.join(("decomp-workbench", *self.argv))
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "rank": self.rank,
             "kind": RANK_LABELS[self.rank],
+            "action": self.action,
+            "command_argv": ["decomp-workbench", *self.argv],
             "command": self.command,
             "why": self.why,
+            "expected_signal": self.expected_signal,
+            "safety": "read-only",
         }
 
 
@@ -95,58 +112,82 @@ class Plan:
         }
 
 
-def _command(*parts: str) -> str:
-    return " ".join(["decomp-workbench", *parts])
+_DUMP_COMMANDS = {
+    "align": "align-dumps",
+    "compare": "compare-dumps",
+    "diagnose": "diagnose-dumps",
+    "phase": "phase-dumps",
+    "view": "view-dumps",
+}
+
+
+def _comparison_argv(
+    command: str,
+    target: str,
+    candidate: str,
+    *,
+    dumps: bool,
+    symbol: str | None,
+    section: str,
+    objdump: str | None,
+    extra: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """Build an input-kind-correct comparison command with its selectors."""
+
+    actual = _DUMP_COMMANDS[command] if dumps else command
+    argv = [actual, target, candidate, *extra]
+    if symbol:
+        argv.extend(("--function", symbol))
+    if not dumps:
+        argv.extend(("--section", section))
+        if objdump:
+            argv.extend(("--objdump", objdump))
+    return tuple(argv)
 
 
 #: One concrete command and one sentence per verdict. Deliberately one route
 #: per verdict: the value of this command is that it chooses, and a list of
 #: three correct options would hand the choice straight back.
-VERDICT_ROUTES: dict[str, tuple[str, str]] = {
+VERDICT_ROUTES: dict[str, tuple[str, tuple[str, ...], str]] = {
     "structure-mismatch": (
-        "view {target} {candidate} --show-all",
+        "view",
+        ("--show-all",),
         "opcode shape differs, so this is a source-level difference; bucket "
         "the hunks and work at the expression or control-flow level before "
         "any allocator experiment.",
     ),
     "schedule-mismatch": (
-        "diagnose {target} {candidate}",
+        "diagnose",
+        (),
         "the instruction multiset is identical and only the order differs, "
         "so this is late-pass scheduling; diagnose says whether statement "
         "line assignment or the assembler owns the ordering.",
     ),
     "allocation-mismatch": (
-        "diagnose {target} {candidate}",
+        "diagnose",
+        (),
         "opcode shape matches and only registers differ; diagnose names "
         "which allocation family this is -- temp-FIFO phase, pool position, "
         "or coalescing -- from these two objects, with no instrumented "
         "toolchain.",
     ),
     "constant-mismatch": (
-        "diagnose {target} {candidate} --show-diff",
+        "diagnose",
+        ("--show-diff",),
         "shapes agree and only literal operands differ; this puts every "
         "differing immediate side by side.",
     ),
     "operand-mismatch": (
-        "diagnose {target} {candidate} --show-diff",
+        "diagnose",
+        ("--show-diff",),
         "shapes agree and only literal operands differ; this puts every "
         "differing immediate side by side.",
     ),
     "frame-layout-mismatch": (
-        "view {target} {candidate}",
+        "view",
+        (),
         "the stack frames differ, which is its own acceptance gate: a better "
         "register score cannot compensate for a wrong frame.",
-    ),
-    "relocation-layout-mismatch": (
-        "relocation-aliases {target} {candidate}",
-        "the differences are linker-controlled, so prove whether the two "
-        "spellings resolve to the same linked address before treating any of "
-        "them as work.",
-    ),
-    "unknown-relocation": (
-        "relocation-aliases {target} {candidate}",
-        "an unrecognized relocation kind is in play, so the masked word "
-        "counts cannot be trusted until it is classified.",
     ),
 }
 
@@ -159,7 +200,8 @@ ALLOCATION_VERDICTS = frozenset({"allocation-mismatch", "frame-layout-mismatch"}
 
 #: Where a verdict with no route of its own is sent.
 FALLBACK_ROUTE = (
-    "diagnose {target} {candidate}",
+    "diagnose",
+    (),
     "one screen of exactness, mechanism, and the field-guide lever for this residual.",
 )
 
@@ -170,32 +212,52 @@ def plan_next_steps(
     target: str,
     candidate: str,
     source: str | None = None,
+    dumps: bool = False,
+    symbol: str | None = None,
+    section: str = ".text",
+    objdump: str | None = None,
+    symbol_map: str | None = None,
+    trace: str | None = None,
+    proc: int | None = None,
 ) -> Plan:
     """Return the ordered plan for one comparison."""
 
-    quoted_target = shlex.quote(target)
-    quoted_candidate = shlex.quote(candidate)
     steps: list[Step] = []
     blocked: list[str] = []
 
     if item.exact:
-        steps.append(
-            Step(
-                RANK_FAMILY,
-                _command("fidelity", quoted_target, quoted_candidate),
-                "the selected function matches; whether the rest of the "
-                "object does is a separate gate and this is the one that "
-                "answers it.",
+        if dumps:
+            steps.append(
+                Step(
+                    RANK_FAMILY,
+                    ("guide", "post-match-cleanup"),
+                    "the retained disassembly matches, but a text dump cannot "
+                    "prove whole-object, translation-unit, or linked-ROM "
+                    "fidelity; this names the remaining gates without "
+                    "overstating the evidence you supplied.",
+                    "open-post-match-gates",
+                    "the exactness gates still requiring real build artifacts",
+                )
             )
-        )
-        steps.append(
-            Step(
-                RANK_ATTRIBUTION,
-                _command("object-collateral", quoted_target, quoted_candidate),
-                "expose any whole-object change that landed outside the "
-                "function you were working on.",
+        else:
+            steps.append(
+                Step(
+                    RANK_FAMILY,
+                    _comparison_argv(
+                        "object-collateral",
+                        target,
+                        candidate,
+                        dumps=False,
+                        symbol=symbol,
+                        section=section,
+                        objdump=objdump,
+                    ),
+                    "the selected function matches; expose any whole-object "
+                    "change that landed outside it before promotion.",
+                    "check-object-collateral",
+                    "zero unexplained changes outside the selected function",
+                )
             )
-        )
         return Plan(
             target=target,
             candidate=candidate,
@@ -212,13 +274,23 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_BLOCKER,
-                _command("align", quoted_target, quoted_candidate),
+                _comparison_argv(
+                    "align",
+                    target,
+                    candidate,
+                    dumps=dumps,
+                    symbol=symbol,
+                    section=section,
+                    objdump=objdump,
+                ),
                 f"the candidate emits {abs(delta)} {direction} instruction(s) "
                 "than the target, so every word after the first count "
                 "difference is shifted rather than wrong; this names the "
                 "inserted and deleted instructions and says how many "
                 "instructions away the candidate really is, instead of what "
                 "the shift costs positionally.",
+                "locate-structural-shift",
+                "the inserted/deleted rows and the first trustworthy aligned residue",
             )
         )
         blocked.append(
@@ -230,12 +302,23 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_FAMILY,
-                _command("phase", quoted_target, quoted_candidate),
+                _comparison_argv(
+                    "phase",
+                    target,
+                    candidate,
+                    dumps=dumps,
+                    symbol=symbol,
+                    section=section,
+                    objdump=objdump,
+                ),
                 f"{item.fp_register_mismatches} row(s) differ in a "
                 "floating-point register, which is the shape a rotated "
                 "scratch ring makes: read whether the residual is a renaming "
                 "before treating it as a mistake, and read the positional "
                 "count beside it so a rotation is never recorded as a win.",
+                "classify-fp-ring-phase",
+                "whether one coherent floating-point register rotation "
+                "explains the rows",
             )
         )
 
@@ -247,37 +330,71 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_BLOCKER,
-                _command("guide", "stack-frame-recovery"),
+                ("guide", "stack-frame-recovery"),
                 f"the frames differ (target {item.target_frame_size}, "
                 f"candidate {item.candidate_frame_size}); frame recovery is "
                 "its own acceptance gate, and a better register score cannot "
                 "compensate for a wrong frame.",
+                "recover-stack-frame",
+                "a source experiment that restores the target frame size",
             )
         )
 
-    if item.word_mismatches == 0 and item.raw_word_mismatches:
+    if item.word_mismatches == 0 and item.raw_word_mismatches and symbol_map:
+        relocation_argv = [
+            "relocation-aliases",
+            target,
+            candidate,
+            "--symbol-map",
+            symbol_map,
+        ]
+        if symbol:
+            relocation_argv.extend(("--symbol", symbol))
         steps.append(
             Step(
                 RANK_FAMILY,
-                _command("relocation-aliases", quoted_target, quoted_candidate),
+                tuple(relocation_argv),
                 "no instruction word differs once linker-controlled fields "
                 "are masked, so what is left is relocation spelling; this "
                 "proves whether the two spellings link to the same address.",
+                "prove-relocation-aliases",
+                "resolved-address equality or a concrete non-aliasing relocation",
             )
         )
-    else:
-        template, why = VERDICT_ROUTES.get(item.verdict, FALLBACK_ROUTE)
+    elif item.word_mismatches == 0 and item.raw_word_mismatches:
         steps.append(
             Step(
                 RANK_FAMILY,
-                _command(
-                    template.format(target=quoted_target, candidate=quoted_candidate)
+                ("guide", "relocation-only"),
+                "only linker-controlled fields remain, but proving aliasing "
+                "requires a linked symbol map; the guide explains that proof "
+                "and `next --symbol-map MAP` will emit the concrete command.",
+                "prepare-relocation-proof",
+                "a linked symbol map suitable for resolving both spellings",
+            )
+        )
+    else:
+        command, extra, why = VERDICT_ROUTES.get(item.verdict, FALLBACK_ROUTE)
+        steps.append(
+            Step(
+                RANK_FAMILY,
+                _comparison_argv(
+                    command,
+                    target,
+                    candidate,
+                    dumps=dumps,
+                    symbol=symbol,
+                    section=section,
+                    objdump=objdump,
+                    extra=extra,
                 ),
                 f"verdict={item.verdict}: {why}",
+                "inspect-dominant-mechanism",
+                "a mechanism-specific residual and evidence-backed lever family",
             )
         )
 
-    if item.verdict in ALLOCATION_VERDICTS:
+    if item.verdict in ALLOCATION_VERDICTS and trace:
         # The step campaigns take last and should take first. Forcing one web
         # to a colour turned an apparently 21-row construct into a 2-row one
         # and showed its extra instruction was a symptom rather than a cost --
@@ -288,35 +405,43 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_FAMILY,
-                _command("oracle", "plan", "TRACE.log", "--proc", "N"),
+                (
+                    "oracle",
+                    "plan",
+                    trace,
+                    *(("--proc", str(proc)) if proc is not None else ()),
+                ),
                 "before spending builds on source variants: sweep the forced "
                 "colours over the webs this residue names, and record the "
                 "best forced object as the construct's ceiling. A ceiling "
                 "that does not reach the target rules out every source "
                 "spelling of the construct at once.",
+                "plan-forced-color-oracle",
+                "a bounded force grid and an explicit ceiling for this construct",
             )
         )
 
-    region_command = _command(
-        "compare",
-        quoted_target,
-        quoted_candidate,
-        "--by-region",
-        shlex.quote(source) if source else "SRC.c",
-    )
     if source:
-        region_why = (
-            "rank the differing words by the source construct that emitted "
-            "them, so the next edit is the biggest region rather than the "
-            "first differing row."
+        steps.append(
+            Step(
+                RANK_ATTRIBUTION,
+                _comparison_argv(
+                    "compare",
+                    target,
+                    candidate,
+                    dumps=dumps,
+                    symbol=symbol,
+                    section=section,
+                    objdump=objdump,
+                    extra=("--by-region", source),
+                ),
+                "rank the differing words by the source construct that "
+                "emitted them, so the next edit is the biggest attributed "
+                "region rather than the first differing row.",
+                "attribute-residue-to-source",
+                "ranked source regions with explicit attribution coverage",
+            )
         )
-    else:
-        region_why = (
-            "rank the differing words by the source construct that emitted "
-            "them; pass --src to have this filled in with your candidate's "
-            "source path."
-        )
-    steps.append(Step(RANK_ATTRIBUTION, region_command, region_why))
 
     playbook = VERDICT_PLAYBOOKS.get(item.verdict)
     if playbook:
@@ -327,9 +452,11 @@ def plan_next_steps(
         steps.append(
             Step(
                 RANK_REFERENCE,
-                _command("guide", playbook),
+                ("guide", playbook),
                 f"the lever family for this verdict{lever_text}, with the "
                 "evidence each one needs.",
+                "open-verdict-playbook",
+                "candidate source levers and the evidence required to use them",
             )
         )
 

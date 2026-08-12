@@ -17,11 +17,17 @@ from .campaign import (
     run_campaign,
     run_compiler,
 )
-from .campaign_state import build_status, resolve_manifest, validate_resume
+from .campaign_state import (
+    build_status,
+    durable_source_path,
+    resolve_manifest,
+    validate_resume,
+)
 from .collateral import compare_object_collateral
 from .experiment_signals import required_signals_pass
 from .experiments import load_experiment
 from .handoff_audit import audit_handoff
+from .html_report import document_shell
 
 FINISH_SCHEMA = "decomp-workbench-campaign-finish-v1"
 
@@ -61,7 +67,7 @@ def _selected(
     )
     if not isinstance(source_record, dict):
         raise ValueError("selected ledger record is absent from the campaign manifest")
-    source = Path(str(source_record["path"]))
+    source = durable_source_path(source_record)
     cache_object = Path(str(manifest["cache_directory"])) / f"{cache_key}.o"
     if not cache_object.is_file():
         raise FileNotFoundError(f"selected campaign object is absent: {cache_object}")
@@ -91,22 +97,19 @@ def _write_report(path: Path, report: dict[str, Any], *, format: str) -> None:
             "</tr>"
             for name, gate in report["gates"].items()
         )
-        serialized = html.escape(json.dumps(report, indent=2, sort_keys=True))
-        content = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>decomp-workbench campaign finish</title>
-<style>:root{{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}}
-body{{max-width:72rem;margin:2rem auto;padding:0 1rem;line-height:1.5}}
-table{{border-collapse:collapse;width:100%}}
-th,td{{padding:.5rem;border-bottom:1px solid #8886;text-align:left}}
-pre{{overflow:auto;padding:1rem;background:#8881}}</style></head><body>
+        body = f"""
 <h1>Campaign finish: {html.escape(str(report["status"]))}</h1>
 <p>Source <code>{html.escape(str(report["winner"]["source"]))}</code></p>
-<table><thead><tr><th>Gate</th><th>Status</th><th>Reason</th></tr></thead>
-<tbody>{gates}</tbody></table>
-<details><summary>Machine-readable receipt</summary><pre>{serialized}</pre></details>
-</body></html>"""
+<div class="table-scroll"><table><caption>Independent completion gates</caption>
+<thead><tr><th>Gate</th><th>Status</th><th>Reason</th></tr></thead>
+<tbody>{gates}</tbody></table></div>
+"""
+        content = document_shell(
+            "decomp-workbench campaign finish",
+            body,
+            report,
+            evidence_label="Machine-readable receipt",
+        )
     with path.open("x", encoding="utf-8") as destination:
         destination.write(content)
 
@@ -132,7 +135,7 @@ def finish_campaign(
     if format not in {"json", "html"}:
         raise ValueError("finish format must be json or html")
     manifest_path = resolve_manifest(campaign)
-    manifest = validate_resume(manifest_path)
+    manifest = validate_resume(manifest_path, allow_retained_sources=True)
     status = build_status(manifest_path)
     selected, source_record, source, cache_object = _selected(
         manifest, status, selection

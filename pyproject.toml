@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "n64-decomp-workbench"
-version = "0.4.0"
+version = "0.5.0"
 description = "Diagnose late-stage MIPS decompilation mismatches"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "CC0-1.0"
 license-files = ["LICENSE.md"]
+dependencies = ["tomli>=2.0; python_version < '3.11'"]
 authors = [{ name = "N64 decompilation contributors" }]
 keywords = ["decompilation", "ido", "mips", "n64", "reverse-engineering"]
 classifiers = [
@@ -80,4 +81,4 @@ strict = true
 # partial-availability-in per-block field decoded in the dp64 field notes;
 # "statics" is the C term for file-scope static definitions.
 ignore-words-list = "disjointness,dout,pavin,tne,nd,statics,sucessors"
-skip = "examples/cv64/scratches/*/context.c,./research-archive"
+skip = "./research-archive"

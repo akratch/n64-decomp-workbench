@@ -19,6 +19,7 @@ from decomp_workbench.compare import (
 )
 from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import (
+    _mips_probe_object,
     discover_objdump,
     parse_disassembly,
     parse_relocations,
@@ -131,6 +132,14 @@ class CompareTests(unittest.TestCase):
             objdump.chmod(0o644)
             with self.assertRaisesRegex(FileNotFoundError, "not executable"):
                 discover_objdump(str(objdump))
+
+    def test_the_capability_probe_is_a_mips_relocatable_object(self) -> None:
+        probe = _mips_probe_object()
+        self.assertEqual(probe[:7], b"\x7fELF\x01\x02\x01")
+        self.assertEqual(int.from_bytes(probe[16:18], "big"), 1)
+        self.assertEqual(int.from_bytes(probe[18:20], "big"), 8)
+        self.assertIn(b"probe_func", probe)
+        self.assertIn(b"probe_external", probe)
 
     def test_parse_and_normalize(self) -> None:
         instructions = parse_disassembly(TARGET)

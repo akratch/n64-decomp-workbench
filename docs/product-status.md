@@ -4,6 +4,9 @@ This is the current-state companion to the dated field notes, product review,
 and north-star vision. Those documents preserve why features were requested;
 this page says what users can rely on now.
 
+The cross-cutting release gates and the few external checks that remain open
+are tracked in the [Workbench quality checklist](workbench-quality-checklist.md).
+
 ## Complete user journeys
 
 | Job | Supported path |
@@ -14,6 +17,7 @@ this page says what users can rely on now.
 | Work a candidate family | v1/v2 `experiment validate` → control preflight → `campaign` → status/note/resume/export |
 | Finish and promote a winner | immutable selection → `campaign finish` fresh/optional gates → optional receipt-gated `campaign package` |
 | Manage local state | default `.decomp-workbench/` manifests/ledgers/cache; recoverable `cache prune/restore` |
+| Reuse project inputs | conservative `project init` preview → strict `.decomp-workbench.toml` → configured `next`/`compare`/`diagnose`/`campaign` |
 | Establish pass ownership | `fidelity`, `pass diff`, calibrated `replay-as1` |
 | Identify compiler lineage | behavioral `fingerprint-toolchain`; hash-recorded `lineage` across caller-supplied objects |
 | Explain allocator decisions | `trace-webs`, `trace-source`, `trace-stack-homes`, `oracle plan/diff/force/sweep/status/export` |
@@ -24,7 +28,7 @@ this page says what users can rely on now.
 
 Flat command names remain compatible. `decomp-workbench commands` presents the
 same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
-`cache`, `trace`, `instrument`, `pass`, `toolchain`, `shift`, `oracle`,
+`cache`, `project`, `trace`, `instrument`, `pass`, `toolchain`, `shift`, `oracle`,
 `experiment`).
 
 ## Intentional boundaries

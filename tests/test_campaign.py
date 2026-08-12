@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -17,9 +18,11 @@ from decomp_workbench.campaign import (
     prepare_candidates,
     render_compile_command,
     run_campaign,
+    run_compiler,
 )
 from decomp_workbench.cli import parse_environment
 from decomp_workbench.compare import compare_instructions
+from decomp_workbench.environment import resolve_compiler_environment
 from decomp_workbench.model import CompileResult
 from decomp_workbench.objdump import parse_disassembly
 
@@ -620,6 +623,39 @@ class CampaignTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             parse_environment(["NOT-VALID=1"])
+
+    def test_compiler_processes_do_not_inherit_unrecorded_host_state(self) -> None:
+        name = "DECOMP_WORKBENCH_UNTRACKED_TEST_VALUE"
+        previous = os.environ.get(name)
+        os.environ[name] = "must-not-leak"
+        try:
+            process = run_compiler(
+                [
+                    sys.executable,
+                    "-c",
+                    f"import os; print(os.environ.get('{name}', 'sealed'))",
+                ],
+                environment={},
+                compile_cwd=Path.cwd(),
+            )
+        finally:
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
+        self.assertEqual(process.stdout.strip(), "sealed")
+
+    def test_named_host_values_become_explicit_identity_inputs(self) -> None:
+        resolved = resolve_compiler_environment(
+            {"MODE": "explicit"},
+            ["PATH", "MODE"],
+            host={"PATH": "/controlled/bin", "MODE": "host"},
+        )
+        self.assertEqual(resolved, {"MODE": "explicit", "PATH": "/controlled/bin"})
+
+    def test_missing_inherited_value_is_a_clear_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not set in the host environment"):
+            resolve_compiler_environment({}, ["ABSENT"], host={})
 
 
 if __name__ == "__main__":

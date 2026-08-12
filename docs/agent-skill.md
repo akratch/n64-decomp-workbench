@@ -61,6 +61,9 @@ If it differs, the command reports the exact path and leaves it untouched.
 - compiler-ID/language/frontend separation and switch-lowering probes;
 - safe public proof artifacts, automated handoff audits, and a tooling-gap
   capture loop.
+- project-config discovery that refuses ambiguous object guesses, executable
+  `next` argv with expected signals, sealed compiler environments, and durable
+  campaign source-retention policies.
 
 Use the workbench commands for actual comparison and trace analysis. The skill
 teaches an agent which command/result is appropriate; it does not replace a
