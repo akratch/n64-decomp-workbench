@@ -178,8 +178,9 @@ evidence and must not be implied by the UI.
   attestations.
 - [x] All intended files are included in the `0.5.0` release commit and
   `handoff audit . --fail-on-warning` passes against that publication set.
-- [ ] Observe the updated Windows-native and full macOS jobs green in hosted
-  CI for the release commit; local tests cannot certify those runners.
+- [x] The Windows-native and full macOS jobs passed in hosted CI alongside the
+  Linux Python 3.10–3.14, static-analysis, and distribution jobs for the
+  release tree ([run 31596734599](https://github.com/akratch/n64-decomp-workbench/actions/runs/31596734599)).
 - [x] The repository's protected `pypi` environment requires owner review and
   accepts only `v*` tag deployments.
 - [ ] Register the pending PyPI trusted publisher before creating `v0.5.0`;
