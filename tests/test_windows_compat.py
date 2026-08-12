@@ -3,20 +3,72 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from decomp_workbench.artifacts import capture_streams
 from decomp_workbench.cache import cache_status, prune_cache
-from decomp_workbench.campaign import CompilerTimeoutError, run_compiler
+from decomp_workbench.campaign import (
+    CompilerTimeoutError,
+    render_compile_command,
+    run_compiler,
+)
 from decomp_workbench.cli import main
+from decomp_workbench.command_line import split_command
 from decomp_workbench.notes import add_note, merge_notes
 
 
 class WindowsCompatibilityTests(unittest.TestCase):
+    def test_windows_command_parser_preserves_native_paths(self) -> None:
+        command = split_command(
+            r'"C:\Program Files\IDO\cc.exe" C:\work\compile.py {source} {output}',
+            windows=True,
+        )
+        self.assertEqual(
+            command,
+            [
+                r"C:\Program Files\IDO\cc.exe",
+                r"C:\work\compile.py",
+                "{source}",
+                "{output}",
+            ],
+        )
+
+    def test_windows_command_parser_accepts_single_quoted_arguments(self) -> None:
+        self.assertEqual(
+            split_command("cc '--flag=a b' {source} {output}", windows=True),
+            ["cc", "--flag=a b", "{source}", "{output}"],
+        )
+
+    def test_windows_parser_round_trips_native_quoted_arguments(self) -> None:
+        arguments = [
+            "C:\\Program Files\\IDO\\",
+            'argument with "quotes"',
+            "",
+            "plain",
+        ]
+        rendered = subprocess.list2cmdline(arguments)
+        self.assertEqual(split_command(rendered, windows=True), arguments)
+
+    def test_compile_template_keeps_native_source_and_output_paths(self) -> None:
+        source = Path(r"C:\work tree\candidate.c")
+        output = Path(r"C:\work tree\candidate.o")
+        with mock.patch("decomp_workbench.command_line.os.name", "nt"):
+            command = render_compile_command(
+                r"C:\IDO\cc.exe --input {source} --output {output}", source, output
+            )
+        self.assertEqual(command[0], r"C:\IDO\cc.exe")
+        self.assertEqual(command[-3:], [str(source), "--output", str(output)])
+
+    def test_command_parser_rejects_an_unclosed_quote(self) -> None:
+        with self.assertRaisesRegex(ValueError, "closing quotation"):
+            split_command('cc "unfinished', windows=True)
+
     def test_the_complete_cli_imports_and_renders_help(self) -> None:
         self.assertEqual(main([]), 0)
 

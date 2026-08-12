@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shlex
 import tempfile
 import time
 from pathlib import Path
@@ -17,6 +16,7 @@ from .campaign import (
     file_sha256,
     run_compiler,
 )
+from .command_line import split_command
 
 PASS_DIFF_SCHEMA = "decomp-workbench-original-pass-diff-v1"
 
@@ -30,7 +30,7 @@ def render_pass_command(
 ) -> list[str]:
     """Render an external pass without a shell or implicit mounts."""
 
-    parts = shlex.split(template)
+    parts = split_command(template)
     for placeholder in ("{input}", "{output}"):
         if not any(placeholder in part for part in parts):
             raise ValueError(f"pass command must contain {placeholder}")

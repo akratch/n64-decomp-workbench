@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import html
 import json
-import shlex
 import tempfile
 import time
 from pathlib import Path
@@ -24,6 +23,7 @@ from .campaign_state import (
     validate_resume,
 )
 from .collateral import compare_object_collateral
+from .command_line import split_command
 from .experiment_signals import required_signals_pass
 from .experiments import load_experiment
 from .handoff_audit import audit_handoff
@@ -297,7 +297,7 @@ def finish_campaign(
                 gates["handoff"] = _gate("FAIL", str(error))
 
         if project_command is not None:
-            command = shlex.split(project_command)
+            command = split_command(project_command)
             if not command:
                 gates["project_verification"] = _gate(
                     "FAIL", "project command is empty"

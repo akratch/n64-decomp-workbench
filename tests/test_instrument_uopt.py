@@ -321,7 +321,7 @@ class UoptInstrumentationTests(unittest.TestCase):
             COMPILE_PRELUDE + source[start:end] + driver,
             encoding="utf-8",
         )
-        binary = root / "header"
+        binary = root / ("header.exe" if os.name == "nt" else "header")
         completed = subprocess.run(
             [compiler, "-Wall", "-Werror", str(program), "-o", str(binary)],
             check=False,

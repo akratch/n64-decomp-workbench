@@ -7,7 +7,6 @@ import hashlib
 import itertools
 import json
 import os
-import shlex
 import shutil
 import signal
 import subprocess
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
+from .command_line import split_command
 from .compare import TargetObject, compare_candidate, load_target
 from .experiment_signals import evaluate_signals, required_signals_pass
 from .experiments import RegionConstraint, SignalSpec
@@ -211,7 +211,7 @@ class ParameterizedCandidate:
 def render_compile_command(template: str, source: Path, output: Path) -> list[str]:
     """Render a compiler command without invoking a shell."""
 
-    parts = shlex.split(template)
+    parts = split_command(template)
     if not any("{source}" in part for part in parts):
         raise ValueError("--compile-command must contain {source}")
     if not any("{output}" in part for part in parts):

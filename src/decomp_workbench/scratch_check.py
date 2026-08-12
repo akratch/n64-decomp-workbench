@@ -6,12 +6,12 @@ import hashlib
 import json
 import math
 import re
-import shlex
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .command_line import split_command
 from .context_lint import analyze_expression, file_scope_definitions, lint_sources
 
 MAX_FILES = 64
@@ -541,7 +541,7 @@ def _defines_from_compiler_flags(flags: object) -> dict[str, int | None]:
     if not isinstance(flags, str):
         return {}
     try:
-        tokens = shlex.split(flags)
+        tokens = split_command(flags)
     except ValueError:
         return {}
     result: dict[str, int | None] = {}

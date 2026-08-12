@@ -86,11 +86,10 @@ def write_export(root: Path, *, dumps: bool = True, objects: bool = False) -> No
         json.dumps(metadata),
         encoding="utf-8",
     )
-    (root / "ctx.c").write_text("typedef int s32;\n", encoding="utf-8")
-    (root / "code.c").write_text(
-        "s32 demo(void) { return 1; }\n",
-        encoding="utf-8",
-    )
+    # Byte writes keep this exported fixture's LF convention deterministic on
+    # Windows. Other tests deliberately replace these with CRLF payloads.
+    (root / "ctx.c").write_bytes(b"typedef int s32;\n")
+    (root / "code.c").write_bytes(b"s32 demo(void) { return 1; }\n")
     if dumps:
         (root / "target.objdump").write_text(TARGET_DUMP, encoding="utf-8")
         (root / "current.objdump").write_text(CANDIDATE_DUMP, encoding="utf-8")

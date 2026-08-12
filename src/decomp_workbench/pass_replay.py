@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Any
 
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
 from .campaign import CompilerTimeoutError, run_compiler
+from .command_line import split_command
 from .fidelity import compare_object_fidelity
 
 
@@ -99,7 +99,7 @@ def render_stage_command(
         "{symtab}": str(symtab),
         "{object}": str(output),
     }
-    parts = shlex.split(template)
+    parts = split_command(template)
     required = ("{listing}", "{binasm}") if stage == "as0" else ("{binasm}", "{object}")
     for placeholder in required:
         if not any(placeholder in part for part in parts):

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .command_line import split_command
 from .discovery import subcommand_listing_handler
 from .project_config import (
     discover_project,
@@ -36,7 +37,7 @@ def project_init_command(args: argparse.Namespace) -> int:
             objdump=args.objdump,
             input_mode="dumps" if args.dumps else "objects",
         )
-        command = shlex.split(args.compile_command) if args.compile_command else None
+        command = split_command(args.compile_command) if args.compile_command else None
         discovery = with_build_overrides(
             discovery,
             command=command,

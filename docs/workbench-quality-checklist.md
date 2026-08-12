@@ -165,8 +165,10 @@ evidence and must not be implied by the UI.
 - [x] Platform-specific file locking imports only on its host OS.
 - [x] Paths use `pathlib`, compiler invocation avoids a shell, and project TOML
   arrays avoid platform-specific quoting.
-- [x] The full test suite is configured for Linux, macOS, and Windows, with
-  Python 3.10–3.14 on Linux.
+- [x] The full test suite runs on Linux and macOS, with Python 3.10–3.14 on
+  Linux. Windows runs native process/filesystem contracts, a complete
+  scratch-to-package campaign, and fixture-backed CLI smoke tests; Unix-only
+  synthetic shebang executables are not mislabeled as Windows tests.
 - [x] Static gates cover Ruff, formatting, strict mypy, codespell, Bandit,
   actionlint, wheel contents, wheel/sdist smoke tests, documentation links,
   parseable shell snippets, and the complete asset-free endgame example.
@@ -176,8 +178,8 @@ evidence and must not be implied by the UI.
   attestations.
 - [x] All intended files are included in the `0.5.0` release commit and
   `handoff audit . --fail-on-warning` passes against that publication set.
-- [ ] Observe the updated full Windows and macOS jobs green in hosted CI for
-  the release commit; local tests cannot certify those runners.
+- [ ] Observe the updated Windows-native and full macOS jobs green in hosted
+  CI for the release commit; local tests cannot certify those runners.
 - [x] The repository's protected `pypi` environment requires owner review and
   accepts only `v*` tag deployments.
 - [ ] Register the pending PyPI trusted publisher before creating `v0.5.0`;

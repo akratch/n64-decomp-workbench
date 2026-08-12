@@ -18,8 +18,11 @@
   retention is content-addressed and policy-driven; ambiguous mutating campaign
   commands require an explicit manifest. `next --json` exposes executable argv
   and expected signals, cache pruning supports size/age/LRU policies with
-  recoverable nested trash, Windows runs the full suite, and all HTML reports
-  share an accessible offline shell. A strict, preview-first
+  recoverable nested trash, and all HTML reports share an accessible offline
+  shell. Windows runs native process/filesystem contracts, a complete
+  scratch-to-package campaign, and fixture-backed CLI smoke tests; command
+  templates preserve native backslash paths instead of parsing them as POSIX
+  escapes. A strict, preview-first
   `.decomp-workbench.toml` project layer adds configured object commands and
   reproducible campaigns without guessing an objdiff unit, while `context
   duplicates` makes cross-fragment redeclarations a first-class check. Ranking

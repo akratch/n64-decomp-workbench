@@ -96,9 +96,17 @@ jobs:
         if: runner.os == 'macOS'
         run: python -m unittest discover -s tests -v
 
-      - name: Run the full suite on Windows
+      - name: Run Windows-native portability contracts
         if: runner.os == 'Windows'
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m unittest discover -s tests -p "test_windows_compat.py" -v
+          python -m unittest discover -s tests -p "test_trustworthy_endgame_example.py" -v
+          decomp-workbench --version
+          decomp-workbench commands --json
+          decomp-workbench compare-dumps examples/fixtures/target.objdump examples/fixtures/relocated-match.objdump --fail-on-mismatch
+          decomp-workbench diagnose-dumps examples/fixtures/phase-shift-target.objdump examples/fixtures/phase-shift-candidate.objdump --function animStep --json
+          decomp-workbench doctor examples/fixtures/decompme-export --json
+          decomp-workbench check-scratch examples/fixtures/decompme-export --json
 
   package:
     name: Build distributions
