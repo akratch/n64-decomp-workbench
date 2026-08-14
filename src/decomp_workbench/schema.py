@@ -530,6 +530,14 @@ VIEW_METRICS: tuple[Metric, ...] = (
         "pre-probe default carried for unmeasured ones",
     ),
     Metric(
+        "ring_only_targets",
+        "ring_only_targets",
+        "target registers no coloring pass in this era can hand out, so no "
+        "reweighting, tie-break, or forced-color lever can reach them; a "
+        "register residual made entirely of these is a web-existence "
+        "question, not a color question",
+    ),
+    Metric(
         "target_instructions",
         "target_instructions",
         "instructions parsed from the target",

@@ -296,6 +296,33 @@ from the initializer.
 The int color map has a hole at c13 and the float colors occupy c24–c32, which
 is why a forced-color probe on 5.3 must not assume a dense index space.
 
+### The colorability gate — ask this before any color lever
+
+The table above decides something stronger than which pass to read: whether a
+color lever can work **at all**.
+
+A coloring pass can only put a value in a register it hands out. For IDO 5.3
+that is `pool` + `fp-pool`. Every other register in the table is reachable only
+by ugen's block-local ring. So when the *target* register at a divergence is
+ring-only, no reweighting, no tie-break, and no `CDX_FORCE` colour reaches it:
+the value has to become a different kind of value first. The residual is a
+**web-existence** question — which values became ring temps — not a colour
+question.
+
+`view` and `diagnose` now ask this before naming a playbook:
+
+* every diverging target register ring-only → `verdict: register-ring-only`,
+  `playbook=temp-fifo-phase`, and the guidance names the registers;
+* some of them → the colour playbook still applies to the rest, with a `NOTE:`
+  counting the sites no colour can move;
+* none of them → unchanged.
+
+`--json` carries the same fact as `ring_only_targets`, and
+`--emit-force-spec` refuses a wholly ring-only residual rather than writing a
+handoff for a probe that cannot fire. A forced-colour campaign against a `t6`
+target is dead on arrival, and one campaign found that out only by reading raw
+cost lines out of an instrumented compiler.
+
 ### Any other release — unverified
 
 `--register-profile unverified` carries the pre-probe table

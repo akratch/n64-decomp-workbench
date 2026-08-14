@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .view import MechanismView
+from .view import MechanismView, uncolorable_targets
 
 FORCE_SPEC_SCHEMA = "decomp-workbench-diagnostic-force-v1"
 
@@ -14,8 +14,23 @@ FORCE_SPEC_SCHEMA = "decomp-workbench-diagnostic-force-v1"
 def force_specification(view: MechanismView) -> dict[str, Any]:
     """Describe the observed permutation without inventing allocator web IDs."""
 
+    if view.verdict == "register-ring-only":
+        named = ", ".join(
+            web.target for web in uncolorable_targets(view.webs, view.register_profile)
+        )
+        raise ValueError(
+            "--emit-force-spec cannot address this residual: every target "
+            f"register in it ({named}) is outside the era's colorable set, so "
+            "no forced color reaches one. A forced-color campaign here is "
+            "dead on arrival. This is a web-existence question -- which "
+            "values became block-local temps -- so start from "
+            "`decomp-workbench guide temp-fifo-phase`."
+        )
     if view.verdict != "register-permutation":
         raise ValueError("--emit-force-spec requires a register-permutation verdict")
+    ring_only = {
+        web.web for web in uncolorable_targets(view.webs, view.register_profile)
+    }
     return {
         "schema": FORCE_SPEC_SCHEMA,
         "evidence": "diagnostic-oracle-input",
@@ -23,6 +38,13 @@ def force_specification(view: MechanismView) -> dict[str, Any]:
             "Observed register permutation only. The wN labels are local aligned "
             "groups, not compiler allocator web IDs; join them to a calibrated "
             "trace before constructing CDX_FORCE controls."
+            + (
+                " Entries marked ring_only_target want a register the era's "
+                "coloring pass never hands out: no force reaches those, and a "
+                "probe can close only the rest."
+                if ring_only
+                else ""
+            )
         ),
         "target": view.target,
         "candidate": view.candidate,
@@ -41,6 +63,7 @@ def force_specification(view: MechanismView) -> dict[str, Any]:
                 "sites": web.count,
                 "allocator_web": None,
                 "phase": None,
+                "ring_only_target": web.web in ring_only,
             }
             for web in view.webs
         ],
