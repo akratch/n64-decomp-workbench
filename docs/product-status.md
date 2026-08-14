@@ -38,8 +38,11 @@ same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
   durable.
 - No bundled proprietary toolchain or one-size-fits-all generated compiler
   patch. The workbench supplies adapters, hashes, trace schemas, and gates.
-- No decomp.me upload client. Imports and deterministic bundles keep a human at
-  the network boundary.
+- No decomp.me upload client, login, or scrape. Network access is read-only,
+  explicit, and inventoried: `scratch fetch` downloads one public export and
+  `scratch public-match-check` queries the public search, both only when named
+  on the command line. Publishing still goes through a deterministic bundle a
+  human uploads, which keeps a person at the write boundary.
 - No ROM reader in lineage mode. The caller supplies object inputs and may
   attach precomputed ROM hashes.
 - No forced compiler result presented as a match. Oracle output always routes

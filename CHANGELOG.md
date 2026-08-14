@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- **`public-match-check` asks, before a campaign starts, whether the function
+  is already matched in public.** The cheapest finish is somebody else's, and
+  the way campaigns kept missing it was to walk the family of the scratch they
+  inherited: public matches live in unrelated lineages, so a family walk finds
+  none of them. The command queries the public decomp.me search by name, by
+  `--address` — in the three spellings a hand-written name uses, which in one
+  measured sweep surfaced roughly 55 of 127 functions a name lookup did not —
+  and binds results on `--max-score`/`--instructions`, because `max_score` is
+  the target's instruction count times one hundred and is therefore the only
+  handle on a scratch named after a jump table instead of the function. Two
+  rows are shouted at the reader: `score=0` with `match_override=false` is a
+  match the site itself verified, and `match_override=true` is one its owner
+  merely declared. `--fail-on-match` is the exit-code form, `--json` emits
+  `decomp-workbench-public-match-check-v1`, and an empty result never claims
+  novelty — the report carries that caveat in its own `limits`.
+
+- **`fetch-scratch` downloads one export, validated, and never twice.** The
+  step before every offline workflow was the one people got wrong: an
+  unidentified request the API refuses, a re-download of a scratch already on
+  disk, or an archive unpacked with none of the validation `check-scratch`
+  applies. `fetch-scratch SLUG [--outdir]` takes a slug or a pasted scratch
+  URL, validates the archive with exactly the loader that reads a local export
+  *before* writing anything, and unpacks the standard layout with the ZIP kept
+  beside it. A scratch already fetched there is reported without a request;
+  `--force` re-downloads; a directory that is not an export is never written
+  into or removed, so an `--outdir` typo cannot eat your work.
+
+- **Both use one polite standard-library client, and it will not evade a
+  block.** No new dependency. The `User-Agent` names this package and its
+  version (`--contact` appends a reachable address), the ordinary browser
+  headers accompany it because the API is served to a browser, responses are
+  decompressed and size-bounded, and a request is timed out and retried
+  **once** with backoff, honoring `Retry-After` and reporting rather than
+  sleeping through a long one. An HTTP 403 — the documented reality of this
+  API — is reported as a refusal that names what happened, states that the
+  workbench will not imitate a specific browser build to get past it, and
+  gives the offline route out. There is no evasion path here to grow later.
+  The transport is a constructor argument, so the whole failure surface is
+  tested against a scripted double and no test in the package opens a socket.
+
+- **The network surface is an inventory, not a blanket flag.**
+  `safety.network` was a constant `False` written into every command, which
+  could only be true while the package had no network code at all.
+  `commands --json` now carries a top-level `network` object: the offline-first
+  policy in sentences, exactly which commands may open a connection, and the
+  one host they contact with the reason. Every other command still reports
+  `safety.network: false`, no network command runs implicitly, and none is a
+  step inside another command — analysis never calls out on your behalf. The
+  discovery test asserts that inventory rather than a blanket false, which is
+  a claim that still means something now that the inventory is not empty.
+
 - **A relocation whose two sides name different symbols is no longer hidden
   behind a zero.** Word masking removes a linker-filled field from
   `word_mismatches`, which is right for the same symbol at a different addend

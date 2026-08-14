@@ -4,11 +4,11 @@ Use this workflow when the browser says `99.98%`, a local build disagrees, or
 you need to hand an exported scratch to somebody without making them reverse
 engineer its compilation model.
 
-The workbench never logs in, scrapes, or uploads. You download the ZIP through
-decomp.me, then the workbench validates and reads it locally. ZIP members are
-size-bounded and read in memory; they are never extracted. Members must share
-one flat archive root, so unrelated directories cannot be silently combined
-by matching basenames.
+The workbench never logs in, scrapes, or uploads. It can download one public
+export when you explicitly ask it to (`fetch-scratch`, below); everything else
+here is local. ZIP members are size-bounded and read in memory; they are never
+extracted. Members must share one flat archive root, so unrelated directories
+cannot be silently combined by matching basenames.
 
 ## One command first
 
@@ -70,29 +70,54 @@ direct symbol at that final address are not necessarily score-equivalent.
 
 ## Getting the export in the first place
 
-The workbench does not fetch anything: it has no network egress, by design and
-by contract (`decomp-workbench commands --json` reports `safety.network:
-false` for every command). You obtain the ZIP yourself and point the workbench
-at it.
+```sh
+decomp-workbench fetch-scratch aBcDe --outdir ~/scratches
+```
 
-If you script that download, two things are worth knowing, because several
-campaign sessions have spent time on each:
+That downloads one public export and unpacks it to `~/scratches/aBcDe/`
+(`metadata.json`, `ctx.c`, `code.c`, `target.o`, and `target.s` when the export
+includes it), keeping `aBcDe.zip` next to it. The archive is validated by the
+same loader `check-scratch` uses *before* anything is written, so a truncated
+download or a surprise archive cannot leave a half-unpacked directory behind.
+A pasted scratch URL works in place of the slug.
+
+**A scratch already fetched there is never fetched again.** Re-running the
+command reports the local copy and makes no request; `--force` re-downloads
+deliberately. A directory that is not a decomp.me export is never written into
+or removed, so an `--outdir` typo cannot eat your work.
+
+### The network policy this command lives under
+
+The workbench is offline-first. Two commands may open a connection —
+`fetch-scratch` and [`public-match-check`](public-match-check.md) — and
+`decomp-workbench commands --json` reports the whole inventory under its
+top-level `network` key: the policy, those two commands, and the one host they
+contact. Every other command reports `safety.network: false`. Neither of these
+ever runs implicitly, and neither is a step inside another command: analysis
+never calls out on your behalf.
+
+Two things are worth knowing about the requests themselves, because several
+campaign sessions spent time on each and the command now encodes both:
 
 * **The API expects a normal browser-shaped request.** A bare `curl` with no
-  headers is commonly rejected. Send a **descriptive** `User-Agent` that names
-  your tool and a contact — an honest identifier is both the polite thing and
-  the thing that makes it possible for the site to tell your traffic from
-  abuse — along with the ordinary `Accept`, `Accept-Language`, and `Referer`
-  headers a browser would send, and accept compressed responses. Do not
-  impersonate a specific browser build to get around a block: if requests are
-  being refused, that is a signal to slow down or ask, not to disguise them.
-* **Be gentle and cache.** These are volunteer-run community servers. Fetch
-  each scratch once, keep the ZIP, and re-run the workbench against the local
-  copy — which costs nothing and is reproducible. Serialize requests, leave a
-  pause between them, and back off on any error rather than retrying in a
-  loop. If you need bulk data, ask the project maintainers first.
+  headers is commonly rejected. The client sends a **descriptive**
+  `User-Agent` naming this package and its version — an honest identifier is
+  both the polite thing and the thing that lets the site tell your traffic
+  from abuse — plus the ordinary `Accept`, `Accept-Language`, and `Referer`
+  headers, and it accepts compressed responses. Add `--contact you@example.org`
+  to put a reachable address in that identity. It does **not** impersonate a
+  specific browser build, and it will not grow the ability to: if a request is
+  refused, the command says so and tells you to use a browser or ask, because
+  that is a signal to slow down, not to disguise anything.
+* **Be gentle and cache.** These are volunteer-run community servers. The
+  client fetches serially, times out, retries **once** with backoff, honors
+  `Retry-After`, and reports rather than sleeps through a long one. Keep the
+  ZIP and re-run the workbench against the local copy — that costs nothing and
+  is reproducible. If you need bulk data, ask the project maintainers first.
 
-Once the ZIP is on disk, everything below is local and offline.
+If a fetch is refused with HTTP 403, that is the documented reality of this
+API and not a bug in the command: download the export in a browser and pass
+the local path instead. Everything below is local and offline either way.
 
 ## Validate your environment and handoff
 

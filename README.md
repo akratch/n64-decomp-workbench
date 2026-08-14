@@ -247,6 +247,30 @@ decomp-workbench bundle-scratch scratch/demo \
   --diff-label demo
 ```
 
+Before starting on a function at all, ask whether it is already matched in
+public. Family walks miss those matches — they live in unrelated lineages —
+and a name lookup misses scratches named after a data label, so bind on the
+target's size and search its address too:
+
+```sh
+decomp-workbench public-match-check func_800C1A90 --address 0x800C1A90 --instructions 127
+```
+
+A `score=0` row with `match_override=false` is a match decomp.me itself
+verified; `match_override=true` is one its owner merely declared. See
+[gate 0][public-match-check].
+
+Have a slug? Fetch the export once, validated, into the standard layout — a
+scratch already on disk is reported rather than downloaded again:
+
+```sh
+decomp-workbench fetch-scratch aBcDe --outdir ~/scratches
+```
+
+These two are the only commands that open a network connection; both are
+read-only and neither ever runs implicitly. `decomp-workbench commands --json`
+carries the whole inventory.
+
 Downloaded a decomp.me ZIP? Validate it and compare the site's own target and
 current objects before trying another source edit:
 
@@ -339,6 +363,8 @@ edit](docs/from-verdict-to-edit.md) walks one case end to end.
 | Can I share the comparison without sharing objects? | `compare-dumps` | The same report from reduced objdump text |
 | Can one command tell me exactness, mechanism, and the next lever? | `diagnose`, `diagnose-dumps` | Comparison plus decisive aligned evidence, one input load |
 | Where does the divergence begin, and which mechanism owns it? | `view`, `view-dumps` | LCS-aligned hunks, register lanes, prefix signature, lever guidance |
+| Is this function already matched in public? | `public-match-check` | Name-, address- and size-anchored search, with site-verified matches and owner-declared claims told apart |
+| Can I get that scratch's export without hand-rolling a download? | `fetch-scratch` | One polite, identified, validated fetch into the standard layout, cached on disk |
 | Is this machine ready, and is this scratch valid? | `doctor` | Environment capabilities, handoff integrity, exact next command |
 | Does this downloaded scratch really match, or only differ from the exact project because of context? | `check-scratch` | Browser score context, independent scratch/project truth, optional site-faithful recompile |
 | The footer named a playbook — what is it? | `guide` | The field-guide levers for a playbook, verdict, or lever number |
@@ -406,6 +432,7 @@ The three narrative pages first, then the focused guides:
 - [External toolchains and calibration][toolchain-calibration]
 - [JSON and automation contracts][json-contracts]
 - [Current product status and intentional boundaries][product-status]
+- [Gate 0: public match check][public-match-check]
 - [Checking decomp.me exports][decompme-exports]
 - [Scratch bundles][scratch-bundles]
 - [Public handoff audits][public-handoffs]
@@ -491,6 +518,7 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [pass-replay]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/pass-replay.md
 [line-assignment-probe]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/line-assignment-probe.md
 [principles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/principles.md
+[public-match-check]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/public-match-check.md
 [scratch-bundles]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/scratch-bundles.md
 [trace-analysis]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/trace-analysis.md
 [cdx-cascade]: https://github.com/akratch/n64-decomp-workbench/blob/main/docs/cdx-cascade.md

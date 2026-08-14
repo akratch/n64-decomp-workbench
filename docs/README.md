@@ -54,6 +54,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You need to know which source lines own the differing rows | [Region attribution](region-attribution.md) | The candidate's C source |
 | Several people or agents append findings to one shared log, or keep filing different findings under the same number | [Shared notes](shared-notes.md) | A findings file anyone may rewrite |
 | You consume reports from scripts or CI | [JSON contracts](json-contracts.md) | `--json` |
+| You are about to start on a function and do not know whether it is already matched in public | [Gate 0: public match check](public-match-check.md) | The function's name or address; network |
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
 | You are about to publish a proof or integration repository | [Public handoff audit](public-handoffs.md) | Exact handoff tree; optional project dependency root |
