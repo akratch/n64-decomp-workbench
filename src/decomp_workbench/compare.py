@@ -290,6 +290,50 @@ def relocation_target_parts(symbol: str | None) -> tuple[str | None, int]:
     return match.group("symbol"), int(match.group("addend"), 0)
 
 
+def relocation_symbol_signature(
+    instruction: Instruction,
+) -> tuple[tuple[str, str | None], ...]:
+    """Return relocation kinds with the target symbol, addend discarded.
+
+    ``relocation_target_signature`` answers "does this site resolve to the
+    same place", which a link can settle. This answers the strictly narrower
+    "does this site name the same object", which no link can settle: a
+    different symbol at the same position is a different variable being read.
+    """
+
+    return tuple(
+        (item.kind, relocation_target_parts(item.symbol)[0])
+        for item in instruction.relocations
+    )
+
+
+#: Section symbols GNU objdump prints where a relocation targets an anonymous
+#: offset into a section rather than a named object. A candidate that reaches
+#: one of these where the target names an object may have manufactured its own
+#: private copy of storage another translation unit owns, which shifts the
+#: linked layout even though every instruction bit agrees.
+SECTION_SYMBOLS = frozenset({".text", ".data", ".rodata", ".bss", ".sdata", ".sbss"})
+
+
+def relocation_difference_class(
+    target: dict[str, object] | None, candidate: dict[str, object] | None
+) -> str:
+    """Name why one relocation site differs, from the two rendered sides.
+
+    The distinction is the whole point of the classification: an addend-only
+    difference is a layout coordinate the linker resolves, while a symbol
+    difference is a semantic defect that survives linking.
+    """
+
+    if target is None or candidate is None:
+        return "symbol"
+    if target.get("symbol") != candidate.get("symbol"):
+        return "symbol"
+    if target.get("kind") != candidate.get("kind"):
+        return "kind"
+    return "addend"
+
+
 def relocation_target_differences(
     target: Sequence[Instruction], candidate: Sequence[Instruction]
 ) -> list[dict[str, object]]:
@@ -336,18 +380,38 @@ def relocation_target_differences(
                     "raw_target": relocation.symbol,
                 }
 
+            left_payload = payload(left)
+            right_payload = payload(right)
+            difference_class = relocation_difference_class(left_payload, right_payload)
+            candidate_symbol = (
+                right_payload.get("symbol") if right_payload is not None else None
+            )
+            target_symbol = (
+                left_payload.get("symbol") if left_payload is not None else None
+            )
             differences.append(
                 {
                     "instruction_index": index,
                     "relocation_index": relocation_index,
+                    "difference": difference_class,
+                    #: True when the candidate reaches an anonymous section
+                    #: offset where the target names an object. That is the
+                    #: shape of a duplicated literal or a privately copied
+                    #: global, not of a benign late-rodata rename.
+                    "candidate_section_symbol": (
+                        difference_class == "symbol"
+                        and candidate_symbol in SECTION_SYMBOLS
+                        and target_symbol not in SECTION_SYMBOLS
+                        and target_symbol is not None
+                    ),
                     "target_instruction_offset": (
                         expected.address if expected is not None else None
                     ),
                     "candidate_instruction_offset": (
                         actual.address if actual is not None else None
                     ),
-                    "target": payload(left),
-                    "candidate": payload(right),
+                    "target": left_payload,
+                    "candidate": right_payload,
                 }
             )
     return differences
@@ -885,6 +949,7 @@ def comparison_guidance(
     structural_exact: bool,
     raw_difference_breakdown: dict[str, int],
     relocation_mismatches: int,
+    relocation_symbol_mismatches: int,
     unknown_relocations: list[str],
     opcode_mismatches: int,
     instruction_delta: int,
@@ -909,6 +974,7 @@ def comparison_guidance(
         structural_exact=structural_exact,
         raw_difference_breakdown=raw_difference_breakdown,
         relocation_mismatches=relocation_mismatches,
+        relocation_symbol_mismatches=relocation_symbol_mismatches,
         unknown_relocations=unknown_relocations,
         opcode_mismatches=opcode_mismatches,
         instruction_delta=instruction_delta,
@@ -936,6 +1002,7 @@ def _comparison_guidance(
     structural_exact: bool,
     raw_difference_breakdown: dict[str, int],
     relocation_mismatches: int,
+    relocation_symbol_mismatches: int,
     unknown_relocations: list[str],
     opcode_mismatches: int,
     instruction_delta: int,
@@ -950,12 +1017,34 @@ def _comparison_guidance(
 
     controlled = raw_difference_breakdown.get("relocation_controlled", 0)
     if exact:
+        if relocation_symbol_mismatches:
+            # `exact` only means the masked words and the relocation *kinds*
+            # agree. It says nothing about which symbol each site names, so
+            # this branch must not reach the "no source change is indicated"
+            # sentence below: the sites genuinely read different variables.
+            count = relocation_symbol_mismatches
+            noun = "site" if count == 1 else "sites"
+            return (
+                "relocation-symbol-mismatch",
+                [
+                    "Instruction bits and relocation kinds agree, but "
+                    f"{count} relocation {noun} name a different symbol in "
+                    "each object.",
+                    "That is a semantic difference no link resolves: the two "
+                    "objects read different variables. Masking excludes those "
+                    "words, so words= understates the residual here.",
+                    "Read `relocation_target_differences` (or the terminal's "
+                    "relocation target table) and reconcile each symbol "
+                    "before treating this as a match.",
+                ],
+            )
         if controlled:
             return (
                 "instruction-exact",
                 [
                     "Instruction-exact: raw differences are linker-controlled "
-                    f"relocation fields ({controlled} word(s)). "
+                    f"relocation fields ({controlled} word(s)), all naming the "
+                    "same symbol on both sides. "
                     "No source change is indicated for a linked-project match.",
                     "This is not raw-object exact: decomp.me can still assign a "
                     "non-zero score for the relocation addend or symbol shape. "
@@ -1255,6 +1344,10 @@ def compare_instructions(
         [relocation_target_signature(item) for item in target],
         [relocation_target_signature(item) for item in candidate],
     )
+    relocation_symbol_mismatches = positional_mismatches(
+        [relocation_symbol_signature(item) for item in target],
+        [relocation_symbol_signature(item) for item in candidate],
+    )
     candidate_payload = "".join(raw_candidate_words).encode("ascii")
     target_frame = frame_size("\n".join(item.assembly for item in target))
     candidate_frame = frame_size("\n".join(item.assembly for item in candidate))
@@ -1297,6 +1390,7 @@ def compare_instructions(
         structural_exact=structural_exact,
         raw_difference_breakdown=breakdown,
         relocation_mismatches=relocation_mismatches,
+        relocation_symbol_mismatches=relocation_symbol_mismatches,
         unknown_relocations=unknown_relocations,
         opcode_mismatches=opcode_mismatches,
         instruction_delta=len(candidate) - len(target),
@@ -1363,6 +1457,7 @@ def compare_instructions(
         aligned_commutative=aligned["aligned_commutative"],
         relocation_metadata_mismatches=relocation_mismatches,
         relocation_target_mismatches=relocation_target_mismatches,
+        relocation_symbol_mismatches=relocation_symbol_mismatches,
         unknown_relocations=unknown_relocations,
         opcode_mismatches=opcode_mismatches,
         normalized_distance=sequence_distance(target_normalized, candidate_normalized),

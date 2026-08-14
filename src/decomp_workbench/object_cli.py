@@ -34,6 +34,7 @@ from .comparison_render import (
     comparison_line,
     comparison_payload,
     diff_site_lines,
+    relocation_symbol_caution_lines,
     warning_lines,
 )
 from .model import Comparison, Instruction, display_path
@@ -154,6 +155,8 @@ def _emit_comparison(
         for line in warning_lines(comparison.warnings):
             print(line)
         for line in alignment_caution_lines(comparison):
+            print(line)
+        for line in relocation_symbol_caution_lines(comparison):
             print(line)
         print(comparison_line(comparison, painter))
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
@@ -298,6 +301,8 @@ def rank_command(args: argparse.Namespace) -> int:
             for line in warning_lines(item.warnings):
                 print(line)
             for line in alignment_caution_lines(item):
+                print(line)
+            for line in relocation_symbol_caution_lines(item):
                 print(line)
             print(f"{rank:3d} {comparison_line(item, painter)}")
         for failure in errors:

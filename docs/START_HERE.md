@@ -101,7 +101,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=instruction-exact aligned_total=   0 words=   0 raw=   2 opcodes=   0 gaps=   0 norm=   0
+verdict=instruction-exact aligned_total=   0 words=   0 raw=   2 opcodes=   0 gaps=   0 reloc_syms=   0 norm=   0
 raw difference classes: relocation_controlled=2
 next: Instruction-exact: raw differences are linker-controlled relocation fields
 ```
@@ -140,7 +140,7 @@ decomp-workbench compare-dumps \
 ```
 
 ```text
-verdict=allocation-mismatch aligned_total=   1 words=   1 raw=   3 opcodes=   0 gaps=   0 norm=   1
+verdict=allocation-mismatch aligned_total=   1 words=   1 raw=   3 opcodes=   0 gaps=   0 reloc_syms=   0 norm=   1
 aligned residual classes: aligned_register=1
 diff_sites=3 (register=1, relocation-controlled=2)
 next: Opcode shape matches but register allocation differs.
@@ -324,7 +324,7 @@ decomp-workbench compare-dumps \
 
 ```text
 caution: alignment inserted 1 gaps (10 opcode mismatches) -- compare candidates on positional words (words=), not aligned rows
-verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 opcodes=  10 gaps=   1 norm=   1
+verdict=structure-mismatch aligned_total=   1 words=  11 raw=  11 opcodes=  10 gaps=   1 reloc_syms=   1 norm=   1
 aligned residual classes: aligned_structural=1
 alignment gaps: insertions=1 deletions=0 (opcodes=10, words=11, raw=11)
 ```

@@ -167,6 +167,17 @@ METRICS: tuple[Metric, ...] = (
         kind="integer",
     ),
     Metric(
+        "reloc_syms",
+        "relocation_symbol_mismatches",
+        "positional relocation differences where the two sides name a "
+        "different symbol rather than the same symbol at a different addend; "
+        "a semantic difference the link cannot resolve, and one that word "
+        "masking hides from words=",
+        summary=True,
+        width=4,
+        kind="integer",
+    ),
+    Metric(
         "norm",
         "normalized_distance",
         "edit distance after masking addresses, immediates, and stack "
