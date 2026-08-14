@@ -67,6 +67,7 @@ from .context_truth import (
     call_contract_hypotheses,
     truth_stack_lines,
 )
+from .decompme_cli import register_decompme_commands
 from .diagnose_cli import register_diagnose_commands
 from .diagnosis import diagnose_instructions, diagnose_objects
 from .discovery import (
@@ -2189,6 +2190,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_campaign_cockpit_commands(commands)
     register_cache_commands(commands)
     register_context_commands(commands)
+    register_decompme_commands(commands)
     register_project_commands(commands, dispatch=main)
 
     instrument_parser = commands.add_parser(

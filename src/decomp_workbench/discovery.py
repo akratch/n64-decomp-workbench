@@ -62,6 +62,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("collateral", "expose whole-object changes outside an exact function"),
     ),
     "scratch": (
+        ("fetch", "download one decomp.me export into the standard layout"),
         ("check", "validate or site-faithfully compile a decomp.me export"),
         ("bundle", "build a deterministic manual-upload handoff"),
         ("doctor", "verify retained-dump, object, and compiler readiness"),
@@ -197,6 +198,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "rank"): "rank",
     ("object", "relocation-aliases"): "relocation-aliases",
     ("object", "collateral"): "object-collateral",
+    ("scratch", "fetch"): "fetch-scratch",
     ("scratch", "check"): "check-scratch",
     ("scratch", "bundle"): "bundle-scratch",
     ("scratch", "doctor"): "doctor",
@@ -261,11 +263,20 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
 #: A command is listed here only if a user must name it explicitly; nothing
 #: else in the package may reach it, and no command fetches anything on a
 #: caller's behalf as a side effect of doing something local.
-NETWORK_COMMANDS: frozenset[tuple[str, str]] = frozenset()
+NETWORK_COMMANDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("scratch", "fetch"),
+    }
+)
 
 #: The hosts the listed commands contact, and why. Stated once so a reader,
 #: an auditor, or an egress policy can see the whole list without reading code.
-NETWORK_HOSTS: tuple[dict[str, str], ...] = ()
+NETWORK_HOSTS: tuple[dict[str, str], ...] = (
+    {
+        "host": "decomp.me",
+        "why": "public scratch export download, over HTTPS, read-only",
+    },
+)
 
 #: The policy the inventory above implements, in one sentence per rule.
 NETWORK_POLICY: tuple[str, ...] = (
