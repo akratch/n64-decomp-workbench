@@ -22,8 +22,8 @@ from .field_guide import (
 from .literal_pool import PoolReport
 from .model import Comparison, Instruction, Relocation, display_path
 from .objdump import (
-    cross_function_warning,
     dump_object,
+    selection_warnings,
     symbol_labels,
     true_instruction_count,
 )
@@ -1630,10 +1630,12 @@ def compare_loaded(target: TargetObject, candidate: TargetObject) -> Comparison:
     second copy of this argument list can drift from it.
     """
 
-    warning = cross_function_warning(
+    warnings = selection_warnings(
         target.text,
         candidate.text,
         symbol=target.symbol,
+        target_name=target.name,
+        candidate_name=candidate.name,
         section=target.section,
     )
     return compare_instructions(
@@ -1642,7 +1644,7 @@ def compare_loaded(target: TargetObject, candidate: TargetObject) -> Comparison:
         target_name=target.name,
         candidate_name=candidate.name,
         symbol=target.symbol,
-        warnings=(warning,) if warning else (),
+        warnings=warnings,
         target_true_instructions=target.true_instructions,
         candidate_true_instructions=candidate.true_instructions,
         instruction_count_verified=(

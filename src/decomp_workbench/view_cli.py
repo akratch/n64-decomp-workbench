@@ -35,7 +35,8 @@ from .model import Instruction, display_path
 from .objdump import (
     cross_function_warning,
     dump_object,
-    parse_disassembly,
+    parse_selected_disassembly,
+    selection_warnings,
     symbol_selection_error,
 )
 from .schema import VIEW_CENSUS_KEYS
@@ -879,10 +880,12 @@ def view_command(args: argparse.Namespace) -> int:
         candidate_text, candidate = dump_object(
             args.candidate, objdump=args.objdump, symbol=symbol, section=args.section
         )
-        warning = cross_function_warning(
+        warnings = selection_warnings(
             target_text,
             candidate_text,
             symbol=symbol,
+            target_name=display_path(args.target),
+            candidate_name=display_path(args.candidate),
             section=args.section,
         )
         view = build_view(
@@ -892,7 +895,7 @@ def view_command(args: argparse.Namespace) -> int:
             candidate_name=display_path(args.candidate),
             symbol=symbol,
             register_profile=args.register_profile,
-            warnings=(warning,) if warning else (),
+            warnings=warnings,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -915,8 +918,10 @@ def view_dumps_command(args: argparse.Namespace) -> int:
     except OSError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    target: list[Instruction] = parse_disassembly(target_text, symbol=symbol)
-    candidate: list[Instruction] = parse_disassembly(candidate_text, symbol=symbol)
+    target: list[Instruction] = parse_selected_disassembly(target_text, symbol=symbol)
+    candidate: list[Instruction] = parse_selected_disassembly(
+        candidate_text, symbol=symbol
+    )
     if not target or not candidate:
         print(
             "error: "
@@ -930,7 +935,13 @@ def view_dumps_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    warning = cross_function_warning(target_text, candidate_text, symbol=symbol)
+    warnings = selection_warnings(
+        target_text,
+        candidate_text,
+        symbol=symbol,
+        target_name=display_path(args.target),
+        candidate_name=display_path(args.candidate),
+    )
     try:
         view = build_view(
             target,
@@ -939,7 +950,7 @@ def view_dumps_command(args: argparse.Namespace) -> int:
             candidate_name=display_path(args.candidate),
             symbol=symbol,
             register_profile=args.register_profile,
-            warnings=(warning,) if warning else (),
+            warnings=warnings,
         )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
@@ -1078,8 +1089,8 @@ def _window_view(args: argparse.Namespace) -> MechanismView:
     else:
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
-        target = parse_disassembly(target_text, symbol=symbol)
-        candidate = parse_disassembly(candidate_text, symbol=symbol)
+        target = parse_selected_disassembly(target_text, symbol=symbol)
+        candidate = parse_selected_disassembly(candidate_text, symbol=symbol)
         if not target or not candidate:
             raise ValueError(
                 symbol_selection_error(

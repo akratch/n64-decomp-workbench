@@ -39,9 +39,9 @@ from .comparison_render import (
 )
 from .model import Comparison, Instruction, display_path
 from .objdump import (
-    cross_function_warning,
     dump_object,
-    parse_disassembly,
+    parse_selected_disassembly,
+    selection_warnings,
     symbol_selection_error,
 )
 from .regions import (
@@ -223,8 +223,8 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
-        target = parse_disassembly(target_text, symbol=args.symbol)
-        candidate = parse_disassembly(candidate_text, symbol=args.symbol)
+        target = parse_selected_disassembly(target_text, symbol=args.symbol)
+        candidate = parse_selected_disassembly(candidate_text, symbol=args.symbol)
         if not target or not candidate:
             raise ValueError(
                 symbol_selection_error(
@@ -235,8 +235,12 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
                     ),
                 )
             )
-        warning = cross_function_warning(
-            target_text, candidate_text, symbol=args.symbol
+        warnings = selection_warnings(
+            target_text,
+            candidate_text,
+            symbol=args.symbol,
+            target_name=display_path(args.target),
+            candidate_name=display_path(args.candidate),
         )
         comparison = compare_instructions(
             target,
@@ -244,7 +248,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
             target_name=display_path(args.target),
             candidate_name=display_path(args.candidate),
             symbol=args.symbol,
-            warnings=(warning,) if warning else (),
+            warnings=warnings,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

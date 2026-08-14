@@ -452,6 +452,103 @@ def cross_function_warning(
     )
 
 
+def anonymous_single_function(text: str, *, section: str = ".text") -> bool:
+    """True when a section dump holds code but no symbol naming a function.
+
+    IDO strips a local (``static``) function's symbol, and a decomp.me export
+    ships exactly one function's worth of ``.text`` with nothing in the symbol
+    table pointing at it. GNU objdump then labels the section itself, so the
+    dump reads ``00000000 <.text>:`` and ``--disassemble=NAME`` matches
+    nothing. This is the standard shape of an export target, not a broken
+    object, which is why it gets a fallback rather than an error.
+
+    The section label is required, not merely tolerated: a dump carrying
+    instructions under *no* label at all is truncated or malformed output, and
+    answering a symbol selection from it would turn a broken build into a
+    confident positional verdict.
+    """
+
+    return symbol_labels(text) == (section,)
+
+
+def stripped_symbol_fallback_warning(
+    text: str,
+    *,
+    symbol: str | None,
+    name: str,
+    section: str = ".text",
+) -> str | None:
+    """Warn that ``--function`` was answered by a whole-section compare.
+
+    The selector was honoured in the only way the object allows. Saying so is
+    still required: the comparison that follows is positional over the whole
+    section, so it is only meaningful when the section really does hold the
+    one function the reader named.
+    """
+
+    if symbol is None or not anonymous_single_function(text, section=section):
+        return None
+    return (
+        f"{name} has no symbol for {symbol!r} - its {section} is one "
+        "function's worth of code with the symbol stripped, which is normal "
+        "for a decomp.me export and for an IDO static function. Comparing "
+        f"the whole {section} section positionally instead. Omit --function "
+        "to select this path explicitly."
+    )
+
+
+def parse_selected_disassembly(
+    text: str, *, symbol: str | None, section: str = ".text"
+) -> list[Instruction]:
+    """Select one symbol from dump text, or the whole section when it has none.
+
+    The text form of the same fallback `dump_object` performs on an object, so
+    the ``*-dumps`` commands and the object commands agree about what a
+    stripped export means. See `anonymous_single_function`.
+    """
+
+    instructions = parse_disassembly(text, symbol=symbol)
+    if instructions or symbol is None:
+        return instructions
+    if not anonymous_single_function(text, section=section):
+        return instructions
+    return parse_disassembly(text, symbol=None)
+
+
+def selection_warnings(
+    target_text: str,
+    candidate_text: str,
+    *,
+    symbol: str | None,
+    target_name: str,
+    candidate_name: str,
+    section: str = ".text",
+) -> list[str]:
+    """Return every warning about what the selector actually selected.
+
+    `compare`, `view`, and `diagnose` each disassemble the same way and must
+    say the same thing about the result, so they share one list rather than
+    three call sites that can drift. Order is deliberate: a fallback retracts
+    more than a cross-function mismatch does.
+    """
+
+    return [
+        item
+        for item in (
+            stripped_symbol_fallback_warning(
+                target_text, symbol=symbol, name=target_name, section=section
+            ),
+            stripped_symbol_fallback_warning(
+                candidate_text, symbol=symbol, name=candidate_name, section=section
+            ),
+            cross_function_warning(
+                target_text, candidate_text, symbol=symbol, section=section
+            ),
+        )
+        if item
+    ]
+
+
 def symbol_selection_error(
     symbol: str | None,
     *,
@@ -490,6 +587,12 @@ def symbol_selection_error(
     lines.extend(
         f"  {name} defines: {_name_list(symbol_labels(text))}" for name, text in inputs
     )
+    if any(anonymous_single_function(text) for _, text in empty):
+        lines.append(
+            "  That object defines no function symbols at all, so no name "
+            "can select in it. Omit --function to compare the whole section "
+            "positionally."
+        )
     lines.append(f"  Names are case-sensitive. See {TROUBLESHOOTING_NO_INSTRUCTIONS}")
     return "\n".join(lines)
 
@@ -620,6 +723,15 @@ def dump_object(
         )
         if retried:
             return section_text, retried
+        if section_text and anonymous_single_function(section_text, section=section):
+            # The object cannot name this function because nothing in it names
+            # any function. Refusing here sent readers to "produced no
+            # instructions ... defines: .text", which reads like an object
+            # with no code in it. Callers surface
+            # `stripped_symbol_fallback_warning` for the same text.
+            whole_section = parse_disassembly(section_text, symbol=None)
+            if whole_section:
+                return section_text, whole_section
         evidence = section_text or result.stdout
     raise RuntimeError(
         symbol_selection_error(

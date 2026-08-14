@@ -202,6 +202,121 @@ class SymbolSelectionErrorTests(unittest.TestCase):
                 self.assertIn("defines: drawObject", stderr)
 
 
+class StrippedSymbolFallbackTests(unittest.TestCase):
+    """A decomp.me export ships one function's `.text` with no symbol for it.
+
+    IDO also strips a `static` function's symbol, so this is not one site's
+    quirk. `--disassemble=NAME` then matches nothing and the error read
+    "produced no instructions ... defines: .text", which describes an object
+    with no code in it. The object has code; it has no name for it.
+    """
+
+    #: What GNU objdump prints for a section whose symbol table names no
+    #: function: it labels the section itself.
+    STRIPPED = """
+00000000 <.text>:
+   0: 27bdffe0  addiu $sp,$sp,-32
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+"""
+
+    NAMED = """
+00000000 <drawObject>:
+   0: 27bdffe0  addiu $sp,$sp,-32
+   4: 03e00008  jr $ra
+   8: 00000000  nop
+"""
+
+    def dump(self, section_text: str, symbol: str | None) -> object:
+        def fake_run(
+            command: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            filtered = any(str(item).startswith("--disassemble=") for item in command)
+            return subprocess.CompletedProcess(
+                command, 0, "" if filtered else section_text, ""
+            )
+
+        with (
+            mock.patch("decomp_workbench.objdump.subprocess.run", fake_run),
+            mock.patch.object(objdump, "discover_objdump", lambda value=None: "od"),
+        ):
+            try:
+                return objdump.dump_object("export/target.o", symbol=symbol)
+            except RuntimeError as error:
+                return error
+
+    def test_an_anonymous_text_section_is_recognized(self) -> None:
+        self.assertTrue(objdump.anonymous_single_function(self.STRIPPED))
+        self.assertFalse(objdump.anonymous_single_function(self.NAMED))
+        # Instructions under no label at all are truncated or malformed
+        # output. Answering a selection from those would turn a broken build
+        # into a confident positional verdict.
+        self.assertFalse(objdump.anonymous_single_function(""))
+        self.assertFalse(objdump.anonymous_single_function("   0: 03e00008  jr $ra\n"))
+
+    def test_a_named_symbol_falls_back_to_the_whole_section(self) -> None:
+        outcome = self.dump(self.STRIPPED, "drawObject")
+
+        self.assertNotIsInstance(outcome, RuntimeError)
+        assert isinstance(outcome, tuple)
+        _text, instructions = outcome
+        self.assertEqual(len(instructions), 3)
+
+    def test_the_fallback_says_so_rather_than_comparing_silently(self) -> None:
+        warning = objdump.stripped_symbol_fallback_warning(
+            self.STRIPPED, symbol="drawObject", name="target.o"
+        )
+
+        assert warning is not None
+        self.assertIn("no symbol for 'drawObject'", warning)
+        self.assertIn("decomp.me export", warning)
+        self.assertIn("whole .text section positionally", warning)
+
+    def test_an_object_that_does_name_functions_gets_no_fallback_warning(
+        self,
+    ) -> None:
+        self.assertIsNone(
+            objdump.stripped_symbol_fallback_warning(
+                self.NAMED, symbol="drawObject", name="target.o"
+            )
+        )
+        self.assertIsNone(
+            objdump.stripped_symbol_fallback_warning(
+                self.STRIPPED, symbol=None, name="target.o"
+            )
+        )
+
+    def test_a_wrong_name_against_a_named_object_still_fails(self) -> None:
+        """The fallback must not swallow a typo: this object names a function,
+        so a name that misses it is a mistake, not a stripped symbol."""
+
+        outcome = self.dump(self.NAMED, "drawShadow")
+
+        self.assertIsInstance(outcome, RuntimeError)
+        self.assertIn("produced no instructions", str(outcome))
+
+    def test_the_fallback_warning_reaches_compare_ahead_of_the_verdict(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "target.objdump").write_text(self.STRIPPED)
+            (root / "candidate.objdump").write_text(self.NAMED)
+            status, out, _err = run_cli(
+                [
+                    "compare-dumps",
+                    str(root / "target.objdump"),
+                    str(root / "candidate.objdump"),
+                    "--function",
+                    "drawObject",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertIn("has no symbol for 'drawObject'", out)
+        self.assertLess(out.index("warning:"), out.index("verdict="))
+
+
 class FilteredDumpEvidenceTests(unittest.TestCase):
     """One unfiltered second pass, serving two features that both need it.
 

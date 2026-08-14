@@ -89,6 +89,35 @@ mips64-elf-objdump -d -r -z -j .text \
   --disassemble=function_name candidate.o
 ```
 
+## `--function` on a target whose symbol was stripped
+
+A decomp.me export's `target.o`, and any object holding an IDO `static`
+function, carries one function's worth of `.text` with nothing in the symbol
+table naming it. GNU objdump labels the section itself:
+
+```text
+00000000 <.text>:
+```
+
+`--disassemble=NAME` matches nothing there, and no spelling of `--function`
+can ever select in such an object. Rather than reporting "produced no
+instructions" — which reads like an object with no code in it — every
+comparison command falls back to the whole-section positional path and says
+so ahead of the verdict:
+
+```text
+warning: export/target.o has no symbol for 'drawObject' - its .text is one function's worth of code with the symbol stripped, which is normal for a decomp.me export and for an IDO static function. Comparing the whole .text section positionally instead. Omit --function to select this path explicitly.
+```
+
+The fallback is deliberately narrow. It requires the dump to carry the
+section's own label and no function label: an object that *does* name
+functions still rejects a name that misses them, so a typo stays a typo. A
+dump carrying instructions under no label at all is treated as truncated
+output and also still fails.
+
+`compare`, `view`, `diagnose`, their `*-dumps` forms, and `check-scratch` all
+take this path, so no two of them disagree about the same pair of objects.
+
 ## The verdict looks confident but the objects hold different functions
 
 Without `--function` the comparison is positional over the whole section. That

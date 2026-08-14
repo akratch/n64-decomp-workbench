@@ -59,6 +59,7 @@ from .comparison_render import (
     scratch_acceptance_line,
     scratch_comparison_payload,
     scratch_score_acceptance,
+    warning_lines,
 )
 from .context_lint_cli import register_context_commands
 from .context_truth import (
@@ -652,6 +653,12 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                 print(line)
         print(f"scratch: {package.kind} ({display_path(package.path)})")
         if comparison is not None:
+            # Same placement rule the comparison commands use: a warning that
+            # the selector was answered a different way has to precede the
+            # acceptance it qualifies. `--json` has always carried these under
+            # `comparison.warnings`; the terminal dropped them.
+            for line in warning_lines(comparison.warnings):
+                print(line)
             print("acceptance: " + scratch_acceptance_line(comparison))
         metadata = package.public_metadata()
         identity = metadata.get("name") or metadata.get("project")
