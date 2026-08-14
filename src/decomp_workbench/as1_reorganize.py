@@ -26,12 +26,21 @@ computed here, from the key chain, while the losers are still in hand.
 The key chain, decoded from the selection driver and confirmed against 2688
 recorded selections:
 
-    ( start_time, -aftercycles, -latency, node->addr, node->lineno,
-      ready-list position )
+    ( start_time, -besttime, -aftercycles, -latency, node->addr,
+      node->lineno, ready-list position )
 
-lexicographic minimum, each step a strict accept / not-equal reject. The fifth
-key is a **source physical line number**, which is the whole reason this reader
-is worth having: it makes statement folding a codegen lever.
+lexicographic minimum, each step a strict accept / not-equal reject. The
+`lineno` key is a **source physical line number**, which is the whole reason
+this reader is worth having: it makes statement folding a codegen lever.
+
+`besttime` outranks `aftercycles`, and is *not* the outright primary key.
+Both halves are measured: a recorded block picks `aftercycles=0` over
+`aftercycles=1` on the higher `besttime`, and the shipped
+`examples/traces/as1-reorganize.log` contains a selection that `besttime`
+alone decides the wrong way. Direction of each key: `start-time` and `lineno`
+are **minimised** (lower wins), `besttime`, `aftercycles` and `latency` are
+**maximised** (higher wins). The direction matters because `lineno` is the
+one key with a source lever attached.
 
 Two honest gaps, both reported rather than papered over:
 
@@ -94,6 +103,14 @@ _PICKING_RE = re.compile(
 #: the record and therefore absent here; see the module docstring.
 _KEYS: tuple[tuple[str, str, bool], ...] = (
     ("start-time", "time", False),
+    # `besttime` sits above `aftercycles`, which is a correction. A campaign
+    # recorded a block where as1 picked `aftercycles=0` over `aftercycles=1`
+    # and the winner was the candidate with the higher `besttime`; the reader
+    # labelled that `aftercycles-disagrees` and offered no field to fall back
+    # on. Placed here it reproduces that pick and leaves every selection in
+    # `examples/traces/as1-reorganize.log` unchanged, which placing it above
+    # `start-time` does not.
+    ("besttime", "besttime", True),
     ("aftercycles", "aftercycles", True),
     ("latency", "latency", True),
     ("lineno", "lineno", False),

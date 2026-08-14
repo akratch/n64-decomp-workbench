@@ -493,7 +493,7 @@ promoted alongside the existing uopt profiles.
 Before patching anything, try this:
 
 ```sh
-cc -Wa,-R -c source.c 2>sched.log
+cc -Wa,-R -c source.c >sched.log 2>&1
 ```
 
 ```sh
@@ -525,11 +525,23 @@ field for the losing candidates, and without the losers there is nothing to
 compute a tie from. The chain is the lexicographic minimum of
 
 ```txt
-( start_time, -aftercycles, -latency, node->addr, node->lineno, ready-list position )
+( start_time, -besttime, -aftercycles, -latency, node->addr, node->lineno, ready-list position )
 ```
 
-each step a strict accept / not-equal reject. Two things follow, and both are
-printed with the report rather than kept here:
+each step a strict accept / not-equal reject. A leading `-` marks a key that
+is **maximised** (higher wins); the rest are minimised (lower wins). The
+direction matters most for `node->lineno`, which is the one key with a source
+lever attached.
+
+`besttime` outranks `aftercycles`, which is a correction to an earlier
+published chain. A recorded block picks `aftercycles=0` over `aftercycles=1`
+because the winner's `besttime` is higher; the reader used to label that
+`aftercycles-disagrees` and name no key at all. It is not the outright primary
+key either — the shipped `examples/traces/as1-reorganize.log` has a selection
+that `besttime` alone decides the wrong way.
+
+Two more things follow, and both are printed with the report rather than kept
+here:
 
 - **`node->lineno` is a source physical line number.** Key five means source
   whitespace is a codegen input: folding two statements onto one physical line

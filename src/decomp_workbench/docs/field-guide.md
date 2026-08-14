@@ -1265,9 +1265,11 @@ if (game_over) { colour = 10; } else { colour = 0; } x = ((viewleft + offset) - 
 ```
 
 **Why:** as1's list scheduler picks the lexicographic minimum of
-`(start_time, −aftercycles, −latency, node->addr, node->lineno, ready-list
-position)`, and `node->lineno` is a **source line number**. With `node->addr` 0
-throughout a compiled TU, the line number is the last effective key. So physical
+`(start_time, −besttime, −aftercycles, −latency, node->addr, node->lineno,
+ready-list position)`, and `node->lineno` is a **source line number**. A
+leading − marks a key that is maximised; `start_time` and `node->lineno` are
+minimised, so **lower `lineno` wins**. With `node->addr` 0 throughout a
+compiled TU, the line number is the last effective key. So physical
 line numbers are a codegen input at scheduling, and whitespace is a lever.
 
 Two consequences worth internalizing. A layout that keeps each statement on its
@@ -1280,8 +1282,11 @@ breaks the other.
 **Read it directly — the trace is free and byte-inert:**
 
 ```sh
-cc -Wa,-R ...            # as1 prints its DAG and one record per selection
+cc -Wa,-R -c source.c >sched.log 2>&1    # capture both streams
 ```
+
+IDO 5.3's as1 prints the `-R` trace on **stdout**; other assembler builds may
+use stderr, so capture both or the log comes back empty.
 
 The object built with `-R` is `cmp`-identical to the object built without it, so
 no instrumented assembler is needed for this era.

@@ -25,7 +25,8 @@ AS1_R_PROOF = (
     "from the losing candidates, which the schema has no field for. The key "
     "chain is evaluated without node->addr, which the record does not carry "
     "per candidate; where addr differs between candidates the named key is "
-    "the next one down."
+    "the next one down. Key order: start-time (lower wins), besttime, "
+    "aftercycles, latency (higher wins), then lineno (lower wins)."
 )
 
 
@@ -39,9 +40,11 @@ def _read_scheduler_trace(
     if not events:
         raise ValueError(
             f"{path} carries no `Picking node` selection with a candidate "
-            "list. `cc -Wa,-R` prints the trace on stderr, so the capture "
-            "has to keep stderr; a stdout-only redirect keeps the object and "
-            "loses the trace."
+            "list. Capture both streams -- `cc -Wa,-R -c source.c "
+            ">sched.log 2>&1` -- because which one carries the trace is a "
+            "property of the assembler build: IDO 5.3's as1 writes it to "
+            "stdout, and a `2>sched.log` redirect then captures a one-line "
+            "cfe warning and nothing else."
         )
     return events, ignored
 
@@ -142,8 +145,11 @@ def register_scheduler_commands(
             "untraced one."
         ),
         epilog=(
-            "example: cc -Wa,-R -c source.c 2>sched.log && "
+            "example: cc -Wa,-R -c source.c >sched.log 2>&1 && "
             "decomp-workbench trace-scheduler sched.log --from-as1-r --block 429"
+            "\n\nCapture both streams: IDO 5.3's as1 prints the -R trace on "
+            "stdout, other assembler builds may use stderr, and `>` alone "
+            "silently produces an empty log on the ones that do."
         ),
     )
     trace.add_argument("trace")
