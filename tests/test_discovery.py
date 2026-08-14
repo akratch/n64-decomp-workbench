@@ -10,7 +10,12 @@ import unittest
 from pathlib import Path
 
 from decomp_workbench.cli import build_parser, main
-from decomp_workbench.discovery import COMMAND_MAP, command_registry_errors
+from decomp_workbench.discovery import (
+    COMMAND_MAP,
+    NETWORK_COMMANDS,
+    NETWORK_HOSTS,
+    command_registry_errors,
+)
 
 DUMP = """
 00000000 <demo>:
@@ -79,6 +84,36 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             payload["automation"]["failure_schema"], "decomp-workbench-error-v1"
         )
+
+    def test_the_network_surface_is_an_inventory_every_command_agrees_with(
+        self,
+    ) -> None:
+        """The map names which commands may call out, and nothing else may.
+
+        A blanket ``network: false`` could only ever be asserted while the
+        package had no network code at all. The durable claim is the
+        *inventory*: exactly these commands, contacting exactly these hosts,
+        and every other command in the live map reporting ``false``.
+        """
+
+        _status, stdout, _stderr = self.run_cli(["commands", "--json"])
+        payload = json.loads(stdout)
+        declared = {
+            (group, entry["command"])
+            for group, entries in payload["groups"].items()
+            for entry in entries
+            if entry["safety"]["network"]
+        }
+        self.assertEqual(declared, set(NETWORK_COMMANDS))
+        self.assertEqual(
+            {entry["command"] for entry in payload["network"]["commands"]},
+            {f"{group} {command}" for group, command in NETWORK_COMMANDS},
+        )
+        self.assertEqual(
+            {host["host"] for host in payload["network"]["hosts"]},
+            {host["host"] for host in NETWORK_HOSTS},
+        )
+        self.assertTrue(payload["network"]["policy"])
 
     def test_legacy_aliases_stay_parseable_without_polluting_help(self) -> None:
         parser = build_parser()
