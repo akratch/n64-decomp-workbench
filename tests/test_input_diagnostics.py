@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,8 @@ from decomp_workbench.cli import main
 from decomp_workbench.objdump import (
     _objdump_failure,
     cross_function_warning,
+    parse_disassembly,
+    scrub_control_characters,
     symbol_labels,
     symbol_selection_error,
 )
@@ -200,6 +203,49 @@ class SymbolSelectionErrorTests(unittest.TestCase):
                 self.assertEqual(status, 2)
                 self.assertIn("Names are case-sensitive.", stderr)
                 self.assertIn("defines: drawObject", stderr)
+
+
+class ControlCharacterTests(unittest.TestCase):
+    """objdump text reaches `--json` through `Instruction.assembly`.
+
+    The stream is decoded with ``errors="replace"``, which repairs invalid
+    UTF-8 and leaves NUL and the other C0 codes alone because they are valid
+    UTF-8. They then travel into `diff_sites` and out of the JSON, and every
+    harness in one campaign had to strip them before `json.loads` would take
+    the stream. Dropped where the text is first read, not at each place it is
+    printed.
+    """
+
+    def test_control_characters_do_not_survive_parsing(self) -> None:
+        instructions = parse_disassembly(
+            "00000000 <demo>:\n   0: 03e00008  jr\x00 $ra\x07\n"
+        )
+
+        self.assertEqual(len(instructions), 1)
+        self.assertEqual(instructions[0].assembly, "jr $ra")
+
+    def test_a_tab_is_kept_because_objdump_uses_it_as_a_separator(self) -> None:
+        self.assertEqual(scrub_control_characters("jr\t$ra"), "jr\t$ra")
+
+    def test_no_nul_reaches_the_json_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dump = "00000000 <demo>:\n   0: 03e00008  jr\x00 $ra\n"
+            (root / "target.objdump").write_text(dump)
+            (root / "candidate.objdump").write_text(dump)
+            status, out, _err = run_cli(
+                [
+                    "compare-dumps",
+                    str(root / "target.objdump"),
+                    str(root / "candidate.objdump"),
+                    "--json",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertNotIn("\x00", out)
+        self.assertNotIn("\\u0000", out)
+        json.loads(out)
 
 
 class StrippedSymbolFallbackTests(unittest.TestCase):

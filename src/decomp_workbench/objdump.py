@@ -356,6 +356,25 @@ def parse_relocations(text: str) -> dict[int, tuple[Relocation, ...]]:
     return {offset: tuple(items) for offset, items in grouped.items()}
 
 
+#: Control characters that must never survive into an instruction's text.
+#: objdump is decoded with ``errors="replace"``, which repairs invalid UTF-8
+#: but leaves NUL and the other C0 codes alone because they *are* valid UTF-8.
+#: They then travel through `Instruction.assembly` into `diff_sites` and out of
+#: ``--json``, where every consuming harness in one campaign had to strip them
+#: before `json.loads` would accept the stream. Assembly text has no legitimate
+#: use for any of them, so they are dropped where the text is first read rather
+#: than at each of the places it is printed.
+_CONTROL_CHARACTERS = dict.fromkeys(
+    [code for code in range(0x20) if code not in (0x09,)] + [0x7F]
+)
+
+
+def scrub_control_characters(value: str) -> str:
+    """Drop C0 control characters and DEL from parsed objdump text."""
+
+    return value.translate(_CONTROL_CHARACTERS)
+
+
 def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instruction]:
     """Parse GNU objdump instruction lines, optionally for one symbol.
 
@@ -393,7 +412,7 @@ def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instructi
                 Instruction(
                     address=address,
                     word=match.group(2).lower(),
-                    assembly=match.group(3).strip(),
+                    assembly=scrub_control_characters(match.group(3)).strip(),
                     relocations=relocations.get(address, ()),
                 )
             )

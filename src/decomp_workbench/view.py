@@ -1620,6 +1620,46 @@ def _relabel_reorderings(
         if left and left == right:
             for index in range(start, end + 1):
                 labels[index] = SCHEDULE
+    _relabel_displaced_rows(labels, skeleton, target_keys, candidate_keys)
+
+
+def _relabel_displaced_rows(
+    labels: list[str],
+    skeleton: Sequence[tuple[str, int | None, int | None]],
+    target_keys: Sequence[str],
+    candidate_keys: Sequence[str],
+) -> None:
+    """Promote a moved instruction whose delete and insert land in two runs.
+
+    An instruction that slides several slots inside a block produces one LCS
+    deletion and one insertion with matching rows between them, so they fall in
+    *different* runs and neither run's own two sides balance. The whole-function
+    rule does not reach it either, because it requires the entire function's
+    multisets to agree and any unrelated register residual breaks that.
+
+    The rows left over were labelled `structural`, which routes the reader to
+    "fix structure first" for what is a scheduling decision -- the wrong order
+    of work, and a different playbook. So the balance is checked over exactly
+    the rows in question: if everything deleted is also inserted, nothing was
+    added or removed and every one of those rows is a move.
+    """
+
+    deleted: list[str] = []
+    inserted: list[str] = []
+    displaced: list[int] = []
+    for index, (_, target_index, candidate_index) in enumerate(skeleton):
+        if labels[index] != STRUCTURAL:
+            continue
+        if target_index is not None and candidate_index is None:
+            deleted.append(target_keys[target_index])
+            displaced.append(index)
+        elif candidate_index is not None and target_index is None:
+            inserted.append(candidate_keys[candidate_index])
+            displaced.append(index)
+    if not displaced or sorted(deleted) != sorted(inserted):
+        return
+    for index in displaced:
+        labels[index] = SCHEDULE
 
 
 def _pool_operand_only(target_text: str, candidate_text: str) -> bool:

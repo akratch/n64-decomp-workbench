@@ -396,6 +396,54 @@ class SymbolTableAsymmetryTests(unittest.TestCase):
         self.assertNotEqual(call.classification, "match")
 
 
+class DisplacedRowTests(unittest.TestCase):
+    """An instruction that slid inside a block is a schedule decision.
+
+    LCS reports the move as a deletion and an insertion with matching rows
+    between them, so the two land in different runs and neither run's own
+    sides balance. The whole-function rule cannot reach it either: it needs
+    the entire function's multisets to agree, and any unrelated register
+    residual breaks that. The rows were therefore labelled `structural`, which
+    routes the reader to "fix structure first" -- the wrong order of work, and
+    a different playbook, for a residual with no structure change in it.
+    """
+
+    def test_a_moved_instruction_is_schedule_not_structure(self) -> None:
+        view = view_of(
+            body(
+                "lw s1,0(s0)",
+                "addu s1,s1,s1",
+                "sw ra,20(sp)",
+                "sw s1,4(s0)",
+                "lw s2,8(s0)",
+            ),
+            body(
+                "sw ra,20(sp)",
+                "lw s1,0(s0)",
+                "addu s1,s1,s1",
+                "sw s1,4(s0)",
+                "lw s3,8(s0)",
+            ),
+        )
+
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["schedule"], 2)
+        self.assertEqual(view.playbook, "g0-schedule-probe")
+
+    def test_a_real_insertion_is_still_structure(self) -> None:
+        """The rule is a balance, not a blanket promotion: an instruction that
+        exists on one side only is genuinely new structure."""
+
+        view = view_of(
+            body("lw s1,0(s0)", "sw s1,4(s0)"),
+            body("lw s1,0(s0)", "addu s1,s1,s1", "sw s1,4(s0)"),
+        )
+
+        self.assertEqual(view.counts["schedule"], 0)
+        self.assertTrue(view.counts["structural"])
+        self.assertEqual(view.playbook, "structure-buckets")
+
+
 class ColorabilityTests(unittest.TestCase):
     """Whether a color lever can reach the target's register at all.
 

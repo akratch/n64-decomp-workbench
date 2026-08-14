@@ -531,8 +531,14 @@ whose defs store. Measured on one function: a dead-code probe
 (`if (0) { f(&colour, …); }`, zero instructions) moved one web's store charge
 from 0 to 8. The gate is `> 0` and not `>= 0`, so a web whose charges exactly
 cancel its gross is struck; that last unit is worth chasing when a sweep stalls
-one charge short. Struck webs emit no candidate record at all, which is also how
-you recognize the state in a trace. See
+one charge short. A struck web emits no *candidate* record, which is how you
+recognize the state in a trace — but it is still allocated, to the stack. That
+is worth stating plainly, because "emits no candidate record" reads as "was
+never a candidate for anything" and it is not: the `CDX_FORCE` strike (`=n`)
+and split (`=s`) controls both send the value to a stack home, so **neither
+models "this value never entered the allocation contest"**. Nothing in the
+force grammar does; only a source change that stops the value being a value
+does. One campaign spent a build discovering that. See
 [compiler laws L55](compiler-laws/ido-5.3.md#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins)
 for the formula and its falsified rivals.
 
