@@ -671,6 +671,28 @@ class GlobalColorTrace:
             selected.append(item)
         return selected
 
+    def webdetail_tables(self) -> set[int]:
+        """Return every ICHAIN table id named by a ``webdetail`` record.
+
+        `lineage_for` reads only the opt-in ``lineage_range``/``lineage_member``
+        family, which the instrumentation emits solely when
+        ``CDX_LINEAGE_TABLES`` was set at capture time. A trace captured with
+        ``CDX_DETAIL_WEB`` alone therefore carries ``webdetail`` records naming
+        a table and no lineage record for it at all, and asking for that table
+        returned an empty report with no reason given. This is what the CLI
+        checks before saying nothing was found.
+        """
+
+        tables: set[int] = set()
+        for item in self.decisions:
+            if item.phase != "webdetail":
+                continue
+            for key in ("table", "exprtable"):
+                value = optional_integer(item.fields.get(key))
+                if value is not None:
+                    tables.add(value)
+        return tables
+
     def allocator_webs(
         self,
         *,
