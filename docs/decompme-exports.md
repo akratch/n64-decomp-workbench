@@ -68,6 +68,32 @@ When linked exactness passes but the score proxy fails, inspect the
 addend spelling before claiming 100%; a struct member at `base+offset` and a
 direct symbol at that final address are not necessarily score-equivalent.
 
+## Getting the export in the first place
+
+The workbench does not fetch anything: it has no network egress, by design and
+by contract (`decomp-workbench commands --json` reports `safety.network:
+false` for every command). You obtain the ZIP yourself and point the workbench
+at it.
+
+If you script that download, two things are worth knowing, because several
+campaign sessions have spent time on each:
+
+* **The API expects a normal browser-shaped request.** A bare `curl` with no
+  headers is commonly rejected. Send a **descriptive** `User-Agent` that names
+  your tool and a contact — an honest identifier is both the polite thing and
+  the thing that makes it possible for the site to tell your traffic from
+  abuse — along with the ordinary `Accept`, `Accept-Language`, and `Referer`
+  headers a browser would send, and accept compressed responses. Do not
+  impersonate a specific browser build to get around a block: if requests are
+  being refused, that is a signal to slow down or ask, not to disguise them.
+* **Be gentle and cache.** These are volunteer-run community servers. Fetch
+  each scratch once, keep the ZIP, and re-run the workbench against the local
+  copy — which costs nothing and is reproducible. Serialize requests, leave a
+  pause between them, and back off on any error rather than retrying in a
+  loop. If you need bulk data, ask the project maintainers first.
+
+Once the ZIP is on disk, everything below is local and offline.
+
 ## Validate your environment and handoff
 
 ```sh
