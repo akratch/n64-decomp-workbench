@@ -63,6 +63,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "scratch": (
         ("fetch", "download one decomp.me export into the standard layout"),
+        ("public-match-check", "gate 0: is this function already matched in public?"),
         ("check", "validate or site-faithfully compile a decomp.me export"),
         ("bundle", "build a deterministic manual-upload handoff"),
         ("doctor", "verify retained-dump, object, and compiler readiness"),
@@ -199,6 +200,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "relocation-aliases"): "relocation-aliases",
     ("object", "collateral"): "object-collateral",
     ("scratch", "fetch"): "fetch-scratch",
+    ("scratch", "public-match-check"): "public-match-check",
     ("scratch", "check"): "check-scratch",
     ("scratch", "bundle"): "bundle-scratch",
     ("scratch", "doctor"): "doctor",
@@ -266,6 +268,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
 NETWORK_COMMANDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("scratch", "fetch"),
+        ("scratch", "public-match-check"),
     }
 )
 
@@ -274,7 +277,10 @@ NETWORK_COMMANDS: frozenset[tuple[str, str]] = frozenset(
 NETWORK_HOSTS: tuple[dict[str, str], ...] = (
     {
         "host": "decomp.me",
-        "why": "public scratch export download, over HTTPS, read-only",
+        "why": (
+            "public scratch export download and public scratch search, over "
+            "HTTPS, read-only, one request per term"
+        ),
     },
 )
 

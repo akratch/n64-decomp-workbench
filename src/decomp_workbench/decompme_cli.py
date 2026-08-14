@@ -1,7 +1,7 @@
-"""CLI for the commands that are allowed to touch the network.
+"""CLI for the two commands that are allowed to touch the network.
 
-Each is explicit, single-purpose, and opt-in: nothing else in the package
-calls out, and none of these runs as a step inside another command. Every
+Both are explicit, single-purpose, and opt-in: nothing else in the package
+calls out, and neither of these runs as a step inside another command. Every
 option that shapes the request — the API base, the timeout, the contact in the
 `User-Agent` — is visible here rather than hidden in an environment variable.
 """
@@ -18,6 +18,11 @@ from .decompme_fetch import (
     EXPORT_MEMBERS,
     fetch_scratch,
     scratch_url,
+)
+from .decompme_search import (
+    DEFAULT_PAGE_SIZE,
+    public_match_check,
+    render_public_match_check,
 )
 from .http_client import NetworkError, PoliteClient
 
@@ -90,6 +95,29 @@ def fetch_scratch_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def public_match_check_command(args: argparse.Namespace) -> int:
+    try:
+        report = public_match_check(
+            client=build_client(args),
+            query=args.query,
+            address=args.address,
+            max_score=args.max_score,
+            instructions=args.instructions,
+            api_base=args.api_base,
+            page_size=args.page_size,
+        )
+    except (NetworkError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("\n".join(render_public_match_check(report)))
+    if args.fail_on_match and report["verdict"] != "no-public-match":
+        return 1
+    return 0
+
+
 def register_decompme_commands(commands: argparse._SubParsersAction[Any]) -> None:
     fetch = commands.add_parser(
         "fetch-scratch",
@@ -99,8 +127,8 @@ def register_decompme_commands(commands: argparse._SubParsersAction[Any]) -> Non
             f"OUTDIR/SLUG ({', '.join(EXPORT_MEMBERS)}), keeping the ZIP "
             "alongside it. The request identifies this workbench and its "
             "version honestly; a scratch already on disk is reported rather "
-            "than downloaded again. This command opens a network connection, "
-            "and it never runs implicitly."
+            "than downloaded again. This is one of the two commands that "
+            "open a network connection, and it never runs implicitly."
         ),
     )
     fetch.add_argument("slug", help="decomp.me scratch slug or scratch URL")
@@ -121,3 +149,54 @@ def register_decompme_commands(commands: argparse._SubParsersAction[Any]) -> Non
     )
     _add_client_arguments(fetch)
     fetch.set_defaults(handler=fetch_scratch_command, report_command="fetch-scratch")
+
+    check = commands.add_parser(
+        "public-match-check",
+        help="gate 0: is this function already matched in a public scratch?",
+        description=(
+            "Query the public decomp.me search by name, by address, or both, "
+            "and report every candidate with its score, its max_score, and "
+            "whether its match is site-verified or owner-declared. Bind on "
+            "--max-score (the target's instruction count times 100) to catch "
+            "scratches named after a data label instead of the function. "
+            "This is one of the two commands that open a network connection."
+        ),
+    )
+    check.add_argument(
+        "query",
+        nargs="?",
+        help="function name or any search term; optional if --address is given",
+    )
+    check.add_argument(
+        "--address",
+        help=(
+            "target address in hex; searched in upper, lower, and 0x "
+            "spellings, which finds scratches a name lookup misses"
+        ),
+    )
+    check.add_argument(
+        "--max-score",
+        type=int,
+        help="keep only results with this max_score (instruction count x 100)",
+    )
+    check.add_argument(
+        "--instructions",
+        type=int,
+        help="the same binding written as an instruction count",
+    )
+    check.add_argument(
+        "--page-size",
+        type=int,
+        default=DEFAULT_PAGE_SIZE,
+        help=f"results to request per term (default: {DEFAULT_PAGE_SIZE})",
+    )
+    check.add_argument(
+        "--fail-on-match",
+        action="store_true",
+        help="return exit 1 when any public match or override claim is found",
+    )
+    _add_client_arguments(check)
+    check.set_defaults(
+        handler=public_match_check_command,
+        report_command="public-match-check",
+    )
