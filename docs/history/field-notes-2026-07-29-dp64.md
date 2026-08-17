@@ -1,7 +1,7 @@
 # Field notes — Dinosaur Planet core campaign (2026-07-29)
 
 > **Historical field record.** Measurements and failures are preserved as
-> observed on the date above. Use [Product status](product-status.md) and the
+> observed on the date above. Use [Product status](../product-status.md) and the
 > current command guides for supported syntax and capabilities.
 
 Live-fire observations from applying the workbench to the dp64 core hard-nuts

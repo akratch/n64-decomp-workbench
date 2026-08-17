@@ -326,6 +326,23 @@ equal. Some wrappers change behavior by path and some object formats embed
 source paths. Passing the same prepared source more than once is deduplicated;
 different paths are treated as distinct candidates.
 
+### Worked endgame example
+
+A synthetic, redistributable walkthrough of the whole sequence — export
+diagnosis, experiment-v2 family, baseline control, exact candidate, coverage
+verification, fresh finish, packaging behind the receipt — ships in the
+repository:
+
+```sh
+python3 examples/trustworthy-endgame/run.py
+```
+
+It needs no ROM, proprietary compiler, target object, or network, removes all
+state with its temporary directory, and reports `controls=PASS`,
+`coverage=exhaustive-over-declared-space`, `finish=PASS`, `package=PASS`. Its
+implementation at [run.py](../examples/trustworthy-endgame/run.py) is meant to
+be adapted, not wrapped.
+
 ## Process ownership
 
 Every compiler runs in its own process group, and the campaign ends that group

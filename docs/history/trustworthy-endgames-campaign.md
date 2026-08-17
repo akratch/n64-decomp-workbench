@@ -1,5 +1,6 @@
 # The trustworthy endgames campaign
 
+> Historical record (2026-08-11). Campaign spec, since shipped; the living guidance is in campaigns.md. Kept for provenance.
 > **Implementation status (2026-08-11): shipped.** Phases 1–5 are implemented
 > with synthetic integration coverage: independent scratch/project truth,
 > experiment-v2 signals and serial controls, compiler/frontend envelopes,

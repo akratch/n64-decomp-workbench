@@ -184,7 +184,7 @@ related routine, check it for exactly this shape before assuming the
 decompiled source is otherwise complete.
 
 See [L48](compiler-laws/ido-5.3.md#l48-zero-footprint-statements-can-be-load-bearing) and
-[error eleven in the campaign postmortem](postmortem-2026-08-09-ge007.md#11-zero-footprint-discarded-read).
+[error eleven in the campaign postmortem](history/postmortem-2026-08-09-ge007.md#11-zero-footprint-discarded-read).
 
 ## Trap 7: byte-identity does not prove address provenance
 
@@ -269,7 +269,7 @@ them in on a project that has never been shifted.
   behind every trap above.
 - [The p1 decision arithmetic](p1-decision-arithmetic.md) — the formula
   several of these traps were made while reasoning about.
-- [Postmortem: GE007 `object_interaction`](postmortem-2026-08-09-ge007.md) —
+- [Postmortem: GE007 `object_interaction`](history/postmortem-2026-08-09-ge007.md) —
   the full campaign the first six traps are drawn from.
 - [Shiftability](shiftability.md) — the commands Trap 7 routes to, and the
   worked example of a matched ROM carrying an address bug.

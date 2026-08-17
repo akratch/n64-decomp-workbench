@@ -88,7 +88,7 @@ complete supported path today.
 
 ## Trustworthy endgames campaign
 
-[The trustworthy endgames campaign](trustworthy-endgames-campaign.md) is now
+[The trustworthy endgames campaign](history/trustworthy-endgames-campaign.md) is now
 implemented: function/row-scoped signals, required serial controls,
 project-vs-scratch truth layers, coverage-qualified conclusions, compiler-cell
 identity (including IRIX 4 `accom`/later-backend hybrids), immutable promotion,

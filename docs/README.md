@@ -31,9 +31,9 @@ below them is reference you consult when you need it.
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 | You want the release-facing acceptance checklist across every user journey | **[Workbench quality checklist](workbench-quality-checklist.md)** |
 | You repeatedly diagnose one project/object pair and want portable defaults | **[Project configuration](project-configuration.md)** |
-| You want the implemented product campaign for controlled sweeps, project-vs-scratch context truth, immutable promotion, and auditable finish receipts | **[Trustworthy endgames campaign](trustworthy-endgames-campaign.md)** |
-| You want those endgame gates in one asset-free runnable journey | **[Trustworthy endgame walkthrough](trustworthy-endgame-walkthrough.md)** |
-| You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](postmortem-2026-08-09-ge007.md)** |
+| You want the implemented product campaign for controlled sweeps, project-vs-scratch context truth, immutable promotion, and auditable finish receipts | **[Trustworthy endgames campaign](history/trustworthy-endgames-campaign.md)** |
+| You want those endgame gates in one asset-free runnable journey | **[Worked endgame example](campaigns.md#worked-endgame-example)** |
+| You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](history/postmortem-2026-08-09-ge007.md)** |
 
 New here? [Start here](START_HERE.md) is a short guided tour, and every command
 in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
@@ -79,8 +79,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
 | You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |
-| You want the dated audit that drove the current product | [Historical elite product review](elite-product-review-2026-07-29.md) |
-| You want the longer design target and rationale | [North-star UX vision](ux-vision-2026-07-29.md) |
+| You want the longer design target and rationale | [North-star UX vision](history/ux-vision-2026-07-29.md) |
 
 ## Compiler internals and traces
 
@@ -98,11 +97,11 @@ traces, and three functions have been matched without ever reading one.
 
 The dated field notes, skill feed, postmortem, review, and UX vision preserve
 the evidence as it looked on the day each was written — 2026-07-29 for the
-dp64 set, [2026-07-30](field-notes-2026-07-30-ssb64.md) for the SSB64
+dp64 set, [2026-07-30](history/field-notes-2026-07-30-ssb64.md) for the SSB64
 frontend-lineage campaign, and
-[2026-08-09](postmortem-2026-08-09-ge007.md) for the GE007
+[2026-08-09](history/postmortem-2026-08-09-ge007.md) for the GE007
 `object_interaction` campaign that produced this page's newest compiler laws.
-The [2026-08-11 acceptance receipt](live-acceptance-2026-08-11.md) is a dated
+The [2026-08-11 acceptance receipt](history/live-acceptance-2026-08-11.md) is a dated
 proof record, not a rolling release-status page.
 Use [Product status](product-status.md) for current syntax and support
 claims.

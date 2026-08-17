@@ -10,4 +10,4 @@ python3 examples/trustworthy-endgame/run.py
 It creates all state in a temporary directory, performs no network operation,
 and uses no ROM, game object, or proprietary compiler. The expected final JSON
 and an explanation of each gate are in the
-[walkthrough](../../docs/trustworthy-endgame-walkthrough.md).
+[worked endgame example](../../docs/campaigns.md#worked-endgame-example).

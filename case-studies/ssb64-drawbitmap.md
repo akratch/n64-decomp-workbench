@@ -296,7 +296,7 @@ a paste, and both entered in [Troubleshooting](../docs/troubleshooting.md):
   that turned out to matter here.
 - [Alternate authentic frontends](../docs/alternate-frontends.md) — the
   sibling campaign whose frontend-lineage finding this one corroborates.
-- [Field notes, 2026-07-31](../docs/field-notes-2026-07-31-ssb64-drawbitmap.md)
+- [Field notes, 2026-07-31](../docs/history/field-notes-2026-07-31-ssb64-drawbitmap.md)
   — the condensed, session-log form of this campaign.
 - [Troubleshooting](../docs/troubleshooting.md) — the two decomp.me paste
   pitfalls from the epilogue, in the troubleshooting entry format.
