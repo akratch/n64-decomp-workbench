@@ -28,6 +28,7 @@ from .comparison_render import (
     comparison_explanation_lines,
     comparison_line,
     diff_site_lines,
+    relocation_symbol_caution_lines,
     warning_lines,
 )
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
@@ -153,6 +154,7 @@ def _emit(
             *warning_lines(comparison.warnings),
             painter.bold("COMPARISON"),
             *alignment_caution_lines(comparison),
+            *relocation_symbol_caution_lines(comparison),
             comparison_line(comparison, painter),
         ]
         lines.extend(

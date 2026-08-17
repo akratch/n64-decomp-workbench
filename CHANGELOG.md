@@ -1,5 +1,141 @@
 # Changelog
 
+## Unreleased
+
+- **`public-match-check` asks, before a campaign starts, whether the function
+  is already matched in public.** The cheapest finish is somebody else's, and
+  the way campaigns kept missing it was to walk the family of the scratch they
+  inherited: public matches live in unrelated lineages, so a family walk finds
+  none of them. The command queries the public decomp.me search by name, by
+  `--address` — in the three spellings a hand-written name uses, which in one
+  measured sweep surfaced roughly 55 of 127 functions a name lookup did not —
+  and binds results on `--max-score`/`--instructions`, because `max_score` is
+  the target's instruction count times one hundred and is therefore the only
+  handle on a scratch named after a jump table instead of the function. Two
+  rows are shouted at the reader: `score=0` with `match_override=false` is a
+  match the site itself verified, and `match_override=true` is one its owner
+  merely declared. `--fail-on-match` is the exit-code form, `--json` emits
+  `decomp-workbench-public-match-check-v1`, and an empty result never claims
+  novelty — the report carries that caveat in its own `limits`.
+
+- **`fetch-scratch` downloads one export, validated, and never twice.** The
+  step before every offline workflow was the one people got wrong: an
+  unidentified request the API refuses, a re-download of a scratch already on
+  disk, or an archive unpacked with none of the validation `check-scratch`
+  applies. `fetch-scratch SLUG [--outdir]` takes a slug or a pasted scratch
+  URL, validates the archive with exactly the loader that reads a local export
+  *before* writing anything, and unpacks the standard layout with the ZIP kept
+  beside it. A scratch already fetched there is reported without a request;
+  `--force` re-downloads; a directory that is not an export is never written
+  into or removed, so an `--outdir` typo cannot eat your work.
+
+- **Both use one polite standard-library client, and it will not evade a
+  block.** No new dependency. The `User-Agent` names this package and its
+  version (`--contact` appends a reachable address), the ordinary browser
+  headers accompany it because the API is served to a browser, responses are
+  decompressed and size-bounded, and a request is timed out and retried
+  **once** with backoff, honoring `Retry-After` and reporting rather than
+  sleeping through a long one. An HTTP 403 — the documented reality of this
+  API — is reported as a refusal that names what happened, states that the
+  workbench will not imitate a specific browser build to get past it, and
+  gives the offline route out. There is no evasion path here to grow later.
+  The transport is a constructor argument, so the whole failure surface is
+  tested against a scripted double and no test in the package opens a socket.
+
+- **The network surface is an inventory, not a blanket flag.**
+  `safety.network` was a constant `False` written into every command, which
+  could only be true while the package had no network code at all.
+  `commands --json` now carries a top-level `network` object: the offline-first
+  policy in sentences, exactly which commands may open a connection, and the
+  one host they contact with the reason. Every other command still reports
+  `safety.network: false`, no network command runs implicitly, and none is a
+  step inside another command — analysis never calls out on your behalf. The
+  discovery test asserts that inventory rather than a blanket false, which is
+  a claim that still means something now that the inventory is not empty.
+
+- **A relocation whose two sides name different symbols is no longer hidden
+  behind a zero.** Word masking removes a linker-filled field from
+  `word_mismatches`, which is right for the same symbol at a different addend
+  and wrong for two different symbols: a pair reading `viMode` on one side and
+  `g_viOriginalHstart` on the other reported `words=0 opcodes=0 gaps=0` while
+  being a different function. `relocation_symbol_mismatches` counts that half,
+  printed as `reloc_syms=` on the summary line and carried in `--json`; each
+  `relocation_target_differences` record names which half moved (`difference`:
+  `symbol`, `addend`, or `kind`) and flags `candidate_section_symbol` where the
+  candidate reaches an anonymous section offset against a named target object.
+  `compare` and `diagnose` print a caution ahead of the counters, the verdict
+  becomes `relocation-symbol-mismatch`, and acceptance refuses it — `exact`
+  covers relocation *kinds* and never claimed anything about symbol identity.
+
+- **`--function` works on a target whose symbol was stripped.** A decomp.me
+  export's `target.o`, and any object holding an IDO `static` function, ships
+  one function's worth of `.text` with no symbol naming it; the resulting
+  `symbol 'X' produced no instructions ... defines: .text` read like an object
+  with no code in it. Every comparison command now recognizes that shape and
+  answers the selector with the whole-section positional path, warning ahead
+  of the verdict. `compare`, `view`, `diagnose`, their `*-dumps` forms, and
+  `check-scratch` share one `selection_warnings` helper and can no longer
+  disagree about the same pair of objects; `check-scratch`'s terminal output
+  prints comparison warnings it previously emitted only under `--json`. The
+  fallback stays narrow: an object that does name functions still rejects a
+  name that misses them.
+
+- **`view` asks whether a color can reach the target's register before naming
+  a color playbook.** uopt's phase-2 palette is `v0 v1 a0-a3 s0-s8`; `t0-t9`
+  and `f4-f10` are ugen ring temps it never hands out. The era table already
+  recorded that split and nothing consulted it, so a residual whose target
+  register is `t6` was routed to `forced-color-oracle`, every lever of which
+  is unreachable for it. A wholly ring-only residual now reports
+  `verdict: register-ring-only` with `playbook=temp-fifo-phase` and guidance
+  naming the registers; a mixed one keeps its color playbook and gains a note
+  counting the sites no color can move. `--json` carries `ring_only_targets`,
+  and `--emit-force-spec` refuses a wholly ring-only residual instead of
+  writing a handoff for a probe that cannot fire.
+
+- **`trace-scheduler`'s documented capture and key chain are corrected.** IDO
+  5.3's `as1` writes the `-R` selection trace to stdout, so the `2>sched.log`
+  the help, the error, and the guide all recommended produced an empty log;
+  every one of them now captures both streams. `besttime` enters the tie-break
+  chain above `aftercycles`, which reproduces a recorded block that picks
+  `aftercycles=0` over `aftercycles=1` and previously reported only
+  `aftercycles-disagrees` with no field to fall back on. Both bounds are
+  measured, and each key's direction is now stated.
+
+- **A moved instruction reports as a schedule decision, not as structure.** An
+  instruction that slides inside a block produces an LCS deletion and an
+  insertion in different runs, which neither the per-run nor the
+  whole-function reordering rule could reach, so the rows were labelled
+  `structural` and routed the reader to "fix structure first" — the wrong
+  order of work. The balance is now checked over exactly those rows. A genuine
+  insertion still reports as structure.
+
+- **Control characters no longer reach `--json`.** objdump is decoded with
+  `errors="replace"`, which repairs invalid UTF-8 and leaves NUL and the other
+  C0 codes alone because they are valid UTF-8; they travelled into
+  `diff_sites` and out of the JSON, and every harness in one campaign stripped
+  them before `json.loads` would take the stream. They are dropped at the
+  parse boundary. Tab is kept.
+
+- **`trace-globalcolor --lineage-table` explains an empty result.** Formation
+  records are opt-in at capture time, so a trace taken with `CDX_DETAIL_WEB`
+  alone carries `webdetail` records naming a table and no lineage record for
+  it; the command printed `lineage=0` and stopped, which reads as "this table
+  does not exist". It now says whether the requested table appears on
+  `webdetail` records, that the family needs `CDX_LINEAGE_TABLES` at capture
+  time, and which tables are present.
+
+- **Documentation corrections from a matching campaign.** Field-guide lever 28
+  no longer implies a struck web left the allocation contest — it is still
+  allocated, to the stack, and `CDX_FORCE`'s `=n` and `=s` both spill rather
+  than de-candidate. `docs/source-probes.md` gains the minimal-repro trap: a
+  probe translation unit that loses its prototypes tests implicit `int` and
+  confirms mechanisms that are not in play, which two postmortems each paid
+  about ten builds for. `docs/object-comparison.md` explains why `words` is a
+  floor once a relocation symbol differs, `docs/troubleshooting.md` covers the
+  stripped-symbol fallback, and `docs/decompme-exports.md` records how to
+  obtain an export politely — the workbench itself still has no network
+  egress.
+
 ## 0.5.0 - 2026-08-12
 
 - **Documentation and worked examples now carry executable, tested contracts.**

@@ -125,8 +125,12 @@ evidence and must not be implied by the UI.
 - [x] The bundled Codex/Claude Agent Skill uses the same evidence hierarchy,
   frontend cells, controls, source retention, cleanup gates, and final oracle.
 - [x] Shared notes use cross-process locking and collision-safe ID reservation.
-- [x] The workbench performs no network upload and reports `network=false` in
-  command discovery.
+- [x] The workbench performs no network upload, and command discovery carries
+  the whole network surface as an inventory: the offline-first policy, the two
+  read-only commands that may open a connection (`scratch fetch`,
+  `scratch public-match-check`), and the one host they contact. Every other
+  command reports `safety.network=false`, and no network command runs
+  implicitly or as a step inside another command.
 
 ## 7. Make every report usable
 

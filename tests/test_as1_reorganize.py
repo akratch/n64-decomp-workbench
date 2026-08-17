@@ -63,6 +63,67 @@ class TieBreakTests(unittest.TestCase):
         sole = [event for event in events if event.tie == "sole-candidate"]
         self.assertEqual([event.ready for event in sole], [1, 1, 1])
 
+    def test_besttime_outranks_aftercycles(self) -> None:
+        """A recorded block picks `aftercycles=0` over `aftercycles=1`.
+
+        The winner is the candidate with the higher `besttime`. Before
+        `besttime` entered the chain the reader called this
+        `aftercycles-disagrees` and named no key the reader could fall back
+        on, which is the state one campaign reported as "the tool telling you
+        its own model failed".
+        """
+
+        text = (
+            "BASIC BLOCK: 33\n"
+            "Node   0: inst 00000021, relocation 0, lineno 40\n"
+            "Node   1: inst 00000021, relocation 0, lineno 41\n"
+            "Initial nodes: 0 1\n"
+            "  node 0 (INST 1), time = 0, aftercycles = 0, latency = 0, "
+            "besttime = 4\n"
+            "  node 1 (INST 2), time = 0, aftercycles = 1, latency = 0, "
+            "besttime = 2\n"
+            "Picking node 0 (INST 1), at 0, best_addr = 0\n"
+        )
+        _selections, events, _ignored = parse_as1_reorganize_trace(text)
+        self.assertEqual([event.tie for event in events], ["besttime"])
+
+    def test_besttime_does_not_outrank_readiness(self) -> None:
+        """The other half of the measurement, and the reason `besttime` is not
+        the outright primary key: a node that starts later cannot win on it."""
+
+        text = (
+            "BASIC BLOCK: 33\n"
+            "Node   0: inst 00000021, relocation 0, lineno 40\n"
+            "Node   1: inst 00000021, relocation 0, lineno 41\n"
+            "Initial nodes: 0 1\n"
+            "  node 0 (INST 1), time = 0, aftercycles = 0, latency = 0, "
+            "besttime = 1\n"
+            "  node 1 (INST 2), time = 3, aftercycles = 0, latency = 0, "
+            "besttime = 9\n"
+            "Picking node 0 (INST 1), at 0, best_addr = 0\n"
+        )
+        _selections, events, _ignored = parse_as1_reorganize_trace(text)
+        self.assertEqual([event.tie for event in events], ["start-time"])
+
+    def test_the_shipped_trace_is_unchanged_by_the_new_key(self) -> None:
+        """Adding a key must not re-label selections an earlier key already
+        explained. Every tie in the recorded fixture is still its own key."""
+
+        _selections, events, _ignored = parse()
+        self.assertEqual(
+            [event.tie for event in events],
+            [
+                "start-time",
+                "lineno",
+                "sole-candidate",
+                "sole-candidate",
+                "lineno",
+                "start-time",
+                "lineno",
+                "sole-candidate",
+            ],
+        )
+
     def test_a_full_tie_falls_through_to_list_order(self) -> None:
         text = (
             "BASIC BLOCK: 7\n"
@@ -216,13 +277,27 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("0 decision(s) differ", stdout)
 
-    def test_a_capture_without_selections_names_the_stderr_mistake(self) -> None:
+    def test_a_capture_without_selections_names_the_redirect_mistake(self) -> None:
+        """The advice used to name stderr as the trace's stream. IDO 5.3's as1
+        writes it to stdout, so following it produced an empty log; two
+        campaigns reported the same wasted capture. Capturing both streams is
+        right whichever stream the local assembler build uses."""
+
         with tempfile.TemporaryDirectory() as directory:
             empty = Path(directory) / "stdout-only.log"
             empty.write_text("as1: nothing here\n", encoding="utf-8")
             status, _, stderr = run_cli(["trace-scheduler", str(empty), "--from-as1-r"])
         self.assertEqual(status, 2)
-        self.assertIn("stderr", stderr)
+        self.assertIn(">sched.log 2>&1", stderr)
+        self.assertIn("writes it to stdout", stderr)
+
+    def test_the_help_example_captures_both_streams(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), self.assertRaises(SystemExit):
+            main(["trace-scheduler", "--help"])
+        text = stdout.getvalue()
+        self.assertIn(">sched.log 2>&1", text)
+        self.assertNotIn("2>sched.log &&", text)
 
     def test_the_instrument_command_points_at_the_free_trace_first(self) -> None:
         stdout = io.StringIO()

@@ -443,6 +443,13 @@ class Web:
             "rows": list(self.rows),
         }
 
+    def ring_only_target(
+        self, register_profile: str = DEFAULT_REGISTER_PROFILE
+    ) -> bool:
+        """Whether no coloring outcome can put a value in this target register."""
+
+        return bool(uncolorable_targets((self,), register_profile))
+
 
 @dataclass(frozen=True)
 class MechanismView:
@@ -536,6 +543,14 @@ class MechanismView:
             "hunks": [item.as_dict() for item in self.hunks],
             "lanes": [item.as_dict() for item in self.lanes],
             "webs": [item.as_dict() for item in self.webs],
+            # Whether a color lever can reach the target's registers at all.
+            # A residual whose target registers are ring-only makes every
+            # reweighting and tie-break lever unreachable, and nothing else in
+            # this payload says so.
+            "ring_only_targets": [
+                item.target
+                for item in uncolorable_targets(self.webs, self.register_profile)
+            ],
             "next": list(self.guidance),
             "warnings": list(self.warnings),
         }
@@ -1054,6 +1069,57 @@ def _build_webs(rows: Sequence[AlignedRow]) -> tuple[Web, ...]:
     )
 
 
+#: The classes a coloring pass can put a value in. A register outside these is
+#: reachable only by the block-local temp allocator, so no reweighting, tie-break
+#: or forced-color probe can steer a value into it -- the value has to become a
+#: different kind of value first.
+COLORABLE_CLASSES = ("pool", "fp-pool")
+
+
+def colorable_registers(register_profile: str = DEFAULT_REGISTER_PROFILE) -> set[str]:
+    """Return every register the era's coloring pass can hand out.
+
+    The complement within the profile is the allocator ring: for IDO 5.3 that
+    is ``t0-t9`` and ``f4/f6/f8/f10``, which uopt never colors.
+    """
+
+    profile = REGISTER_CLASS_PROFILES.get(
+        register_profile, REGISTER_CLASS_PROFILES[DEFAULT_REGISTER_PROFILE]
+    )
+    return {
+        register for name in COLORABLE_CLASSES for register in profile.get(name, ())
+    }
+
+
+def uncolorable_targets(
+    webs: Sequence[Web], register_profile: str = DEFAULT_REGISTER_PROFILE
+) -> tuple[Web, ...]:
+    """Return the substitutions whose *target* register no coloring can reach.
+
+    This is the question a register residual has to answer before any color
+    lever is worth running, and the tool did not ask it. On a function whose
+    first divergence wants ``t6``, ``t6`` is not in uopt's phase-2 palette at
+    all, so "reach it by allocation" was impossible from the start and every
+    reweighting and tie-break lever in `pool-position` and
+    `forced-color-oracle` was dead on arrival. One campaign learned it by
+    reading raw cost lines out of an instrumented compiler.
+
+    A register the profile does not classify at all is not reported: an
+    unmeasured register is not evidence of unreachability.
+    """
+
+    colorable = colorable_registers(register_profile)
+    profile = REGISTER_CLASS_PROFILES.get(
+        register_profile, REGISTER_CLASS_PROFILES[DEFAULT_REGISTER_PROFILE]
+    )
+    return tuple(
+        web
+        for web in webs
+        if _register_class(web.target, profile) is not None
+        and web.target not in colorable
+    )
+
+
 def _consistent_permutation(webs: Sequence[Web]) -> bool:
     """Return whether the register substitutions form one bijection."""
 
@@ -1102,7 +1168,10 @@ def _phase_shift(lanes: Sequence[Lane]) -> bool:
 
 
 def _verdict(
-    counts: dict[str, int], lanes: Sequence[Lane], webs: Sequence[Web]
+    counts: dict[str, int],
+    lanes: Sequence[Lane],
+    webs: Sequence[Web],
+    register_profile: str = DEFAULT_REGISTER_PROFILE,
 ) -> tuple[str, str]:
     present = [name for name in MIXED_PRECEDENCE if counts.get(name)]
     if not present:
@@ -1116,6 +1185,14 @@ def _verdict(
     if present == [REGISTER]:
         if _phase_shift(lanes):
             return "phase-shift", "temp-fifo-phase"
+        # Asked before any color question, because it decides whether a color
+        # question exists. When every register the target uses is outside the
+        # era's colorable set, no coloring outcome reaches it and both color
+        # playbooks are dead on arrival; the residual is about which values
+        # became ring temps, not about what color they were given.
+        unreachable = uncolorable_targets(webs, register_profile)
+        if webs and len(unreachable) == len(webs):
+            return "register-ring-only", "temp-fifo-phase"
         if _consistent_permutation(webs):
             return "register-permutation", "forced-color-oracle"
         return "allocation", "pool-position"
@@ -1128,7 +1205,9 @@ def _verdict(
             COMMUTATIVE: ("commutative-order", "ast-shape"),
         }[single]
     composition = ", ".join(f"{name}:{counts[name]}" for name in present)
-    _, playbook = _verdict({present[0]: counts[present[0]]}, lanes, webs)
+    _, playbook = _verdict(
+        {present[0]: counts[present[0]]}, lanes, webs, register_profile
+    )
     return f"mixed({composition})", playbook
 
 
@@ -1186,12 +1265,35 @@ def _primary_class(counts: dict[str, int]) -> str | None:
     return RELOCATION if counts.get(RELOCATION) else None
 
 
+def _ring_only_caution(webs: Sequence[Web], register_profile: str) -> tuple[str, ...]:
+    """Name the ring-only targets inside a residual that also has colored ones.
+
+    The whole-residual case gets its own verdict. This is the mixed one, where
+    a color lever is still worth running for part of the residual and cannot
+    possibly move the rest.
+    """
+
+    unreachable = uncolorable_targets(webs, register_profile)
+    if not unreachable or len(unreachable) == len(webs):
+        return ()
+    named = ", ".join(web.target for web in unreachable)
+    return (
+        f"NOTE: {len(unreachable)} of {len(webs)} substitutions want a "
+        f"ring-only target register ({named}), which the era's coloring pass "
+        "never hands out.",
+        "      No color lever can move those sites; they are a "
+        "web-existence question. Expect any color probe to close only the "
+        "rest.",
+    )
+
+
 def _guidance(
     verdict: str,
     counts: dict[str, int],
     lanes: Sequence[Lane],
     webs: Sequence[Web],
     hunks: Sequence[Hunk],
+    register_profile: str = DEFAULT_REGISTER_PROFILE,
 ) -> tuple[str, ...]:
     """Return the lever family for the dominant class.
 
@@ -1315,6 +1417,27 @@ def _guidance(
                 "permutation is a dead family here.",
             ]
         )
+    elif verdict == "register-ring-only":
+        unreachable = uncolorable_targets(webs, register_profile)
+        named = ", ".join(
+            f"{web.target} (candidate {web.candidate})" for web in unreachable
+        )
+        lines.extend(
+            [
+                f"every target register here is ring-only: {named}. The era's "
+                "coloring pass never hands these out, so no color reaches "
+                "them.",
+                "this is a web-existence problem, not a color problem: the "
+                "question is which values became block-local temps, not what "
+                "color a colored web was given.",
+                "`forced-color-oracle` and `pool-position` are dead families "
+                "for this residual -- a forced color cannot cross the "
+                "boundary between the two allocators.",
+                "run `decomp-workbench view --register-profile` to confirm "
+                "the era table this claim rests on before spending a round on "
+                "it.",
+            ]
+        )
     elif verdict == "register-permutation":
         mapping = ", ".join(f"{web.target}->{web.candidate}" for web in webs)
         lines.extend(
@@ -1329,6 +1452,7 @@ def _guidance(
                 "more variants.",
             ]
         )
+        lines.extend(_ring_only_caution(webs, register_profile))
     else:
         lines.extend(
             [
@@ -1344,6 +1468,7 @@ def _guidance(
                 "toolchain is already configured.",
             ]
         )
+        lines.extend(_ring_only_caution(webs, register_profile))
     return tuple(lines)
 
 
@@ -1495,6 +1620,46 @@ def _relabel_reorderings(
         if left and left == right:
             for index in range(start, end + 1):
                 labels[index] = SCHEDULE
+    _relabel_displaced_rows(labels, skeleton, target_keys, candidate_keys)
+
+
+def _relabel_displaced_rows(
+    labels: list[str],
+    skeleton: Sequence[tuple[str, int | None, int | None]],
+    target_keys: Sequence[str],
+    candidate_keys: Sequence[str],
+) -> None:
+    """Promote a moved instruction whose delete and insert land in two runs.
+
+    An instruction that slides several slots inside a block produces one LCS
+    deletion and one insertion with matching rows between them, so they fall in
+    *different* runs and neither run's own two sides balance. The whole-function
+    rule does not reach it either, because it requires the entire function's
+    multisets to agree and any unrelated register residual breaks that.
+
+    The rows left over were labelled `structural`, which routes the reader to
+    "fix structure first" for what is a scheduling decision -- the wrong order
+    of work, and a different playbook. So the balance is checked over exactly
+    the rows in question: if everything deleted is also inserted, nothing was
+    added or removed and every one of those rows is a move.
+    """
+
+    deleted: list[str] = []
+    inserted: list[str] = []
+    displaced: list[int] = []
+    for index, (_, target_index, candidate_index) in enumerate(skeleton):
+        if labels[index] != STRUCTURAL:
+            continue
+        if target_index is not None and candidate_index is None:
+            deleted.append(target_keys[target_index])
+            displaced.append(index)
+        elif candidate_index is not None and target_index is None:
+            inserted.append(candidate_keys[candidate_index])
+            displaced.append(index)
+    if not displaced or sorted(deleted) != sorted(inserted):
+        return
+    for index in displaced:
+        labels[index] = SCHEDULE
 
 
 def _pool_operand_only(target_text: str, candidate_text: str) -> bool:
@@ -1755,7 +1920,7 @@ def build_view(
     prefix_exact = _prefix_exact(rows)
     target_frame = frame_size(_joined(target))
     candidate_frame = frame_size(_joined(candidate))
-    verdict, playbook = _verdict(counts, lanes, webs)
+    verdict, playbook = _verdict(counts, lanes, webs, register_profile)
     if _frame_layout_only(rows, target_frame, candidate_frame):
         verdict, playbook = "frame-layout", "stack-frame-recovery"
     return MechanismView(
@@ -1781,7 +1946,10 @@ def build_view(
         hunks=hunks,
         lanes=lanes,
         webs=webs,
-        guidance=_guidance(verdict, counts, lanes, webs, hunks) + next_steps(playbook),
+        guidance=(
+            _guidance(verdict, counts, lanes, webs, hunks, register_profile)
+            + next_steps(playbook)
+        ),
         warnings=tuple(warnings),
         pool=pool,
     )

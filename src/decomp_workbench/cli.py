@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -59,6 +59,7 @@ from .comparison_render import (
     scratch_acceptance_line,
     scratch_comparison_payload,
     scratch_score_acceptance,
+    warning_lines,
 )
 from .context_lint_cli import register_context_commands
 from .context_truth import (
@@ -66,6 +67,7 @@ from .context_truth import (
     call_contract_hypotheses,
     truth_stack_lines,
 )
+from .decompme_cli import register_decompme_commands
 from .diagnose_cli import register_diagnose_commands
 from .diagnosis import diagnose_instructions, diagnose_objects
 from .discovery import (
@@ -652,6 +654,12 @@ def check_scratch_command(args: argparse.Namespace) -> int:
                 print(line)
         print(f"scratch: {package.kind} ({display_path(package.path)})")
         if comparison is not None:
+            # Same placement rule the comparison commands use: a warning that
+            # the selector was answered a different way has to precede the
+            # acceptance it qualifies. `--json` has always carried these under
+            # `comparison.warnings`; the terminal dropped them.
+            for line in warning_lines(comparison.warnings):
+                print(line)
             print("acceptance: " + scratch_acceptance_line(comparison))
         metadata = package.public_metadata()
         identity = metadata.get("name") or metadata.get("project")
@@ -1737,6 +1745,43 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
     return 1 if args.fail_on_violation and not report.valid else 0
 
 
+def _lineage_notes(
+    report: Any, lineage: Sequence[Any], *, requested: set[int]
+) -> list[str]:
+    """Explain an empty `--lineage-table` result instead of returning silence.
+
+    Formation records are opt-in at *capture* time: the instrumentation emits
+    `lineage_range`/`lineage_member` only when `CDX_LINEAGE_TABLES` names the
+    table. A trace captured with `CDX_DETAIL_WEB` alone therefore contains
+    `webdetail` records naming the table and no lineage record for it, and the
+    command printed `lineage=0` with no reason -- which reads as "this table
+    does not exist" rather than "this trace was not captured for it".
+    """
+
+    if not requested or lineage:
+        return []
+    known = report.webdetail_tables()
+    present = sorted(requested & known)
+    notes = []
+    if present:
+        named = ", ".join(str(value) for value in present)
+        notes.append(
+            f"note: table {named} appears on webdetail records in this trace, "
+            "but it carries no formation records for it."
+        )
+    notes.append(
+        "note: lineage_range/lineage_member are opt-in at capture time. "
+        "Re-capture with CDX_LINEAGE_TABLES naming the table(s); "
+        "CDX_DETAIL_WEB alone does not emit them."
+    )
+    if not present and known:
+        notes.append(
+            "note: webdetail tables present in this trace: "
+            + ", ".join(str(value) for value in sorted(known)[:12])
+        )
+    return notes
+
+
 def trace_globalcolor_command(args: argparse.Namespace) -> int:
     if args.web is not None and args.proc is None:
         print(
@@ -1796,6 +1841,7 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
         args.proc,
         tables=lineage_tables or None,
     )
+    lineage_notes = _lineage_notes(report, lineage, requested=set(args.lineage_table))
     lookup_error = None
     if args.web is not None and not allocator_webs:
         same_web = report.allocator_webs(proc=args.proc, web=args.web)
@@ -1863,6 +1909,13 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
     else:
         if lookup_error:
             print(f"error: {lookup_error}", file=sys.stderr)
+            # A `--lineage-table` miss exits here rather than through the
+            # summary, and its explanation is the whole point of asking: this
+            # is the path a reader who saw "silently returns nothing" was on.
+            for note in lineage_notes:
+                print(note)
+            if lineage_notes:
+                print("lineage=0")
             return 1
         for item in selected:
             costs = sorted(item.eligible_costs, key=lambda entry: entry.cost)
@@ -1964,6 +2017,8 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             f"lineage={len(lineage)} "
             f"unparsed={len(report.unparsed_diagnostic_lines)}"
         )
+        for note in lineage_notes:
+            print(note)
     if lookup_error:
         return 1
     return 0 if selected or allocator_webs or decisions or lineage else 1
@@ -2135,6 +2190,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_campaign_cockpit_commands(commands)
     register_cache_commands(commands)
     register_context_commands(commands)
+    register_decompme_commands(commands)
     register_project_commands(commands, dispatch=main)
 
     instrument_parser = commands.add_parser(

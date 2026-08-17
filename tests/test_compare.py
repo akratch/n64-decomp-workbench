@@ -17,6 +17,11 @@ from decomp_workbench.compare import (
     mismatch_ranges,
     normalize_instruction,
 )
+from decomp_workbench.comparison_render import (
+    comparison_acceptance,
+    comparison_line,
+    relocation_symbol_caution_lines,
+)
 from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import (
     _mips_probe_object,
@@ -452,6 +457,8 @@ class CompareTests(unittest.TestCase):
                 {
                     "instruction_index": 0,
                     "relocation_index": 0,
+                    "difference": "symbol",
+                    "candidate_section_symbol": False,
                     "target_instruction_offset": 0,
                     "candidate_instruction_offset": 0,
                     "target": {
@@ -471,6 +478,120 @@ class CompareTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_a_different_relocation_symbol_is_counted_apart_from_an_addend(
+        self,
+    ) -> None:
+        """The masked counters read zero while the two objects read different
+        globals. That combination is the shape one campaign scored as a
+        potential exact match, so the symbol half gets its own counter."""
+
+        target = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 viMode\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 g_viOriginalHstart\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        self.assertEqual(result.word_mismatches, 0)
+        self.assertEqual(result.opcode_mismatches, 0)
+        self.assertEqual(result.aligned_gaps, 0)
+        self.assertEqual(result.relocation_symbol_mismatches, 1)
+        self.assertEqual(result.verdict, "relocation-symbol-mismatch")
+        self.assertEqual(
+            result.relocation_target_differences[0]["difference"], "symbol"
+        )
+        self.assertFalse(comparison_acceptance(result, cross_rom=False)[0])
+        self.assertEqual(
+            comparison_acceptance(result, cross_rom=False)[1],
+            "relocation-symbol-mismatch",
+        )
+
+    def test_a_different_addend_on_the_same_symbol_is_not_a_symbol_mismatch(
+        self,
+    ) -> None:
+        """The benign half: one object reaches the same named object through a
+        different link-time coordinate. Nothing about the source changes."""
+
+        target = parse_disassembly("  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 table\n")
+        candidate = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 table+0x10\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        self.assertEqual(result.relocation_target_mismatches, 1)
+        self.assertEqual(result.relocation_symbol_mismatches, 0)
+        self.assertEqual(
+            result.relocation_target_differences[0]["difference"], "addend"
+        )
+        self.assertEqual(result.verdict, "instruction-words-identical")
+        self.assertTrue(comparison_acceptance(result, cross_rom=False)[0])
+
+    def test_an_anonymous_section_target_is_flagged_against_a_named_object(
+        self,
+    ) -> None:
+        """A candidate that reaches `.rodata+N` where the target names an
+        object may have manufactured private storage another translation unit
+        owns, which shifts the linked layout even at words=0."""
+
+        target = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 aNoGfxlist\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 .rodata+0x118\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        self.assertTrue(
+            result.relocation_target_differences[0]["candidate_section_symbol"]
+        )
+        caution = "\n".join(relocation_symbol_caution_lines(result))
+        self.assertIn("anonymous section offset", caution)
+
+    def test_the_symbol_caution_precedes_the_counters_it_qualifies(self) -> None:
+        target = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 viMode\n"
+        )
+        candidate = parse_disassembly(
+            "  0: 3c020000 lui v0,0x0\n  0: R_MIPS_HI16 osTvType\n"
+        )
+
+        result = compare_instructions(
+            target,
+            candidate,
+            target_name="target.o",
+            candidate_name="candidate.o",
+            symbol=None,
+        )
+
+        lines = relocation_symbol_caution_lines(result)
+        self.assertTrue(lines)
+        self.assertIn("relocation-symbol caution", lines[0])
+        self.assertIn("words=0 is a floor", "".join(lines))
+        # The counter a JSON reader greps must carry the same number.
+        self.assertIn("reloc_syms=   1", comparison_line(result))
 
     def test_positionally_opcode_exact_streams_never_gain_lcs_gaps(self) -> None:
         target = parse_disassembly(

@@ -37,8 +37,12 @@ SYMBOL = "demo"
 
 #: A register permutation: every difference is the same substitution, which is
 #: the transcript's verdict and the one with no source lever at the end of it.
-PERMUTATION_TARGET = ["lw t8,0(s0)", "addu t8,t8,t8", "sw t8,4(s0)"]
-PERMUTATION_CANDIDATE = ["lw t6,0(s0)", "addu t6,t6,t6", "sw t6,4(s0)"]
+# Pool registers deliberately: `forced-color-oracle` is only the right
+# playbook when a color can reach the target's register at all. The same shape
+# spelled in t-registers is a ugen-ring residual and routes elsewhere -- see
+# `test_view.ColorabilityTests`.
+PERMUTATION_TARGET = ["lw s3,0(s0)", "addu s3,s3,s3", "sw s3,4(s0)"]
+PERMUTATION_CANDIDATE = ["lw s1,0(s0)", "addu s1,s1,s1", "sw s1,4(s0)"]
 
 
 def run_cli(arguments: list[str]) -> tuple[int, str, str]:

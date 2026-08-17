@@ -62,6 +62,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("collateral", "expose whole-object changes outside an exact function"),
     ),
     "scratch": (
+        ("fetch", "download one decomp.me export into the standard layout"),
+        ("public-match-check", "gate 0: is this function already matched in public?"),
         ("check", "validate or site-faithfully compile a decomp.me export"),
         ("bundle", "build a deterministic manual-upload handoff"),
         ("doctor", "verify retained-dump, object, and compiler readiness"),
@@ -197,6 +199,8 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "rank"): "rank",
     ("object", "relocation-aliases"): "relocation-aliases",
     ("object", "collateral"): "object-collateral",
+    ("scratch", "fetch"): "fetch-scratch",
+    ("scratch", "public-match-check"): "public-match-check",
     ("scratch", "check"): "check-scratch",
     ("scratch", "bundle"): "bundle-scratch",
     ("scratch", "doctor"): "doctor",
@@ -253,6 +257,41 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("toolchain", "calibrate"): "toolchain-calibrate",
     ("toolchain", "status"): "toolchain-status",
 }
+
+#: Every command that may open a network connection, as journey coordinates.
+#:
+#: The workbench is offline-first: analysis reads local files and never calls
+#: out, so this set is the whole network surface and is small enough to read.
+#: A command is listed here only if a user must name it explicitly; nothing
+#: else in the package may reach it, and no command fetches anything on a
+#: caller's behalf as a side effect of doing something local.
+NETWORK_COMMANDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("scratch", "fetch"),
+        ("scratch", "public-match-check"),
+    }
+)
+
+#: The hosts the listed commands contact, and why. Stated once so a reader,
+#: an auditor, or an egress policy can see the whole list without reading code.
+NETWORK_HOSTS: tuple[dict[str, str], ...] = (
+    {
+        "host": "decomp.me",
+        "why": (
+            "public scratch export download and public scratch search, over "
+            "HTTPS, read-only, one request per term"
+        ),
+    },
+)
+
+#: The policy the inventory above implements, in one sentence per rule.
+NETWORK_POLICY: tuple[str, ...] = (
+    "Offline-first: every analysis command reads local files only.",
+    "A network command never runs implicitly; a user names it explicitly.",
+    "A network command is never a step inside another command.",
+    "Requests identify the workbench and its version honestly, and are "
+    "serialized, timed out, retried at most once, and cached on disk.",
+)
 
 HIDDEN_FLAT_COMMANDS = frozenset(
     {
@@ -368,7 +407,7 @@ def command_map_payload() -> dict[str, Any]:
                 else "read-only"
             ),
             "external_process": external_process,
-            "network": False,
+            "network": (group, command) in NETWORK_COMMANDS,
             "destructive": False,
         }
 
@@ -408,6 +447,20 @@ def command_map_payload() -> dict[str, Any]:
                 "3": "census-failed",
             },
             "next_actions": "next reports command_argv, safety, and expected_signal",
+        },
+        # The network surface as an inventory rather than a per-command flag a
+        # consumer would have to scan for. An empty `commands` list is the
+        # positive claim that nothing in this build can open a connection.
+        "network": {
+            "policy": list(NETWORK_POLICY),
+            "commands": [
+                {
+                    "invocation": ["decomp-workbench", group, command],
+                    "command": f"{group} {command}",
+                }
+                for group, command in sorted(NETWORK_COMMANDS)
+            ],
+            "hosts": [dict(host) for host in NETWORK_HOSTS],
         },
         "compatibility": (
             "Existing flat command names remain supported; grouped spellings "

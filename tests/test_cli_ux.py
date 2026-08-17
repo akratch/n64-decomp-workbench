@@ -109,6 +109,61 @@ class CliUxTests(unittest.TestCase):
         self.assertIn("lineage=2", stdout)
         self.assertIn("allocator-webs=0 decisions=0", stdout)
 
+    def test_an_empty_lineage_result_says_why_instead_of_nothing(self) -> None:
+        """Formation records are opt-in at *capture* time.
+
+        A trace captured with `CDX_DETAIL_WEB` alone carries `webdetail`
+        records naming a table and no lineage record for it. The command
+        printed `lineage=0` with no reason, which reads as "this table does
+        not exist" rather than "this trace was not captured for it" -- one
+        campaign reported it as the option silently returning nothing.
+        """
+
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] webdetail proc=0 web=17 role=target phase=p1 "
+                "table=960 exprtable=960 exprchain=1 type=3 dtype=6\n",
+                encoding="utf-8",
+            )
+            status, stdout, _stderr = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "0",
+                    "--lineage-table",
+                    "960",
+                ]
+            )
+
+        self.assertIn("lineage=0", stdout)
+        self.assertIn("table 960 appears on webdetail records", stdout)
+        self.assertIn("CDX_LINEAGE_TABLES", stdout)
+        self.assertEqual(status, 1)
+
+    def test_an_unknown_lineage_table_lists_the_ones_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trace = Path(temp) / "globalcolor.log"
+            trace.write_text(
+                "[CDX] webdetail proc=0 web=17 role=target phase=p1 "
+                "table=960 exprtable=960 type=3 dtype=6\n",
+                encoding="utf-8",
+            )
+            _status, stdout, _stderr = self.run_cli(
+                [
+                    "trace-globalcolor",
+                    str(trace),
+                    "--proc",
+                    "0",
+                    "--lineage-table",
+                    "42",
+                ]
+            )
+
+        self.assertNotIn("table 42 appears", stdout)
+        self.assertIn("webdetail tables present in this trace: 960", stdout)
+
     def test_origin_probe_help_states_its_non_attribution_scope(self) -> None:
         parser = build_parser()
         subparsers = next(

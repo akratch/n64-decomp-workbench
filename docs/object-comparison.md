@@ -190,6 +190,7 @@ in `--explain-keys`.
 | `verdict` | Product-level classification of the evidence | Decide whether to edit source, trace allocation, or verify the link |
 | `raw_difference_breakdown` | Why literal words differ | Separate instruction bits from relocation-controlled words |
 | `relocation_target_mismatches` | Positional relocation symbol/addend differences | Explain why a linked-function match can still fail the local scratch-score proxy |
+| `relocation_symbol_mismatches` | The subset of those where the two sides name a *different symbol* | Catch a candidate that reads a different variable while every masked counter reads zero |
 | `diff_sites` | Every differing site with its class | Read the residual without the verdict filtering it |
 | `diff_site_classes` | Count of differing sites per class | See the mechanism mix at a glance |
 | `structural_exact` | Opcode, normalized shape, registers, frame, and count agree | Cross-ROM/compiler-lineage evidence only |
@@ -430,6 +431,40 @@ includes the instruction and relocation indices plus both sides' instruction
 offset, relocation offset, type, symbol, parsed addend, and original target
 spelling. `check-scratch` prints these records directly, so a relocation-only
 rejection no longer requires a second hand-written objdump parser.
+
+### `words` is a floor, not a ceiling, once a relocation symbol differs
+
+Masking a relocation-filled field out of `word_mismatches` is right when both
+sides name the same object at a different addend, and wrong when they name
+different objects. A candidate that loads `g_viOriginalHstart` where the target
+loads `viMode` has the same instruction bits after masking, so it reports
+`words=0 opcodes=0 gaps=0` while being a different function.
+
+`relocation_symbol_mismatches` is the counter for exactly that half, and each
+record in `relocation_target_differences` carries a `difference` field naming
+which half moved:
+
+| `difference` | Meaning | Source change indicated |
+| --- | --- | --- |
+| `symbol` | The two sides name different symbols | Yes — a different variable is being read |
+| `addend` | Same symbol, different link-time offset | No — the linker resolves it |
+| `kind` | Same symbol, different relocation type | Usually — check the addressing mode |
+
+Read a `words=` count on a comparison with a nonzero `relocation_symbol_mismatches`
+as a **floor** on the remaining work: masking excluded every relocation-differing
+row from it. A scan of `words`/`opcodes`/`gaps` alone cannot see those rows,
+which is why `compare` prints a `relocation-symbol caution:` block ahead of the
+summary line, reports `verdict=relocation-symbol-mismatch`, and refuses
+`accepted` with basis `relocation-symbol-mismatch`.
+
+Each record also carries `candidate_section_symbol`. It is true when the
+candidate reaches an anonymous section offset (`.rodata+0x118`) where the target
+names an object. That is the shape of a duplicated string literal or a privately
+copied global: the instruction bits agree, but the translation unit grew its own
+storage and every later object in that section shifts. The benign case — the
+candidate naming a section offset that *is* the target's named object, with no
+new storage — is distinguished by checking whether the translation unit already
+defines that object.
 
 ### Linked-address aliases
 

@@ -160,6 +160,54 @@ writes one variant of the source per local, that local made `volatile` so the
 compiler must keep it in memory. Build each one, re-run `slots`, and the offset
 whose traffic appears or grows is that local's stack home.
 
+## The minimal-repro trap: a probe TU must inherit the real prototypes
+
+Every probe on this page, and every hand-built minimal repro that isolates one
+construct against the real compiler, shares one failure mode. Two campaign
+postmortems cite it, and it produces the most expensive kind of wrong answer:
+a repro that *confirms* a mechanism that is not the one in play.
+
+A repro translation unit stripped down to the construct under test usually
+loses the headers that declare the functions and globals it touches. A C89
+front end does not object: an undeclared function is assumed to return `int`,
+and an undeclared parameter is assumed to be `int`. The repro then compiles,
+runs, and reports a stable, reproducible behavior — for a program whose types
+are not the program's types.
+
+Two recorded cases, both of which cost about ten builds:
+
+* A `li a2,0` versus `move a2,zero` difference was chased through every
+  spelling of the argument (casts, hex, `x-x`, macros, a fresh local, a reused
+  dead local) and every one produced byte-identical output. The encoding is
+  chosen by the **declared parameter type** at the call site: the real
+  prototype's `f32` had been transcribed as `s32` in the scratch's context
+  file. Nothing in the repro could have shown that, because the repro declared
+  nothing.
+* A whole apparatus of allocation levers was built to explain an address
+  computed as two chained multiplies instead of one. The cause was a global
+  declared with the wrong element type — a 12-byte row transcribed as a scalar
+  array of the same total size. Retyping it removed most of the residual and
+  the entire apparatus with it.
+
+So, before trusting any minimal repro:
+
+1. **Give it the real declarations.** Include the project's own headers, or
+   copy the exact prototype and the exact type of every global the construct
+   touches. A repro with no declarations is testing implicit `int`.
+2. **Compile it with the front end's warnings on** and treat an
+   implicit-declaration warning as a failed repro, not as noise.
+3. **Cross-check the context file against the project tree.** An exported
+   scratch's `ctx.c` is a transcription, and a transcription can be wrong;
+   where the repository already declares the same symbol, the repository is
+   the authority. `decomp-workbench context-lint` and `context-truth` compare
+   the two.
+
+The general form: an instruction-encoding difference on a value whose *type*
+could differ — a zero-valued argument, a shift-versus-multiply address, an
+integer-versus-float temp — is a **declaration** question before it is an
+optimization question. Check the types the construct is compiled against
+before spending a round on the expression that produces it.
+
 ## See also
 
 - [The p1 decision arithmetic](p1-decision-arithmetic.md) — why an occurrence

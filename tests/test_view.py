@@ -24,16 +24,20 @@ from mips_asm import assemble
 
 from decomp_workbench.cli import main
 from decomp_workbench.compare import compare_instructions
+from decomp_workbench.force_spec import force_specification
 from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.view import (
     REGISTER_CLASS_PROFILES,
     AlignedRow,
     MechanismView,
+    Web,
     build_view,
     classify_pair,
+    colorable_registers,
     destination_register,
     schema_keys,
+    uncolorable_targets,
 )
 from decomp_workbench.view_cli import Painter, render_view, resolve_color
 
@@ -227,34 +231,34 @@ class PhaseShiftEvidenceTests(unittest.TestCase):
     """
 
     def test_one_substitution_is_not_a_phase(self) -> None:
-        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+        view = view_of(body("lw s1,0(s0)"), body("lw s2,0(s0)"))
         self.assertNotEqual(view.verdict, "phase-shift")
         self.assertEqual(view.verdict, "register-permutation")
 
     def test_two_register_swap_is_a_permutation_not_a_phase(self) -> None:
         view = view_of(
-            body("lw t6,0(s0)", "lw t7,4(s0)", "sw t6,8(s0)", "sw t7,12(s0)"),
-            body("lw t7,0(s0)", "lw t6,4(s0)", "sw t7,8(s0)", "sw t6,12(s0)"),
+            body("lw s1,0(s0)", "lw s2,4(s0)", "sw s1,8(s0)", "sw s2,12(s0)"),
+            body("lw s2,0(s0)", "lw s1,4(s0)", "sw s2,8(s0)", "sw s1,12(s0)"),
         )
         self.assertEqual(view.verdict, "register-permutation")
-        temp = next(lane for lane in view.lanes if lane.classification == "temp")
-        self.assertIsNone(temp.rotation)
+        pool = next(lane for lane in view.lanes if lane.classification == "pool")
+        self.assertIsNone(pool.rotation)
 
     def test_inconsistent_substitutions_are_not_a_phase(self) -> None:
         view = view_of(
             body(
-                "lw t6,0(s0)",
-                "lw t8,4(s0)",
-                "lw t9,8(s0)",
-                "addu t6,t6,t8",
-                "sw t6,12(s0)",
+                "lw s1,0(s0)",
+                "lw s3,4(s0)",
+                "lw s4,8(s0)",
+                "addu s1,s1,s3",
+                "sw s1,12(s0)",
             ),
             body(
-                "lw t7,0(s0)",
-                "lw t6,4(s0)",
-                "lw t7,8(s0)",
-                "addu t7,t7,t6",
-                "sw t7,12(s0)",
+                "lw s2,0(s0)",
+                "lw s1,4(s0)",
+                "lw s2,8(s0)",
+                "addu s2,s2,s1",
+                "sw s2,12(s0)",
             ),
         )
         self.assertNotEqual(view.verdict, "phase-shift")
@@ -392,6 +396,129 @@ class SymbolTableAsymmetryTests(unittest.TestCase):
         self.assertNotEqual(call.classification, "match")
 
 
+class DisplacedRowTests(unittest.TestCase):
+    """An instruction that slid inside a block is a schedule decision.
+
+    LCS reports the move as a deletion and an insertion with matching rows
+    between them, so the two land in different runs and neither run's own
+    sides balance. The whole-function rule cannot reach it either: it needs
+    the entire function's multisets to agree, and any unrelated register
+    residual breaks that. The rows were therefore labelled `structural`, which
+    routes the reader to "fix structure first" -- the wrong order of work, and
+    a different playbook, for a residual with no structure change in it.
+    """
+
+    def test_a_moved_instruction_is_schedule_not_structure(self) -> None:
+        view = view_of(
+            body(
+                "lw s1,0(s0)",
+                "addu s1,s1,s1",
+                "sw ra,20(sp)",
+                "sw s1,4(s0)",
+                "lw s2,8(s0)",
+            ),
+            body(
+                "sw ra,20(sp)",
+                "lw s1,0(s0)",
+                "addu s1,s1,s1",
+                "sw s1,4(s0)",
+                "lw s3,8(s0)",
+            ),
+        )
+
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["schedule"], 2)
+        self.assertEqual(view.playbook, "g0-schedule-probe")
+
+    def test_a_real_insertion_is_still_structure(self) -> None:
+        """The rule is a balance, not a blanket promotion: an instruction that
+        exists on one side only is genuinely new structure."""
+
+        view = view_of(
+            body("lw s1,0(s0)", "sw s1,4(s0)"),
+            body("lw s1,0(s0)", "addu s1,s1,s1", "sw s1,4(s0)"),
+        )
+
+        self.assertEqual(view.counts["schedule"], 0)
+        self.assertTrue(view.counts["structural"])
+        self.assertEqual(view.playbook, "structure-buckets")
+
+
+class ColorabilityTests(unittest.TestCase):
+    """Whether a color lever can reach the target's register at all.
+
+    The decisive fact about a register residual, and the tool used not to ask
+    it. uopt's phase-2 palette is `v0 v1 a0-a3 s0-s8`; `t0-t9` are ugen ring
+    temps it never hands out. A residual whose target register is `t6` cannot
+    be closed by any reweighting, tie-break, or forced-color probe, so the
+    whole `forced-color-oracle` playbook is dead on arrival -- which one
+    campaign discovered only by reading raw cost lines out of an instrumented
+    compiler, after spending the campaign on levers that could not work.
+    """
+
+    def test_the_colorable_set_excludes_the_ugen_ring(self) -> None:
+        colorable = colorable_registers("ido53")
+        for register in ("v0", "a0", "s0", "s8", "f0", "f12", "f18"):
+            self.assertIn(register, colorable)
+        for register in ("t0", "t5", "t6", "t9", "f4", "f6", "f8", "f10"):
+            self.assertNotIn(register, colorable)
+
+    def test_a_ring_only_residual_is_not_routed_to_a_color_playbook(self) -> None:
+        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+
+        self.assertEqual(view.verdict, "register-ring-only")
+        self.assertNotEqual(view.playbook, "forced-color-oracle")
+        self.assertNotEqual(view.playbook, "pool-position")
+        self.assertEqual(view.playbook, "temp-fifo-phase")
+
+    def test_the_verdict_says_why_rather_than_leaving_it_to_be_derived(
+        self,
+    ) -> None:
+        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+        guidance = " ".join(view.guidance)
+
+        self.assertIn("ring-only", guidance)
+        self.assertIn("web-existence problem, not a color problem", guidance)
+        self.assertIn("dead families", guidance)
+        self.assertEqual(view.as_dict()["ring_only_targets"], ["t6"])
+
+    def test_a_colorable_target_keeps_the_permutation_verdict(self) -> None:
+        view = view_of(body("lw s1,0(s0)"), body("lw s2,0(s0)"))
+
+        self.assertEqual(view.verdict, "register-permutation")
+        self.assertEqual(view.as_dict()["ring_only_targets"], [])
+
+    def test_a_mixed_residual_names_the_sites_no_color_can_move(self) -> None:
+        """A color probe is still worth running for the colorable half, and
+        cannot possibly close the rest. Both halves get said."""
+
+        view = view_of(
+            body("lw s1,0(s0)", "sw t6,4(s0)"),
+            body("lw s2,0(s0)", "sw t7,4(s0)"),
+        )
+
+        self.assertEqual(sorted(view.as_dict()["ring_only_targets"]), ["t6"])
+        guidance = " ".join(view.guidance)
+        self.assertIn("1 of 2 substitutions want a ring-only target", guidance)
+
+    def test_a_force_spec_refuses_a_residual_no_force_can_reach(self) -> None:
+        view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
+
+        with self.assertRaises(ValueError) as caught:
+            force_specification(view)
+
+        message = str(caught.exception)
+        self.assertIn("dead on arrival", message)
+        self.assertIn("guide temp-fifo-phase", message)
+
+    def test_an_unmeasured_register_is_not_called_unreachable(self) -> None:
+        """Absence of a register from the era table is not evidence that the
+        coloring pass cannot reach it."""
+
+        webs = (Web(web="w1", target="k0", candidate="k1", count=1, rows=(0,)),)
+        self.assertEqual(uncolorable_targets(webs, "ido53"), ())
+
+
 class ClassificationTests(unittest.TestCase):
     def test_commutative_swap_is_not_an_allocation_problem(self) -> None:
         view = view_of(
@@ -414,18 +541,18 @@ class ClassificationTests(unittest.TestCase):
 
     def test_register_cascade_reports_one_bijection(self) -> None:
         view = view_of(
-            body("lw t8,0(s0)", "addu t8,t8,t8", "sw t8,4(s0)", "lw t9,8(s0)"),
-            body("lw t6,0(s0)", "addu t6,t6,t6", "sw t6,4(s0)", "lw t9,8(s0)"),
+            body("lw s3,0(s0)", "addu s3,s3,s3", "sw s3,4(s0)", "lw s4,8(s0)"),
+            body("lw s1,0(s0)", "addu s1,s1,s1", "sw s1,4(s0)", "lw s4,8(s0)"),
         )
         self.assertEqual(view.verdict, "register-permutation")
-        self.assertEqual([web.target for web in view.webs], ["t8"])
+        self.assertEqual([web.target for web in view.webs], ["s3"])
         self.assertEqual(view.webs[0].count, 3)
         self.assertEqual(view.webs[0].web, "w1")
 
     def test_inconsistent_substitutions_are_allocation(self) -> None:
         view = view_of(
-            body("lw t8,0(s0)", "sw t8,4(s0)", "lw t8,8(s0)", "sw t8,12(s0)"),
-            body("lw t6,0(s0)", "sw t6,4(s0)", "lw t7,8(s0)", "sw t7,12(s0)"),
+            body("lw s3,0(s0)", "sw s3,4(s0)", "lw s3,8(s0)", "sw s3,12(s0)"),
+            body("lw s1,0(s0)", "sw s1,4(s0)", "lw s2,8(s0)", "sw s2,12(s0)"),
         )
         self.assertEqual(view.verdict, "allocation")
         self.assertEqual(view.playbook, "pool-position")
@@ -1184,14 +1311,14 @@ class ViewCommandTests(unittest.TestCase):
             output = root / "force.json"
             target.write_text(
                 "00000000 <demo>:\n"
-                "   0: 8e0e0000  lw $t6,0($s0)\n"
-                "   4: ae0e0004  sw $t6,4($s0)\n",
+                "   0: 8e110000  lw $s1,0($s0)\n"
+                "   4: ae110004  sw $s1,4($s0)\n",
                 encoding="utf-8",
             )
             candidate.write_text(
                 "00000000 <demo>:\n"
-                "   0: 8e0f0000  lw $t7,0($s0)\n"
-                "   4: ae0f0004  sw $t7,4($s0)\n",
+                "   0: 8e120000  lw $s2,0($s0)\n"
+                "   4: ae120004  sw $s2,4($s0)\n",
                 encoding="utf-8",
             )
             status, _, _ = self.run_cli(

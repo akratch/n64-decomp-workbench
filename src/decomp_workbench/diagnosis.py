@@ -10,9 +10,9 @@ from typing import Any
 from .compare import compare_instructions, resolve_true_instructions
 from .model import Comparison, Instruction, display_path
 from .objdump import (
-    cross_function_warning,
     dump_object,
-    parse_disassembly,
+    parse_selected_disassembly,
+    selection_warnings,
     symbol_selection_error,
 )
 from .view import DEFAULT_REGISTER_PROFILE, MechanismView, build_view
@@ -120,10 +120,12 @@ def diagnose_objects(
         symbol=symbol,
         section=section,
     )
-    warning = cross_function_warning(
+    warnings = selection_warnings(
         target_text,
         candidate_text,
         symbol=symbol,
+        target_name=display_path(target),
+        candidate_name=display_path(candidate),
         section=section,
     )
     target_true_instructions = resolve_true_instructions(
@@ -139,7 +141,7 @@ def diagnose_objects(
         candidate_name=display_path(candidate),
         symbol=symbol,
         register_profile=register_profile,
-        warnings=(warning,) if warning else (),
+        warnings=warnings,
         target_true_instructions=target_true_instructions,
         candidate_true_instructions=candidate_true_instructions,
         instruction_count_verified=(
@@ -160,8 +162,8 @@ def diagnose_dumps(
 
     target_text = Path(target).read_text(encoding="utf-8")
     candidate_text = Path(candidate).read_text(encoding="utf-8")
-    target_items = parse_disassembly(target_text, symbol=symbol)
-    candidate_items = parse_disassembly(candidate_text, symbol=symbol)
+    target_items = parse_selected_disassembly(target_text, symbol=symbol)
+    candidate_items = parse_selected_disassembly(candidate_text, symbol=symbol)
     if not target_items or not candidate_items:
         raise ValueError(
             symbol_selection_error(
@@ -172,7 +174,6 @@ def diagnose_dumps(
                 ),
             )
         )
-    warning = cross_function_warning(target_text, candidate_text, symbol=symbol)
     return diagnose_instructions(
         target_items,
         candidate_items,
@@ -180,5 +181,11 @@ def diagnose_dumps(
         candidate_name=display_path(candidate),
         symbol=symbol,
         register_profile=register_profile,
-        warnings=(warning,) if warning else (),
+        warnings=selection_warnings(
+            target_text,
+            candidate_text,
+            symbol=symbol,
+            target_name=display_path(target),
+            candidate_name=display_path(candidate),
+        ),
     )

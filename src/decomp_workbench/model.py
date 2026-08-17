@@ -77,6 +77,13 @@ class Comparison:
     verdict: str
     guidance: list[str]
     error: str | None = None
+    #: The subset of ``relocation_target_mismatches`` where the two sides name
+    #: a *different symbol*, not the same symbol at a different addend. Only
+    #: the addend half is linker-controlled layout; a symbol difference is a
+    #: different variable being read and survives the link. Split out because
+    #: masking hides it from ``word_mismatches``, so a reader scanning
+    #: ``words``/``opcodes``/``gaps`` alone sees zeroes on a semantic defect.
+    relocation_symbol_mismatches: int = 0
     register_diff: list[dict[str, Any]] = field(default_factory=list)
     diff_sites: list[dict[str, Any]] = field(default_factory=list)
     diff_site_classes: dict[str, int] = field(default_factory=dict)

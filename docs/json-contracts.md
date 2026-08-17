@@ -38,6 +38,13 @@ argv, its `report_schema`, and conservative safety metadata (`default`,
 `external_process`, `network`, and `destructive`). The metadata describes the
 default path; command help remains authoritative for optional output flags.
 
+The report also carries a top-level `network` object: the offline-first
+`policy` sentences, the `commands` that may open a connection, and the `hosts`
+they contact with the reason for each. It is an inventory, not a flag — an
+empty `commands` list is the positive claim that this build cannot call out,
+and every command outside the list reports `safety.network: false`. Use it as
+the egress contract; do not infer network behavior from a command's name.
+
 `next --json` is the action surface. Every proposed step carries
 `command_argv`, a shell-rendered `command` for humans, `safety`, and an
 `expected_signal` that says what evidence would make the step informative.

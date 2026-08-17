@@ -167,6 +167,17 @@ METRICS: tuple[Metric, ...] = (
         kind="integer",
     ),
     Metric(
+        "reloc_syms",
+        "relocation_symbol_mismatches",
+        "positional relocation differences where the two sides name a "
+        "different symbol rather than the same symbol at a different addend; "
+        "a semantic difference the link cannot resolve, and one that word "
+        "masking hides from words=",
+        summary=True,
+        width=4,
+        kind="integer",
+    ),
+    Metric(
         "norm",
         "normalized_distance",
         "edit distance after masking addresses, immediates, and stack "
@@ -517,6 +528,14 @@ VIEW_METRICS: tuple[Metric, ...] = (
         "register_profile_evidence",
         "what that table is made of: a probe of a named release, or the "
         "pre-probe default carried for unmeasured ones",
+    ),
+    Metric(
+        "ring_only_targets",
+        "ring_only_targets",
+        "target registers no coloring pass in this era can hand out, so no "
+        "reweighting, tie-break, or forced-color lever can reach them; a "
+        "register residual made entirely of these is a web-existence "
+        "question, not a color question",
     ),
     Metric(
         "target_instructions",

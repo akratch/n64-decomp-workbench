@@ -296,6 +296,33 @@ from the initializer.
 The int color map has a hole at c13 and the float colors occupy c24–c32, which
 is why a forced-color probe on 5.3 must not assume a dense index space.
 
+### The colorability gate — ask this before any color lever
+
+The table above decides something stronger than which pass to read: whether a
+color lever can work **at all**.
+
+A coloring pass can only put a value in a register it hands out. For IDO 5.3
+that is `pool` + `fp-pool`. Every other register in the table is reachable only
+by ugen's block-local ring. So when the *target* register at a divergence is
+ring-only, no reweighting, no tie-break, and no `CDX_FORCE` colour reaches it:
+the value has to become a different kind of value first. The residual is a
+**web-existence** question — which values became ring temps — not a colour
+question.
+
+`view` and `diagnose` now ask this before naming a playbook:
+
+* every diverging target register ring-only → `verdict: register-ring-only`,
+  `playbook=temp-fifo-phase`, and the guidance names the registers;
+* some of them → the colour playbook still applies to the rest, with a `NOTE:`
+  counting the sites no colour can move;
+* none of them → unchanged.
+
+`--json` carries the same fact as `ring_only_targets`, and
+`--emit-force-spec` refuses a wholly ring-only residual rather than writing a
+handoff for a probe that cannot fire. A forced-colour campaign against a `t6`
+target is dead on arrival, and one campaign found that out only by reading raw
+cost lines out of an instrumented compiler.
+
 ### Any other release — unverified
 
 `--register-profile unverified` carries the pre-probe table
@@ -504,8 +531,14 @@ whose defs store. Measured on one function: a dead-code probe
 (`if (0) { f(&colour, …); }`, zero instructions) moved one web's store charge
 from 0 to 8. The gate is `> 0` and not `>= 0`, so a web whose charges exactly
 cancel its gross is struck; that last unit is worth chasing when a sweep stalls
-one charge short. Struck webs emit no candidate record at all, which is also how
-you recognize the state in a trace. See
+one charge short. A struck web emits no *candidate* record, which is how you
+recognize the state in a trace — but it is still allocated, to the stack. That
+is worth stating plainly, because "emits no candidate record" reads as "was
+never a candidate for anything" and it is not: the `CDX_FORCE` strike (`=n`)
+and split (`=s`) controls both send the value to a stack home, so **neither
+models "this value never entered the allocation contest"**. Nothing in the
+force grammar does; only a source change that stops the value being a value
+does. One campaign spent a build discovering that. See
 [compiler laws L55](compiler-laws/ido-5.3.md#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins)
 for the formula and its falsified rivals.
 
@@ -1265,9 +1298,11 @@ if (game_over) { colour = 10; } else { colour = 0; } x = ((viewleft + offset) - 
 ```
 
 **Why:** as1's list scheduler picks the lexicographic minimum of
-`(start_time, −aftercycles, −latency, node->addr, node->lineno, ready-list
-position)`, and `node->lineno` is a **source line number**. With `node->addr` 0
-throughout a compiled TU, the line number is the last effective key. So physical
+`(start_time, −besttime, −aftercycles, −latency, node->addr, node->lineno,
+ready-list position)`, and `node->lineno` is a **source line number**. A
+leading − marks a key that is maximised; `start_time` and `node->lineno` are
+minimised, so **lower `lineno` wins**. With `node->addr` 0 throughout a
+compiled TU, the line number is the last effective key. So physical
 line numbers are a codegen input at scheduling, and whitespace is a lever.
 
 Two consequences worth internalizing. A layout that keeps each statement on its
@@ -1280,8 +1315,11 @@ breaks the other.
 **Read it directly — the trace is free and byte-inert:**
 
 ```sh
-cc -Wa,-R ...            # as1 prints its DAG and one record per selection
+cc -Wa,-R -c source.c >sched.log 2>&1    # capture both streams
 ```
+
+IDO 5.3's as1 prints the `-R` trace on **stdout**; other assembler builds may
+use stderr, so capture both or the log comes back empty.
 
 The object built with `-R` is `cmp`-identical to the object built without it, so
 no instrumented assembler is needed for this era.

@@ -56,9 +56,60 @@ def alignment_caution_lines(item: Comparison) -> list[str]:
     return [item.alignment_caution] if item.alignment_caution else []
 
 
+def relocation_symbol_caution_lines(item: Comparison) -> list[str]:
+    """Announce different-symbol relocation targets ahead of the counters.
+
+    Word masking removes a relocation-filled field from ``word_mismatches``,
+    which is right when the two sides name the same object at a different
+    addend and wrong when they name different objects. On a pair where the
+    target reads one global and the candidate reads another, the masked
+    counters read ``words=0 opcodes=0 gaps=0`` while the candidate is
+    semantically a different function. One campaign scored such a pair as a
+    potential exact match on those three numbers alone.
+
+    So this prints before them, in the same position as `warning_lines`, and
+    says what the zeroes do not cover.
+    """
+
+    count = item.relocation_symbol_mismatches
+    if not count:
+        return []
+    noun, verb = ("site", "names") if count == 1 else ("sites", "name")
+    lines = [
+        f"relocation-symbol caution: {count} relocation {noun} {verb} a "
+        "different symbol in each object.",
+        "                           Masking excludes those words, so "
+        f"words={item.word_mismatches} is a floor, not the residual: a "
+        "different",
+        "                           symbol at the same site is a different "
+        "variable being read, and no link resolves it.",
+    ]
+    if any(
+        difference.get("candidate_section_symbol")
+        for difference in item.relocation_target_differences
+    ):
+        lines.append(
+            "                           At least one site reaches an "
+            "anonymous section offset where the target names an object: "
+            "check"
+        )
+        lines.append(
+            "                           the translation unit does not "
+            "already define it, or the linked layout shifts."
+        )
+    return lines
+
+
 def comparison_acceptance(item: Comparison, *, cross_rom: bool) -> tuple[bool, str]:
     """Return command acceptance independently from the evidence verdict."""
 
+    # `exact` means the masked words and the relocation *kinds* agree, which
+    # deliberately says nothing about which symbol each relocation names. A
+    # candidate that reads a different global is not the target function, so
+    # acceptance takes the symbol identity that exactness leaves out rather
+    # than reporting a pass a reader has to retract from the verdict line.
+    if item.relocation_symbol_mismatches:
+        return False, "relocation-symbol-mismatch"
     if item.exact:
         return True, "function-exact"
     if cross_rom and item.structural_exact:
@@ -147,9 +198,16 @@ def relocation_target_difference_lines(item: Comparison) -> list[str]:
         )
 
     for difference in item.relocation_target_differences:
+        # `difference` names which half of the target moved. Only `addend` is
+        # the linker-controlled half; the reader needs that on the row, not
+        # inferred by eye from two symbol spellings.
+        classification = str(difference.get("difference", "symbol"))
+        if difference.get("candidate_section_symbol"):
+            classification += ", candidate reaches an anonymous section offset"
         lines.append(
             f"  instruction {difference['instruction_index']} "
-            f"relocation {difference['relocation_index']}"
+            f"relocation {difference['relocation_index']} "
+            f"({classification})"
         )
         lines.append(f"    target    {side(difference.get('target'))}")
         lines.append(f"    candidate {side(difference.get('candidate'))}")
