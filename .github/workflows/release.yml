@@ -55,8 +55,36 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  github-release:
+    name: Attach distributions to a GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v7
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --verify-tag \
+            --notes "See CHANGELOG.md for this release's changes."
+
   publish:
     name: Publish to PyPI
+    # Pre-1.0 releases publish to GitHub only; the PyPI trusted publisher is
+    # registered as part of reaching 1.0.
+    if: startsWith(github.ref_name, 'v1')
     needs: build
     runs-on: ubuntu-latest
     environment:

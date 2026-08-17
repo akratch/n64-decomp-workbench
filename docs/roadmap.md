@@ -14,7 +14,8 @@ the older items are preserved in
 - The two open release-infrastructure items from the
   [quality checklist](workbench-quality-checklist.md) are closed: the PyPI
   trusted publisher is registered, and the published artifact — not a locally
-  built wheel — passes the smoke journey in a fresh environment.
+  built wheel — passes the smoke journey in a fresh environment. Until then,
+  releases publish to GitHub only; the PyPI job is gated to `v1*` tags.
 
 ## Blockers: instrumentation
 

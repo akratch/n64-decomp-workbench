@@ -36,6 +36,9 @@ in [design notes](docs/history/design-notes.md).
   roadmap.
 - Superseded drafts deleted: the elite product review, the skill feed, and the
   endgame walkthrough page (its example now lives in `campaigns.md`).
+- Release tags now attach the built distributions to a GitHub release; the
+  PyPI publish job is gated to `v1*` tags until the trusted publisher is
+  registered at 1.0.
 - `commands --json` carries a top-level `network` inventory of which commands
   may open a connection, replacing the blanket `safety.network: false`.
 - `view` reports `verdict: register-ring-only` for ring-temp-only residuals;
