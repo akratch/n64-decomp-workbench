@@ -78,7 +78,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You are about to blame the allocator, and want the two source questions to ask first (are these two reads the same value; where can a statement that emits nothing change the allocation), or what a fusion donor costs before building one | [Source probes](source-probes.md) |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
-| You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |
+| You want what is left before 1.0, with the campaign evidence per item | [Roadmap to 1.0](roadmap.md) |
 | You want the longer design target and rationale | [North-star UX vision](history/ux-vision-2026-07-29.md) |
 
 ## Compiler internals and traces

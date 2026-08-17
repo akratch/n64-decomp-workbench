@@ -1,8 +1,10 @@
 # Product status
 
-This is the current-state companion to the dated field notes, product review,
-and north-star vision. Those documents preserve why features were requested;
-this page says what users can rely on now.
+As of 0.6.0, 2026-08-17.
+
+This is the current-state companion to the dated records in
+[docs/history](history/). Those documents preserve why features were
+requested; this page says what users can rely on now.
 
 The cross-cutting release gates and the few external checks that remain open
 are tracked in the [Workbench quality checklist](workbench-quality-checklist.md).
@@ -82,9 +84,7 @@ implemented honestly:
 - ship additional scheduler profiles only for revisions with reproducible
   source anchors and full calibration cells.
 
-These are depth extensions. A newcomer, project contributor, decomp.me user,
-campaign author, automation caller, and instrumentation specialist all have a
-complete supported path today.
+These are depth extensions, not gaps in the supported journeys above.
 
 ## Trustworthy endgames campaign
 

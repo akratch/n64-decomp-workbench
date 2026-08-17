@@ -1,5 +1,8 @@
 # Workbench quality checklist
 
+As of 0.5.0, 2026-08-12; the open items are tracked on the
+[roadmap](roadmap.md).
+
 This is the release-facing acceptance checklist for the whole product. It is
 organized by user job, not module. A checked item is implemented and covered
 locally; an unchecked item needs external infrastructure or new measured
