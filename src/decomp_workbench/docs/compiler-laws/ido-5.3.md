@@ -1379,6 +1379,32 @@ removed.
 
 **Provenance:** stage `b4s`, originally L68.
 
+### L61. The FP expression-temp assignment has a closed form
+
+Within one basic block, ugen assigns the FP expression temps
+(`r0..r3 = f4, f6, f8, f10` — the four-wide ring of
+[L13](#l13-the-fp-ring-is-four-wide-f4-f6-f8-f10)) by a fixed rule. With
+`j` the number of FP temps already consumed in the block before the current
+statement and `n` the total FP temps the block consumes, the statement's
+`i`-th temp is register
+
+```
+reg(i) = (n + d[(j + i) mod 4]) mod 4,   d = [0, 2, 3, 1]
+```
+
+The per-statement temp consumption was measured alongside it: a scalar
+float copy costs 1; a float **struct** copy costs 0 (it lowers to integer
+`lw`/`sw`); `neg.s` costs 2; an int→float conversion costs 2; a binary FP
+operation costs 3; a three-deep expression chain costs 5.
+
+**Receipt — T2**, verified by construction against built objects; the same
+closed form was reverse-engineered independently by two operators in
+different campaigns, because ugen's temp allocator emits no trace
+([roadmap](../roadmap.md) carries the instrument that would make this
+directly observable, and future revisions T1).
+
+**Provenance:** proxy stage `SGQkv`, GE007 frontier campaign, 2026-08-13.
+
 ---
 
 ## Measurement laws
