@@ -1449,8 +1449,7 @@ a group that removes a write while leaving a read.
 
 ## Dead families — do not spend variants here
 
-Each of these was searched exhaustively at real cost. Skipping them is as
-valuable as any lever above.
+Each of these was searched exhaustively at real cost; skip them.
 
 | Family | Verdict |
 |---|---|

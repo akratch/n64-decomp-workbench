@@ -38,7 +38,7 @@ next: all visible register differences form one bijection (f0->f1): report one d
       don't have one? first inspect the residue for an actual move/copy site, or run check-scratch --view with a project object to test the strict late v0/v1 call-return occupancy shape. If either gate fires, lever 17 is one variant; lever 18 still requires a visible copy and repeated source expression. Otherwise go directly to lever 19; a clean forced-color cascade is a legitimate stopping point - record it, bundle the scratch, take the next function.
 ```
 
-The two-branch line matters more than it looks. "Prefer a forced color probe on
+The two-branch line exists because "prefer a forced color probe on
 an instrumented toolchain" was true and unusable for the many readers who do not
 have one, and it never said what they should do instead. The copy-site gate is
 equally important: a repeated register in disassembly is not a
