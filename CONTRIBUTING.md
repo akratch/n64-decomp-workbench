@@ -15,6 +15,9 @@ ruff format --check src tests
 mypy src tests
 ```
 
+The test runner is `unittest`, not pytest. pytest is not part of the dev
+extras; install it separately if you want it.
+
 The core package intentionally uses the Python standard library on Python 3.11
 and newer; Python 3.10 installs `tomli` solely for compatible project-config
 parsing. Keep optional integrations isolated and document their failure mode

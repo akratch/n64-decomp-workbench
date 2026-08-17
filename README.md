@@ -484,10 +484,16 @@ payloads remain excluded as recorded by its
 ```sh
 python3 -m pip install -e ".[dev]"
 python3 -m unittest discover -s tests -v
+bandit -r src -ll
+codespell README.md CHANGELOG.md CONTRIBUTING.md docs examples src tests
 ruff check src tests
 ruff format --check src tests
 mypy src tests
 ```
+
+The test runner is `unittest`, not pytest. pytest is not part of the dev
+extras; `uv run pytest` fails with collection errors unless you first run
+`pip install -e ".[dev]" pytest`.
 
 See [CONTRIBUTING.md][contributing] before adding a relocation type,
 instrumentation profile, or trace format.
