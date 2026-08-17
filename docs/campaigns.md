@@ -326,6 +326,23 @@ equal. Some wrappers change behavior by path and some object formats embed
 source paths. Passing the same prepared source more than once is deduplicated;
 different paths are treated as distinct candidates.
 
+### Worked endgame example
+
+A synthetic, redistributable walkthrough of the whole sequence — export
+diagnosis, experiment-v2 family, baseline control, exact candidate, coverage
+verification, fresh finish, packaging behind the receipt — ships in the
+repository:
+
+```sh
+python3 examples/trustworthy-endgame/run.py
+```
+
+It needs no ROM, proprietary compiler, target object, or network, removes all
+state with its temporary directory, and reports `controls=PASS`,
+`coverage=exhaustive-over-declared-space`, `finish=PASS`, `package=PASS`. Its
+implementation at [run.py](../examples/trustworthy-endgame/run.py) is meant to
+be adapted, not wrapped.
+
 ## Process ownership
 
 Every compiler runs in its own process group, and the campaign ends that group
@@ -581,3 +598,22 @@ The ledger is append-only so interrupted runs retain completed records. Use a
 new campaign identity for a materially different experimental question, even
 when the cache can be reused. Cache hits reproduce execution efficiently;
 manifest identity and ledger evidence remain the audit trail.
+
+## Re-sweep the cache after every shared-context change
+
+A cached verdict is relative to the context it compiled against. When a
+campaign changes something every candidate shares — a struct definition, a
+prototype, a type wave across the project's headers — a scratch that failed
+to compile under the old context is never automatically re-tried, and a
+candidate demoted by a fresh-compile failure stays demoted. Re-sweep the
+whole cached population after each such wave: in one 2026-08 campaign, the
+re-sweep after a type wave recovered 48 exact matches that earlier waves had
+already found and then lost to context drift.
+
+## Record the terminal state where the next reader will look
+
+An accepted match that lives only as a loose `accepted-code.c` in a work
+directory is a result the next session re-derives. When a candidate is
+accepted, run `campaign finish` and `campaign package` so the ledger and the
+receipt say so — a campaign whose ledger still reads `exact: false` while
+the matched source sits beside it has recorded its own failure to conclude.

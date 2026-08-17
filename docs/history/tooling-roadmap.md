@@ -1,5 +1,9 @@
 # Historical tooling roadmap from live campaigns
 
+> Historical record. The open items below are carried, one line each, on the
+> living [roadmap](../roadmap.md); this page preserves their dated design
+> reasoning.
+
 > **Status (2026-07-30).** Every adapter-level item originally listed as
 > “Next” below has landed: original/static pass differential, behavioral
 > fingerprints and cross-ROM lineage, semantic web/interference joins,
@@ -9,7 +13,7 @@
 > hash-pinned external profiles. The mutation-recipe library and richer
 > emitted-instruction joins remain research because safe equivalence and
 > validated producer fields need project evidence. See
-> [Product status](product-status.md). The original proposals remain below so
+> [Product status](../product-status.md). The original proposals remain below so
 > their acceptance reasoning is not rewritten after the fact.
 
 This backlog records gaps observed while applying the workbench to late-stage
@@ -208,7 +212,7 @@ uopt-record range, not the ugen emission hook.
 
 **What did ship instead.** The half of this that needs no stage instrumentation
 at all is now `force-rows` (see
-[Compiler instrumentation](compiler-instrumentation.md)): build the same source
+[Compiler instrumentation](../compiler-instrumentation.md)): build the same source
 twice under one allocator control and the rows that moved are, by construction,
 the rows that control owns. That is a *measured* row-to-decision join rather
 than a positional one, and it does not need a position map because it does not
@@ -311,7 +315,7 @@ decomp-workbench oracle status
 ```
 
 **Settled, by refusing the registry.** Shipped as
-[`campaign survey`](campaigns.md#survey-a-campaign-directory-that-never-had-a-manifest).
+[`campaign survey`](../campaigns.md#survey-a-campaign-directory-that-never-had-a-manifest).
 `campaign status` keeps the manifest and the command name; the directory
 reading is a second command, not a second meaning for the first.
 
@@ -363,7 +367,7 @@ patch plus arbitrary log format", at which point the tool is a build wrapper
 whose only real contribution is the gate.
 
 **Shipped: the gate alone, and its record.**
-[`instrument gate`](compiler-instrumentation.md#record-steps-4-and-5-do-not-remember-them)
+[`instrument gate`](../compiler-instrumentation.md#record-steps-4-and-5-do-not-remember-them)
 takes two objects somebody else built and states whether the instrument is
 trustworthy — and writes a stamp, because the campaign that asked for this ran
 the check by hand every time and left no record that it had. `--verify` re-runs

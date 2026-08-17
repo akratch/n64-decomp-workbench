@@ -78,3 +78,21 @@ If the check is clear, continue with
 [the export workflow](decompme-exports.md) or a
 [campaign](campaigns.md). If it is not, fetch the winner
 (`fetch-scratch <slug>`) and read it first.
+
+## Recon over a large public repository
+
+When the follow-up is "has anyone in this project's community already solved
+this family", the efficient shape is two clones with different truncations:
+
+```sh
+# Full blobs at HEAD, no history: grep the code.
+git clone --depth 1 https://github.com/n64decomp/sm64.git repo-content
+# Full history, no blobs: read log subjects and authors.
+git clone --filter=blob:none https://github.com/n64decomp/sm64.git repo-history
+```
+
+The shallow clone answers content questions; the blobless clone answers
+history questions (`git log --oneline`, subjects, authors). Do not run
+`git log -S` or `git show` against the blobless clone — every blob it needs
+is fetched one round-trip at a time, and a search that would take seconds
+locally degrades into thousands of network requests.

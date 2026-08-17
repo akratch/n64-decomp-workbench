@@ -339,7 +339,7 @@ and `s` (force the split path). Both express *which* register a coloured web
 gets; neither expresses whether the web is coloured at all, which is decided
 earlier by `compute_save`'s class verdict. A campaign extension adding `n`/`y`
 for that verdict is recorded in
-[the tooling roadmap](tooling-roadmap.md) and is not part of this grammar.
+[the roadmap](roadmap.md) and is not part of this grammar.
 
 #### Reading `p1dec`/`p2dec` economics
 

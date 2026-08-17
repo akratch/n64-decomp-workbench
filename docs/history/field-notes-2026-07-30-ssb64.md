@@ -1,7 +1,7 @@
 # Field notes — SSB64 ovl8 frontend-lineage campaign (2026-07-29/30)
 
 > **Historical field record.** Measurements and failures are preserved as
-> observed on the dates above. Use [Product status](product-status.md) and the
+> observed on the dates above. Use [Product status](../product-status.md) and the
 > current command guides for supported syntax and capabilities.
 
 Live-fire observations from the SSB64 debug-overlay campaign
@@ -16,7 +16,7 @@ A dispatch proven impossible for the project frontend (algorithm-level
 analysis of cfe's switch grouping, sealed with duplicate-case probes) was
 resolved by swapping the **frontend generation, not the source**: IDO
 4.1 `accom` ucode into the stock 7.1 backend reproduced the function
-word-for-word. New docs: [alternate-frontends](alternate-frontends.md);
+word-for-word. New docs: [alternate-frontends](../alternate-frontends.md);
 new levers: field-guide 20–22 plus two dead families.
 
 ## Gaps / friction

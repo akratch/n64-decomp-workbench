@@ -3,7 +3,7 @@
 A proof repository can be correct on its author's machine and incomplete on
 GitHub. The usual failure is a README that points at a local provisioning file
 or compiler variant which exists beside the project but was never tracked.
-`audit-handoff` checks the exact publication tree before somebody else has to
+`handoff audit` checks the exact publication tree before somebody else has to
 discover that omission.
 
 ```sh

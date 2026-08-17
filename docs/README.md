@@ -31,9 +31,9 @@ below them is reference you consult when you need it.
 | You want implemented capabilities and intentional boundaries | **[Product status](product-status.md)** |
 | You want the release-facing acceptance checklist across every user journey | **[Workbench quality checklist](workbench-quality-checklist.md)** |
 | You repeatedly diagnose one project/object pair and want portable defaults | **[Project configuration](project-configuration.md)** |
-| You want the implemented product campaign for controlled sweeps, project-vs-scratch context truth, immutable promotion, and auditable finish receipts | **[Trustworthy endgames campaign](trustworthy-endgames-campaign.md)** |
-| You want those endgame gates in one asset-free runnable journey | **[Trustworthy endgame walkthrough](trustworthy-endgame-walkthrough.md)** |
-| You have a stubborn residual you're sure is "just allocation," and want the taxonomy of source errors that only look that way | **[Postmortem: GE007 object_interaction](postmortem-2026-08-09-ge007.md)** |
+| You want controlled sweeps, immutable promotion, and auditable finish receipts | **[Candidate campaigns](campaigns.md)** |
+| You want those endgame gates in one asset-free runnable journey | **[Worked endgame example](campaigns.md#worked-endgame-example)** |
+| A stubborn residual looks like "just allocation" | **[Postmortem: GE007 object_interaction](history/postmortem-2026-08-09-ge007.md)** — the taxonomy of source errors that only look that way |
 
 New here? [Start here](START_HERE.md) is a short guided tour, and every command
 in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
@@ -74,13 +74,11 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) |
 | Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |
 | A trace gives you `save`, `nocs`, `totalsave`, `chargeA`, or `chargeB` and you need the whole allocator formula in one place | [The p1 decision arithmetic](p1-decision-arithmetic.md) |
-| A score improved, a lever's old price looked stable, or a byte-identical build looked like proof the addresses are right, and you want the catalogue of ways that can still be the wrong reading | [Metric traps](metric-traps.md) |
-| You are about to blame the allocator, and want the two source questions to ask first (are these two reads the same value; where can a statement that emits nothing change the allocation), or what a fusion donor costs before building one | [Source probes](source-probes.md) |
+| A number improved and you are about to trust it | [Metric traps](metric-traps.md) — the catalogue of correct readings of the wrong quantity |
+| You are about to blame the allocator | [Source probes](source-probes.md) — the source questions that cost seconds, asked first |
 | You want to know why the commands refuse what they refuse | [Principles](principles.md) |
 | You are auditing where this package came from | [Provenance](provenance.md) |
-| You want the reusable gaps found in live campaigns | [Historical tooling roadmap](tooling-roadmap.md) |
-| You want the dated audit that drove the current product | [Historical elite product review](elite-product-review-2026-07-29.md) |
-| You want the longer design target and rationale | [North-star UX vision](ux-vision-2026-07-29.md) |
+| You want what is left before 1.0, with the campaign evidence per item | [Roadmap to 1.0](roadmap.md) |
 
 ## Compiler internals and traces
 
@@ -96,16 +94,26 @@ traces, and three functions have been matched without ever reading one.
 | You need a trace producer for static-recompiled IDO | [Compiler instrumentation](compiler-instrumentation.md) | Generated compiler C and its build |
 | A late scheduling decision is suspect | [Pass replay](pass-replay.md) | A retained listing plus as0/as1 |
 
-The dated field notes, skill feed, postmortem, review, and UX vision preserve
-the evidence as it looked on the day each was written — 2026-07-29 for the
-dp64 set, [2026-07-30](field-notes-2026-07-30-ssb64.md) for the SSB64
-frontend-lineage campaign, and
-[2026-08-09](postmortem-2026-08-09-ge007.md) for the GE007
-`object_interaction` campaign that produced this page's newest compiler laws.
-The [2026-08-11 acceptance receipt](live-acceptance-2026-08-11.md) is a dated
-proof record, not a rolling release-status page.
-Use [Product status](product-status.md) for current syntax and support
-claims.
+## History
+
+Dated records, preserved as written. Use [Product status](product-status.md)
+for current syntax and support claims.
+
+| Record | Date |
+|---|---|
+| [Field notes: dp64 core campaign](history/field-notes-2026-07-29-dp64.md) | 2026-07-29 |
+| [Postmortem: the dp64 campaign day](history/postmortem-2026-07-29-dp64.md) | 2026-07-29 |
+| [UX vision](history/ux-vision-2026-07-29.md) | 2026-07-29 |
+| [Field notes: SSB64 frontend lineage](history/field-notes-2026-07-30-ssb64.md) | 2026-07-30 |
+| [Field notes: SSB64 drawbitmap](history/field-notes-2026-07-31-ssb64-drawbitmap.md) | 2026-07-31 |
+| [Tooling roadmap from live campaigns](history/tooling-roadmap.md) | 2026-07-30 → 08-08 |
+| [Postmortem: GE007 object_interaction](history/postmortem-2026-08-09-ge007.md) | 2026-08-09 |
+| [Trustworthy endgames campaign spec](history/trustworthy-endgames-campaign.md) | 2026-08-11 |
+| [Trustworthy endgame acceptance receipt](history/live-acceptance-2026-08-11.md) | 2026-08-11 |
+| [Design notes, by release](history/design-notes.md) | rolling |
+
+Maintainers: the [release checklist](release-checklist.md) and
+[quality checklist](workbench-quality-checklist.md) gate every release.
 
 Every command has `--help`. `decomp-workbench --explain-keys` prints the one
 registry of printed labels, JSON keys, and their meanings; reporting commands

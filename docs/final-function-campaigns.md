@@ -97,16 +97,15 @@ Takeaway:
 
 ## Remaining high-value work
 
-The live [tooling roadmap](tooling-roadmap.md) tracks the next layer:
+The [roadmap](roadmap.md) tracks the next layer. Of the items these campaigns
+originally motivated, campaign manifests and object-hash basin grouping have
+since shipped; still open are:
 
 1. Stable web fingerprints across source variants, rather than volatile numeric
    web IDs.
 2. Source/IR/listing provenance for temporary webs and stack homes.
 3. Interference-edge explanations: which web made a color unavailable.
-4. Campaign manifests, object-hash basin grouping, and source-diff attribution.
-5. Linked-address alias classification using final linked output, not guesses
+4. Linked-address alias classification using final linked output, not guesses
    from unlinked objects.
 
-Build these as diagnostics with explicit confidence and provenance. The goal is
-to make an expert faster without causing a newcomer to mistake a heuristic for
-a proof.
+Build these as diagnostics with explicit confidence and provenance.

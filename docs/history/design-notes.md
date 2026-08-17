@@ -1,0 +1,1714 @@
+# Design notes, by release
+
+> Historical record. These are the narrative release notes the project was
+> developed against — each entry states a change and the reasoning and
+> evidence behind it. [CHANGELOG.md](../../CHANGELOG.md) is the distilled
+> version.
+
+## 0.6.0 - 2026-08-17
+
+- **`public-match-check` asks, before a campaign starts, whether the function
+  is already matched in public.** The cheapest finish is somebody else's, and
+  the way campaigns kept missing it was to walk the family of the scratch they
+  inherited: public matches live in unrelated lineages, so a family walk finds
+  none of them. The command queries the public decomp.me search by name, by
+  `--address` — in the three spellings a hand-written name uses, which in one
+  measured sweep surfaced roughly 55 of 127 functions a name lookup did not —
+  and binds results on `--max-score`/`--instructions`, because `max_score` is
+  the target's instruction count times one hundred and is therefore the only
+  handle on a scratch named after a jump table instead of the function. Two
+  rows are shouted at the reader: `score=0` with `match_override=false` is a
+  match the site itself verified, and `match_override=true` is one its owner
+  merely declared. `--fail-on-match` is the exit-code form, `--json` emits
+  `decomp-workbench-public-match-check-v1`, and an empty result never claims
+  novelty — the report carries that caveat in its own `limits`.
+
+- **`fetch-scratch` downloads one export, validated, and never twice.** The
+  step before every offline workflow was the one people got wrong: an
+  unidentified request the API refuses, a re-download of a scratch already on
+  disk, or an archive unpacked with none of the validation `check-scratch`
+  applies. `fetch-scratch SLUG [--outdir]` takes a slug or a pasted scratch
+  URL, validates the archive with exactly the loader that reads a local export
+  *before* writing anything, and unpacks the standard layout with the ZIP kept
+  beside it. A scratch already fetched there is reported without a request;
+  `--force` re-downloads; a directory that is not an export is never written
+  into or removed, so an `--outdir` typo cannot eat your work.
+
+- **Both use one polite standard-library client, and it will not evade a
+  block.** No new dependency. The `User-Agent` names this package and its
+  version (`--contact` appends a reachable address), the ordinary browser
+  headers accompany it because the API is served to a browser, responses are
+  decompressed and size-bounded, and a request is timed out and retried
+  **once** with backoff, honoring `Retry-After` and reporting rather than
+  sleeping through a long one. An HTTP 403 — the documented reality of this
+  API — is reported as a refusal that names what happened, states that the
+  workbench will not imitate a specific browser build to get past it, and
+  gives the offline route out. There is no evasion path here to grow later.
+  The transport is a constructor argument, so the whole failure surface is
+  tested against a scripted double and no test in the package opens a socket.
+
+- **The network surface is an inventory, not a blanket flag.**
+  `safety.network` was a constant `False` written into every command, which
+  could only be true while the package had no network code at all.
+  `commands --json` now carries a top-level `network` object: the offline-first
+  policy in sentences, exactly which commands may open a connection, and the
+  one host they contact with the reason. Every other command still reports
+  `safety.network: false`, no network command runs implicitly, and none is a
+  step inside another command — analysis never calls out on your behalf. The
+  discovery test asserts that inventory rather than a blanket false, which is
+  a claim that still means something now that the inventory is not empty.
+
+- **A relocation whose two sides name different symbols is no longer hidden
+  behind a zero.** Word masking removes a linker-filled field from
+  `word_mismatches`, which is right for the same symbol at a different addend
+  and wrong for two different symbols: a pair reading `viMode` on one side and
+  `g_viOriginalHstart` on the other reported `words=0 opcodes=0 gaps=0` while
+  being a different function. `relocation_symbol_mismatches` counts that half,
+  printed as `reloc_syms=` on the summary line and carried in `--json`; each
+  `relocation_target_differences` record names which half moved (`difference`:
+  `symbol`, `addend`, or `kind`) and flags `candidate_section_symbol` where the
+  candidate reaches an anonymous section offset against a named target object.
+  `compare` and `diagnose` print a caution ahead of the counters, the verdict
+  becomes `relocation-symbol-mismatch`, and acceptance refuses it — `exact`
+  covers relocation *kinds* and never claimed anything about symbol identity.
+
+- **`--function` works on a target whose symbol was stripped.** A decomp.me
+  export's `target.o`, and any object holding an IDO `static` function, ships
+  one function's worth of `.text` with no symbol naming it; the resulting
+  `symbol 'X' produced no instructions ... defines: .text` read like an object
+  with no code in it. Every comparison command now recognizes that shape and
+  answers the selector with the whole-section positional path, warning ahead
+  of the verdict. `compare`, `view`, `diagnose`, their `*-dumps` forms, and
+  `check-scratch` share one `selection_warnings` helper and can no longer
+  disagree about the same pair of objects; `check-scratch`'s terminal output
+  prints comparison warnings it previously emitted only under `--json`. The
+  fallback stays narrow: an object that does name functions still rejects a
+  name that misses them.
+
+- **`view` asks whether a color can reach the target's register before naming
+  a color playbook.** uopt's phase-2 palette is `v0 v1 a0-a3 s0-s8`; `t0-t9`
+  and `f4-f10` are ugen ring temps it never hands out. The era table already
+  recorded that split and nothing consulted it, so a residual whose target
+  register is `t6` was routed to `forced-color-oracle`, every lever of which
+  is unreachable for it. A wholly ring-only residual now reports
+  `verdict: register-ring-only` with `playbook=temp-fifo-phase` and guidance
+  naming the registers; a mixed one keeps its color playbook and gains a note
+  counting the sites no color can move. `--json` carries `ring_only_targets`,
+  and `--emit-force-spec` refuses a wholly ring-only residual instead of
+  writing a handoff for a probe that cannot fire.
+
+- **`trace-scheduler`'s documented capture and key chain are corrected.** IDO
+  5.3's `as1` writes the `-R` selection trace to stdout, so the `2>sched.log`
+  the help, the error, and the guide all recommended produced an empty log;
+  every one of them now captures both streams. `besttime` enters the tie-break
+  chain above `aftercycles`, which reproduces a recorded block that picks
+  `aftercycles=0` over `aftercycles=1` and previously reported only
+  `aftercycles-disagrees` with no field to fall back on. Both bounds are
+  measured, and each key's direction is now stated.
+
+- **A moved instruction reports as a schedule decision, not as structure.** An
+  instruction that slides inside a block produces an LCS deletion and an
+  insertion in different runs, which neither the per-run nor the
+  whole-function reordering rule could reach, so the rows were labelled
+  `structural` and routed the reader to "fix structure first" — the wrong
+  order of work. The balance is now checked over exactly those rows. A genuine
+  insertion still reports as structure.
+
+- **Control characters no longer reach `--json`.** objdump is decoded with
+  `errors="replace"`, which repairs invalid UTF-8 and leaves NUL and the other
+  C0 codes alone because they are valid UTF-8; they travelled into
+  `diff_sites` and out of the JSON, and every harness in one campaign stripped
+  them before `json.loads` would take the stream. They are dropped at the
+  parse boundary. Tab is kept.
+
+- **`trace-globalcolor --lineage-table` explains an empty result.** Formation
+  records are opt-in at capture time, so a trace taken with `CDX_DETAIL_WEB`
+  alone carries `webdetail` records naming a table and no lineage record for
+  it; the command printed `lineage=0` and stopped, which reads as "this table
+  does not exist". It now says whether the requested table appears on
+  `webdetail` records, that the family needs `CDX_LINEAGE_TABLES` at capture
+  time, and which tables are present.
+
+- **Documentation corrections from a matching campaign.** Field-guide lever 28
+  no longer implies a struck web left the allocation contest — it is still
+  allocated, to the stack, and `CDX_FORCE`'s `=n` and `=s` both spill rather
+  than de-candidate. `docs/source-probes.md` gains the minimal-repro trap: a
+  probe translation unit that loses its prototypes tests implicit `int` and
+  confirms mechanisms that are not in play, which two postmortems each paid
+  about ten builds for. `docs/object-comparison.md` explains why `words` is a
+  floor once a relocation symbol differs, `docs/troubleshooting.md` covers the
+  stripped-symbol fallback, and `docs/decompme-exports.md` records how to
+  obtain an export politely — the workbench itself still has no network
+  egress.
+
+## 0.5.0 - 2026-08-12
+
+- **Documentation and worked examples now carry executable, tested contracts.**
+  Case studies participate in command-shape checks; shell fences reject fake
+  angle-bracket arguments; scratch verification uses the cross-platform
+  workbench instead of macOS-only `shasum`; the complete asset-free endgame
+  walkthrough runs in CI; and curated CV64 result JSON is explicitly separated
+  from live CLI schemas. Historical records point readers to current product
+  status, while uncleared third-party CV64 payloads are removed rather than
+  being implicitly swept under the repository's CC0 license.
+
+- **The workbench now fails closed at the seams that most often create false
+  confidence.** Objdump auto-discovery must pass a real synthetic MIPS ELF,
+  symbol-filter, instruction-syntax, and relocation probe; compiler campaigns
+  run with a sealed environment plus explicit `--inherit-env`; campaign source
+  retention is content-addressed and policy-driven; ambiguous mutating campaign
+  commands require an explicit manifest. `next --json` exposes executable argv
+  and expected signals, cache pruning supports size/age/LRU policies with
+  recoverable nested trash, and all HTML reports share an accessible offline
+  shell. Windows runs native process/filesystem contracts, a complete
+  scratch-to-package campaign, and fixture-backed CLI smoke tests; command
+  templates preserve native backslash paths instead of parsing them as POSIX
+  escapes. A strict, preview-first
+  `.decomp-workbench.toml` project layer adds configured object commands and
+  reproducible campaigns without guessing an objdiff unit, while `context
+  duplicates` makes cross-fragment redeclarations a first-class check. Ranking
+  falls back to positional words for the whole population when any candidate
+  has alignment gaps, consistently across live runs, persisted status, source
+  retention, and exports.
+
+- **Trustworthy campaign endgames now fail closed and finish with receipts.**
+  `check-scratch` separates site metadata, scratch-object truth, and optional
+  project-object truth, with one tightly gated C89 unused-call-return occupancy
+  probe for the measured late `$v0`/`$v1` shape. Experiment v2 adds
+  target-relative signals, serial absolute/differential controls, and honest
+  declared/visited/excluded coverage; required failed or unknown controls
+  schedule zero candidate work. Campaign cache and resume identity can record
+  compiler build, frontend, language, driver, and backend, keeping IRIX 4
+  `accom` distinct from later `cfe` or hybrid cells. Status/export retain
+  acceptance and mechanism trajectories, immutable source/object receipts,
+  and five coverage-qualified conclusion labels. `campaign finish` freshly
+  rebuilds a recorded winner and writes independent function, signal, scratch,
+  collateral, handoff, and project gates as exclusive JSON/HTML; `campaign
+  package --finish-receipt` can require that passing immutable receipt.
+
+- **Three instruments a campaign built by hand are now the tool's, and the
+  patch that made one of them is kept rather than remembered.** `trace-frame`
+  prints the frame ladder — every stack slot a procedure owns, lowest first,
+  with its sp-relative home, the itable index stamped at it, and the allocator
+  webs that reached it — from either the whole `CDX_SYMTAB` itable dump or, as
+  a stated subset, the shipped `webdetail` records. Names are the reader's,
+  because the input ucode carries none: `cfe -j` on a composed translation
+  unit holds three human strings and no local, parameter, or temp is one of
+  them. Unnamed slots below the lowest named one are compiler temps and that
+  is the whole claim; with nothing named, nothing is claimed, where the
+  predecessor script hard-coded a threshold true of exactly one function.
+  `--ops` prints the itable in first-occurrence order, which is where a pooled
+  temp's birth site is legible — and where the trap is, because deleting the
+  construct at the birth site moves the index rather than the slot. The
+  `CDX_SYMTAB` patch itself lands in `src/decomp_workbench/patches/` with both
+  sha256s, the rebuild recipe, and the four fidelity gates it owes; the
+  previous CDX patch was recorded as lost and two campaigns paid for the
+  recovery.
+
+- **`instrument-scheduler` was built to add a trace IDO 5.3 already ships.**
+  `as1` carries its own list-scheduler selection trace behind `-R`, reachable
+  as `cc -Wa,-R`, print-only and byte-inert — the traced object is
+  `cmp`-identical to the untraced one, whole file. `trace-scheduler
+  --from-as1-r` reads it natively, because the assembler's records are the
+  richer pair: they carry the losing candidates, which the `DKWB-SCHED-V1`
+  schema has no field for, so `tie=` has to be computed while the losers are
+  in hand. The key chain is the lexicographic minimum of `(start_time,
+  -aftercycles, -latency, node->addr, node->lineno, ready-list position)` —
+  key five is a source physical line number, which makes statement folding a
+  codegen lever. The two things the record does not carry travel with the
+  report: `node->addr` is per-selection only, so an unexplained pick is named
+  `<key>-disagrees` rather than reported as a clean tie, and `cycle=` is the
+  selection ordinal because `as1` prints no cycle counter.
+
+- **A `trace-webs --against` that aligns nothing now says which identity field
+  failed, and whether a rebuild would help.** `common=0/0` has two causes that
+  need opposite responses: a fingerprint input absent from both logs is a
+  missing record, and one present on both sides sharing no value is
+  renumbering, which no instrument setting recovers. Both are reported per
+  field and per producing record, and only when coverage is empty. A record
+  counts as missing only when none of its fields reached either side, so the
+  ordinarily-absent `provenance_web` enrichment no longer reads as a failure.
+
+- **Late-stage decomp campaigns now preserve the evidence that actually moves.**
+  Scratch checks lead with `ACCEPTED` or `NOT ACCEPTED` and list each differing
+  relocation offset/type/symbol/addend; equal-length opcode-identical streams
+  use positional alignment instead of acquiring repeated-block LCS gaps;
+  comparison and campaign JSON carry pool/temp exact-prefix metrics, with
+  `campaign --rank-by temp-prefix` for allocation work. Ugen free-list events
+  carry their measured emitted ordinal, and `trace fifo --emission-map` joins
+  it to object rows and source locations without equating the two coordinate
+  systems. Experiment manifests can declare homologous parameter groups, so
+  the cockpit proposes a sibling edit only after a controlled one-parameter
+  prefix gain. `campaign package` promotes a validated winner into a
+  checksummed, paste-ready scratch bundle with campaign provenance.
+
+- **The shift family is four commands, and it was driven by making a real
+  matched project shiftable rather than by imagining one.** The experiment:
+  pilotwings64, 100% matched and never designed for a shift, was given a
+  shift-capable linker configuration out of tree, relinked byte-identically to
+  the retail cartridge, and rehearsed at two deltas — `unexplained_changed=0`
+  both times, with exactly one high-confidence stale word. That word was not a
+  pointer Nintendo baked into the cartridge but a pin in the decompilation's
+  own generated `undefined_syms_auto.txt`, silently shadowing an object's `bss`
+  definition; ablating it left the ROM's `sha1` unchanged, which inverts the
+  community-facing claim into a stronger one — a matched decomp's shift surface
+  is configuration, and it is enumerable.
+
+  Three things the experiment demanded then landed. `shift audit` grew
+  `--blobs auto` (adopt the blob set the map's own input records imply, printed
+  as a suggestion either way), `--emit-whitelist` (a skeleton drafted from the
+  run's evidence, every entry commented out and carrying its reason), a
+  `rom-offset` pin class for values that address the cartridge rather than
+  memory, and `--elf`, which reads the `shadowing-pin` class off the link
+  itself: GNU `ld` lets a script assignment override an object's definition
+  silently and keeps the losing definition's size on the surviving absolute
+  symbol, so the check is exact and needs no shift. `shift rehearse` gained
+  `--base-elf`/`--shifted-elf`, the symbol-side census — every symbol above the
+  insertion must move by the delta — because a reference consumed only from a
+  `lui`/`%lo` pair in text is structurally invisible to a value test, and on
+  pilotwings64 the symbol side found thirteen blockers where the data side
+  found one. Its `--anchor auto` now ignores assignment symbols, which is what
+  made it work on splat projects at all: `<segment>_ROM_START` is numerically
+  low, VRAM-shaped, and moves by the delta.
+
+  Two new commands close the loop. `shift config verify` is the gate a linker
+  configuration edit must pass before any rehearsal number means anything —
+  every shared symbol at the same address, every section at the same VMA, size
+  and `AT()`, and optionally the images byte-identical; three checks rather
+  than one, because a byte-identical image can coexist with a symbol that moved
+  into a hole. `shift plan` merges the reports into one ranked, gated queue,
+  merged by subject rather than concatenated by report, ordered by what the
+  evidence cost and then by what the fix costs, with `--markdown` writing a
+  work order a person can hold. A plan from the audit alone is a plan of
+  suspicions and says so: banjo-kazooie plans 314 items with zero convictions,
+  pilotwings64 with two rehearsals plans 107 of which 14 are convictions and 10
+  are free wins. `docs/shiftability-campaign.md` is the playbook — five phases,
+  every transcript taken from those live patients, including the rules that
+  cost the live run an afternoon: audit the *uncompressed* linked image on a
+  compressed game, pass every `-T` file your link consumes because splat's
+  generated ones are the shift surface, count the absolute addresses in the
+  *generated* script rather than the `vram:` keys in the YAML, and never point
+  `splat split --modes ld` at your in-tree paths, because it silently truncates
+  `undefined_syms_auto.txt` to zero bytes.
+
+- **`shift audit` and `shift rehearse` answer the question the match gate
+  cannot: which words in a ROM are not explained by a symbol reference.** A
+  linked N64 image keeps no relocations, so a literal `0x80123456` and a
+  linker-resolved symbol living at `0x80123456` are the same four bytes —
+  matching proves the bytes at one layout and says nothing about whether the
+  build survives an insertion. The reader layer underneath is a GNU `ld -Map`
+  parser (sections, input records, per-symbol extents, VRAM↔ROM through the
+  section's own load address) and a MIPS reference decoder that resolves
+  signed `%hi`/`%lo` pairs instead of masking them. `shift audit` is the
+  static half: it sorts the project's own linker-input pins into derived,
+  authentic-fixed, artifact-suspect and unclassified, and ranks every
+  address-shaped word in the image against five suppressors measured from
+  real false-positive families — misaligned build-machine leftovers,
+  arithmetic-progression packed fields, repeated struct constants,
+  fixed-point table values, and whatever the caller whitelisted with a
+  reason. Its tiers rank how confidently a word is a *reference*, never how
+  dangerous it is, and the report says so on every run. `shift rehearse` is
+  the empirical half: relink the same objects against a script with
+  `. += DELTA;` inserted after one named object, pair the two images with a
+  delta correction rather than positionally (2.8M differing words becomes
+  20,687 on an 11 MB ROM), classify every changed word, and require the
+  `unexplained` count to be zero. Every unmoved address-shaped word is then
+  merged with the audit's tier: high and unmoved is `stale-confirmed`, medium
+  is a review queue, low is the measured noise floor. `orchestrate` drives
+  your own relink wrapper once per delta — two deltas, because a partially
+  symbolized reference can encode correctly at one shift by coincidence — and
+  reports any class count the deltas disagree on. It also carries the
+  checksum-consistency rule for games that byte-sum their own functions at run
+  time: if a protected function's body changed, its checksum word must have
+  changed too, with a status reported for every declared pair including the
+  passes.
+
+  The validation was a controlled experiment on a finished decomp. A one-line
+  hardcoded pointer injected into a 100%-matched project produced a build that
+  was byte-identical to the retail cartridge, with the project's own
+  `Verify: OK` and an independent `cmp` agreeing — every gate the ecosystem
+  currently runs, passed, on a ROM that had just acquired an address bug.
+  Relinked at one delta, `shift rehearse` reported `stale_confirmed=1` at the
+  exact word, named the symbol it should have been, and fired nothing else;
+  reverting the line returned `stale_confirmed=0, findings=0`. Documented in
+  `docs/shiftability.md`, with `docs/metric-traps.md` Trap 7 for the
+  measurement lesson.
+
+- **`next` routes an allocation residue to the force ceiling before the source
+  sweep.** Forcing a web to a colour was used mostly as a post-hoc check; used
+  first, it turned an apparently 21-row construct into a 2-row one in six
+  builds and showed its extra instruction was a symptom rather than a cost. The
+  reason it belongs first is that the best forced object is the construct's
+  *ceiling*: a source edit can only reach a state forcing can already reach, so
+  a ceiling that misses the target rules out every spelling of the construct at
+  once. `next` now names `oracle plan` at family rank for an allocation-shaped
+  verdict, ahead of the region attribution, and `docs/oracle.md` says why.
+
+- **No option that selects data to read may default to a directory, and a test
+  says so.** One campaign's batch scorer carried a *different, later* stage's
+  object directory as its default, so a stage that copied it and retargeted its
+  own objects silently scored the previous stage's and printed a plausible
+  wrong number — six independent reports of that shape. A default directory is
+  now allowed only when it is the workbench's own state under
+  `.decomp-workbench`.
+
+- **Every list-valued option takes `--OPTION-from FILE`, and a test keeps the
+  shipped shell safe.** A driver that builds a list in a shell variable and
+  expands it unquoted works under `bash` and silently does not under `zsh`,
+  which does not word-split a parameter expansion: the whole newline-joined
+  list arrives as one argument and the run dies inside `objdump` with "file
+  name too long", which reads as a tool bug rather than a quoting bug. One
+  campaign had that shape in every scorer invocation it wrote and it cost a
+  stage. `--construct-from`, `--carrier-from`, `--donor-from`, `--line-from`
+  and `--frozen-from` read one value per line, ignoring blanks and `#`
+  comments, so the list is never a shell word at all. A new test scans every
+  shell block in the documentation and every shipped `.sh` file and fails on an
+  unquoted expansion of a variable the snippet itself assigns; a block that is
+  demonstrating the mistake marks itself `# shell-lint: allow-unquoted`.
+
+- **`note reserve` claims an identifier before anything is written under it.**
+  The sidecar mechanism makes a note impossible to lose; it does nothing about
+  two agents filing *different findings under one number*, which one campaign
+  did three times in a single night — every agent having honestly read the log
+  first, because reading is not claiming. Each reserved identifier gets its own
+  file created with `O_EXCL`, so two reservers in the same instant cannot both
+  take `WB-122`; the loser takes `WB-123` without either being told. `note add`
+  then refuses an identifier somebody else reserved, naming the owner, the time
+  and the purpose, with `--author` and `--force` as the two ways through. An
+  unreserved identifier behaves exactly as before, and `note list` shows the
+  outstanding claims beside the pending notes.
+
+- **`campaign survey` reads a campaign directory that never had a manifest.**
+  `campaign status` keeps the manifest and the command name; this is the second
+  reading, not a second meaning for the first. It reports every stage directory
+  by recency with its file, source and object counts, the findings logs with
+  their pending sidecar notes, the sweep manifests and their coverage, and the
+  instrument-gate stamps — or their absence, which is the finding when the
+  directory holds traces. It is a reading, not a registry: nothing is persisted,
+  so nothing in it can be a stale claim, and it interprets only documents the
+  workbench already defines while counting everything else. It never guesses
+  which artifact is the base — it names the newest source and object it found,
+  says they may or may not be it, and prints the command that would measure
+  them. The walk stops at `--budget` files and says when it did.
+
+- **`instrument gate` records the identity gate instead of remembering it.** An
+  instrumented pass is only worth reading if, with tracing off, it emits the
+  same object the stock pass does; otherwise its traces describe a compiler
+  nobody is trying to match. `docs/compiler-instrumentation.md` has required
+  that for a long time and one campaign honoured it — by hand, every time, with
+  no record. Twelve instruments across four passes, and the only evidence any
+  of them was gated was a stage's own sentence. The command runs the existing
+  section-scoped comparison and writes a stamp naming the profile, both objects
+  and their hashes, the sections gated, and exactly what the gate does and does
+  not claim; it exits `1` on failure so a build script can stop. `--verify`
+  re-runs the comparison rather than re-reading the record, and reports `STALE`
+  when either object has moved or changed underneath the stamp. It does not
+  build a compiler — that means invoking your build system, and the package
+  does not run user-supplied build commands.
+
+- **`sweep` generates the variant family, and `sweep ingest` reads it back.**
+  The search half of the boundary `campaign` already draws: the workbench emits
+  sources and a manifest, the project's own compile-one wrapper builds them, and
+  the objects come back to be gated, scored and ranked. `sweep regress` is the
+  experiment nobody runs — the base unedited as its own control, then each
+  accumulated construct removed, singly and jointly — and its price table names
+  what every inherited lever is costing on the base as it stands now. One
+  campaign ran that once, twelve builds, and found a four-atom supplier set was
+  dead weight costing ten rows. `sweep hoist` covers four classes including the
+  deep operand hoist (a leaf of a *nested* subexpression, which no generator
+  library had) and the compound-assignment and call-argument hoists; `sweep
+  commute` exchanges every commutative operand pair that can be exchanged
+  without reassociating; `sweep copies` drops a copy and rehosts its reads;
+  `sweep fuse` fuses a donor's live range into the target's, with `sweep
+  donors` and `sweep carriers` answering the two read-only questions that
+  precede them. Every variant is keyed by **(site, class, carrier)** — at one
+  line of one campaign the carrier's declaration index selected between two
+  entirely different cost deltas — and a colliding triple stops the run. A
+  class letter that is not in the registry is an error rather than a shorter
+  table, which is the defect that made two new generator classes vanish from a
+  campaign's own catalogue. Nothing is dropped quietly: a refused edit, an
+  unbuilt variant and a duplicate source are each a row with its reason, and
+  every report ends with its coverage sentence. Documented in `docs/sweeps.md`.
+
+- **Every generated edit states the base it was written against.** The composer
+  behind the sweep family refuses in three stages: the file's SHA-256 is not the
+  one the plan was written against (so no line number means what it meant); an
+  anchor line does not say what was expected; or the edit falls inside a
+  `--frozen LO..HI` zone another construction declared. Anchors are re-read at
+  their own line after composing, through the line map the edits produced —
+  searching the whole emitted file for the anchor text, which the strongest
+  campaign composer did, is satisfied by a coincidental duplicate elsewhere.
+
+- **`coset=?` is no longer reported as a rotation.** An object holding no
+  ring-carrying row reads `?`, which means "nothing to measure", not "the ring
+  moved"; treating it as a rotation printed the coset caution over whole
+  families of objects that had no ring to rotate.
+
+- **`decomp-workbench probe` and `decomp-workbench sweep` list their operations
+  instead of answering "not a command".** Every other command group already
+  did.
+
+- **`slots` prices a fusion donor without building one.** For each frame
+  offset: the loads, the stores, the address-takes, the access widths that
+  reach it and the registers that carry it. A donor's price is exactly the
+  number of rows that touch its stack slot, and one campaign spent a whole
+  sweep answering that by construction — the cheapest donor available cost 2
+  rows, the others 4, 6 and 7, and none of it was visible until the slots were
+  listed. A slot reached by two widths is marked `PUN`: one storage location
+  under two spellings, which matters because the allocator keys webs on
+  storage and not on the C name. The prologue's own `addiu sp,sp,-N` is not a
+  slot. `--source SRC --volatile-probe DIR` writes one variant per local with
+  that local made `volatile`, which is the measurement that attributes a slot
+  to a name — the workbench writes the sources and stops, because it does not
+  own the build. Documented in `docs/source-probes.md`.
+
+- **`probe-equiv` answers "are these two reads the same value", which is the
+  check one campaign never ran.** A local whose address never escapes cannot be
+  written by a callee, so between two of its definitions its value is fixed and
+  every read in that span is the same value — which makes two
+  differently-spelled expressions built from those reads equal. That fact was
+  the campaign's closing lever, findable with one `grep` and one brace match,
+  and five stages searched the register allocator for it because nothing named
+  the check. `decomp-workbench probe-equiv work.c --variable sp4B8` prints the
+  maximal same-value ranges between definitions; `--at LINE --at LINE` answers
+  the pairwise question with its reason. The purity premise is printed on its
+  own line and withdrawn the moment an `&v` appears anywhere in the file, and a
+  range containing a label, a `goto`, or a loop back-edge is flagged rather
+  than trusted. It is a probe over the text and the block structure, not a
+  verifier, and every limit it has is printed with the report.
+
+- **`probe-deadread` lists the positions where a statement that emits nothing
+  can still move the allocator.** A discarded read — `if (v != 0.0f);` — costs
+  zero instructions and still adds an occurrence to the variable's web, which
+  can be exactly what drives the web memory-resident. Nothing is emitted on
+  either side, so no disassembly diff will ever point at one; eleven stages of
+  one campaign did not find it. The command lists the statement positions a
+  definition structurally reaches, ranks the ones outside any loop first
+  (inside a loop the same construct emitted real code in every case measured),
+  and prints the spelling table with each form's measured footprint: the
+  value-guarded forms at zero, the bare `if (v);` at zero or two because it
+  merges with a neighbouring empty guard, and the inert forms — including the
+  dead store, which produced zero kills at 999 positions because a store that
+  dead-code elimination removes never becomes an occurrence. `--reach textual`
+  widens the set to every position after the first definition, marking each
+  row that a branch may not have written. `--write DIR` emits one variant
+  source per candidate for the project's own sweep driver. Documented in
+  `docs/source-probes.md`.
+
+- **One float colour map, corrected, and only one.** `c24=$f0 c25=$f2 c26=$f12
+  c27=$f14 c28=$f16 c29=$f18` (L27, four independent forced-colour receipts).
+  The instrumented pass prints `bestreg=?` for every float colour because its
+  own decode table is the integer one, so the reader has to supply the names —
+  and one campaign supplied `c24=$f8 c25=$f10` for four consecutive stages,
+  then wrote a *new* tool after correcting it that still carried the old dict.
+  `register_for_color` now answers for both halves of the colour space from one
+  table, so every trace report — `trace-webs`, `trace-globalcolor`, the cascade
+  family — names a float web's register and its min-cost tie set. `$f4`-`$f10`
+  are ugen's scratch ring and are never a p1 colour in either direction;
+  colours the profile has not confirmed to a register stay numeric rather than
+  being guessed. The table compiled into the instrumented pass is unchanged.
+
+- **`trace-cascade` prints every round of one allocator site, and the colour it
+  really got.** Five hand-rolled versions of this dump existed in one campaign
+  and three were wrong: one printed only the last `p1dec` for a symbol, when the
+  site's residue was the tail of a four-round `f_split` cascade whose parent had
+  already declined on cost; one located the web by a hard-coded `sym=1042` that a
+  rebase renumbered to `1039`, so it printed `WEB-ABSENT` — indistinguishable
+  from the kill the stage was hoping for — and seven stages re-reported that one
+  bug; one printed `bestcolor`, the pre-resolution field, which on a forced run
+  shows the *unforced* colour and on a split web shows the parent's.
+  `decomp-workbench trace-cascade build.ilog --frame-offset 0xfffffdf8` locates
+  the site by frame offset, the only identity in the grammar a renumbering does
+  not move, and prints every round: the decision as the one inequality it is
+  (`net 4.000 <= bestcost 0.000 ? NO -> colour it`), the natural colour beside
+  the colour `p1color` records, the forbidden set and min-cost tie set with
+  their register names, and each split's memory-resident pieces. `--occurrences`
+  adds the per-occurrence table with the `chargeB` gate marked, checked against
+  the pass's own recorded charge before it is reported. `--kill` is the one-line
+  signal that turned a 946-variant sweep into one column; `--against` diffs the
+  same site in two builds; `--rom OBJECT` names the float colours a reference
+  object never uses, so a forbidden set can be checked against the allocation
+  the reference actually made; `--object` adds the screen line with stores
+  counted apart from loads. `trace-order` ranks the whole colouring order with
+  its same-`save` tie groups (`--class 2` is the float-web census), and
+  `trace-blocks` intersects webs' occurrence-block sets — the question five
+  stages argued from `numintf` deltas. `--grammar` prints the record grammar and
+  marks which records the shipped `instrument-uopt` profile emits and which come
+  from a campaign-local `uopt.c` patch. Documented in `docs/cdx-cascade.md`.
+- **`align` reports the edit script, not what the shift cost.** `compare` and
+  `score` index by position, so an object that is byte-exact apart from one
+  extra instruction reports a four-figure mismatch count and reads as garbage;
+  one campaign paid that cost eleven separate times and two more stages
+  rediscovered the same gap. `decomp-workbench align TARGET.o CANDIDATE.o` (and
+  `align-dumps` on retained objdump text) aligns the two instruction streams and
+  prints `replaced`/`inserted`/`deleted`, the target rows each block lands at,
+  the derived cut list, and one headline: how many instructions away the
+  candidate really is. Several candidates give a one-line-each census ordered by
+  that number. The two objects' relocation rows stay in separate spaces — merging
+  them over-masks near a shift boundary and silently dropped two genuine
+  mismatches from a published count — and branch destinations are renormalized
+  through the pairing so an insertion above a correct branch is not charged as a
+  difference. `--window LO..HI` tallies insertions before and inside a named row
+  range. `--json` emits `decomp-workbench-shift-diff-v1`.
+
+- **`phase` reads the scratch-ring phase as a vector over named row slots.**
+  Three campaign scorers reported a ring rotation and each lied differently.
+  `decomp-workbench phase TARGET.o CANDIDATE.o --slots 'B1=0..1573,B4=1574..4640'`
+  prints, per slot, the coset that would make it match, the quotiented count
+  under that coset, and the positional count it really scores — never the first
+  without the second, because one campaign's headline "39 → 29" was 1045
+  positional rows and three stages recorded ring-flipped objects as wins. Slots
+  are checked to partition the row space: a hole is an error naming the rows,
+  after a band table left 105 rows of a 4641-row object unnamed and a candidate
+  scored `RAW=1` with two real mismatches. Rows are paired through `align`, so a
+  shifted candidate scores near its true residual. `--require-ni` refuses a
+  candidate of the wrong length; `--base`/`--require-base` pin the source the
+  table was built from; a slot with no coset-dependent rows reads `no-evidence`
+  rather than being labelled from nothing, and `--context OBJECT` prices a
+  construct in composition instead of alone; `--baseline OBJECT` reports healed
+  and broken rows separately. Any register pool may be the ring. `--json` emits
+  `decomp-workbench-phase-v1`. Documented in `docs/shift-and-phase.md`.
+
+- **A disassembly cache that cannot answer "perfect" because it was truncated.**
+  `align` and `phase` accept `--disassembly-cache DIR`, whose entries are trusted
+  only when they prove they are a complete disassembly of the object on disk: the
+  object's SHA-256, the entry's own row count against what the body parses to,
+  and — for a whole-section dump — against the words the object's ELF section
+  holds. The cache every campaign writes guards on existence alone, so a run
+  killed mid-write leaves a zero-byte file that parses to no rows and therefore
+  reports no mismatches: a silent perfect score, reported five times
+  independently. There is no default cache directory, because a scorer with one
+  scores whatever is in it.
+
+- **A commutative row is a lever, and it is often one row up.** `compare` and
+  `diagnose` now name each commutative operand pair — which expression, which two
+  operands, and that the edit is expression shape rather than allocation. IDO
+  canonicalizes `a + b` and `b + a`, so a wrong operand order frequently leaves
+  the arithmetic row byte-identical and surfaces only in the two operand loads
+  above it, whose destinations are crossed; a classifier reading the differing
+  row alone calls those an ordinary register difference and sends the reader to
+  the allocator for a front-end question. Both shapes appear in
+  `commutative_findings`.
+
+- **`score` prints one screen line.** `screen: sha=… ni=… frame=… ld1184=…
+  st1184=… coset=…` — identity, real instruction count, frame, float load and
+  store traffic (whole-frame or narrowed by `--slot OFFSET`), and the ring coset
+  relative to the target, with a caution when it is not identity. Every stage of
+  one campaign wrote its own version of this line; none carried the coset, and
+  none separated stores from loads at a slot even though the store count was what
+  distinguished the winning kill from a rejected alternative.
+
+- **A sampled sweep says what it never visited.** `SweepCoverage` records the
+  space, the points visited, the stride, and the points excluded by a stated
+  rule, and derives the vocabulary from them: *swept-exhaustively* or *sampled*.
+  A campaign closed a family on a `step 8` sweep whose record said nothing about
+  the other seven eighths. `experiment compose` carries the block and gains
+  `--step N`, so a combination space larger than the cap can be sampled instead
+  of abandoned.
+
+- **`next` routes a count difference to `align` and a float run to `phase`.**
+  The instruction-count blocker previously named `view`, which shows the
+  alignment but not what the difference costs.
+
+- **`force-rows` measures which object rows an allocator control owns.** A web
+  number is not a location: it indexes a run-local table that does not survive
+  into the object, and one campaign measured that neither "ucode record index
+  implies program position" nor "allocator event order implies emission order"
+  holds — a change confined to sixteen intermediate records 18% into the stream
+  first moved the object at instruction 94, with 143 differing rows before the
+  edited site. So the map cannot be read; it has to be measured.
+  `decomp-workbench force-rows BASELINE.o FORCED.o --force p1:w9=c30` (and
+  `force-rows-dumps` on retained objdump text) reports the rows that moved,
+  grouped into runs with their classes. It runs no compiler — the two builds
+  are inputs — so the join works for any control a reader can set. `--target`
+  adds `compare_row`, the number `compare --json` publishes as `aligned_row`
+  and `window --rows` accepts; `--gap N` sets how many matched rows may sit
+  inside a run (default 3); a control that moves nothing prints `BYTE-INERT`,
+  which is a result and not an empty screen. Runs come from the shared aligner,
+  so a force that changes the instruction count is one run rather than
+  "everything after the insertion", and the report says the count changed.
+  `--force` is validated by the same parser the instrumented pass uses.
+  `--json` emits `decomp-workbench-force-rows-v1`. Documented in
+  `docs/compiler-instrumentation.md`; tests `tests/test_force_rows.py`.
+
+- **Instrument records now name what they measure.** Three labels were read as
+  claims the instrumentation does not make, and a campaign acted on two of
+  them. `nocs` in a `p1dec`/`p2dec` record is the pass's *compressed*
+  occurrence divisor, `((n - 2) >> 2) + 2`, not an occurrence count — so
+  `trace-webs` no longer renders the economics as `save:X*nocs:Y=total:Z`, an
+  equation shape that invited ranking by a product that is not "saving times
+  uses"; the three numbers are printed as three named fields. `class` in the
+  same record is the IR register class (integer versus floating point) from
+  `regclassof`, *not* the save class — the class-1/class-2 verdict that decides
+  whether a web is a colouring candidate at all is taken earlier and no shipped
+  record reports it. And `instrument-ugen`'s `ADD` hook on
+  `f_add_to_free_list` was measured as firing only inside `f_init_regs` (ten
+  calls for a 4644-instruction procedure), so it sees the pool being built and
+  nothing about the allocations that follow; `f_get_free_fp_reg` joins the hook
+  table as `ALLOC_FP`, the live per-allocation floating-point hook, beside
+  `f_free_reg`. Documented in `docs/compiler-instrumentation.md` and the field
+  guide.
+
+- **`window` prints named aligned rows, in the row numbering the tool already
+  publishes.** Reading a row by number is the most common action in a register
+  residue campaign, and it had no command: three stages of one campaign each
+  wrote their own objdump-scraping script for it, and each invented its own row
+  numbering — none of them the `aligned_row` that `compare --json` reports and
+  `view` prints. A write-up saying "the gate is the `add.s` at row 863" was
+  therefore one private script away from being unreadable.
+  `decomp-workbench window TARGET CANDIDATE --rows 860-868` (and `window-dumps`
+  on retained objdump text) shares the aligner and prints exactly those rows
+  side by side, marking each differing row with `*` and carrying `view`'s web
+  colouring and substitution annotations. `--rows` takes `N` or `LOW-HIGH` and
+  repeats; matching rows are printed too, a range past the end is clamped and
+  says so, and a range entirely past the end is reported rather than rendered
+  as an empty screen. `--json` emits `decomp-workbench-window-v1` with `view`'s
+  per-row keys. Documented in `docs/view.md`; regression tests
+  `tests/test_window.py`, including that the rows `compare --json` names are
+  the rows `window` prints.
+
+- **`experiment review-mutation` gates a sweep winner on its diff, not its
+  score.** An automated source-mutation sweep proposes edits by shape, and
+  nothing downstream asks whether a variant is still the same program — the
+  comparator answers "are these the same object". One recorded sweep grouped a
+  local's occurrences by line proximity and renamed a whole group, producing
+  two winners that compiled, scored better than their baseline, and were not
+  valid C transformations: a group of pure reads rehosted onto a never-written
+  local, and a top row that deleted a live first store. The new command prints
+  the baseline-to-variant diff and flags a use that no earlier line writes to
+  (`read-before-definition`/`definition-removed`, error, exit 1) and a removed
+  write to a value still read (`write-removed`, warning; `--fail-on-warning`
+  makes it fatal). Only identifiers the file declares are considered, and only
+  shapes the mutation *introduced* — a baseline that already reads a local
+  above its write is existing code. The report never claims validity: it does
+  not parse, type, or execute C and builds no control-flow graph, and `proof`
+  says so. The adoption rule is now stated as a hard rule in the campaign
+  Agent Skill and the field guide (*A sweep winner is a hypothesis, not an
+  edit*), and in `docs/campaigns.md`. New schema
+  `decomp-workbench-mutation-review-v1`; regression tests
+  `tests/test_mutation_review.py`, including both recorded failures and the
+  cases that must stay silent.
+
+- **`compare` explains a `raw` that exceeds `words`.** The summary line has
+  always printed both counts and never said why they differ, and the answer is
+  a floor rather than outstanding work: `words` excludes a word whose only
+  differing bits are relocation-controlled, and a separately written
+  `objdump -d` diff, which has no relocation table in hand, does not. On the
+  recorded `object_interaction` pair that is 563 against 608, and the 45-row
+  gap was read as unfixed literal-pool work for about an hour, across three
+  campaign stages. Whenever the gap exists, a `raw-vs-words:` note now names
+  the count, the class, and the consequence — a raw disassembly diff counts
+  those words permanently, so `words = 0` is the honest gate, not a
+  byte-identical dump. Nothing is renamed or removed and no count changed.
+  Documented in `docs/object-comparison.md` and `docs/troubleshooting.md`;
+  regression test `tests/test_literal_pool.py::RawFloorTests`, including the
+  silence when the two counts agree.
+
+- **The IDO 5.3 float temp ring is documented as four wide, because that is
+  what ugen hands out.** The register tables already placed `f16`/`f18` in
+  `fp-pool`, but every sentence around them called the pair "ambiguous" and
+  said ugen's float free list "extends onto them under pressure". It does not.
+  ugen initializes `ffree` with six entries — `f4 f6 f8 f10 f16 f18`, from
+  `nf1 = 4` plus `nf2 = 2` — then withdraws `f16`/`f18` before the first
+  allocation and never hands them out; an instrumented procedure allocated
+  `f4`–`f10` 1460 times out of 1460, and uopt colors the pair as c28/c29. A
+  campaign that read the initializer as the ring widened its own float-site
+  metric onto two uopt colors, so every `f12`→`f16` coloring change counted as
+  a closed temp site: about fifteen builds and one adoption path spent on
+  phantom closures. The claim is now stated as the measurement in the field
+  guide, `view --register-profile` help (`register_profile_evidence`),
+  `docs/view.md`, the `temp-fifo-phase` on-ramp, and the agent-facing
+  late-stage patterns reference, with the advice to assert a float ring's width
+  rather than derive it from the initializer. No classification changed.
+  Regression tests: `tests/test_register_eras.py` locks the four-wide
+  `fp-temp`, the evidence string, and an `f12`-versus-`f16` row landing in
+  `fp-pool` on both sides.
+
+- **`audit-handoff` says which directory a relative root was resolved
+  against.** A campaign read `handoff root is not a directory:
+  .../bundle/bundle` from `audit-handoff bundle/` as the command appending the
+  argument's basename to itself, and worked around it with absolute paths. It
+  never did that: relative and absolute spellings of one tree resolve to one
+  canonical root, and the doubled path was a working directory that had already
+  moved into `bundle`. Both root arguments now resolve through one helper, and
+  a failure on a relative argument quotes the argument as typed and the working
+  directory it was resolved against — the two cases the old sentence could not
+  tell apart. Regression test: `tests/test_handoff_audit.py`
+  (`HandoffRootResolutionTests`), which audits `.`, `bundle/`, `./bundle`, and
+  `../bundle` against the absolute spelling from two working directories.
+
+- **The pool-versus-temp register split is now per compiler era, and the IDO
+  5.3 one is corrected.** `view` classed `t0`-`t5` as uopt coloring-pool
+  registers and `t6`-`t9` plus `s8` as ugen temps under the single profile name
+  `ido53`. That table was inherited from earlier campaigns and had never been
+  measured against a named release; on IDO 5.3 at `-O2 -mips2` it is wrong in
+  both directions. Nine forced-color experiments, confirmed against an
+  instrumented ugen, show uopt handing out only `v0`/`v1`/`a0-a3`/`s0-s8` and
+  `f0`/`f2`/`f12-f24`, with `t0-t9` and `f4/f6/f8/f10` **always** ugen
+  block-local temps. Three campaign agents read a `t`-register difference as a
+  coloring-priority question because of the old table and spent variants on the
+  wrong lever family.
+
+  `--register-profile ido53` (still the default) now carries the probed split,
+  including separate `fp-pool`/`fp-temp` lanes, with the temp tables in ugen
+  free-list *ring* order (`t6 t7 t8 t9 t0 .. t5`, `f4 f6 f8 f10`) so a phase
+  rotation stays a contiguous run of the table. The pre-probe table ships
+  unchanged under the honest name `--register-profile unverified`, which is
+  what a release with no probe of its own still gets — outputs for an
+  unmeasured era do not change silently. `view --json` gained
+  `register_profile_evidence`, so a probed table is never quoted as an
+  inherited one.
+
+  The field guide's temp-FIFO section now carries the 5.3 allocation law read
+  from ugen source and validated with an instrumented binary — a per-class
+  least-recently-freed ring re-seeded once per procedure, so the register at a
+  site is a pure function of the alloc/free event sequence — together with the
+  consequence that the fix dimension is the count of **class-crossing sites**
+  rather than rows, and the warning that partial closure is *not* monotone in
+  raw words. Which claims are 5.3-verified and which are 7.1-derived is stated
+  where each is made. The shipped `phase-shift` example fixture was rebuilt to
+  use era-correct registers.
+
+- **Literal-pool accesses are compared by the slot they resolve to, not by the
+  symbol that names it.** A decomp target and its candidate rarely anchor
+  read-only data the same way: on the recorded `object_interaction` campaign
+  the target names one external symbol per literal (`D_80052AA8`, addend 0)
+  where the candidate emits one dense anonymous `.rodata` symbol with the slot
+  in the addend. Every shared slot therefore rendered as a different
+  `(symbol, addend)` pair, and 88 rows — 59 `lui at,0x0` against `lui at,0x0`
+  and 29 `lwc1 $fN,0(at)` against `lwc1 $fN,K(at)` — were reported as
+  relocation evidence against a pair whose pool accesses agree at every site,
+  costing that campaign a work item with nothing to fix. `view` now resolves
+  each relocated data reference and classes the row on the resolution: `pool`
+  when the two sides read the same slot at the same width (not reported, like
+  `displacement`), and the new `pool_layout` class and verdict when they do
+  not. `--json` gained `pool`, `pool_layout`, `pool_resolution` and
+  `pool_slots` on the view, and `pool_resolution`, `pool_matches`,
+  `pool_layout_mismatches`, `target_pool_slots` and `candidate_pool_slots` on
+  a comparison. Nothing was renamed or removed, and `aligned_total` is
+  unchanged: on that campaign pair the 88 rows leave `aligned_diff_sites`
+  (1953 → 1865) while the residual stays at 1865. Two resolution tiers are
+  reported by name, because they answer different questions: `absolute` (both
+  sides anchor on a section symbol, so byte offsets are compared directly) and
+  `anchor-correspondence` (one side names each literal, so what is checked is a
+  one-to-one slot correspondence at a constant displacement per anchor pair).
+  Neither claims the two pools hold the same bytes.
+
+  *Behaviour change to know:* a site where both objects name the **same**
+  symbol with **different** addends used to be `relocation` and is now
+  `pool_layout` — the addend is the source's choice, not the linker's, so it
+  was never linker-controlled. A `lui` with no load under it in the compared
+  window is still `relocation`: nothing in view says which slot it reaches.
+
+- **Aligned row counts now say when they are not comparable across
+  candidates.** `aligned_total` is computed against a per-candidate LCS
+  alignment, so a candidate that forced the aligner to insert gaps is measured
+  against a *different* subsequence of the target than a gap-free candidate is
+  — and its row count can fall below a strictly better candidate's. On the
+  recorded `object_interaction` campaign one such candidate reported 1435
+  aligned rows against an 1865-row base while holding 2918 mismatching words
+  and 1807 opcode mismatches, and a 257-build lever table was ordered on that
+  inversion. Every scoring surface now carries the evidence: the summary line
+  gained `opcodes=` and `gaps=` beside the existing `words=` and `raw=`,
+  `compare`/`diagnose` print
+  `caution: alignment inserted N gaps (M opcode mismatches) — compare
+  candidates on raw words, not aligned rows` ahead of the numbers it retracts,
+  and the JSON gained `aligned_insertions`, `aligned_deletions`,
+  `aligned_gaps`/`gaps`, `alignment_comparable`, and `alignment_caution`. No
+  existing key was renamed or removed. `rank` and `campaign` detect a result
+  set containing both kinds and order it on `words` instead, with
+  `ranked_by`/`mixed_alignment` in `rank --json` and a one-line caution in the
+  terminal; a uniform set still ranks aligned-first exactly as before.
+
+- **Symbol-table asymmetry no longer manufactures relocation rows.** A decomp
+  target is disassembled from a stripped, positional object and its candidate
+  from a symbolized one, so objdump renders the same word as `jal 0x0` against
+  `jal 0 <fn>` and `b 0x485c` against `b 485c <fn+0x485c>`. `view` classed the
+  spelling difference as a `relocation` row: on the recorded
+  `object_interaction` campaign, 692 of 780 such rows were phantoms, and the
+  real relocation differences were buried under them. Branch and jump
+  destinations are now normalized on both sides before classing -- a
+  self-branch by aligned row whichever spelling it arrived in, a relocated
+  destination by its own relocation record rather than by whichever enclosing
+  symbol objdump reached for. On that campaign's pair the relocation class
+  falls from 780 rows to the 88 real ones, and thirteen moved branch offsets
+  are now correctly counted as `displacement` rather than `constant`.
+
+- **A command group printed without an operation now exits 0.** `cache` and
+  `context` answered the question "what can this do" with argparse's
+  required-subcommand error on stderr and exit 2, while their sibling groups
+  (`object`, `scratch`, `trace`, `instrument`) already printed a map and
+  succeeded. Printing a listing is the success path of discovery: a non-zero
+  status there breaks `set -e` scripts and reads as a failure. Naming an
+  operation or a `guide` topic that does not exist is still an error and still
+  exits non-zero, and the whole set is now locked by a test.
+
+- **A line-owned schedule verdict now routes to the command that fixes it.**
+  `probe-lines --tie STATEMENT=LINE` (repeatable) compiles a fourth
+  token-identical variant that reassigns one statement's line number via a
+  `#line` pair and scores it toward/away against the target. Found live on the
+  ssb64 80379070 campaign, where three one-slot-early defs were each cured by
+  tying their line to the store-head's line (4 sites toward, 0 away, in a
+  single probe run). The probe no longer stops at proving ownership: every
+  verdict now prints `next:` routing — an unscored probe is told to score
+  itself, a scored tie is told whether that assignment was the one, and a
+  negative result is sent to `guide g0-schedule-probe` instead of a dead end.
+  The `line-assignment-probe` playbook's on-ramp names `probe-lines` and
+  `--tie` for the first time, so a `schedule` verdict reaches the flag without
+  a second command. The tie is refused when it names a blank line or a
+  preprocessing directive (neither carries a statement to reassign) or the
+  same statement twice, and the report records the `ties` it ran with plus its
+  `next_steps`, so a run is reproducible from its own JSON.
+
+- **Field guide lever 28: alias a local to take it out of the allocation
+  contest.** Every other allocator lever adjusts what a web *costs*; `if (&x);`
+  changes what the compiler is *allowed* to do — an aliased local's post-call
+  reads can never join a register web, so the variable leaves the coloring
+  contest and frees the register it was holding, at zero instructions. Found on
+  an SSB64 blit function whose ROM packed ten callee-saved values into nine
+  registers: no reweighting could seat the tenth, and aliasing the one that
+  belonged in memory reproduced the ROM's callee-saved map exactly. Ships with
+  its companion construct (two source variables over one home), the direction
+  rule (alias the memory half), and its measured boundaries: the mark's
+  *placement* is a tuning axis worth real words (140 head / 131 `j`-loop / 106
+  innermost on `func_ovl8_803787C0`, all at zero instructions — sweep
+  innermost-first and score it), it does not compose with identity-arithmetic
+  anti-folding, and frame size counts homes rather than locals. The symptom is
+  machine-detectable, so it is now surfaced rather than only documented:
+  `trace-globalcolor` annotates a `split`/`no-color` decision whose `regsleft`
+  is exhausted, and a `desired-forbidden` color barrier says the register is
+  taken rather than underpriced.
+
+- **Two more measurements from the same campaign.** Lever 2 records that accom
+  lineage emits `a + b` with its operands reversed relative to source order, so
+  a swapped-operand `addu` hunk under a non-cfe frontend is a free source fix
+  rather than an allocation problem. Lever 26 records the pad slot: splitting an
+  existing local to hold a vacated stack slot moves compiler-temp offsets while
+  keeping the frame exact, where deleting a dead local moves the same offsets
+  and drops the frame.
+
+- **`view` and `view-dumps` accept `--show-all`.** The field guide and the
+  `diagnose` footer have always advertised `view TARGET.o CANDIDATE.o
+  --show-all`, but only `diagnose` and `check-scratch` defined the flag; on
+  `view` it was an argparse error. The flag now lives with the other aligned-
+  view presentation controls, so every command that renders hunks accepts the
+  same spelling. One declaration serves three renderers that do slightly
+  different things with it, so each command's help text states what its own
+  `--show-all` does: `diagnose` also drops its differing-site filter, and
+  `check-scratch` renders nothing without `--view`.
+
+- **Exactness now has a disciplined cleanup phase.** `experiment
+  inspect-source` inventories suspicious statics, empty controls, and cancelled
+  arithmetic without calling them dead. `experiment compose` applies bounded,
+  exact-text transformations across mechanism families, emits a validated
+  campaign sidecar, caps combinatorial growth, and prints the next command.
+
+- **Function matches no longer hide translation-unit collateral.** `object
+  collateral` compares all in-scope section sizes and contents, including
+  zero-fill `.bss`, plus relocation and symbol tables. An optional selected
+  function separates `outside-selected-function` changes from a general TU
+  mismatch; project link/ROM verification remains the final gate.
+
+- **Allocator trace comparison separates identity from outcome.** Paired web
+  reports now compare the ordered decision kind, natural color, and assigned
+  color independently of semantic-web fingerprints. Identical decisions with
+  partial semantic alignment are reported as carrier substitution, not false
+  identity. The SSSV case study, field-guide lever 27, packaged Agent Skill,
+  and redistributable composition example carry the complete workflow.
+
+- **Scratch acceptance now measures the zero-score boundary it claims.**
+  `check-scratch` separates linked-function exactness, raw instruction-word
+  identity, and relocation symbol/addend identity. Its JSON calls the result a
+  `decomp_me_score_proxy_exact`, not a site fact, and a direct-symbol versus
+  struct-member relocation can no longer pass the proxy merely because both
+  spellings link to the same address. The obsolete missing-final-newline
+  warning was also removed: decomp.me's language-aware source boundary already
+  supplies a safe separator.
+
+- **Allocator comparisons now expose uncertainty instead of manufacturing
+  alignment.** Coverage uses the union of unique fingerprints, ambiguous webs
+  prevent an `aligned` claim, and empty captures report `no-evidence` with a
+  nonzero command status. Natural and forced colors, interference producers,
+  unavailable-cost sentinels, formation chronology, decision order, and
+  source attribution remain separate facts.
+
+- **The forced-color oracle can test a measured interaction in one controlled
+  build.** `oracle force` accepts a validated comma-separated force set,
+  rejects duplicate phase/web controls, and records the baseline-to-forced
+  instruction delta as object-level role evidence. It does not promote that
+  evidence to source attribution or source reachability.
+
+- **Copy/coalescing traces have a conservative parser and a visible command.**
+  `trace copy-decisions` reports coalesce-versus-temporary outcomes and
+  directly bracketed pass transitions. Hash buckets, statement IDs, and bit
+  numbers remain explicitly run-local and collision-prone; comparison aligns
+  only by observed stack home and ordinal. The command is now present in group
+  help and shell completion.
+
+- **Frame recovery and campaign handoff retain the useful diagnostic state.**
+  Object reports distinguish observed physical save-slot bytes from the
+  remaining frame, route allocation-exact/wrong-frame results to a dedicated
+  playbook, compact large experiment grids, and visibly recover stale
+  experiment metadata from manifest/source provenance instead of silently
+  dropping it.
+
+- **The SSSV endgame is recorded with its corrections, not as folklore.** The
+  [case study](../../case-studies/sssv-func-802963D0.md) documents why one visible
+  register bijection required a multi-web lifetime composition, why allocator
+  formation/economics/decision order are distinct, and why a locally
+  linked-exact archive still scored 99.89% until its relocation target matched.
+  Source distributions now include the linked case-study directory instead of
+  shipping documentation with dead relative links.
+
+- **Public proof repositories now have a pre-push gate.** `handoff audit`
+  checks relative Markdown and inline-code paths, absolute user paths, files
+  present locally but absent from Git, and dependencies in another declared
+  project root. It reproduces the SSB64 `threshold4` failure directly: the
+  referenced README existed locally but was untracked, so a public clone could
+  never follow the integration instructions.
+
+- **Scratch UX now treats the frontend as an identity, not a nickname.**
+  Bundles can record display label, canonical compiler ID, language, and preset
+  separately; generated instructions explicitly set Preset to Custom before
+  choosing the compiler. `check-scratch` reports the frontend and expected
+  driver and uses `src.cxx` for old-C++ line identity instead of hardcoding
+  `src.c`. This catches the `IDO 7.1` preset/`ido7.1_c++` compiler confusion
+  that made valid `extern "C"` source fail under `cfe`.
+
+- **Current C++ scratch exports load directly.** decomp.me now names their
+  members `code.c++` and `ctx.c++`; `check-scratch` accepts that pair (plus
+  `.cc`, `.cpp`, and `.cxx`) and normalizes it internally instead of falsely
+  reporting that `code.c` and `ctx.c` are missing.
+
+- **Line-layout guidance is frontend-specific.** The campaign skill now keeps
+  cfe splice behavior separate from NCC/EDG statement attribution and asks
+  schedule investigations to test splices, physical-line ties, and repeated
+  `#line` markers independently.
+
+- **Toolchain fingerprints now measure switch lowering.** Redistributable
+  dense-four and dense-five probes report comparison chain versus computed
+  jump. Running the same backend through `cc`/cfe and `NCC`/EDG can now answer
+  whether jump tables are disabled or merely cross a frontend threshold
+  without relying on a function-specific compiler patch.
+
+- **Frontend-lineage guidance no longer generalizes `cfe` to all of IDO.** A
+  source-order sparse comparison chain can come from IDO 7.1 EDG C++ even
+  though `cfe` sorts the same switch values. The skill now also requires
+  inspection of the actual phase command and intermediate before treating a
+  removed driver flag or a frontend's representative-C printer as a real
+  Cfront-style compilation path.
+
+Everything here descends from one falsification: a community member matched
+SSB64 `unref_800036B4` with no `#line` directive after this project helped
+publish the claim that no natural layout could reach it. The claim had been
+scoped, silently, to one statement order and one statement per physical line.
+
+- **Lever 25: line-number ties by splicing.** cfe numbers statements by
+  *logical* line, so the numbers a natural layout produces are non-decreasing
+  but not strictly increasing — ties are free, via same-line placement or
+  trailing-backslash splices, and a block's closing brace plus the statement
+  after it can both be tied back to the block's first line. Field guide,
+  `guide lever 25`, playbook ordering, and the line-assignment-probe doc all
+  route to it; the full arc (290 → 120 → 4 → 0 with `#line` → 0 natural) is
+  [a case study](../../case-studies/ssb64-unref-800036B4.md).
+
+- **`check-scratch` now reports line-splice hazards in `code.c`.** An intact
+  statement-level splice is load-bearing for exactly these ties and does not
+  survive whitespace-trimming editors, formatters, or some paste paths — the
+  failure is a regressed score, not an error — so it is listed for re-checking
+  after every paste. A backslash followed by trailing whitespace, which looks
+  tied but compiles untied, is a warning. Macro continuations are excluded.
+
+- **`python -m decomp_workbench` works.** It failed with "No module named
+  decomp_workbench.__main__", which reads as a broken install rather than a
+  missing convenience, in every environment where the console script is not
+  on PATH.
+
+- **The skill and its references now carry the campaign-strategy lessons.**
+  Scope every published negative to the space actually searched; treat a
+  variant that fixes a subset of the residual as a new baseline for layout
+  levers even when its own score is dominated (this match was two edits from
+  variants already on disk); keep dominated variants and say where they live;
+  and credit the falsifier prominently when a claim falls.
+
+## 0.4.0 - 2026-07-31
+
+Everything in this release descends from one campaign: SSB64 `drawbitmap`
+(decomp.me scratch EqDZe), taken from a years-old structure-mismatch to a
+byte-exact ROM rebuild. Each entry names the failure it encodes.
+
+- **A `schedule` verdict can now be tested against statement lines instead of
+  against compiler versions.** The one documented next step for
+  `verdict=schedule-mismatch` was a `-g0` rebuild (lever 3), which is vacuous
+  for a project that already builds `-g0` -- and the reader who runs it, sees
+  nothing move, and concludes the compiler must be exotic has been sent to a
+  dead family by the tool. One campaign spent hours there: IDO 5.2, 5.3, 6.0,
+  7.1 and MIPSpro 7.4.4, every `as1` flag and pipeline model, all producing
+  identical output.
+
+  The mechanism that actually owned that residue is now lever 23: cfe takes
+  each statement's source line number from its *preprocessed* input, and
+  uopt/ugen treat a statement line boundary as a scheduling barrier at `-g0`
+  as well as `-g3`. On SSB64 `drawbitmap` (1479 instructions) preprocessing the
+  TU with IDO's external `acpp` instead of cfe's internal cpp took 59
+  schedule-swapped words to zero, with no other change.
+
+  `decomp-workbench diagnose ... --candidate-listing LISTING.s` reads the
+  assembly listing ugen wrote for the candidate (`cc -K` keeps it, `ugen -l`
+  writes it) and reports, per schedule-divergent site, the `.loc` statement
+  lines of the instructions involved -- so `N of M sites sit at statement-line
+  boundaries` is a measurement rather than a guess. A boundary majority
+  promotes `playbook=line-assignment-probe` in the footer. Sites the listing
+  cannot attribute are printed as unmapped and excluded from the majority
+  rather than counted either way, and a `schedule` verdict with no listing is
+  told the option exists and where the file comes from.
+- **`probe-lines` turns the campaign's decisive experiment into one command.**
+  Token-identical line-reflow of a preprocessed TU (split long multi-statement
+  lines; a blank-line global shift as the control) proves or refutes
+  line-assignment sensitivity in minutes, and with a target supplied reports
+  the emotionally important number: how many divergent sites moved toward the
+  ROM. See `docs/line-assignment-probe.md`.
+
+- **`context lint` catches the guard that kept drawbitmap unmatched for
+  years.** An `#if`/`#elif` whose identifiers are all undefined evaluates to a
+  constant nobody intended (`#if BUILD_VERSION >= VERSION_J` is TRUE when both
+  are undefined: `0 >= 0`). The lint evaluates the cpp expression subset,
+  classifies `always-true-by-absence` as HIGH, and `check-scratch` now runs it
+  over ctx+code -- along with two new decomp.me concatenation checks (a ctx
+  that ends without a trailing newline, and symbols defined in both ctx and
+  code). Lever 24 routes structure verdicts here.
+
+- **New `score` and `matrix` commands replace the hand-rolled scoring
+  snippet from the SSB64 drawbitmap campaign.** The operator rewrote the same
+  ~30-line objcopy/window/mask/compare routine roughly ten times by hand, and
+  it broke twice doing so: a hardcoded function offset went stale when a
+  translation unit changed, and IDO's stripping of local (`static`) function
+  symbols made a symbol lookup return nothing, which a downstream tool then
+  read as "100% different." `score` windows the candidate function through
+  the symbol table (`--function`) or, for a stripped local, between the two
+  visible symbols around it (`--between`), masks relocation words from
+  `objdump -r` into a separate "relocation floor" rather than counting them
+  as diffs, and checks repeatable `--control` functions so a lever that
+  changes something it must not touch marks the whole run `CONTROLS BROKEN`.
+  `matrix` runs a batch of pipeline variants from a JSON spec, hashes each
+  one's scored function bytes, and clusters identical hashes into lettered
+  attractors -- the analytical device that caught a compiler-era sweep
+  silently collapsing eleven differently-flagged outputs into byte-identical
+  results during the same campaign. See `docs/score-and-matrix.md`.
+
+- **Campaign ledgers no longer carry the target ROM's instruction text.** The
+  schema used to ask for it: every diff site recorded `"target"` (the
+  disassembly) beside `"target_word"` (the 32-bit word), so writing a correct
+  ledger and writing a redistributable copy of the game's code were the same
+  act. Two such ledgers from a Mickey's Speedway USA campaign reached a public
+  remote with 126 sites apiece -- enough to reconstruct 129 of one function's
+  146 instructions -- and undoing it took a history rewrite.
+
+  Redaction now happens at the serialisation boundary (`append_ledger`), which
+  is the single place a comparison becomes a file. The in-memory `Comparison`
+  is untouched, so the terminal diff, the HTML report and every diagnosis path
+  show exactly what they showed before. What lands on disk keeps only what the
+  ledger is for: a 16-bit salted `target_digest` (lossy by construction, ~2^16
+  preimages per digest -- but see the retraction below, the property *does*
+  depend on the salt staying secret), a `target_opcode_masked` word with every
+  operand field zeroed for at most the first three sites of each list, and
+  `target_register_count` in place of the target's register names. The candidate side -- the operator's own
+  compiler output from their own C -- is untouched.
+
+  Salts live in a `<ledger>.salt` sidecar, never in the ledger, so a leaked
+  ledger carries no rainbow-table shortcut with it. `tests/test_ledger_redaction.py`
+  is the regression test.
+
+- **Redaction hardened after review, and two claims corrected.**
+
+  Site records are now filtered through an **allow-list** (`SITE_KEEP`) rather
+  than a list of banned keys. A deny-list made the wrong promise: the incident's
+  leak lived in the per-site records `compare` emits, so a *new* target-side
+  field added upstream would have been carried straight to disk, and no test
+  could have caught it -- the fixtures are hand-written and would not contain
+  the new field either. Unknown keys are now dropped by default, with their
+  names (never their values) recorded under `dropped_fields`.
+
+  The claim that "the security property does not depend on the salt staying
+  secret" was **wrong** and is retracted. It assumed a uniform prior over
+  instruction words; at a diff site the record deliberately keeps `candidate`
+  and `candidate_word` in full, which narrows the target to a small set of
+  plausible variants, and against a small set a known-salt 16-bit digest is an
+  exact-match confirmation oracle. The salt is load-bearing; the 16-bit width
+  is the second, independent defence for sites with no such constraint. Treat
+  `<ledger>.salt` as sensitive.
+
+  Resuming a campaign whose ledger predates this change now prints a warning:
+  new records are redacted, the old ones in the same file are not, and the file
+  as a whole remains ROM-derived.
+
+  Also corrected: `append_ledger` is the only place a **ledger** record is
+  written, not the only place a comparison becomes a file. `--html` on `view`
+  and `diagnose` renders target assembly rows into an HTML report. That export
+  is opt-in and lands where the operator names it -- a real mitigation, not a
+  redaction -- and it is now documented as a known second instance of the class.
+  **`force_spec` is a third**: each aligned web it records carries
+  `target_register`, which names a register in the target. Same class, same
+  handling -- operator-named, opt-in, not something to commit -- and it is now
+  recorded here rather than only in a comment at the point of use.
+
+- **The sweep is now actually recursive, and the claim now matches the code.**
+
+  "Recursive default-deny" was, on execution, recursive over `dict` and `list`
+  and default-deny over keys spelled `target` in lower case. Six bypasses were
+  demonstrated by driving `redact_record` directly, each writing the target's
+  instruction text into the output while the redactor reported success:
+
+  - a nested dict under an **allow-listed** site key -- `redact_site` copied
+    surviving values with a shallow dict comprehension, so
+    `{"candidate": {"target": "lw\t$v0,0x10($sp)"}}` was emitted verbatim;
+  - a payload in a **tuple** -- `model` keeps tuples through
+    `dataclasses.asdict`, and the sweep entered lists only;
+  - a payload used as a **mapping key** -- only key *names* were ever
+    inspected, never key content;
+  - `Target`, `TARGET`, `_target` -- the match was a case-sensitive
+    `startswith`;
+  - instruction text containing a `/`, which `_is_path_like` accepted as a
+    filesystem path (real `objdump` source-interleaved output qualifies);
+  - 3000-deep nesting, which raised an uncaught `RecursionError` out of the
+    middle of a campaign.
+
+  All six are closed and each has a regression test. The sweep now enters
+  `dict`, `list`, `tuple`, `set` and `frozenset`, examines keys as well as
+  values, requires keys to be shaped like field names, matches target-naming
+  keys case- and prefix-insensitively, re-sweeps allow-listed values, and caps
+  depth at `MAX_DEPTH` (64) with a new `RedactionError` instead of unwinding.
+  `_is_path_like` now requires a value with no whitespace at all, since
+  instruction text always has a separator and a path does not.
+
+  **The claim is also restated where it was overstated.** `append_ledger`'s
+  docstring said the ledger "cannot carry the ROM's instruction text at all".
+  It cannot carry it *under a target-named field*, at any depth, in any
+  container. It can still carry a target instruction stored under an innocuous
+  key name or as a bare list element, because nothing here reads string
+  contents. That residue is documented at the function, at `_sweep`, in the
+  module docstring, and here -- and it is why ledgers stay gitignored rather
+  than merely redacted.
+
+- **The resume warning now reads the whole ledger.** Its docstring said it
+  "scans the file"; the default capped at 4096 lines, so an unredacted record
+  on line 4097 of a long campaign produced silence. It now streams every
+  record by default, and when an explicit `scan_lines` cap is given and reached
+  it says how far it got rather than implying the file was fully examined.
+
+## 0.3.1 - 2026-07-30
+
+- The bundled `n64-decomp-campaign` Agent Skill caught up with the tool it
+  ships in: it now routes agents through the guided next-steps footer and the
+  `guide` command instead of past them, mandates a known-match harness proof
+  before any target comparison, adds the frontend-lineage escape hatch (a new
+  `references/frontend-lineage.md`: impossibility-first discipline, the
+  fingerprint-atlas method, dispatch-construct discrimination, and what
+  alternate-frontend evidence does and does not establish), counterweights the
+  spelling experiments with the field guide's dead-families table and the
+  line-placement lever, extends the evidence ladder with the two
+  frontend-provenance rungs, and names the lever-19 clean negative as a
+  legitimate terminal result.
+
+- The README shows the product: an ANSI-faithful SVG of a real fixture
+  diagnosis under the tagline and a screenshot of the self-contained HTML
+  report at the `--html` mention, both generated from shipped fixtures.
+
+## 0.3.0 — 2026-07-30
+
+Every verdict now ends in an address: the matching field-guide levers, the
+command that prints them, and both answers to "do you have an instrumented
+toolchain?". Around that, three more themes — input safety, so a comparison
+never reports a confident verdict about two unrelated functions; visualization
+parity, so an exported report and a bounded terminal carry the same evidence as
+a full screen; and the documentation that joins a screen to a source edit.
+
+- Added `decomp-workbench guide <topic>`. It prints the field guide's own
+  sections for a playbook (`forced-color-oracle`), either verdict vocabulary
+  (`register-permutation`, `allocation-mismatch`), or a lever number (`19`),
+  from a copy that ships inside the package — no checkout and no network. Every
+  `next:` footer now names the matching levers with a one-line action each and
+  the command that expands them, and any playbook whose advice mentions a
+  trace, a probe, or an oracle gives both answers to "do you have an
+  instrumented toolchain?", so the reader without one is told which source
+  levers to spend instead.
+
+- Added [From verdict to edit](../from-verdict-to-edit.md), the walkthrough
+  from a diagnosis on screen to the source change it implies, and a glossary of
+  the field's vocabulary in the documentation index.
+
+- Symbol selection now falls back to a unique case-insensitive match, at the
+  parser and in `dump_object`'s objdump retry: Pascal-era frontends (`upas`)
+  fold identifiers to lower case, and comparing those objects previously
+  required an `objcopy --redefine-sym` round-trip. That retry and the
+  missing-symbol evidence pass below are one objdump call, not two.
+
+- New documentation from the SSB64 frontend-lineage campaign: alternate
+  authentic frontends (`docs/alternate-frontends.md` — accom/ccom/upas
+  inventory, invocation recipes, cross-generation ucode handoff, and the
+  fingerprint-atlas method), field-guide levers 20-22 with two new dead
+  families, and field notes (`docs/field-notes-2026-07-30-ssb64.md`)
+  including an open comparator report: exact matches occasionally render a
+  vestigial `aligned_schedule` residual.
+
+- Fixed a missing-symbol error that blamed the build instead of the typo.
+  `objdump --disassemble=NAME` that matches nothing succeeds and prints an
+  empty stream, so the "defines:" list built from it announced `no symbols`
+  about an object that plainly defines the function the reader misspelled — on
+  real `.o` files, the primary path. A single unfiltered second pass now
+  supplies that list.
+
+- Stopped a coarse verdict from guessing a lever family. `allocation-mismatch`
+  dumped `pool-position`'s seven levers even though the same two streams make
+  `view` say `phase-shift` or `register-permutation`, whose levers are 14-16
+  and 17-19 — a guess that contradicted the sentence above it telling the
+  reader to run `view` because *it* names the family, and that leaked into
+  `--json` and the HTML payload beside a `view.next` that disagreed. The
+  verdict now names all three families with the `guide` command for each and
+  picks none, led by the sentence saying why it cannot.
+
+- `--width` no longer truncates the `next:` footer. Guidance wraps on word
+  boundaries with an indented continuation, so a bounded terminal keeps the
+  dead-family warnings instead of the setup sentence that preceded them.
+
+- Added four one-line explanations where the vocabulary is first used: what a
+  web is, what LCS buys, what the `pool` and `temp` lane classes are, and how
+  to read the signature in causal order — plus a pointer to
+  `--explain-keys`. The three in-tool notes are removable with `--terse`.
+  `--html` now renders each lever as its own runnable
+  `decomp-workbench guide N` snippet.
+
+- Made the HTML report carry the evidence it claimed to. It is rebuilt from
+  the same view model the terminal renderer consumes: a sticky verdict bar,
+  register lanes with the divergent slot outlined, one linkable
+  `<section id="hunk-N">` per hunk with context and divergence row classes, a
+  per-row substitution cell whose colour swatch links to its web, and a `Webs`
+  table linking each bijection to every hunk it explains. Lanes, hunk grouping,
+  webs, and the `t7->t8 [w1]` annotations previously existed only inside the
+  collapsed JSON blob, which is still there. Still one self-contained file with
+  no script and no network.
+
+- Fixed four comprehension defects in the terminal rendering. The verdict is
+  bolded and coloured by family (green for exact, one hue per mismatch family)
+  instead of being the only plain token beside a bold-red explanatory sentence,
+  and `compare`/`compare-dumps`/`rank` gained the `--color` they never had, so
+  batch triage can be colourized. `--width` now wraps a row's annotation to a
+  continuation line instead of silently cutting a second web tag. Every
+  non-matching row is annotated, in or out of the hunk being printed, so a
+  context row in a known web no longer reads as an unexplained `register` site.
+  The lane caret names its two units: `slot=5 aligned_row=12`, replacing
+  `divergence=5 index=12` on screen **and in `--json`**, because one vocabulary
+  across both audiences is the point of the metric registry.
+
+- Added the highest-leverage fact to the header. A compact
+  `webs: w1 t7->t8 x2, ...` line prints above the hunks, and the substituted
+  register token inside the disassembly now takes its web's colour, so the
+  annotation says *which* registers moved and the text says where.
+
+- An unknown command now names itself and points at `decomp-workbench
+  commands` instead of printing argparse's forty-odd-name `(choose from ...)`
+  catalogue.
+
+- Refused to report a confident verdict about two unrelated functions.
+  With no `--function` and exactly one differently-named symbol on each side,
+  `compare`, `view`, `diagnose`, and `rank` now print a warning ahead of the
+  verdict, carry it in `--json`, and say which option fixes it. A multi-symbol
+  input is still the documented whole-section mode and stays quiet.
+
+- Made the novice path legible. The bare program name welcomes and exits `0`
+  instead of printing a 44-command choice wall and exiting `2`; the usage line
+  is one word plus a pointer to `commands`; the `commands` footer teaches the
+  same flat spelling as README and START_HERE; `--symbol`/`--function` says
+  what omitting it means; `docs/README.md` defines IDO, asm-processor,
+  ugen/uopt, and decomp.me, which are also glossed at first use.
+
+- Sharpened two error messages to the standard the census-key error sets.
+  A missing symbol lists what each input actually defines, states that names
+  are case-sensitive, and links the troubleshooting section; an objdump
+  `file format not recognized` failure names the likely cause before quoting
+  objdump's own words underneath.
+
+- Put the trace back where the documentation always had it.
+  `allocation-mismatch` now sends the reader to `view`/`diagnose` and the
+  field-guide levers first, and gates the globalcolor/UGEN trace on those
+  levers being exhausted *and* an instrumented toolchain already existing. The
+  `pool-position` and `temp-fifo-phase` footers lead with their source-only
+  branch for the same reason, and `pool-position` now says up front that it is
+  one of three unresolved allocation families rather than implying a decision
+  the verdict did not make.
+
+- Gave every verdict an on-ramp. The `next:` footer of `compare`, `view`, and
+  `diagnose` now keeps its expert content and adds the matching field-guide
+  lever numbers with a one-line action each, the literal
+  `decomp-workbench guide <playbook>` that prints them, and — for every
+  playbook whose advice names a trace, a probe, or an oracle — both answers to
+  "do you have an instrumented toolchain?", so the reader without one is told
+  which source levers to spend instead. The new `guide` command accepts a
+  playbook, either verdict vocabulary, or a lever number, and prints the field
+  guide from inside the installed package with no checkout. A lever whose
+  section is not in the shipped revision degrades to its one-line action rather
+  than failing, and a missing document still answers with the one-liners and
+  names where the full text lives.
+
+- Main now identifies itself as `0.3.0.dev0` instead of reusing the published
+  `0.2.0` identity for a substantially different development build.
+
+- Completed the common diagnosis journey. `diagnose`/`diagnose-dumps` render
+  exact comparison truth plus the decisive aligned mechanism evidence after
+  loading each input once; `check-scratch --view` reuses the imported
+  comparison. Terminal width/pager controls and self-contained accessible HTML
+  reports preserve the same evidence, and every explicit output refuses to
+  overwrite.
+
+- Added a durable campaign cockpit. Runs create an identity-checked manifest
+  and append-only ledger under `.decomp-workbench/` by default; `campaign
+  status/note/resume/export` preserve the best trajectory, failures, active
+  hypothesis, object basins, family collapse, and exact-stop state.
+  `decomp-workbench-experiment-v1` sidecars validate deterministic parameter
+  assignments and selected instruction regions. Cache status, dry-run prune,
+  recoverable cross-filesystem trash, and collision-safe restore complete the
+  state lifecycle.
+
+- Added calibrated compiler-research adapters without redistributing compiler
+  inputs: real-copy `toolchain init/calibrate/status`, section/relocation/symbol
+  fidelity, scheduler `DKWB-SCHED-V1` records and hash-pinned external
+  profiles, original/static pass differential, behavioral fingerprint
+  microcases, cross-revision lineage, relocation-alias evidence, mandatory
+  unedited replay calibration, project-visible work roots, and bounded process
+  artifacts.
+
+- Productized the allocator oracle. `oracle plan` always reports both p1/p2
+  namespaces and plans only measured or explicit non-forbidden colors;
+  `diff` aligns semantic web provenance rather than numeric IDs; `force/sweep`
+  use the campaign engine and require an intact ready toolchain; `status/export`
+  reopen persistent, ledger-idempotent evidence. Forced exactness remains
+  explicitly causal evidence, never a source match.
+
+- Added semantic allocator and source provenance views: stable web
+  fingerprints, forbidden-color neighbor attribution, virtual/final stack-home
+  ownership, and `trace-source` joins through retained preprocessor markers and
+  `.file/.loc` directives while preserving ambiguous line matches. Runnable
+  synthetic oracle, source/listing, scheduler, and complete experiment-grid
+  examples are executed by documentation tests.
+
+- Hardened the evidence boundary found during final review: selected-region
+  scores now use LCS-aligned residual sites; allocator details and interference
+  edges are phase-qualified; an exact forced build is causal only after a
+  successful non-exact control; relocation aliases preserve kind and
+  cardinality differences; short section tails and undecodable compiler bytes
+  remain observable; and toolchain/cache operations preflight collisions
+  without deleting or partially restoring another process's files.
+
+- Standardized automation on one versioned JSON document for success and
+  failure, including argparse errors; added a compact journey command map,
+  non-breaking task-group aliases, and generated Bash/Zsh/Fish/PowerShell
+  completions. CI now runs actionlint, the full suite on macOS, targeted
+  Windows process/filesystem contracts, and wheel/sdist installation smoke
+  tests in addition to Python 3.10–3.14 and strict static analysis.
+
+- Compiler execution now has one lifecycle contract across `check-scratch`,
+  `compile-rank`, and `campaign`: a 120-second per-candidate timeout by
+  default, explicit environment and working-directory controls, and
+  process-group cleanup so a wrapper's assembler or search child cannot
+  outlive a timeout. Campaign ledgers and JSON summaries record the deadline;
+  site-faithful scratch reports also record wrapper identity, cwd, explicit
+  environment, duration, and timeout.
+
+- Hardened scratch handoffs. ZIP members must come from one flat root instead
+  of being silently combined by basename, expanded directories refuse nested
+  or symbolic-link content instead of ignoring it, checksums must be real
+  hexadecimal SHA-256 values, and impossible browser scores are rejected
+  rather than rendered above 100% or below 0%.
+
+- Standardized examples and campaign state on repository-root commands and
+  `.decomp-workbench/`, taught `doctor --cache-dir` to inspect a project's
+  actual cache, schema-versioned the doctor and scratch-check JSON reports,
+  and expanded documentation tests to execute redistributable trace examples.
+
+- Added `doctor` and `check-scratch` for the human handoff around decomp.me.
+  `doctor` reports local readiness, validates an export or workbench bundle,
+  and prints the exact shell-quoted next command. `check-scratch` safely reads
+  a downloaded ZIP/directory without extraction, shows the browser score only
+  as context, and compares the exported target/current objects (or retained
+  objdump text) with the workbench's aligned oracle. Its optional compile mode
+  reproduces the site's `ctx.c` + `#line 1 "src.c"` + candidate composition,
+  supports explicit environment/cwd/timeout controls, and can retain the exact
+  composed source and object for audit.
+
+- `--objdump PATH` is now authoritative. A misspelled explicit path fails
+  immediately instead of silently selecting a different host executable.
+  `doctor` also verifies the selected reader against an exported `target.o`
+  when available and reports large local campaign caches without modifying
+  them.
+
+- Fixed adjacent instruction swaps being misclassified as allocation or
+  structure when unrelated relocation addends differed elsewhere. The shared
+  aligned view now uses relocation-masked schedule identities, so the
+  redistributable final-two-`li` fixture reports `aligned_schedule=2` and sends
+  the user to the scheduling evidence ladder.
+
+- Corrected an unsafe claim in runtime guidance, tutorials, postmortem, field
+  notes, and the packaged Agent Skill: a region collapsing under `-g0` proves
+  debug metadata participates and as1 can reach the target order, but does not
+  prove source correctness. The eventual `vsprintf` match was the
+  counterexample—a freer scheduler had rescued the wrong source topology.
+
+- `CDX_FORCE` no longer kills the compiler when it names a color the web's
+  interference mask already forbids. The instrumented pass **declines** the
+  force, records
+  `[CDX] force_declined phase=p2 site=dec proc=11 web=300 color=2 reg=v1 forbidden=0x…`,
+  and lets the natural coloring stand. Six oracle probes across three campaigns
+  could not be run at all because that case raised `SIGABRT`, and a sweep that
+  hit one lost every result after it.
+
+  The record prints whether or not `CDX_LOG` is set, and that is the semantic
+  change worth knowing: a declined force is now *visible* and distinguishable
+  from a force the pass never saw, so "the object did not change" no longer has
+  two meanings. `site=dec` and `site=color` name which of the two force points
+  declined. Forcing the split path (`p1:w9=s`) is never declined — no color
+  mask can forbid it.
+
+  The mask decode is now one rule in two places: `color_is_forbidden` in
+  `globalcolor.py` and the generated C, checked against one table in the tests,
+  anchored on the recorded observation that `forbidden0=0x7f800000` means
+  exactly c1–c8. `trace-globalcolor` reports `forbidden_colors` on every
+  allocator web, so a force sweep can be planned from one logging run instead
+  of discovered one abort at a time.
+
+- New `--census KEY=VALUE[,KEY=VALUE...]` on `compare`, `compare-dumps`,
+  `view`, and `view-dumps`: assert values the command already reports and read
+  the answer as an exit code — `0` when every predicate held, `3` when one
+  failed, `2` when the question itself was wrong. One `PASS`/`FAIL` line prints
+  per predicate, `--json` carries them under `census`, and the option is
+  repeatable.
+
+  Campaign agents rebuilt this filter at least seven times in one day as an
+  objdump-and-regular-expression layer outside the workbench, and at least one
+  of those copies keyed on the wrong instruction. `3` is deliberately not `1`:
+  `--fail-on-mismatch` already means "this candidate is not a match", and a
+  variant can be exactly the shape you are filtering for and still not be the
+  match.
+
+  Any key the command reports can be named, including the deprecated JSON
+  spellings while they are still emitted; keys whose value is a list or an
+  object are refused rather than silently compared; values compare by the
+  reported type, so `exact=true` reads a boolean and `frame=-0x80` reads an
+  integer in any base. Predicates are validated against the registry before the
+  inputs are read, so a misspelled key in a long sweep costs one process rather
+  than one compile. `--explain-keys` gained a fourth section for the keys a
+  command wraps around a report (`accepted`, `acceptance_basis`, and the census
+  results), which had never been explained anywhere.
+
+- `compare` and `compare-dumps` now report the LCS-aligned residual beside the
+  positional one, and **candidate ranking moved to it**. `aligned_total` leads
+  the summary line; `aligned_structural`, `aligned_schedule`,
+  `aligned_register`, `aligned_constant`, and `aligned_commutative` split it by
+  mechanism in `--json`, in `campaign --json-summary`, and on a human line
+  under the verdict. `rank`, `compile-rank`, `campaign`, and the object-basin
+  order sort on `aligned_total` first, with the positional `words=` count as
+  the tiebreaker.
+
+  This was the most expensive tool gap of the dp64 campaign day: positional
+  counting shifts on every insertion, so the candidate one edit away reads as
+  a cascade while a candidate with a dozen unrelated allocation differences
+  reads as close. It misranked candidates in six separate campaigns — a
+  one-hunk 11-word variant sorted below a five-site 5-word variant, and two
+  variants tied at 95 words that the aligned split (10 structural versus 8)
+  separated immediately. The shipped insertion fixture reproduces it in
+  miniature: `words=11`, `aligned_total=1`.
+
+  The counts come from `view`'s alignment, not from a second aligner in
+  `compare`: campaigns rebuilt an ad-hoc LCS ranker six times in one day, and
+  two implementations of one idea would eventually print different numbers
+  under the same name in two commands. `words=` is unchanged and still the
+  matching oracle — a match is `exact=true` with `words=0`, and aligned rows
+  that are relocation-controlled or displaced by an insertion are outside the
+  residual by design, because neither is a difference a source change owns.
+
+- Wrote the documentation for the person who arrives with one almost-matched
+  function and no idea what the next command is. Three new narrative pages sit
+  above the reference material and are the first thing the README points at:
+
+  - `docs/START_HERE.md` — ten minutes, in order: run `compare`, read the
+    verdict, run `view`, read the lanes and hunks, take the lever from the
+    `next:` footer, change one thing, repeat. Every command in it runs against
+    the shipped fixtures with no ROM, compiler, or toolchain, so a reader can
+    follow the whole loop before touching their own project. It answers the
+    three questions people actually arrive with, where they arise: you do not
+    isolate the function (`compare` and `view` are symbol-scoped against your
+    normal full-TU build, and isolation changes codegen); you do not need an
+    agent or a permuter (the verdict names the mechanism and the footer names
+    the lever — the permuter is a hypothesis generator, not a solver); and
+    traces are the last resort for one verdict class, not the first step.
+  - `docs/field-guide.md` — the IDO codegen levers as a playbook. Nineteen
+    entries, each with the diff signature that points to it, the C before and
+    after, why it works, the function it was proven on with the measured
+    effect, and the verdict or playbook name that routes here. Plus the dead
+    families, which are worth as much as the levers: `a|b` versus `b|a`,
+    declaration-order permutation, bare discarded expressions, and the
+    permuter on varargs.
+  - `docs/walkthrough-30-near-matches.md` — batch triage for a backlog rather
+    than a function: classify the whole pile with `compare --json` and
+    `view --json`, rank by verdict class rather than word count, clear the
+    one-variant classes first, then structure, then the register lanes, with
+    portable POSIX shell for each step.
+
+  The docs index is now a journey rather than an alphabet, every entry carries
+  a "read this if...", and the compiler-internals pages are explicitly marked
+  as the last resort they are. `tests/test_doc_commands.py` extracts every
+  documented command line that reads a shipped fixture, runs it, and checks it
+  against the output the page promises — so a command line that stops working,
+  or a verdict that changes wording, fails the build instead of misleading a
+  reader.
+
+- Gave `view` and `view-dumps` the same option behavior as every other command
+  that selects one function: `--symbol`/`--function` conflicts are rejected
+  instead of resolved last-one-wins, and `--explain-keys` prints the registry.
+  Both options now come from one shared module rather than a copy per command
+  module. `view` and `view-dumps` also moved next to `compare` and
+  `compare-dumps` in the help listing, where the inputs they read put them.
+
+- Unified the two schema registries the merge left behind. The aligned view's
+  keys now live in the shared metric registry beside the comparison and
+  campaign keys, so `--explain-keys` explains `view` and `view-dumps` too, and
+  a test asserts the registry and the view's output are one set in both
+  directions: a key can neither be printed without an explanation nor
+  explained without being printed. The view keeps its own namespace, because a
+  spelling it shares with the comparison registry (`target_instructions`) is an
+  aligned count there and a positional count here.
+
+- Deduplicated the commutative-operand rule: `compare` and `view` shared two
+  independent tables and two independent predicates that disagreed about the
+  two-operand multiply form, so one residual could be `commutative-order` in
+  one command and `register` in the other. Both now classify through
+  `compare.commutative_swap`, and a table-driven test asserts the two commands
+  name the same mechanism for a three-operand `or`, a two-operand `mult`, and
+  the non-commutative controls.
+
+- Kept every candidate a campaign actually ran: stopping on an exact match now
+  waits for and records the candidates already in flight instead of discarding
+  their objects and their ledger records, and a candidate that raises an
+  unexpected error is recorded as a failed candidate rather than ending the
+  run.
+- Required a matching instruction multiset for `schedule-mismatch`, so a
+  reordering that also moves a register is no longer reported as "not
+  allocation".
+- Escalated compiler termination from `SIGTERM` to `SIGKILL`, kept compilers in
+  the workbench's session on Python 3.11+ (own process group, still attached to
+  the terminal), and scoped the group-termination guarantee to POSIX in the
+  documentation; Windows remains best effort.
+- Gave the instrumented pass the same force-key grammar the workbench
+  validates, so a partially formed control such as `p1:w9` or `p1:w9=zzz` is
+  refused instead of silently forcing nothing.
+
+- Established the packaged bundle under `src/decomp_workbench/skills` as the
+  only skill tree, with a test that fails if a root-level `skills/` directory
+  exists without matching what `install-skill` ships.
+- Made the globalcolor instrumentation phase-explicit and self-describing:
+  records carry `phase=p1`/`phase=p2`, `CDX_FORCE` keys must be phase-qualified
+  (`p2:w55=c2`) and are rejected with both namespaces named — by `campaign
+  --env` before a compile and by the pass itself — colors are decoded to
+  machine registers in every record and in `trace-globalcolor`, and a
+  symbol-named `CDX_PROC` now prints a procedure index table instead of
+  silently selecting procedure 0.
+- Documented the instrumentation fidelity gates as section-scoped
+  (`.text`/`.rodata`/`.data`/relocations/symbols), because stock IDO under
+  `-g3` is not file-level reproducible.
+- Gave the campaign runner ownership of the processes it starts: compilers run
+  in their own process group and are terminated with their children when a run
+  fails or is interrupted, so a spawned search or assembler cannot outlive its
+  campaign.
+- Stopped campaigns on the first exact match by default (`--no-stop-on-exact`
+  sweeps the whole grid) and removed the repeated target disassembly, so a
+  variant costs one compiler run and one objdump run with the comparison in
+  process.
+- Split three verdicts out of the volume-based classes, each with the field
+  lever attached: `constant-mismatch` (audit the flag/enum against the
+  assembly), `commutative-order` (compound assignment, not the allocator), and
+  `schedule-mismatch` (statement grouping and the `-g0` diagnostic).
+- Unified human labels and JSON keys behind one metric registry and added
+  `--explain-keys`. `words=` is now `"words"` in JSON; the previous long-form
+  keys (`word_mismatches`, `candidate_instructions`, `candidate_frame_size`,
+  and the rest) are deprecated and still emitted beside the canonical keys for
+  one release.
+- Reported every differing site regardless of verdict. `--show-diff` no longer
+  prints only register groups, so a literal difference counted in `raw` can no
+  longer be missing from the displayed evidence.
+- Accepted `--function` as a second spelling of `--symbol` on every command
+  that selects one function, and rejected conflicting values instead of
+  silently keeping the last one.
+
+- Added `view` and `view-dumps`: the aligned mechanism view. Two-pass LCS
+  alignment over the opcode streams, per-hunk classification
+  (structural/schedule/register/constant/commutative/relocation), per-class
+  register lanes that include the matching instructions, a
+  `prefix-exact@N` / `state-divergence@class:slot` signature line, grouped
+  register webs, and lever guidance chosen by the dominant class. Aligned
+  counts replace positional counts, which multiply a single insertion into a
+  phantom cascade. Two anchorings are scored against each other so neither a
+  run of repeated opcodes nor repeated instruction text can mispair the
+  streams, a shifted branch offset is reported as `displacement` rather than
+  claimed as byte identity, and `phase-shift` requires a real rotation cycle
+  instead of the constant offset that any small register swap satisfies. Both
+  commands accept reduced objdump text, `--json` uses the same keys as the
+  human labels, and `--report-regs` emits per-aligned-row register operands for
+  matching rows too.
+- Completed a release-quality UX pass: packaged the Agent Skill with the
+  distribution, added a safe installer, clarified comparison proof scope and
+  cross-ROM JSON acceptance, hardened focused web lookups, and selected the
+  true best representative for every campaign basin.
+- Added the portable `n64-decomp-campaign` Agent Skill for Codex and Claude
+  Code, including installation guidance and reusable DKR/SF64 campaign
+  evidence, IDO patterns, and reproducibility practice.
+- Added action-oriented comparison verdicts, relocation-only raw-difference
+  explanations, and a deliberately separate cross-ROM structural-evidence
+  mode.
+- Made register diagnostics portable across GNU objdump dialects that do or do
+  not print MIPS register names with a `$` prefix.
+- Added object-basin reporting to campaigns, so source variants that compile
+  to the same function bytes are visible in both terminal and JSON summaries.
+- Added focused `trace-globalcolor --proc ... --web ...` inspection with
+  trustworthy callee-saved register names for the pinned compiler profile.
+- Published a final-function campaign guide covering the Hartley, Titania, and
+  Aquas evidence patterns and the safe next action for each residual class.
+- Refocused the documentation on decompilation problems, command outputs, and
+  support boundaries.
+- Replaced project-specific research narratives with concise workflows,
+  operating principles, and a documentation index.
+- Excluded unreachable zero alignment padding after a selected MIPS function's
+  return delay slot from object and retained-dump comparisons.
+- Added deterministic, upload-neutral decomp.me scratch bundles with copied
+  target/context/source inputs, settings, checksums, and manual-use guidance.
+- Added a five-function Castlevania 64 walkthrough and complete scratch inputs,
+  including exact matches and three small scheduling/code-generation puzzles.
+- Documented the supported IDO 5.3 and 7.1 workflow matrix and the narrower
+  version boundary of the pinned deep-uopt instrumentation profiles.
+
+## 0.2.0 — 2026-07-27
+
+- Made exact comparison relocation-aware and conservative about missing or
+  unknown relocation kinds.
+- Added redistributable objdump-text fixtures and symbol filtering.
+- Added parallel, cached campaigns with explicit provenance and JSONL ledgers.
+- Added structured ugen trace parsing, FIFO validation, and logical-value
+  reconstruction.
+- Added `CSAVE`/`CUP`/`[CDX]` globalcolor reporting.
+- Added hash-pinned, anchor-validated uopt globalcolor and alias profiles,
+  including safe profile composition and alias-state reports.
+- Added retained ugen→as1 listing replay.
+- Added task-oriented guides, CC0 licensing, and clean-wheel validation.
+- Published the workbench as a standalone repository with end-to-end developer
+  workflows, centralized troubleshooting, and root-level CI.
+- Added Python 3.10–3.14 CI, strict type checks, formatter enforcement, and
+  release-distribution smoke tests.
+- Fixed list-address filtering in FIFO replay and accepted non-finite
+  globalcolor costs emitted by compiler diagnostics.
+- Corrected the phase-two globalcolor web identifier used by decision logs and
+  force controls, and required force controls to select one procedure.
+- Added a reproducible instrumentation fidelity microcase and release
+  validation record.
+
+## 0.1.0 — 2026-07-26
+
+- Initial object comparison, ranking, sequential candidate compilation, and
+  generic ugen instrumentation package.

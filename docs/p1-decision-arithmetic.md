@@ -250,7 +250,7 @@ disassembly reading.
 - [Metric traps](metric-traps.md) — the scoring and pricing mistakes this
   campaign paid for, several of them made *while reasoning about* this exact
   arithmetic.
-- [Postmortem: GE007 `object_interaction`](postmortem-2026-08-09-ge007.md) —
+- [Postmortem: GE007 `object_interaction`](history/postmortem-2026-08-09-ge007.md) —
   the discarded-read construct above is the campaign's closing move (error
   eleven).
 - [Trace analysis](trace-analysis.md) — reading `p1dec`/`savedetail`/`saveocc`

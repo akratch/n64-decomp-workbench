@@ -423,6 +423,28 @@ pass binaries, flags, listing, symbol table, binasm, working directory, and
 path-sensitive metadata. The unedited cell is the calibration for every edited
 cell.
 
+## Host environment folklore
+
+Each of these cost a real campaign session before it was written down. Check
+them before debugging anything deeper.
+
+- **zsh does not word-split unquoted variables.** A flag list built in a
+  shell variable (`--construct $LIST`) arrives as one argument under zsh and
+  as several under sh/bash. Prefer the `--OPTION-from FILE` spelling every
+  list-valued option provides, or run the command under `sh`.
+- **macOS kills unsigned instrument binaries.** A freshly built or copied
+  instrumented compiler can die instantly with SIGKILL and no output —
+  codesign rejection, not a crash. `codesign --force -s - <binary>` ad-hoc
+  signs it and clears the kill.
+- **BSD `sed`/`head` are not GNU.** macOS ships BSD userland; `sed -i`
+  argument order, `head -c` behavior, and several regex forms differ.
+  Scripts written against GNU coreutils fail in quiet ways; prefer
+  `perl -pi -e` or install coreutils when a campaign script must be portable.
+- **Never trust a stale build artifact as evidence the tree is good.** A ROM
+  or object left by an earlier build passes every hash check while the
+  current tree no longer links. Rebuild before citing an artifact, and treat
+  "the hash matches" as a claim about the artifact, not about the tree.
+
 ## Exit codes
 
 Reporting commands return zero when they complete successfully. Commands with

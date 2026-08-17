@@ -2,7 +2,7 @@
 
 > **Historical campaign record.** The source-error taxonomy remains useful,
 > but command syntax and product coverage are current only in
-> [Product status](product-status.md) and the live command guides.
+> [Product status](../product-status.md) and the live command guides.
 
 **Who this is for:** you have a function that is close — instruction count
 exact, frame exact, most of the register file exact — with a small,
@@ -42,7 +42,7 @@ Two things about this arc are worth carrying into the next campaign. First,
 searching harder inside a fixed understanding of the source.** Second, the
 smallest-looking step (14 → 4, deleting rather than adding) was a direct
 consequence of *not* trusting an inherited lever's old price — see
-[metric trap 5](metric-traps.md#trap-5-an-inherited-set-of-levers-is-never-re-tested-against-zero).
+[metric trap 5](../metric-traps.md#trap-5-an-inherited-set-of-levers-is-never-re-tested-against-zero).
 
 ## The taxonomy: eleven decompiler errors, and how to catch each one
 
@@ -193,7 +193,7 @@ spans before adopting.
 The true source contains a statement that reads a value and discards it —
 `if (v != 0.0f);` or equivalent — which compiles to **zero instructions**
 but still changes the register allocator's decision about a nearby web (see
-[the p1 decision arithmetic](p1-decision-arithmetic.md#chargeb--a-store-placement-charge-not-a-loop-charge)).
+[the p1 decision arithmetic](../p1-decision-arithmetic.md#chargeb--a-store-placement-charge-not-a-loop-charge)).
 Because it leaves no bytes in the object, it is invisible to any method that
 works from the disassembly alone.
 
@@ -224,17 +224,17 @@ before/after instruction count, or a forced-oracle build — behind it
 somewhere in the campaign record. Where this campaign's own internal
 numbering collided or a claim was later corrected, the record of the
 correction was kept rather than quietly overwritten; see
-[Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) for the formal version of
+[Compiler laws: IDO 5.3](../compiler-laws/ido-5.3.md) for the formal version of
 that discipline, applied to the compiler-mechanism findings this same
 campaign produced alongside the error taxonomy above.
 
 ## See also
 
-- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the p1/uopt mechanism
+- [Compiler laws: IDO 5.3](../compiler-laws/ido-5.3.md) — the p1/uopt mechanism
   findings from the same campaign, laws L26–L48.
-- [The p1 decision arithmetic](p1-decision-arithmetic.md) — the allocator
+- [The p1 decision arithmetic](../p1-decision-arithmetic.md) — the allocator
   formula behind errors 9–11 and the campaign's closing move.
-- [Metric traps](metric-traps.md) — the scoring and pricing mistakes that
+- [Metric traps](../metric-traps.md) — the scoring and pricing mistakes that
   cost real stages, independent of the source-error taxonomy above.
 - [Postmortem: dp64 core campaign day](postmortem-2026-07-29-dp64.md) — the
   same "what worked / what cost us" discipline applied to a different

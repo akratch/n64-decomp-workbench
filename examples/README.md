@@ -18,7 +18,7 @@ This synthetic, asset-free program exercises scratch truth, a required
 control, exhaustive experiment coverage, compiler-envelope identity, fresh
 finish verification, and receipt-gated packaging in one temporary journey.
 CI asserts its final JSON. See the
-[walkthrough](../docs/trustworthy-endgame-walkthrough.md) for the gates and
+[worked endgame example](../docs/campaigns.md#worked-endgame-example) for the gates and
 [its README](trustworthy-endgame/README.md) for the runnable entry point.
 
 ## Object comparison fixtures

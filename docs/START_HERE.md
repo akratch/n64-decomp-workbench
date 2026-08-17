@@ -603,7 +603,7 @@ pair was finished.
 | you want every `view` option and the JSON schema | [Aligned mechanism view](view.md) |
 | you want every `compare` option and verdict rule | [Object comparison](object-comparison.md) |
 | you are running variant sweeps in bulk | [Candidate campaigns](campaigns.md) |
-| you are diagnosing scratch-vs-project context or finishing a winner | [Trustworthy endgame walkthrough](trustworthy-endgame-walkthrough.md) |
+| you are diagnosing scratch-vs-project context or finishing a winner | [Worked endgame example](campaigns.md#worked-endgame-example) |
 | you need to generate the variant family, and to price the levers you inherited | [Sweeps](sweeps.md) |
 | a `schedule` residue survived `-g0` and every compiler you own | [Line-assignment probe](line-assignment-probe.md) |
 | ordinary source levers are exhausted and you have a calibrated trace | [Allocator oracle](oracle.md) |
