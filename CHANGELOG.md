@@ -3,10 +3,19 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
-## Unreleased
+## 0.6.0 - 2026-08-17
 
 ### Added
 
+- Compiler law L61: the ugen FP expression-temp assignment closed form, with
+  measured per-statement temp costs.
+- `docs/roadmap.md`: the evidence-backed blocker list that defines 1.0.
+- Campaign guidance: re-sweep the cache after shared-context changes; record
+  accepted matches in the ledger, not loose files.
+- Troubleshooting: host-environment folklore (zsh word splitting, macOS
+  codesign kills, BSD userland, stale build artifacts).
+- Public-match-check: the two-clone recipe for recon over a large public
+  repository.
 - `public-match-check` queries public decomp.me for an existing match by name,
   `--address`, and `--max-score`/`--instructions`; `--fail-on-match`, `--json`.
 - `fetch-scratch SLUG [--outdir]` downloads one validated scratch export;
@@ -16,6 +25,17 @@ in [design notes](docs/history/design-notes.md).
 
 ### Changed
 
+- README routes to `decomp-workbench commands` and the docs index instead of
+  duplicating both; link definitions are relative.
+- CHANGELOG entries are one-liners; the narrative release notes moved verbatim
+  to `docs/history/design-notes.md`.
+- Dated campaign records moved to `docs/history/`; the docs index gained a
+  History table; `product-status`, `ido-support`, and the quality checklist
+  carry as-of dates.
+- `docs/tooling-roadmap.md` retired to history; its open items live on the
+  roadmap.
+- Superseded drafts deleted: the elite product review, the skill feed, and the
+  endgame walkthrough page (its example now lives in `campaigns.md`).
 - `commands --json` carries a top-level `network` inventory of which commands
   may open a connection, replacing the blanket `safety.network: false`.
 - `view` reports `verdict: register-ring-only` for ring-temp-only residuals;

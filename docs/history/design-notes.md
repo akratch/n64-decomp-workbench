@@ -5,7 +5,7 @@
 > evidence behind it. [CHANGELOG.md](../../CHANGELOG.md) is the distilled
 > version.
 
-## Unreleased
+## 0.6.0 - 2026-08-17
 
 - **`public-match-check` asks, before a campaign starts, whether the function
   is already matched in public.** The cheapest finish is somebody else's, and
