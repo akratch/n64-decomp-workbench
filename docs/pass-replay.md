@@ -68,6 +68,21 @@ decomp-workbench compare target.o candidate.o \
   --fail-on-mismatch
 ```
 
+## Capture the streams in the first place
+
+`replay-as1` needs a retained listing, and the two inspectors below need a
+retained stream. When the project's driver deletes its temporaries, wrap the
+phases so a normal build keeps them:
+
+```sh
+decomp-workbench capture make /path/to/ido/7.1 .decomp-workbench/capture
+decomp-workbench capture runs .decomp-workbench/capture
+```
+
+The whole journey from there -- decode, window, diff, patch, replay through
+stock ugen and as1 -- is [Phase capture, stream surgery, and
+replay](phase-capture.md).
+
 ## Inspect an existing Binasm boundary without replaying it
 
 When the retained ugen listing is already semantically right but as1 rewrites
@@ -126,6 +141,25 @@ The case/default distinction is structural: `Uxjp` word 1 names the case-table
 label and word 2 names the default label. As with `pass binasm`, this is static
 pass-boundary evidence. It proves what the retained stream contains, not which
 C spelling produced it.
+
+## Replay a Ucode stream through ugen and as1
+
+`replay-as1` starts from a human-readable listing. When the boundary in
+question is earlier -- the Ucode uopt handed ugen -- replay that instead,
+reusing a capture run's exact argument shape:
+
+```sh
+decomp-workbench pass replay-ugen patched.U \
+  --toolchain .decomp-workbench/capture \
+  --argv-from .decomp-workbench/capture/captures/20260824-083209-19786-ugen \
+  -o candidate.o
+```
+
+The same control discipline applies and is enforced the same way: replaying
+the capture's own unmodified Ucode must reproduce that capture's object byte
+for byte before an edited stream means anything. `--require-identical` makes
+that gate an exit status. See [Phase capture, stream surgery, and
+replay](phase-capture.md).
 
 ## Controls
 

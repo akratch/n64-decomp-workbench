@@ -93,6 +93,7 @@ traces, and three functions have been matched without ever reading one.
 | One variable is stuck and you need every round of its allocator decision, the colour it really got, and which occurrence paid which charge | [The allocator decision cascade](cdx-cascade.md) | A CDX log |
 | You need a trace producer for static-recompiled IDO | [Compiler instrumentation](compiler-instrumentation.md) | Generated compiler C and its build |
 | A late scheduling or copy-propagation decision is suspect | [Pass replay and static Binasm boundary inspection](pass-replay.md) | A retained listing or Binasm stream; as0/as1 only for replay |
+| The residual is one word and you need to know which pass owns it | [Phase capture, stream surgery, and replay](phase-capture.md) | An IDO root you can build one translation unit with |
 
 ## History
 

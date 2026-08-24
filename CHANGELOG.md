@@ -7,6 +7,27 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `capture make <ido-root> <dest>` generates an arg-preserving wrapper
+  toolchain around any IDO root: one POSIX shell wrapper, phase-named symlinks
+  for ugen/as0/as1, the untouched binaries kept as `<phase>.real`, and a
+  self-alias so a version-directory compiler root keeps working.
+- `capture runs <dest>` lists collected runs with phase, exit status, argv
+  roles, and retained stream sizes; the run layout matches the ad hoc original
+  so previously collected captures still read.
+- `pass replay-ugen <ucode>` replays a retained or patched Ucode stream through
+  stock ugen and as1 with a capture run's exact argv shape -- including the
+  symbol table ugen mutates in place -- and verifies the object against the
+  capture's own; `--require-identical` makes that fidelity gate an exit status.
+- `ucode patch` performs record-framed insertion, replacement and deletion with
+  `--fresh-label` allocation above every label the stream uses, and refuses to
+  write a stream the decoder cannot read back.
+- `ucode window` / `binasm window` print the decoded records around a byte
+  offset or `#record-index`, detecting the stream format from record framing.
+- `stream diff` aligns two Ucode or Binasm streams by decoded record and
+  reports the first divergence plus a shift-tolerant side-by-side edit script.
+- `docs/phase-capture.md`: the whole journey -- capture, decode, window, diff,
+  patch, replay -- with the cef4c conditional-branch barrier as the worked
+  example and a claim table per rung.
 - `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
   including the selector expression, XJP range/default/case labels, and dense
   case-target table.
@@ -16,6 +37,16 @@ in [design notes](docs/history/design-notes.md).
 - `trace a71` parses and diffs the compact IDO 7.1 final-color stream,
   decoding priorities and masks while warning that web IDs are run-local and
   the producer's historical `refs`/`defs` fields are invalid.
+
+### Changed
+
+- `parse_binasm` and `parse_ucode` accept bytes or a path, so a patched stream
+  held in memory and a retained capture file use one entry point.
+- The Binasm decoder names five record families it used to leave unknown --
+  positive-index label definitions, jump-table entries, section switches,
+  procedure and stream-header records -- and frames a float literal's ASCII
+  digits as payload instead of word-decoding them into invented families. Each
+  record now carries `evidence`: `calibrated`, `inferred`, or `none`.
 
 ## 0.6.0 - 2026-08-17
 
