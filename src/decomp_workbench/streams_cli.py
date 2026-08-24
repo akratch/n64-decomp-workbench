@@ -168,8 +168,11 @@ def ucode_patch_command(args: argparse.Namespace) -> int:
     print(
         f"result: {result['bytes']} bytes, {result['record_count']} record(s) "
         f"({result['record_delta']:+d}), sha256={result['sha256'][:12]}, "
-        f"decodes={result['decodes']}"
+        f"decodes={result['decodes']} "
+        f"framing_preserved={result['framing_preserved']}"
     )
+    if result.get("framing_error"):
+        print(f"framing: {result['framing_error']}")
     if report.get("output"):
         print(f"wrote: {report['output']}")
     else:
@@ -249,9 +252,12 @@ def register_stream_commands(
         help="insert, replace, or delete whole records in a phase stream",
         description=(
             "Record-level surgery on a retained Ucode (or Binasm) stream. The "
-            "patched stream is decoded before it is written, so a record spec "
-            "that breaks framing is refused instead of being replayed as "
-            "damage. --fresh-label allocates label numbers above every label "
+            "patched stream is decoded before it is written *and* checked "
+            "against the original's record framing, so a spec that breaks "
+            "framing -- or that silently changes how the bytes around it are "
+            "read, which a fixed-width format lets a decode-back check miss "
+            "-- is refused instead of being replayed as damage. "
+            "--fresh-label allocates label numbers above every label "
             "the stream already uses, which is what makes an inserted "
             "branch/label barrier safe."
         ),

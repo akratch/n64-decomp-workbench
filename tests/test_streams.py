@@ -8,7 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from phase_streams import binasm_stream, ucode_stream, urecord
+from phase_streams import (
+    binasm_literal_stream,
+    binasm_stream,
+    ucode_stream,
+    urecord,
+)
 
 from decomp_workbench.cli import main
 from decomp_workbench.streams import (
@@ -34,6 +39,14 @@ class FormatDetectionTests(unittest.TestCase):
             detect_format(b"")
         with self.assertRaisesRegex(ValueError, "32-bit words"):
             detect_format(b"\x00\x00\x00")
+
+    def test_a_zero_padded_ucode_stream_is_not_read_as_binasm(self) -> None:
+        # Every all-zero 16-byte window decodes as an `empty` Binasm record,
+        # so counting those toward the recognition gate let a Ucode stream
+        # whose tail is padding clear it and decode as the wrong format.
+        padded = urecord("ret") + b"\x00" * 24
+        self.assertEqual(len(padded) % 16, 0)
+        self.assertEqual(detect_format(padded), "ucode")
 
     def test_a_decoder_accepts_bytes_and_paths_alike(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -161,6 +174,66 @@ class PatchTests(unittest.TestCase):
         self.assertEqual(replace_report["result"]["record_delta"], 0)
         _format, _data, records = decode_stream(replaced)
         self.assertEqual(records[1].name, "Utjp")
+
+    def test_a_boundary_inside_a_literal_record_group_is_refused(self) -> None:
+        # 0x30 is where the float literal's own ASCII digits begin. It frames
+        # like a record boundary and is not one: the record before it declares
+        # 22 bytes of payload, so an insertion here is read as those digits
+        # and disappears. Both spellings of the position are refused.
+        stream = binasm_literal_stream()
+        for position in ("#3", "0x30", "#4", "0x40"):
+            with self.subTest(position=position):
+                with self.assertRaisesRegex(ValueError, "inside the float-literal"):
+                    patch_stream(
+                        stream,
+                        insert_at=position,
+                        records_spec="0,0x00150000,0,0",
+                    )
+
+    def test_the_ends_of_a_literal_record_group_are_still_boundaries(self) -> None:
+        stream = binasm_literal_stream()
+        for position in ("#2", "#5"):
+            with self.subTest(position=position):
+                _patched, report = patch_stream(
+                    stream,
+                    insert_at=position,
+                    records_spec="0,0x00150000,0,0",
+                )
+                self.assertTrue(report["result"]["decodes"])
+                self.assertTrue(report["result"]["framing_preserved"])
+                self.assertEqual(report["result"]["record_delta"], 1)
+
+    def test_a_span_that_splits_a_literal_from_its_payload_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "inside the float-literal"):
+            patch_stream(binasm_literal_stream(), delete="2")
+
+    def test_deleting_a_whole_literal_group_is_allowed(self) -> None:
+        _patched, report = patch_stream(binasm_literal_stream(), delete="2:5")
+        self.assertEqual(report["result"]["record_delta"], -3)
+        self.assertTrue(report["result"]["framing_preserved"])
+
+    def test_an_edit_that_reframes_its_neighbours_is_refused(self) -> None:
+        # A float-literal record declaring 32 bytes of digits it does not
+        # carry. The result parses -- every 16-byte multiple does -- and the
+        # two records after the insertion are silently re-read as its ASCII
+        # payload. "It decodes" cannot catch this; framing can.
+        with self.assertRaisesRegex(ValueError, "still parses"):
+            patch_stream(
+                binasm_stream(),
+                insert_at="#1",
+                records_spec="0,0x001701f8,0,32",
+            )
+
+    def test_a_reframing_edit_can_still_be_kept_deliberately(self) -> None:
+        _patched, report = patch_stream(
+            binasm_stream(),
+            insert_at="#1",
+            records_spec="0,0x001701f8,0,32",
+            allow_undecodable=True,
+        )
+        self.assertTrue(report["result"]["decodes"])
+        self.assertFalse(report["result"]["framing_preserved"])
+        self.assertIn("after it", report["result"]["framing_error"])
 
     def test_exactly_one_operation_is_required(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly one of"):

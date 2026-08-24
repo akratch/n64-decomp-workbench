@@ -65,6 +65,39 @@ def binasm_record(*words: int) -> bytes:
     return struct.pack(">IIII", *words)
 
 
+#: The Binasm instruction record whose successors are ASCII digits rather than
+#: records: word 3 is a byte length, and ceil(length/16) records follow.
+FLOAT_LITERAL_WORD = 0x001701F8
+
+
+def binasm_literal_payload(text: str) -> bytes:
+    """Space-pad one ASCII literal to whole 16-byte payload records."""
+
+    raw = text.encode("ascii")
+    padded = -len(raw) % 16
+    return raw + b" " * padded
+
+
+def binasm_literal_stream() -> bytes:
+    """A Binasm stream whose middle record is a float literal plus its digits.
+
+    ``3.0517578125000000e-05`` is 22 bytes, so it occupies two payload
+    records -- which is the shape that makes the boundary between them look
+    like a record boundary while being nothing of the sort.
+    """
+
+    literal = "3.0517578125000000e-05"
+    return b"".join(
+        (
+            binasm_record(0, 0x002A0000, 7, 0xA),
+            binasm_record(0, 0x00150000, 0, 0),
+            binasm_record(0, FLOAT_LITERAL_WORD, 0, len(literal)),
+            binasm_literal_payload(literal),
+            binasm_record(0, 0x001C0000, 28, 85),
+        )
+    )
+
+
 def binasm_stream() -> bytes:
     """A five-record Binasm stream covering header, code, and a label."""
 

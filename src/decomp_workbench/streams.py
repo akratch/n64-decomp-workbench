@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -100,13 +101,22 @@ class StreamRecord:
         }
 
 
+#: Record kinds that say nothing about which format a stream is. An all-zero
+#: 16-byte window decodes as an ``empty`` Binasm record no matter what it
+#: really is, so counting it as evidence made a zero-padded Ucode stream --
+#: any tail of zeros is a clean run of ``empty`` records -- clear the
+#: recognition gate and decode as Binasm.
+_CONTENTLESS_KINDS = frozenset({"unknown", "empty"})
+
+
 def detect_format(data: bytes) -> str:
     """Name the stream format from record framing alone.
 
     Binasm is a fixed 16-byte record; Ucode is variable-width and framed by an
     opcode byte. A stream that frames cleanly as Binasm *and* names most of its
-    records is Binasm -- that is the wrong-file mistake this catches, since
-    ugen's confusingly named ``-temp`` output is Binasm-shaped.
+    records **on their content** is Binasm -- that is the wrong-file mistake
+    this catches, since ugen's confusingly named ``-temp`` output is
+    Binasm-shaped. Records that carry no content of their own do not vote.
     """
 
     if not data:
@@ -119,7 +129,7 @@ def detect_format(data: bytes) -> str:
     binasm_framed = len(data) % BINASM_RECORD_SIZE == 0
     if binasm_framed:
         records = parse_binasm(data)
-        recognized = sum(record.kind != "unknown" for record in records)
+        recognized = sum(record.kind not in _CONTENTLESS_KINDS for record in records)
         if recognized * 4 >= len(records) * 3:
             return "binasm"
     try:
@@ -280,6 +290,44 @@ def count_fresh_slots(spec: str | bytes | Path) -> int:
     return max(slots) + 1 if slots else 0
 
 
+#: Record names that continue the record before them rather than beginning a
+#: unit of their own. A Binasm float literal declares a byte length and its
+#: digits follow as raw ASCII in the next records; the literal and its payload
+#: are one group, and a boundary *inside* that group is not a boundary at all.
+CONTINUATION_NAMES = frozenset({"ascii-payload"})
+
+
+def _group_start(records: tuple[StreamRecord, ...], index: int) -> int:
+    """Return the index of the record that owns the group ``index`` is in."""
+
+    start = index
+    while start > 0 and records[start].name in CONTINUATION_NAMES:
+        start -= 1
+    return start
+
+
+def _refuse_inside_a_group(
+    records: tuple[StreamRecord, ...], index: int, offset: int
+) -> None:
+    """Raise when ``index`` continues the record before it."""
+
+    if index >= len(records) or records[index].name not in CONTINUATION_NAMES:
+        return
+    owner = records[_group_start(records, index)]
+    end = index
+    while end < len(records) and records[end].name in CONTINUATION_NAMES:
+        end += 1
+    after = records[end].byte_offset if end < len(records) else None
+    tail = f"0x{after:x} (#{end})" if after is not None else "the end of the stream"
+    raise ValueError(
+        f"offset 0x{offset:x} (#{index}) is inside the {owner.name} record "
+        f"group that starts at 0x{owner.byte_offset:x} (#{owner.index}); its "
+        "payload records are that record's own bytes, not records an edit may "
+        f"be placed between. Use 0x{owner.byte_offset:x} (#{owner.index}) or "
+        f"{tail}"
+    )
+
+
 def resolve_position(
     records: tuple[StreamRecord, ...], position: str | int, *, data_length: int
 ) -> tuple[int, int]:
@@ -288,6 +336,12 @@ def resolve_position(
     A byte offset that is not a record boundary is refused rather than rounded:
     an insertion in the middle of a record produces a stream the next pass
     reads as garbage, and the resulting evidence would be about the damage.
+
+    A boundary *between* a literal record and its own payload records is
+    refused for the same reason. It looks like a boundary -- the payload is
+    16-byte framed like everything else -- but the preceding record declares
+    how many bytes follow it, so anything written there is read as the
+    literal's digits and the inserted record silently disappears.
     """
 
     if isinstance(position, str) and position.startswith("#"):
@@ -300,6 +354,7 @@ def resolve_position(
         if not 0 <= index <= len(records):
             raise ValueError(f"record index {index} is outside 0..{len(records)}")
         offset = records[index].byte_offset if index < len(records) else data_length
+        _refuse_inside_a_group(records, index, offset)
         return index, offset
     try:
         offset = int(position, 0) if isinstance(position, str) else int(position)
@@ -315,6 +370,7 @@ def resolve_position(
         return len(records), offset
     for record in records:
         if record.byte_offset == offset:
+            _refuse_inside_a_group(records, record.index, offset)
             return record.index, offset
     raise ValueError(
         f"offset 0x{offset:x} is not a record boundary; the nearest boundaries "
@@ -442,6 +498,12 @@ def patch_stream(
             raise ValueError("--delete does not take --records")
         if replace is not None and not payload:
             raise ValueError("--replace requires --records")
+        # A span must select whole record groups at both ends: cutting a
+        # literal record loose from its payload, or its payload loose from it,
+        # rewrites the meaning of bytes the edit never touched.
+        _refuse_inside_a_group(records, index, records[index].byte_offset)
+        if end_index < len(records):
+            _refuse_inside_a_group(records, end_index, records[end_index].byte_offset)
         offset = records[index].byte_offset
         end_offset = (
             records[end_index].byte_offset if end_index < len(records) else len(data)
@@ -450,6 +512,7 @@ def patch_stream(
         operation = "replace" if replace is not None else "delete"
 
     decoded_error: str | None = None
+    framing_error: str | None = None
     patched_records: tuple[StreamRecord, ...] = ()
     try:
         _, _, patched_records = decode_stream(patched, stream_format=resolved)
@@ -460,6 +523,21 @@ def patch_stream(
                 f"patched stream does not decode as {resolved}: {error}; "
                 "fix the record spec or pass --allow-undecodable to keep it"
             ) from error
+    else:
+        framing_error = _framing_error(
+            records,
+            patched_records,
+            offset=offset,
+            end_offset=end_offset,
+            payload_length=len(payload),
+        )
+        if framing_error is not None and not allow_undecodable:
+            raise ValueError(
+                f"the patched stream still parses, but {framing_error}; the "
+                "edit changed how bytes outside it are read, so an object "
+                "built from it would be evidence about the damage. Fix the "
+                "record spec or pass --allow-undecodable to keep it"
+            )
 
     inserted_records: list[dict[str, Any]] = []
     if payload:
@@ -512,6 +590,11 @@ def patch_stream(
             ),
             "decodes": decoded_error is None,
             "decode_error": decoded_error,
+            #: "Parses" is not "means the same". Binasm frames every 16-byte
+            #: multiple, so a decode-back check alone passes edits that
+            #: re-read the bytes on either side of them.
+            "framing_preserved": decoded_error is None and framing_error is None,
+            "framing_error": framing_error,
         },
         "proof": (
             "A patched stream that produces the target object proves the "
@@ -520,6 +603,49 @@ def patch_stream(
         ),
     }
     return patched, report
+
+
+def _frames(records: Iterable[StreamRecord]) -> list[tuple[int, int, str]]:
+    return [(item.byte_offset, item.byte_length, item.name) for item in records]
+
+
+def _framing_error(
+    records: tuple[StreamRecord, ...],
+    patched_records: tuple[StreamRecord, ...],
+    *,
+    offset: int,
+    end_offset: int,
+    payload_length: int,
+) -> str | None:
+    """Say whether an edit re-framed records outside its own extent.
+
+    "It decodes" is a weak check for a fixed-width format: every 16-byte
+    multiple frames as Binasm, so a patch that turns the record after it into
+    a literal's ASCII payload -- or that is itself swallowed as one -- decodes
+    perfectly and means something else entirely. What must hold is that the
+    records *before* the edit are byte-for-byte the same framing, and the
+    records *after* it are the same framing shifted by exactly the size
+    change. Nothing else is a record-framed edit.
+    """
+
+    delta = payload_length - (end_offset - offset)
+    expected_before = _frames(item for item in records if item.end_offset <= offset)
+    actual_before = _frames(
+        item for item in patched_records if item.end_offset <= offset
+    )
+    if actual_before != expected_before:
+        return "the records before it no longer frame the same way"
+    expected_after = [
+        (item.byte_offset + delta, item.byte_length, item.name)
+        for item in records
+        if item.byte_offset >= end_offset
+    ]
+    actual_after = _frames(
+        item for item in patched_records if item.byte_offset >= offset + payload_length
+    )
+    if actual_after != expected_after:
+        return "the records after it no longer frame the same way"
+    return None
 
 
 def _parse_span(span: str, record_count: int) -> tuple[int, int]:
