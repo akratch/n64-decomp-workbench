@@ -760,6 +760,88 @@ def _case_table(
     return clab, tuple(jumps)
 
 
+def _label_blocks(
+    records: tuple[UcodeRecord, ...],
+) -> dict[int, tuple[UcodeRecord, ...]]:
+    """Index ordinary ``Ulab`` blocks by label number.
+
+    This deliberately stops only at the next ordinary label.  A switch case
+    trampoline emitted by the C frontend is normally ``Ulab`` plus metadata
+    and one ``Uujp``; retaining the complete slice makes the classification
+    auditable when a less trivial record appears after the jump.
+    """
+
+    positions = [
+        index for index, record in enumerate(records) if record.name == "lab"
+    ]
+    blocks: dict[int, tuple[UcodeRecord, ...]] = {}
+    for offset, start in enumerate(positions):
+        end = positions[offset + 1] if offset + 1 < len(positions) else len(records)
+        label = records[start].words[1]
+        blocks[label] = records[start:end]
+    return blocks
+
+
+def _trivial_jump_target(block: tuple[UcodeRecord, ...]) -> int | None:
+    """Return the destination of a metadata-only label/jump trampoline."""
+
+    semantic = [
+        record
+        for record in block
+        if record.name not in {"lab", "loc", "nop", "comm"}
+    ]
+    if len(semantic) == 1 and semantic[0].name == "ujp":
+        return semantic[0].words[1]
+    return None
+
+
+def _case_target_chain(
+    blocks: dict[int, tuple[UcodeRecord, ...]],
+    target: int,
+    *,
+    limit: int = 32,
+) -> dict[str, Any]:
+    """Trace a case target through zero-work ``Uujp`` trampolines."""
+
+    labels = [target]
+    visited = {target}
+    status = "direct"
+    for _ in range(limit):
+        block = blocks.get(labels[-1])
+        if block is None:
+            status = "missing-label"
+            break
+        next_target = _trivial_jump_target(block)
+        if next_target is None:
+            status = "trampoline" if len(labels) > 1 else "direct"
+            break
+        status = "trampoline"
+        if next_target in visited:
+            labels.append(next_target)
+            status = "cycle"
+            break
+        labels.append(next_target)
+        visited.add(next_target)
+    else:
+        status = "limit"
+
+    terminal_block = blocks.get(labels[-1])
+    return {
+        "labels": labels,
+        "hop_count": len(labels) - 1,
+        "effective_target_label": labels[-1],
+        "status": status,
+        "terminal_block_record_count": (
+            len(terminal_block) if terminal_block is not None else None
+        ),
+        "terminal_block_preview": (
+            [record.as_dict() for record in terminal_block[:8]]
+            if terminal_block is not None
+            else None
+        ),
+    }
+
+
 def build_ucode_xjp_report(
     stream: str | Path, *, expression_limit: int = 64
 ) -> dict[str, Any]:
@@ -770,6 +852,7 @@ def build_ucode_xjp_report(
     path = Path(stream)
     data = path.read_bytes()
     records = parse_ucode(data)
+    blocks = _label_blocks(records)
     dispatches: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         if record.name != "xjp":
@@ -782,6 +865,7 @@ def build_ucode_xjp_report(
         upper = record.upper_bound
         span = upper - lower + 1 if upper >= lower else 0
         targets = [jump.words[1] for jump in jumps]
+        target_chains = [_case_target_chain(blocks, target) for target in targets]
         dispatches.append(
             {
                 "xjp": record.as_dict(),
@@ -795,9 +879,16 @@ def build_ucode_xjp_report(
                 "case_table": clab.as_dict() if clab is not None else None,
                 "case_targets": targets,
                 "cases": [
-                    {"value": lower + offset, "target_label": target}
+                    {
+                        "value": lower + offset,
+                        "target_label": target,
+                        "target_chain": target_chains[offset],
+                    }
                     for offset, target in enumerate(targets)
                 ],
+                "trampoline_case_count": sum(
+                    chain["hop_count"] > 0 for chain in target_chains
+                ),
                 "case_table_complete": clab is not None and len(jumps) == span,
             }
         )
@@ -820,7 +911,8 @@ def build_ucode_xjp_report(
         },
         "proof": (
             "This is static pass-boundary evidence: it establishes the binary "
-            "Ucode selector, XJP labels/range, and encoded dense table. It does "
-            "not by itself prove which C spelling emitted that Ucode."
+            "Ucode selector, XJP labels/range, encoded dense table, and any "
+            "metadata-only Uujp trampoline chains. It does not by itself prove "
+            "which C spelling emitted that Ucode."
         ),
     }

@@ -53,10 +53,18 @@ def ucode_xjp_command(args: argparse.Namespace) -> int:
             cases = dispatch["cases"]
             for start in range(0, len(cases), 8):
                 rendered = ", ".join(
-                    f"{case['value']}->L{case['target_label']}"
+                    f"{case['value']}->"
+                    + "->".join(
+                        f"L{label}" for label in case["target_chain"]["labels"]
+                    )
                     for case in cases[start : start + 8]
                 )
                 print(f"    {rendered}")
+            if dispatch["trampoline_case_count"]:
+                print(
+                    "  trampoline targets: "
+                    f"{dispatch['trampoline_case_count']}/{len(cases)}"
+                )
         else:
             print("  table: not resolved immediately after XJP")
     print(f"proof: {report['proof']}")
@@ -72,7 +80,8 @@ def register_ucode_command(
         description=(
             "Statically decode a big-endian IDO binary Ucode stream and report "
             "every XJP selector expression, case-table/default labels, range, "
-            "and dense Uclab/Uujp table. This command does not run a compiler."
+            "dense Uclab/Uujp table, and metadata-only jump-trampoline chains. "
+            "This command does not run a compiler."
         ),
     )
     parser.add_argument(
