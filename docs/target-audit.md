@@ -102,6 +102,16 @@ no jump table was found at all, that is a `warning`
 truncation coincidence against, but the pattern is still worth a human
 look.
 
+The `defect` additionally requires the relocated words to *have the shape of
+a jump table*: one dense ascending run of 4-byte slots, beginning at
+`.rodata`'s own start, which is what a function's own extracted `.rodata`
+looks like. Not every `.rodata` word that relocates into `.text` is a jump
+table — a `const` array of function pointers is the common other one, and
+when such an array ends `.rodata` it produces exactly the same zero-bytes-
+left-over coincidence on a perfectly healthy object. That case is reported
+as `rodata-ends-at-text-relocated-words`, a `warning` naming which half of
+the shape did not hold, rather than condemning the object.
+
 ### 3. Data-scope report
 
 Always emitted, independent of severity: `.text`/`.rodata`/`.data`/`.bss`
@@ -165,7 +175,7 @@ implementation notes below):
 $ decomp-workbench target audit target.o
 verdict: DEFECTS (1 defect(s), 0 warning(s))
 ...
-  jump table: 87 word(s), ends at .rodata+348, 0 byte(s) follow it
+  .text-relocated words: 87, .rodata+0..348, 0 byte(s) follow them
 ...
 findings:
   [DEFECT] literal-pool-truncated-at-jump-table: `.rodata` ends exactly at
@@ -176,7 +186,7 @@ findings:
 $ decomp-workbench target audit target-fixed.o
 verdict: OK (0 defect(s), 0 warning(s))
 ...
-  jump table: 87 word(s), ends at .rodata+348, 20 byte(s) follow it
+  .text-relocated words: 87, .rodata+0..348, 20 byte(s) follow them
 ...
 findings:
   [INFO] literal-pool-present: `.rodata` carries 20 byte(s) past the jump

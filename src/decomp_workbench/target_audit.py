@@ -307,11 +307,45 @@ class _PoolEvidence:
     """What the literal-pool heuristic and the data-scope report share."""
 
     jump_table_offsets: tuple[int, ...]
+    table_start: int | None
     table_end: int | None
     rodata_size: int
     bytes_after_table: int | None
+    #: True when the relocated words are one dense ascending run of 4-byte
+    #: slots. A jump table is exactly that; a struct holding two function
+    #: pointers among other fields is not.
+    table_contiguous: bool
+    #: Relocations into `.text` whose `.rodata` offset does not fit inside
+    #: `.rodata`. A malformed object, reported rather than arithmetically
+    #: absorbed -- before the clamp they produced a *negative* count of the
+    #: bytes after the table, which read as "the section is over-full".
+    out_of_range_offsets: tuple[int, ...]
     fp_pool_sites: tuple[dict[str, Any], ...]
     undef_hilo_symbols: dict[str, list[int | None]]
+
+    @property
+    def table_shape_confirmed(self) -> bool:
+        """True when the relocated words have the shape the defect requires.
+
+        The cef4c truncation is a *function's own* `.rodata`: its jump table
+        starts the section and the pool used to follow it. A const array of
+        function pointers relocates into `.text` the same way and, when it
+        ends the section, produces the same "zero bytes after the table"
+        coincidence on a perfectly healthy object -- but it sits after the
+        section's other data rather than at its start. Requiring the run to
+        be dense and to begin at offset 0 keeps the defect and drops that
+        false positive to a warning.
+        """
+
+        return self.table_contiguous and self.table_start == 0
+
+    @property
+    def truncated_at_table(self) -> bool:
+        return (
+            self.bytes_after_table == 0
+            and self.table_shape_confirmed
+            and bool(self.fp_pool_sites)
+        )
 
 
 def _pool_evidence(elf: ElfObject) -> _PoolEvidence:
@@ -321,15 +355,25 @@ def _pool_evidence(elf: ElfObject) -> _PoolEvidence:
     text_index = text_section.index if text_section is not None else None
     rodata_size = rodata_section.size if rodata_section is not None else 0
 
-    jump_table_offsets: list[int] = []
+    relocated: list[int] = []
     if text_index is not None:
         for entry in elf.relocations_for(".rodata"):
             symbol = elf.symbol(entry.sym_index)
             if symbol is not None and symbol.shndx == text_index:
-                jump_table_offsets.append(entry.offset)
-    table_end = (
-        max(offset + 4 for offset in jump_table_offsets) if jump_table_offsets else None
+                relocated.append(entry.offset)
+    jump_table_offsets = sorted(
+        offset for offset in relocated if 0 <= offset and offset + 4 <= rodata_size
     )
+    out_of_range = tuple(
+        sorted(offset for offset in relocated if offset < 0 or offset + 4 > rodata_size)
+    )
+    table_start = jump_table_offsets[0] if jump_table_offsets else None
+    table_end = jump_table_offsets[-1] + 4 if jump_table_offsets else None
+    table_contiguous = table_end is not None and jump_table_offsets == list(
+        range(jump_table_offsets[0], table_end, 4)
+    )
+    # Clamped by construction: an offset that does not fit inside `.rodata`
+    # never reaches `table_end`, so this cannot go negative.
     bytes_after_table = rodata_size - table_end if table_end is not None else None
 
     fp_pool_sites: list[dict[str, Any]] = []
@@ -362,9 +406,12 @@ def _pool_evidence(elf: ElfObject) -> _PoolEvidence:
 
     return _PoolEvidence(
         jump_table_offsets=tuple(jump_table_offsets),
+        table_start=table_start,
         table_end=table_end,
         rodata_size=rodata_size,
         bytes_after_table=bytes_after_table,
+        table_contiguous=table_contiguous,
+        out_of_range_offsets=out_of_range,
         fp_pool_sites=tuple(fp_pool_sites),
         undef_hilo_symbols=undef_hilo,
     )
@@ -380,9 +427,12 @@ def _literal_pool_findings(evidence: _PoolEvidence) -> list[Finding]:
         "fp_pool_sites": list(evidence.fp_pool_sites),
         "distinct_undef_symbols": symbols,
         "jump_table_words": len(evidence.jump_table_offsets),
+        "jump_table_start": evidence.table_start,
         "jump_table_end": evidence.table_end,
+        "jump_table_contiguous": evidence.table_contiguous,
         "rodata_size": evidence.rodata_size,
         "bytes_after_jump_table": evidence.bytes_after_table,
+        "rodata_relocations_out_of_range": list(evidence.out_of_range_offsets),
     }
 
     if evidence.table_end is None:
@@ -396,6 +446,34 @@ def _literal_pool_findings(evidence: _PoolEvidence) -> list[Finding]:
                 "was found in `.rodata` to check the boundary against -- "
                 "audit `.rodata`'s scope by hand or supply --rom to check "
                 "the bytes directly",
+                common,
+            )
+        )
+    elif evidence.bytes_after_table == 0 and not evidence.table_shape_confirmed:
+        # Same coincidence, without the shape the defect requires. The most
+        # common producer of it is a `const` array of function pointers that
+        # ends `.rodata`: it relocates into `.text` exactly like a jump table
+        # and is not one. Say what was and was not established, and leave the
+        # verdict at `warnings` so a healthy object is not condemned.
+        shape = (
+            f"the relocated words are not contiguous 4-byte slots "
+            f"({len(evidence.jump_table_offsets)} of them between "
+            f"{evidence.table_start} and {evidence.table_end})"
+            if not evidence.table_contiguous
+            else f"the run starts at .rodata+{evidence.table_start}, not at "
+            "the section's start"
+        )
+        findings.append(
+            Finding(
+                WARNING,
+                "rodata-ends-at-text-relocated-words",
+                f"`.rodata` ends exactly where its `.text`-relocated words do, "
+                f"while {len(symbols)} undefined symbol(s) are loaded through "
+                f"`$at` -- but {shape}, so this is not the jump table the "
+                "cef4c truncation defect needs. A `const` array of function "
+                "pointers at the end of `.rodata` has exactly this shape and "
+                "is healthy. Read the words before treating the section as "
+                "truncated; see docs/target-audit.md",
                 common,
             )
         )
@@ -562,6 +640,20 @@ def audit_target(
     elf = read_elf(path)
     findings: list[Finding] = list(_sanity_findings(elf))
     evidence = _pool_evidence(elf)
+    if evidence.out_of_range_offsets:
+        findings.append(
+            Finding(
+                DEFECT,
+                "rodata-relocation-out-of-range",
+                f"{len(evidence.out_of_range_offsets)} relocation(s) into "
+                "`.text` name a `.rodata` offset that does not fit inside "
+                f"`.rodata`'s own {evidence.rodata_size} bytes",
+                {
+                    "offsets": list(evidence.out_of_range_offsets),
+                    "rodata_size": evidence.rodata_size,
+                },
+            )
+        )
     findings.extend(_literal_pool_findings(evidence))
 
     text_section = elf.section(".text")
@@ -579,8 +671,11 @@ def audit_target(
         "bss_size": bss_section.size if bss_section is not None else 0,
         "rodata_present": rodata_section is not None,
         "jump_table_words": len(evidence.jump_table_offsets),
+        "jump_table_start": evidence.table_start,
         "jump_table_end": evidence.table_end,
+        "jump_table_contiguous": evidence.table_contiguous,
         "bytes_after_jump_table": evidence.bytes_after_table,
+        "rodata_relocations_out_of_range": list(evidence.out_of_range_offsets),
         "undef_data_symbol_count": len(evidence.undef_hilo_symbols),
         "undef_data_symbols": {
             name: _addends(values)
@@ -592,7 +687,7 @@ def audit_target(
     if rom is not None:
         assert rom_offset is not None and va is not None  # `supplied` above
         undef_fp_symbol_count = len({site["symbol"] for site in evidence.fp_pool_sites})
-        truncated = evidence.bytes_after_table == 0 and bool(evidence.fp_pool_sites)
+        truncated = evidence.truncated_at_table
         try:
             rom_check, rom_finding = _rom_cross_check(
                 rom=rom,
@@ -643,10 +738,12 @@ def target_audit_lines(audit: TargetAudit) -> list[str]:
         f"  .bss    {audit.data_scope['bss_size']:>8} bytes",
     ]
     if audit.data_scope["jump_table_words"]:
+        shape = "" if audit.data_scope["jump_table_contiguous"] else " (not contiguous)"
         lines.append(
-            f"  jump table: {audit.data_scope['jump_table_words']} word(s), "
-            f"ends at .rodata+{audit.data_scope['jump_table_end']}, "
-            f"{audit.data_scope['bytes_after_jump_table']} byte(s) follow it"
+            f"  .text-relocated words: {audit.data_scope['jump_table_words']}, "
+            f".rodata+{audit.data_scope['jump_table_start']}.."
+            f"{audit.data_scope['jump_table_end']}{shape}, "
+            f"{audit.data_scope['bytes_after_jump_table']} byte(s) follow them"
         )
     if audit.data_scope["undef_data_symbol_count"]:
         lines.append(

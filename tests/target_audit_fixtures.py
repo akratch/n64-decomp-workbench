@@ -229,6 +229,9 @@ def build_target_object(
     include_decoy: bool = False,
     include_symtab: bool = True,
     rel_text_entsize: int | None = None,
+    jump_table_start: int = 0,
+    jump_table_stride: int = 4,
+    stray_rodata_reloc_offsets: tuple[int, ...] = (),
 ) -> bytes:
     """Build a synthetic `target.o`-shaped object for the truncation heuristic.
 
@@ -241,6 +244,13 @@ def build_target_object(
     becomes an `SHN_UNDEF` symbol reached from two `.text` relocations (a
     `%hi` and the `%lo` load through its own base register), the shape the
     literal-pool heuristic looks for when that register is `$at`.
+
+    ``jump_table_start`` puts other `.rodata` in front of the relocated run
+    (a `const` function-pointer array after the section's real data has this
+    shape, and is *not* a jump table); ``jump_table_stride`` spaces the run
+    out so it is no longer dense; ``stray_rodata_reloc_offsets`` adds
+    relocations at offsets of the caller's choosing, including ones past
+    `.rodata`'s own end.
     """
 
     text_size = max(
@@ -279,7 +289,11 @@ def build_target_object(
     # symbol list built below preserves this order.
     text_symbol_index = 1
 
-    rodata_size = jump_table_words * 4 + rodata_extra_bytes
+    table_offsets = [
+        jump_table_start + slot * jump_table_stride for slot in range(jump_table_words)
+    ]
+    table_end = (table_offsets[-1] + 4) if table_offsets else jump_table_start
+    rodata_size = table_end + rodata_extra_bytes
     rodata = bytes(rodata_size)
 
     rel_text_entries = bytearray()
@@ -318,9 +332,9 @@ def build_target_object(
     STRTAB_INDEX = 6
 
     rel_rodata_entries = bytearray()
-    for slot in range(jump_table_words):
+    for offset in [*table_offsets, *stray_rodata_reloc_offsets]:
         rel_rodata_entries += rel_entry(
-            offset=slot * 4, sym_index=text_symbol_index, r_type=R_MIPS_32
+            offset=offset, sym_index=text_symbol_index, r_type=R_MIPS_32
         )
 
     symbols = [sym_entry(name_offset=0, info=0, shndx=0)]

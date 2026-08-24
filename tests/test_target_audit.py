@@ -81,6 +81,63 @@ class LiteralPoolHeuristicTests(unittest.TestCase):
         self.assertIn("literal-pool-present", _codes(audit, INFO))
         self.assertEqual(audit.data_scope["bytes_after_jump_table"], 16)
 
+    def test_a_function_pointer_array_ending_rodata_is_not_the_defect(self) -> None:
+        # 8 bytes of ordinary `.rodata`, then a `const` array of two function
+        # pointers that ends the section. Every word of it relocates into
+        # `.text` exactly like a jump table word, and the section ends exactly
+        # where it does -- but a jump table starts the section, and this does
+        # not. Before the fix this forged the truncation DEFECT on a healthy
+        # object.
+        data = build_target_object(
+            jump_table_words=2,
+            jump_table_start=8,
+            rodata_extra_bytes=0,
+            pool_symbols=[
+                PoolSymbol("D_wb_literal_0", hi_offset=0x100, lo_offset=0x104),
+                PoolSymbol("D_wb_literal_1", hi_offset=0x108, lo_offset=0x10C),
+            ],
+        )
+        audit = audit_target(_write(data))
+        self.assertEqual(audit.verdict, "warnings")
+        self.assertEqual(_codes(audit, DEFECT), [])
+        self.assertIn("rodata-ends-at-text-relocated-words", _codes(audit, WARNING))
+        self.assertEqual(audit.data_scope["jump_table_start"], 8)
+        self.assertEqual(audit.data_scope["bytes_after_jump_table"], 0)
+
+    def test_a_scattered_run_of_relocated_words_is_not_the_defect(self) -> None:
+        # Two relocated words eight bytes apart: pointer fields in a struct,
+        # not a dispatch table. The section still ends at the last of them.
+        data = build_target_object(
+            jump_table_words=2,
+            jump_table_stride=8,
+            rodata_extra_bytes=0,
+            pool_symbols=[
+                PoolSymbol("D_wb_literal_0", hi_offset=0x100, lo_offset=0x104),
+            ],
+        )
+        audit = audit_target(_write(data))
+        self.assertEqual(audit.verdict, "warnings")
+        self.assertEqual(_codes(audit, DEFECT), [])
+        self.assertFalse(audit.data_scope["jump_table_contiguous"])
+
+    def test_a_relocation_past_rodatas_end_is_reported_not_subtracted(self) -> None:
+        # An offset outside the section used to reach the arithmetic and make
+        # `bytes_after_jump_table` negative, which read as an over-full
+        # section rather than as the malformed object it is.
+        data = build_target_object(
+            jump_table_words=4,
+            rodata_extra_bytes=8,
+            stray_rodata_reloc_offsets=(0x400,),
+            pool_symbols=[
+                PoolSymbol("D_wb_literal_0", hi_offset=0x100, lo_offset=0x104),
+            ],
+        )
+        audit = audit_target(_write(data))
+        self.assertIn("rodata-relocation-out-of-range", _codes(audit, DEFECT))
+        self.assertEqual(audit.data_scope["rodata_relocations_out_of_range"], [0x400])
+        self.assertEqual(audit.data_scope["jump_table_words"], 4)
+        self.assertEqual(audit.data_scope["bytes_after_jump_table"], 8)
+
     def test_decoy_load_through_non_at_register_is_excluded(self) -> None:
         # The section still ends exactly at the table boundary, but the only
         # undefined-symbol load goes through $v0, not $at -- not a pool site,
