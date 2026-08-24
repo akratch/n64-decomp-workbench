@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from mips_asm import assemble
 
 from decomp_workbench.compare import compare_instructions
+from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.object_cli import compare_dumps_command
 from decomp_workbench.watch_rows import (
@@ -47,7 +48,7 @@ CANDIDATE = [
 ]
 
 
-def _comparison():
+def _comparison() -> Comparison:
     return compare_instructions(
         parse_disassembly(assemble(TARGET, symbol="demo")),
         parse_disassembly(assemble(CANDIDATE, symbol="demo")),

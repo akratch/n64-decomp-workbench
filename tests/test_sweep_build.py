@@ -24,6 +24,7 @@ from elf_fixtures import STB_GLOBAL, STT_FUNC, build_object, words
 from decomp_workbench.sweep_build import (
     DEFAULT_JOBS,
     DEFAULT_NICE,
+    SweepBuild,
     SweepBuildError,
     build_lines,
     collect_sources,
@@ -167,7 +168,7 @@ class WaveTests(unittest.TestCase):
         )
         self.template = f"{sys.executable} {self.compiler} {{source}} {{output}}"
 
-    def _run(self, **overrides: object):
+    def _run(self, **overrides: object) -> SweepBuild:
         settings: dict[str, object] = {
             "target": self.target,
             "template": self.template,

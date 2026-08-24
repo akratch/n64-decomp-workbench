@@ -18,6 +18,7 @@ from mips_asm import assemble
 
 from decomp_workbench.compare import compare_instructions, layout_summary
 from decomp_workbench.comparison_render import layout_lines
+from decomp_workbench.model import Comparison, Instruction
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.shift_align import build_shift_diff, moved_blocks
 
@@ -57,11 +58,11 @@ REWRITTEN = (
 )
 
 
-def _rows(lines: list[str]):
+def _rows(lines: list[str]) -> list[Instruction]:
     return parse_disassembly(assemble(lines, symbol="demo"))
 
 
-def _compare(target: list[str], candidate: list[str]):
+def _compare(target: list[str], candidate: list[str]) -> Comparison:
     return compare_instructions(
         _rows(target),
         _rows(candidate),
