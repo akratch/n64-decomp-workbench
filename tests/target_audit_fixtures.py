@@ -52,8 +52,11 @@ REGISTER_AT = 1
 def word(opcode: int, rs: int, rt: int, imm: int) -> int:
     """Encode one MIPS I-type word: `opcode rs, rt, imm`."""
 
-    return ((opcode & 0x3F) << 26) | ((rs & 0x1F) << 21) | ((rt & 0x1F) << 16) | (
-        imm & 0xFFFF
+    return (
+        ((opcode & 0x3F) << 26)
+        | ((rs & 0x1F) << 21)
+        | ((rt & 0x1F) << 16)
+        | (imm & 0xFFFF)
     )
 
 

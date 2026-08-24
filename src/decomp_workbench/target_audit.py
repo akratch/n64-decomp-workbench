@@ -231,9 +231,10 @@ def _sanity_findings(elf: ElfObject) -> list[Finding]:
                 {"symtab_size": symtab.size},
             )
         )
-    elif not (0 <= symtab.link < len(elf.sections)) or elf.sections[
-        symtab.link
-    ].type != 3:
+    elif (
+        not (0 <= symtab.link < len(elf.sections))
+        or elf.sections[symtab.link].type != 3
+    ):
         findings.append(
             Finding(
                 DEFECT,
@@ -327,9 +328,7 @@ def _pool_evidence(elf: ElfObject) -> _PoolEvidence:
             if symbol is not None and symbol.shndx == text_index:
                 jump_table_offsets.append(entry.offset)
     table_end = (
-        max(offset + 4 for offset in jump_table_offsets)
-        if jump_table_offsets
-        else None
+        max(offset + 4 for offset in jump_table_offsets) if jump_table_offsets else None
     )
     bytes_after_table = rodata_size - table_end if table_end is not None else None
 
@@ -557,8 +556,7 @@ def audit_target(
     supplied = (rom is not None, rom_offset is not None, va is not None)
     if any(supplied) and not all(supplied):
         raise ValueError(
-            "--rom, --rom-offset, and --va must be supplied together, or "
-            "not at all"
+            "--rom, --rom-offset, and --va must be supplied together, or not at all"
         )
 
     elf = read_elf(path)
@@ -640,11 +638,7 @@ def target_audit_lines(audit: TargetAudit) -> list[str]:
         "data scope:",
         f"  .text   {audit.data_scope['text_size']:>8} bytes",
         f"  .rodata {audit.data_scope['rodata_size']:>8} bytes"
-        + (
-            ""
-            if audit.data_scope["rodata_present"]
-            else "  (section absent)"
-        ),
+        + ("" if audit.data_scope["rodata_present"] else "  (section absent)"),
         f"  .data   {audit.data_scope['data_size']:>8} bytes",
         f"  .bss    {audit.data_scope['bss_size']:>8} bytes",
     ]

@@ -368,9 +368,7 @@ def parse_elf(data: bytes, *, path: str | None = None) -> ElfObject:
     for section in sections:
         if section.type != SHT_REL:
             continue
-        target = (
-            sections[section.info] if 0 <= section.info < len(sections) else None
-        )
+        target = sections[section.info] if 0 <= section.info < len(sections) else None
         target_name = target.name if target is not None else section.name
         entsize = section.entsize or ELF32_REL_ENTSIZE
         raw = data[section.offset : section.offset + section.size]

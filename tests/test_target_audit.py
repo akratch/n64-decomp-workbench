@@ -110,9 +110,7 @@ class LiteralPoolHeuristicTests(unittest.TestCase):
         )
         audit = audit_target(_write(data))
         self.assertEqual(audit.verdict, "warnings")
-        self.assertIn(
-            "fp-literal-undef-no-jump-table-context", _codes(audit, WARNING)
-        )
+        self.assertIn("fp-literal-undef-no-jump-table-context", _codes(audit, WARNING))
         self.assertIsNone(audit.data_scope["jump_table_end"])
 
     def test_ldc1_and_lw_opcodes_are_also_recognised(self) -> None:
@@ -148,9 +146,7 @@ class DataScopeTests(unittest.TestCase):
         )
         audit = audit_target(_write(data))
         # Both sites bind the same symbol at addend 0 -- one entry, two rows.
-        self.assertEqual(
-            audit.data_scope["undef_data_symbols"]["D_shared"], [0, 0]
-        )
+        self.assertEqual(audit.data_scope["undef_data_symbols"]["D_shared"], [0, 0])
         self.assertEqual(audit.data_scope["undef_data_symbol_count"], 1)
 
 
@@ -214,24 +210,18 @@ class RomCrossCheckTests(unittest.TestCase):
         rom[past_offset : past_offset + len(chunk)] = chunk
         rom_path = _write(bytes(rom), name="rom.z64")
 
-        audit = audit_target(
-            path, rom=rom_path, rom_offset=rom_offset, va=0x80000100
-        )
+        audit = audit_target(path, rom=rom_path, rom_offset=rom_offset, va=0x80000100)
         self.assertEqual(audit.verdict, "defects")  # truncation still a defect
         self.assertIn("rom-confirms-literal-pool", _codes(audit, INFO))
         assert audit.rom_check is not None
         self.assertEqual(audit.rom_check["most_common_count"], 2)
         self.assertTrue(audit.rom_check["matches_undef_fp_symbol_count"])
-        self.assertEqual(
-            audit.rom_check["words"][:2], ["0x4422f983", "0x4422f983"]
-        )
+        self.assertEqual(audit.rom_check["words"][:2], ["0x4422f983", "0x4422f983"])
 
     def test_rom_read_out_of_range_is_a_defect(self) -> None:
         path = self._defective_object()
         rom_path = _write(b"\x00" * 4, name="tiny.z64")
-        audit = audit_target(
-            path, rom=rom_path, rom_offset=0x1000, va=0x80001000
-        )
+        audit = audit_target(path, rom=rom_path, rom_offset=0x1000, va=0x80001000)
         self.assertEqual(audit.verdict, "defects")
         self.assertIn("rom-read-out-of-range", _codes(audit, DEFECT))
 
@@ -256,9 +246,7 @@ class RomCrossCheckTests(unittest.TestCase):
         struct.pack_into(">IIII", rom, past_offset, 1, 2, 3, 4)
         rom_path = _write(bytes(rom), name="rom.z64")
 
-        audit = audit_target(
-            path, rom=rom_path, rom_offset=rom_offset, va=0x80000100
-        )
+        audit = audit_target(path, rom=rom_path, rom_offset=rom_offset, va=0x80000100)
         self.assertEqual(audit.verdict, "ok")
         self.assertEqual(_codes(audit, WARNING), [])
         self.assertEqual(_codes(audit, DEFECT), [])
@@ -320,9 +308,7 @@ class TargetAuditCliTests(unittest.TestCase):
             jump_table_words=4, rodata_extra_bytes=16, pool_symbols=[]
         )
         path = _write(data)
-        code, _out, err = self._run(
-            ["target", "audit", str(path), "--rom", "x.z64"]
-        )
+        code, _out, err = self._run(["target", "audit", str(path), "--rom", "x.z64"])
         self.assertEqual(code, 2)
         self.assertIn("--rom-offset", err)
 

@@ -175,11 +175,7 @@ class Ido71LawContentTests(LawContentTests):
         # The page is hard-wrapped at 79 columns, so a phrase can be split
         # across a newline; match against the unwrapped body.
         bodies = {name: " ".join(body.split()) for name, body in self.sections.items()}
-        provisional = [
-            name
-            for name, body in bodies.items()
-            if "Provisional:" in body
-        ]
+        provisional = [name for name, body in bodies.items() if "Provisional:" in body]
         for name in provisional:
             with self.subTest(law=name):
                 self.assertIn("Missing evidence", bodies[name])

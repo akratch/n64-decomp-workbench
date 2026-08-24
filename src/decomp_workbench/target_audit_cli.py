@@ -53,8 +53,7 @@ def target_audit_command(args: argparse.Namespace) -> int:
             item is not None for item in rom_given
         ):
             raise ValueError(
-                "--rom, --rom-offset, and --va must be supplied together, "
-                "or not at all"
+                "--rom, --rom-offset, and --va must be supplied together, or not at all"
             )
         rom_offset = (
             _parse_hex(args.rom_offset, name="--rom-offset")
@@ -62,9 +61,7 @@ def target_audit_command(args: argparse.Namespace) -> int:
             else None
         )
         va = _parse_hex(args.va, name="--va") if args.va is not None else None
-        audit = audit_target(
-            args.target, rom=args.rom, rom_offset=rom_offset, va=va
-        )
+        audit = audit_target(args.target, rom=args.rom, rom_offset=rom_offset, va=va)
     except (OSError, ValueError, ElfFormatError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
