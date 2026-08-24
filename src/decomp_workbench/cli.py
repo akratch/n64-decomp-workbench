@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from . import __version__
+from .a71_cli import register_a71_command
 from .agent_skill import install_agent_skill
 from .align_cli import register_align_commands
 from .allocator_cli import register_allocator_commands
@@ -2142,6 +2143,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
     register_allocator_commands(commands)
+    register_a71_command(commands)
     # The cascade family reads the same instrumented build the `trace`
     # commands read, and answers the question they leave open: what
     # happened at one site, in every round, and what colour it really got.

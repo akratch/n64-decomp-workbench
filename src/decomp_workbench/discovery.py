@@ -111,6 +111,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("campaign", "run a campaign from configured build and lineage inputs"),
     ),
     "trace": (
+        ("a71", "inspect or diff IDO 7.1 final-color records"),
         ("cascade", "every round of one allocator site's decision cascade"),
         ("order", "the p1 colouring order, with the same-save ties named"),
         ("blocks", "which webs occur in which blocks, and where the sets meet"),
@@ -220,6 +221,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("note", "list"): "note-list",
     ("note", "merge"): "note-merge",
     ("trace", "blocks"): "trace-blocks",
+    ("trace", "a71"): "trace-a71",
     ("trace", "cascade"): "trace-cascade",
     ("trace", "frame"): "trace-frame",
     ("trace", "order"): "trace-order",

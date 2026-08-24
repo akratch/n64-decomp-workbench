@@ -13,6 +13,9 @@ in [design notes](docs/history/design-notes.md).
 - `pass binasm` statically inspects one fixed-record ugen-to-as1 boundary,
   summarizes IDO 7.1 `-peepdbg` copy rewrites, and turns exact barrier-probe
   cells into source-search families without overstating upstream survival.
+- `trace a71` parses and diffs the compact IDO 7.1 final-color stream,
+  decoding priorities and masks while warning that web IDs are run-local and
+  the producer's historical `refs`/`defs` fields are invalid.
 
 ## 0.6.0 - 2026-08-17
 

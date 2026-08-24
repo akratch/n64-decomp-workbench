@@ -103,7 +103,34 @@ entry queue. Allocation and free events interleave, and later registers may
 already be recycled values. Logical values make the event schedule explicit
 before any inference about source evaluation order.
 
+## Read IDO 7.1 A71 traces
+
+IDO 7.1 campaigns with the compact read-only A71 producer use a separate
+static reader:
+
+```sh
+decomp-workbench trace a71 baseline.a71 --against variant.a71
+decomp-workbench trace a71 baseline.a71 --web 35
+```
+
+`trace a71` decodes `savebits` as the allocator's single-precision priority,
+names only colors calibrated against IDO 7.1 objects, and decodes both
+forbidden-mask words. It accepts either a filtered `.a71` file or a mixed
+compiler log. A malformed line beginning with `[A71]` is an error rather than
+being silently discarded.
+
+The comparison key is `(phase, web)`, and it is deliberately labelled
+**run-local**. A71 has no procedure or semantic provenance: a controlled edit
+can insert webs and renumber everything after them. Use the diff to explain a
+known-stable web neighborhood, not to claim that every equal numeric web is the
+same source value. The first producer's fields named `refs` and `defs` read
+the wrong recovered-source offsets; the reader always ignores them and says
+so in text and JSON.
+
 ## Read globalcolor traces
+
+The richer IDO 5.3 `CSAVE`/`CUP`/`[CDX]` formats remain under
+`trace-globalcolor`:
 
 ```sh
 decomp-workbench trace-globalcolor uopt.log --dtype 13 --top 25
