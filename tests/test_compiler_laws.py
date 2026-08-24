@@ -54,21 +54,40 @@ class PackagedLawsTests(unittest.TestCase):
                 )
 
     def test_read_laws_serves_the_document(self) -> None:
-        text = read_laws("ido53")
-        self.assertIn("# Compiler laws: IDO 5.3", text)
+        for era, (_document, label) in LAW_DOCUMENTS.items():
+            with self.subTest(era=era):
+                self.assertIn(f"# Compiler laws: {label}", read_laws(era))
 
     def test_the_era_token_is_case_insensitive(self) -> None:
         self.assertEqual(read_laws("IDO53"), read_laws("ido53"))
 
+    def test_the_document_and_prose_spellings_reach_the_same_page(self) -> None:
+        """`ido-7.1.md`, "IDO 7.1" and `ido71` are one address, not three."""
+
+        for spelling in ("ido-7.1", "IDO 7.1", "ido 7.1", "7.1"):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(read_laws(spelling), read_laws("ido71"))
+
     def test_an_unknown_era_names_the_ones_that_ship(self) -> None:
         with self.assertRaises(ValueError) as caught:
-            read_laws("ido71")
-        self.assertIn("ido53", str(caught.exception))
+            read_laws("ido62")
+        for era in law_eras():
+            self.assertIn(era, str(caught.exception))
 
 
 class LawContentTests(unittest.TestCase):
+    """Content invariants, held over **every** era the package ships.
+
+    Parameterised by `LAW_DOCUMENTS` rather than written against one page: the
+    properties below are what makes a laws document worth shipping, and a new
+    era that quietly skipped them would be exactly the page this suite exists
+    to prevent.
+    """
+
+    era = "ido53"
+
     def setUp(self) -> None:
-        self.text = read_laws("ido53")
+        self.text = read_laws(self.era)
         self.sections = self._split(self.text)
 
     @staticmethod
@@ -106,8 +125,12 @@ class LawContentTests(unittest.TestCase):
         self.assertEqual(untiered, [])
 
     def test_the_page_states_its_era_scope(self) -> None:
-        self.assertIn("IDO 5.3", self.text)
-        self.assertIn("No law on this page has been tested", self.text)
+        _document, label = LAW_DOCUMENTS[self.era]
+        self.assertIn(label, self.text)
+        # Hard-wrapped prose: match the sentence, not one page's line breaks.
+        self.assertIn(
+            "No law on this page has been tested", " ".join(self.text.split())
+        )
 
     def test_the_page_defines_its_evidence_tiers(self) -> None:
         for tier in ("**T1**", "**T2**", "**T3**"):
@@ -130,23 +153,66 @@ class LawContentTests(unittest.TestCase):
         self.assertIn("No impossibility claims", self.text)
 
 
+class Ido71LawContentTests(LawContentTests):
+    """The same invariants, on the 7.1 page.
+
+    Subclassing rather than looping keeps each failure named after the era it
+    belongs to; a shared loop reports "one era failed" and makes you find out
+    which.
+    """
+
+    era = "ido71"
+
+    def test_provisional_laws_say_what_evidence_is_missing(self) -> None:
+        """A hedge without a gap named is a hedge that never gets closed."""
+
+        # The page is hard-wrapped at 79 columns, so a phrase can be split
+        # across a newline; match against the unwrapped body.
+        bodies = {name: " ".join(body.split()) for name, body in self.sections.items()}
+        provisional = [name for name, body in bodies.items() if "rovisional" in body]
+        self.assertNotEqual(provisional, [])
+        for name in provisional:
+            with self.subTest(law=name):
+                self.assertIn("Missing evidence", bodies[name])
+
+    def test_the_five_zero_word_receipts_are_quoted(self) -> None:
+        """The composition ladder is the page's load-bearing measurement."""
+
+        for basin in ("fd6f35253f3f", "60ac03f5e694", "339c48483cf5", "3ba07814aab3"):
+            self.assertIn(basin, self.text)
+
+
+class LawEraCoverageTests(unittest.TestCase):
+    def test_every_shipped_era_has_a_content_test_class(self) -> None:
+        """A new era must not be able to ship without the invariants above."""
+
+        covered = {
+            cls.era for cls in (LawContentTests, *LawContentTests.__subclasses__())
+        }
+        self.assertEqual(covered, set(LAW_DOCUMENTS))
+
+
 class GuideLawsCommandTests(unittest.TestCase):
     def test_the_era_listing_prints_without_an_era(self) -> None:
         status, output, _ = run_cli(["guide", "laws"])
         self.assertEqual(status, 0)
-        self.assertIn("ido53", output)
-        self.assertIn("IDO 5.3", output)
+        for era, (_document, label) in LAW_DOCUMENTS.items():
+            self.assertIn(era, output)
+            self.assertIn(label, output)
 
     def test_an_era_prints_its_document(self) -> None:
-        status, output, _ = run_cli(["guide", "laws", "ido53"])
-        self.assertEqual(status, 0)
-        self.assertIn("Compiler laws: IDO 5.3", output)
-        self.assertIn("Evidence tiers", output)
+        for era, (_document, label) in LAW_DOCUMENTS.items():
+            with self.subTest(era=era):
+                status, output, _ = run_cli(["guide", "laws", era])
+                self.assertEqual(status, 0)
+                self.assertIn(f"Compiler laws: {label}", output)
+                self.assertIn("Evidence tiers", output)
 
     def test_an_unknown_era_fails_loudly(self) -> None:
-        status, _, error = run_cli(["guide", "laws", "ido71"])
+        status, _, error = run_cli(["guide", "laws", "ido62"])
         self.assertEqual(status, 2)
         self.assertIn("ido53", error)
+        self.assertIn("ido71", error)
 
     def test_the_topic_index_advertises_that_laws_exist(self) -> None:
         status, output, _ = run_cli(["guide"])

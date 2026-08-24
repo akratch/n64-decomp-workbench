@@ -106,7 +106,8 @@ def register_guide_command(commands: argparse._SubParsersAction[Any]) -> None:
     parser.add_argument(
         "era",
         nargs="?",
-        help="with `laws`, the compiler era to print (for example ido53)",
+        help="with `laws`, the compiler era to print (ido53, ido71; the "
+        "document and prose spellings `ido-7.1` and `IDO 7.1` are accepted too)",
     )
     add_terminal_arguments(parser)
     parser.set_defaults(handler=guide_command)

@@ -7,6 +7,29 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `docs/compiler-laws/ido-7.1.md`: the IDO 7.1 law book, 19 laws from the
+  SSB64 `func_ovl0_800CEF4C` campaign (one word to `exact=true`). `as1`'s
+  `peep_reg` copy propagation and `update_ctnt`'s six-gate cross-block carry
+  (a fact reaches only a single-predecessor fallthrough, then is filtered
+  against the taken target's live-in mask); `as1` mutating its content state
+  before it deletes redundant code, which is what makes a zero-instruction
+  barrier possible; ugen's branch-to-next eliminator saturating at **two**
+  conditional branches; the synthesized jump-table range guard whose subtract
+  is an atomic tree child; uopt's ghost edge from an empty pure conditional
+  and its `num + 1` depth-first block order; the goto-pair fallthrough
+  inversion and opposing-arm ballast; the globalcolor priority model and the
+  dead-read dial arithmetic; per-use-site FP literal pools; the 24-way phase
+  provenance matrix (ugen+as1 determine the basin, cfe/uopt do not); and the
+  extracted-target literal-pool defect. Each law carries its evidence tier,
+  its probe artifact, and the claim it falsified; two clauses are marked
+  provisional with the missing evidence named.
+- `guide laws ido71` serves that page, and the era token now accepts the
+  document and prose spellings (`ido-7.1`, `IDO 7.1`, `7.1`) as well.
+- Field-guide levers 34-39 and two playbooks (`copy-propagation-barrier`,
+  `dispatch-layout`): the conditional branch-to-next barrier, goto-pair parity
+  steering, opposing-arm ballast, Duff-nesting for switch body layout, the
+  `x ? x : x` selector temp, and the IDO 7.1 read-count dial as arithmetic.
+  Eight IDO 7.1 families joined the dead-families table.
 - `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
   including the selector expression, XJP range/default/case labels, and dense
   case-target table.

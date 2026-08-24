@@ -22,8 +22,13 @@ rather than underpriced. Levers 29-33 come from a campaign that closed a
 frame: steering a register by what a call forbids rather than what a web costs,
 buying a local out of an array's tail, emptying the compiler's own temp pool,
 and the discovery that physical source line numbers reach the assembler's
-scheduler. The C snippets are illustrative shapes, not copy-paste patches: the
-*form* is the lever, the identifiers are yours.
+scheduler. Levers 34-39 come from an **IDO 7.1** campaign that closed a
+1,868-instruction jump-table function from one word to zero, and they are the
+levers of a *dispatch*: a barrier that survives one pass and is deleted by the
+next, the parity of a partition, the block order of a switch, and the read-count
+dial as arithmetic rather than as a search. The C snippets are illustrative
+shapes, not copy-paste patches: the *form* is the lever, the identifiers are
+yours.
 
 **Read the order as priority.** Levers 1-4 cost one variant each and can erase
 a hundred words. Do not touch the register sections until the instruction count
@@ -43,6 +48,8 @@ to a source change and back.
 - [When the compiler itself is the variable](#when-the-compiler-itself-is-the-variable)
 - [When the preprocessor is the variable](#when-the-preprocessor-is-the-variable)
 - [When the line number is the variable](#when-the-line-number-is-the-variable)
+- [When the dispatch is the variable](#when-the-dispatch-is-the-variable)
+- [When the dial has arithmetic](#when-the-dial-has-arithmetic)
 - [Dead families — do not spend variants here](#dead-families--do-not-spend-variants-here)
 
 ---
@@ -1342,6 +1349,281 @@ an instruction earlier detonated the allocator at 936 rows.
 `playbook=line-assignment-probe`, and any adjacent-instruction swap that survived
 lever 25.
 
+## When the dispatch is the variable
+
+Levers 34–38 are **IDO 7.1** measurements from one 1,868-instruction function
+with a two-cluster jump-table dispatch, taken from one word to zero. They are
+specialist levers: reach for them only when the residual is in or around a
+`switch`, and read [compiler laws IDO 7.1](compiler-laws/ido-7.1.md) for the
+mechanism behind each one. The 5.3 laws do **not** transfer here — the same
+Binasm stream through 5.3's `as1` produces a 321-word object.
+
+Two habits from that campaign matter more than any single lever below.
+
+**Prove the fix at the phase boundary before hunting for the C.** Capture the
+pass streams (`decomp-workbench pass ucode`, `pass binasm`), patch the record
+you think is missing, re-run the *stock* phases, and score. That tells you
+whether the shape you are about to spend fifty variants on is even the right
+shape. In this campaign the barrier below was proven `words=0` by stream
+surgery a full session before any source spelling produced it — and three
+earlier barrier families were killed the same way, in minutes, for the price of
+one patched stream each.
+
+**Prove levers in isolation, compose late.** All four of the levers that closed
+this function are worthless alone: 9 words for the layout by itself, 13 for the
+layout plus an unballasted barrier, 5 for the selector without the ballast, 8
+for the ballast without the selector — and 0 for the four together. A lever that
+does not improve the score is not thereby refuted; it is a component whose
+partner you have not found yet. Record what each one *moves*, not what it
+scores.
+
+### 34. The conditional branch-to-next barrier
+
+**Diff looks like:** one register wrong on a fallthrough block, immediately
+after a copy (`move a,b`) that the target also emits, with instruction count,
+opcodes, gaps and frame all exact. Under IDO 7.1 this is `as1`'s `peep_reg`
+propagating the copy into your fallthrough; the target's block did not inherit
+the fact.
+
+```c
+if (opcode && opcode && opcode);      /* exactly three tests */
+switch (opcode) { ... }
+```
+
+**Why:** UGEN's branch-to-next eliminator removes at most **two** conditional
+branches and unboundedly many unconditional ones. Three chained empty-body
+tests therefore leave exactly one branch-to-next alive into the assembler,
+where it creates a basic-block boundary that fails `update_ctnt`'s
+single-predecessor gate and kills the copy fact — and is *then* deleted as
+removable. Zero instructions, zero frame, one healed register.
+
+**The arity is the lever, and it is sharp:** one and two tests are erased by
+UGEN before `as1` ever sees them (no effect); three is exact; **four is
+catastrophic** (1,822 words). Branch sense, the compared variable and the
+branch opcode are all irrelevant — only the surviving boundary matters.
+Branchless spellings (`x + x + x`, `|`, `&`) fold to one reference and are
+inert.
+
+**Measured:** three barriers inserted into a captured Ucode stream and run
+through stock ugen+as1 gave `words=0 opcodes=0 gaps=0 regs=0 insns=1868`,
+reproduced independently by a second agent from the same base. The source form
+reached the same result once levers 35–38 supplied the surrounding shape.
+
+**Where it has no purchase:** unconditional jumps, labels, `#pragma`s,
+trampolines and no-ops at the same boundary — all erased before the assembler.
+7.1's `cfe` has no inline-assembly or optimisation pragma, so the assembler-mode
+spellings (`.set nomove` and friends) that also work at the Binasm level have no
+C form at all.
+
+**Points here:** a one-register residual on a fallthrough after a copy, with
+everything else exact.
+
+### 35. Goto-pair parity steering
+
+**Diff looks like:** a range branch whose *sense* is inverted (`bnez` where the
+target has `beqz`), and two dispatch clusters that have swapped places — the
+low table's `addiu`/`sltiu` pair sitting where the high table's belongs.
+
+```c
+/* the branch target becomes the fallthrough, so name the arm you want to fall
+   into and send the other one away explicitly */
+if (opcode >= 209) goto high;
+goto low_entry;
+high:;
+```
+
+**Why:** written this way, `high` becomes the **fallthrough** and the branch is
+inverted onto the low path. Which arm falls through decides which dispatch block
+is a single-predecessor fallthrough — and therefore which one inherits `as1`'s
+copy facts (lever 34 and the laws behind it). Parity is a *layout* lever with a
+*register* consequence.
+
+**Do not spend variants on the comparison's polarity.** `>= 209`, `> 208` and
+`!(x < 209)` compile byte-identically, and so does collapsing the pair into a
+single `if (x < 209) goto low_entry;`. Seven distinct spellings of this family
+produced one text hash.
+
+**Measured:** the goto pair plus a nested switch (lever 36) and no other change
+scored `words=9 opcodes=0 gaps=0 insns=1868 frame=-168` — every layout word
+already correct. The braced `if/else` partition of the *same* program is not
+equivalent: `words=1797 opcodes=1656`, four instructions short.
+
+**Points here:** an inverted range branch, or two jump tables in the wrong
+order, with the instruction count already exact.
+
+### 36. Opposing-arm ballast
+
+**Diff looks like:** you added lever 34's barrier to one arm of a partition and
+the parity flipped — the branch sense inverted and the dispatch clusters
+swapped. The barrier is doing its job and paying for it in layout.
+
+```c
+if (opcode >= 209) goto high;
+goto low_entry;
+high:;
+if (opcode && opcode && opcode);      /* the barrier                     */
+switch (opcode) {
+low_entry:
+    if (opcode && opcode && opcode);  /* the ballast: same weight, other arm */
+    switch (opcode) { ... }
+```
+
+**Why:** control flow immediately after a goto target re-biases which arm falls
+through (lever 35). Putting the *same* zero-code statement on the opposing arm
+restores the balance, so the barrier keeps its register heal and gives back the
+layout.
+
+**It is idempotent, so do not sweep multiplicity:** one, two and three copies of
+the ballast statement compile to byte-identical text. Sweep *placement*
+instead.
+
+**Measured:** barrier on one arm, `words=13 opcodes=1` (five parity sites: a
+branch sense, plus two `addiu`/`sltiu` pairs exchanging). Barrier on both arms,
+`words=8 opcodes=0 regs=0` — the parity sites are gone and the residual is
+purely stack offsets (lever 38).
+
+**Points here:** a parity regression that appeared *when you added* a
+zero-instruction statement, not before it.
+
+### 37. Duff-nest a switch to move its bodies
+
+**Diff looks like:** a `structure-mismatch` of hundreds to a couple of thousand
+words whose entire edit script is one moved block family — the case bodies of
+one dispatch sitting immediately behind their jump table instead of after
+another dispatch's bodies. `align` says so; `words` will not.
+
+```c
+switch (high_selector)          /* outer: the cases whose bodies go LAST  */
+{
+low_entry:                      /* entered by `goto` from outside         */
+    switch (selector)           /* inner: the cases whose bodies go FIRST */
+    {
+        case ...:  ...
+    }
+    break;
+    case HIGH_A: ...            /* outer cases continue here              */
+}
+```
+
+**Why:** uopt rebuilds block order with a depth-first walk that always takes the
+successor whose **original lexical number is `node->num + 1`** first. A jump
+table's lexically-next successor is one of its own bodies, so the walk exhausts
+that subtree before returning to the other arm — which is exactly the
+relocation you are looking at. Nesting the second switch *inside the first
+one's body*, entered by a `goto` to a label between its cases, gives the walk
+the numbering that produces the target order.
+
+**Cheaper things to try first, and what they buy:** an empty pure conditional
+(`if (x);`) on the **first** case trampoline, or on an explicit
+`default: goto low;`, also changes the numbering — uopt turns an empty
+conditional into a `Unop` that emits nothing but **keeps its CFG edge**. Those
+reached `words=1441`/`1442` where a plain `default: goto low;` sat at 1,787.
+Placement follows the `num + 1` rule literally: "first" and "middle" move the
+layout, "last" is inert. Keep the condition to **one or two** references; three
+crossed a fold threshold and retained real instructions.
+
+**Traps.** A `volatile` in the empty condition turns the free `Unop` into a
+`Upop` that preserves the evaluation — real code. Bare labels, `Uloc` and
+`Unop` create no edge at all and cannot reorder anything. And predecessor count
+is never consulted, so "give it another predecessor" is not this lever.
+
+**Points here:** `verdict=structure-mismatch` with an exact instruction count,
+whose `align` edit script is one moved block run; any partitioned switch whose
+bodies came out in the wrong cluster.
+
+### 38. `x ? x : x` as a switch selector
+
+**Diff looks like:** allocation, schedule, opcodes, registers and frame *size*
+are all exact, and the only residual is a family of stack offsets — the same
+`sw`/`lw` homes off by a constant, in a frame whose total is already right.
+
+```c
+switch (opcode ? opcode : opcode) { ... }
+
+/* and, where you also need lever 34's barrier inside the switch statement: */
+switch (opcode && opcode && opcode ? opcode : opcode) { ... }
+```
+
+**Why:** a conditional expression in selector position reshapes the switch's
+selector temp, which moves the temp region's homes. It is a frame-layout lever
+with **no codegen collateral at all** — a rare thing, and the reason it is
+worth trying before any declaration surgery (levers 26, 31, 32).
+
+**Measured:** with everything else held fixed, adding the ternary changed
+exactly eight words — two temp homes moving from `44/48(sp)` to `40/44(sp)` —
+inside an unchanged `-168` frame, with identical instruction count, opcodes,
+registers, floats and schedule. That was the last residual of the campaign, and
+it had survived a 135-shape × 261-variant declaration/width/qualifier/lifetime
+grid, because it was never a colouring problem.
+
+**Insensitive to spelling, so do not sweep it.** Four placements — outer
+selector, inner selector, either arity of the condition, both selectors at once
+— produced one byte-identical exact object. Sweep *which switch* if anything,
+not how you write it.
+
+**The two-in-one:** when the condition is an `&&`-chain, the selector also
+carries lever 34's barrier *inside* the switch statement — which is how you
+reach a boundary where a standalone statement cannot go, because ugen builds
+the table's range guard as an atomic tree with no room for a label inside it.
+
+**Points here:** an exact allocation with a stack-home residual, especially one
+that has already resisted declaration levers.
+
+## When the dial has arithmetic
+
+### 39. The dead-read priority dial (IDO 7.1)
+
+**Diff looks like:** a register rotation you are trying to buy with dead reads
+(levers 7–9), on IDO 7.1, where read count feels like a random walk.
+
+It is not a random walk. 7.1's `uopt` colours by Chow priority, and the
+arithmetic was read out of an instrumented compiler:
+
+```
+priority = save / units
+units    = raw < 3 ? raw : ((raw - 2) >> 2) + 2
+raw      = refnodes + cardbits
+```
+
+* **+10 `save` per surviving reference**, with **no discount for branch
+  nesting** — a read inside an `if` is worth exactly what one at top level is.
+* **+1 `cardbit` per spanning statement**: each additional *statement* before
+  the site contributes its own transient block to every web that spans it.
+* **An empty-body `if` folds after `compute_save`** — its references are
+  counted, its code is not emitted. That is why a zero-instruction statement
+  can rotate an allocation at all.
+* **Ties break by ascending first-occurrence symbol**, so at equal priority the
+  earlier-declared value wins; that dial is a declaration move, not a read.
+
+**`units` is a step function, so the dial is a cliff, not a slope.** `raw` 3–6
+gives 2 units, 7–10 gives 3, 11–14 gives 4. Measured on one web: two references
+tied at 15.0 (symbol order decided), **three references in a single statement**
+gave 70/4 = 17.5 and the target rotation, and four collapsed codegen to 1,834
+words. Separate statements overshoot on `cardbits` where one statement with
+three references does not — which is why `if (x && x && x);` is the shape.
+
+**Poisoning is non-local.** A third read *block* halved a neighbouring web's
+priority through card growth and shifted the whole colour ladder; the
+equilibria found in that function tolerated only two to four specific reads
+before the schedule broke. Budget reads against the *schedule*, not against the
+web you are aiming at.
+
+**What is not reachable:** loop-depth weighting. Trip-1 and `while (0)`
+wrappers fold before `compute_save` (identical priorities), and a real `for`
+loop changes the frame.
+
+**Measured:** a donor-free three-reference statement reproduced a complete
+target integer-web rotation at `words=3`, falsifying nine grids' worth of
+"the donor rotation is the only integer-web lever". A separate 261-variant
+closure recorded the same arithmetic per basin.
+
+**Where it has no purchase:** composition. Every donor composed with this dial
+re-broke the rotation. Two levers that each move the same web do not add; price
+them together or not at all.
+
+**Points here:** `playbook=pool-position` on an IDO 7.1 target, and any read-count
+search that has been treating multiplicity as a smooth dial.
+
 ## After the function matches
 
 ### 27. Minimize fake-match machinery without reopening exactness
@@ -1462,6 +1744,13 @@ Each of these was searched exhaustively at real cost; skip them.
 | The permuter as a solver | Roughly 140,000 iterations across four campaigns solved zero residuals. It is a hypothesis generator; it earned its keep once, by exposing lever 17 through a red herring. |
 | Reassociation-defeat casts under accom | cfe's tree-height reduction needs `(s32)` cast barriers to hold an address sum together; accom never reassociates those sums — all spellings are byte-identical, and the casts are pure cfe artifacts. Do not port them across frontends. |
 | Duplicate-value case labels | cfe converts every case constant to the switch's promoted type *before* its duplicate check; nine spellings of an equal value (suffixes, wide constants, float casts, wraparound arithmetic) all error. A table arity below the frontend threshold cannot be forced this way — that is lever 20 territory. |
+| Unconditional barriers at a dispatch boundary (IDO 7.1) | `goto next; next:;`, trampolines, bare labels, `#pragma`s and no-ops are all erased before the assembler. Only a *conditional* branch-to-next survives, and only at arity three (lever 34). |
+| Respelling a switch selector to reach uopt's additive wrapper (IDO 7.1) | `sel + 0` cannot make it — a zero displacement is dropped, and the wrapper is chosen by expression class. A 50-form grid (address-taken, pointer, array, bitfield, enum, `volatile`, comma) split cleanly: forms erased early enough to keep the schedule erase back to baseline; forms that survive uopt change the frame and register regime globally. |
+| Comparison polarity in a partition (IDO 7.1) | `>= N`, `> N-1`, `!(x < N)` and the collapsed single-goto form all compile byte-identically. Sweep placement (lever 36), never polarity. |
+| Ballast multiplicity (IDO 7.1) | One, two and three copies of the same zero-code statement are byte-identical. It is a switch, not a slider. |
+| Ternary-selector spelling (IDO 7.1) | Outer switch, inner switch, either condition arity, or both at once — one byte-identical object (lever 38). |
+| Declaration/width/qualifier dials against a temp-slot residual (IDO 7.1) | 135 shapes × 261 variants moved nothing, because a stack-home residual under an exact allocation is not a colouring problem. Try lever 38 first. |
+| Loop wrappers to weight a web's `save` (IDO 7.1) | Trip-1 and `while (0)` fold before `compute_save`; a real `for` changes the frame. There is no reachable depth weighting (lever 39). |
 
 ---
 
@@ -1480,6 +1769,10 @@ Each of these was searched exhaustively at real cost; skip them.
 | `frame-layout` / `stack-frame-recovery` | 26, 31, 32 |
 | target register is *taken*, not underpriced / `pool-position` | 7-13, then 28, 29 |
 | the frame is full and the lever needs one more symbol / `stack-frame-recovery` | 31, then 32 |
+| one register wrong on a fallthrough after a copy (IDO 7.1) / `copy-propagation-barrier` | 34, 35, 36, 38 |
+| jump-table bodies or clusters in the wrong order (IDO 7.1) / `dispatch-layout` | 37, 35, 36, 34 |
+| exact allocation, stack homes off by a constant (IDO 7.1) / `stack-frame-recovery` | 26, 31, 32, and 38 if a switch is in the residual |
+| read-count dial on IDO 7.1 / `pool-position` | 39, then 7-13 |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |
@@ -1494,5 +1787,8 @@ Each of these was searched exhaustively at real cost; skip them.
 - [Working a backlog of near matches](walkthrough-30-near-matches.md) — how to
   apply this guide to thirty functions instead of one.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
+- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
+  [IDO 7.1](compiler-laws/ido-7.1.md) — what the compiler does, as opposed to
+  what to do about it. Levers 34-39 each name their law there.
 - [Final-function campaign lessons](final-function-campaigns.md) — the longer
   reasoning behind several of these entries.
