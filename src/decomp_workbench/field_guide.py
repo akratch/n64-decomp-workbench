@@ -36,6 +36,7 @@ __all__ = [
     "COARSE_ALLOCATION_LEAD_IN",
     "GUIDE_DOCUMENT",
     "LAW_DOCUMENTS",
+    "LAW_ERA_ALIASES",
     "LEVER_ACTIONS",
     "PLAYBOOK_LEVERS",
     "VERDICT_PLAYBOOKS",
@@ -44,6 +45,7 @@ __all__ = [
     "law_eras",
     "law_index_lines",
     "next_steps",
+    "normalize_era",
     "read_field_guide",
     "read_laws",
     "render_topic",
@@ -72,6 +74,19 @@ PACKAGED_GUIDE = ("docs", "field-guide.md")
 #: printed under another's name, so the era token is part of the address.
 LAW_DOCUMENTS: dict[str, tuple[str, str]] = {
     "ido53": ("docs/compiler-laws/ido-5.3.md", "IDO 5.3"),
+    "ido71": ("docs/compiler-laws/ido-7.1.md", "IDO 7.1"),
+}
+
+#: Era spellings a reader is likely to type, mapped onto the canonical token.
+#:
+#: The pages are named `ido-5.3.md` and `ido-7.1.md`, campaign notes say
+#: "IDO 7.1", and the token is `ido71`; a reader who types any of those is
+#: asking one question and must not be told the era does not exist. Punctuation
+#: and spacing are normalised away rather than enumerated, so `ido 7.1`,
+#: `IDO-7.1` and `7.1` all land on the same page.
+LAW_ERA_ALIASES: dict[str, str] = {
+    "53": "ido53",
+    "71": "ido71",
 }
 
 #: One line of action per numbered lever.
@@ -249,6 +264,45 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads source line numbers, and `cc -Wa,-R` prints the selection "
         "records byte-inert"
     ),
+    34: (
+        "IDO 7.1: one register wrong on a fallthrough after a copy is as1's "
+        "peep_reg -- write `if (x && x && x);` before the dispatch, because "
+        "ugen erases one and two conditional branch-to-nexts and four is "
+        "catastrophic, but the third survives to kill the copy fact and is "
+        "then deleted at zero instruction cost"
+    ),
+    35: (
+        "IDO 7.1: `if (c) goto high; goto low; high:;` makes the goto TARGET "
+        "the fallthrough and inverts the branch -- that parity decides which "
+        "dispatch block inherits as1's copy facts; polarity spellings "
+        "(`>= N`, `> N-1`, `!(x < N)`) are byte-identical, so do not sweep them"
+    ),
+    36: (
+        "IDO 7.1: when a zero-code barrier flips the range branch's sense and "
+        "swaps the dispatch clusters, put the SAME statement on the opposing "
+        "arm; the ballast restores parity and keeps the register heal, and "
+        "one/two/three copies are byte-identical"
+    ),
+    37: (
+        "IDO 7.1: jump-table bodies packed behind their own table are uopt's "
+        "`num + 1` depth-first order -- nest the second switch inside the "
+        "first one's body and enter it by `goto`; cheaper first tries are an "
+        "empty `if (x);` on the FIRST case trampoline or on an explicit "
+        "`default: goto low;` (one or two references, never three)"
+    ),
+    38: (
+        "IDO 7.1: an exact allocation with stack homes off by a constant is a "
+        "selector-temp residual, not a colouring one -- write "
+        "`switch (x ? x : x)`, which moved two temp homes 4 bytes inside an "
+        "unchanged frame with identical instructions, opcodes and registers"
+    ),
+    39: (
+        "IDO 7.1: read count is arithmetic, not a search -- priority = "
+        "save/units with units quantized from raw = refs + cardbits, +10 save "
+        "per ref with no branch-nesting discount, +1 cardbit per spanning "
+        "statement, and an empty-body `if` folds AFTER compute_save; three "
+        "refs in ONE statement is the step, four collapses codegen"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -275,11 +329,25 @@ PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
     # Levers 29 and 30 close the family: when the register is not underpriced
     # but forbidden-adjacent, the reachable move is liveness (29), and 30 is
     # the free spelling most carrier edits need to get there.
-    "pool-position": (7, 8, 9, 10, 11, 12, 13, 28, 29, 30),
+    # Lever 39 leads on IDO 7.1 and is inert elsewhere, which is why it sits
+    # first rather than last: it turns the read-count search the rest of this
+    # family describes into arithmetic, and a reader who spends 7-13 without it
+    # is sweeping a step function as though it were a slope.
+    "pool-position": (39, 7, 8, 9, 10, 11, 12, 13, 28, 29, 30),
     "forced-color-oracle": (17, 18, 19),
     # A full frame is a frame-layout problem even when the frame size is
-    # already exact: 31 buys the symbol, 32 buys the slot.
-    "stack-frame-recovery": (26, 31, 32),
+    # already exact: 31 buys the symbol, 32 buys the slot. Lever 38 comes last
+    # because it is era-scoped -- on IDO 7.1 with a switch in the residual it
+    # is the cheapest member of the family (it moves temp homes with no codegen
+    # collateral at all), and everywhere else it is inert.
+    "stack-frame-recovery": (26, 31, 32, 38),
+    # The two IDO 7.1 dispatch families. They share every lever and differ in
+    # which one leads, because the residual you can see says which mechanism
+    # you are missing: a wrong register on a fallthrough is a copy fact, a
+    # wrong block order is a traversal. Both end at 38, which is what is left
+    # once the first two are right.
+    "copy-propagation-barrier": (34, 35, 36, 38),
+    "dispatch-layout": (37, 35, 36, 34),
     "post-match-cleanup": (27,),
     # No `view` verdict reaches this one: two disassemblies cannot tell you
     # that the *frontend* was different. It is here so the levers the field
@@ -448,6 +516,42 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "prove the spellings are linked-address equivalent: "
         "decomp-workbench relocation-aliases TARGET.o CANDIDATE.o",
     ),
+    # Both 7.1 dispatch families lead with the phase boundary, not with a
+    # source lever, because that is the order that worked: the barrier below
+    # was proven words=0 by patching a captured stream a full session before
+    # any C spelling produced it, and three earlier barrier families were
+    # killed the same way for the price of one patched stream each.
+    "copy-propagation-barrier": (
+        "these levers are IDO 7.1 only - the same Binasm through 5.3's as1 "
+        "produces a 321-word object, so do not port them to a 5.3 project.",
+        "prove it at the phase boundary first: decomp-workbench pass binasm "
+        "on the captured ugen-to-as1 stream shows whether your copy fact "
+        "reaches the divergent block at all, and as1's own -peepdbg prints "
+        "the rewrite (`Peepreg (INST n) changed rs A => B`, n is BLOCK-local).",
+        "the mechanism is update_ctnt: a content fact reaches the next block "
+        "only through a single-predecessor fallthrough, and is then filtered "
+        "against the taken target's live-in mask. Three ways to win - put the "
+        "alias source in that mask, redefine it before the use, or fail the "
+        "single-predecessor gate. decomp-workbench guide laws ido71 L2.",
+        "score candidates on their pre-as1 Binasm, not on the object: as1 "
+        "mutates its content state BEFORE it deletes redundant code, so the "
+        "instruction you need may be invisible in the final text.",
+    ),
+    "dispatch-layout": (
+        "these levers are IDO 7.1 only, and they are layout: run "
+        "decomp-workbench align first - `words` over-charges a moved block "
+        "(1,791 words for a one-block edit script, measured), so rank "
+        "permutation candidates on the edit script, never on the scalar.",
+        "the predicate is uopt's depth_first_order: it always takes the "
+        "successor whose original lexical number is node->num + 1. Placement "
+        "follows that literally - 'first' and 'middle' move the layout, "
+        "'last' is inert. decomp-workbench guide laws ido71 L8.",
+        "prove levers in isolation and compose late: on the function these "
+        "came from, the layout alone was 9 words, the layout plus an "
+        "unballasted barrier 13, the selector without the ballast 5, the "
+        "ballast without the selector 8 - and all four together 0. A lever "
+        "that does not improve the score is a component, not a refutation.",
+    ),
     "frontend-lineage": (
         "fingerprint the frontends before porting anything: "
         "docs/alternate-frontends.md, then "
@@ -591,6 +695,22 @@ def law_eras() -> tuple[str, ...]:
     return tuple(sorted(LAW_DOCUMENTS))
 
 
+def normalize_era(era: str) -> str:
+    """Return the canonical era token for one of its spellings.
+
+    The document, the campaign prose and the token disagree on punctuation
+    (`ido-7.1.md`, "IDO 7.1", `ido71`), and all three are things a reader
+    types. Stripping the separators and folding case makes them one address;
+    an unrecognised spelling is returned as-is so the caller raises the error
+    that names the eras that ship.
+    """
+
+    token = "".join(
+        character for character in era.strip().casefold() if character.isalnum()
+    )
+    return LAW_ERA_ALIASES.get(token, token)
+
+
 def read_laws(era: str) -> str:
     """Return one era's compiler-laws document.
 
@@ -600,7 +720,7 @@ def read_laws(era: str) -> str:
     prints nothing reads as "this compiler has no known laws".
     """
 
-    token = era.strip().casefold()
+    token = normalize_era(era)
     entry = LAW_DOCUMENTS.get(token)
     if entry is None:
         known = ", ".join(law_eras())
