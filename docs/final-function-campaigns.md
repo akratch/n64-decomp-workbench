@@ -78,13 +78,13 @@ Takeaway:
 
 `func_ovl0_800CEF4C` (`lbParticleUpdateStruct`, 1,868 instructions) was the
 last unmatched function in a full-project campaign. It went from a 99.91%
-hosted frontier to an exact source through five stages, each recorded in a
+hosted frontier to an exact source through six stages, each recorded in a
 standalone dossier
 (`docs/history/postmortem-2026-08-24-cef4c-exact.md` is the after-action
 review; the dossiers below are its evidence).
 
-1. **Allocator reverse-engineering.** With the residual pinned at one
-   register-allocation word, the campaign fully characterized IDO 7.1's
+1. **Allocator reverse-engineering.** With the residual down to a few
+   dozen register-allocation words, the campaign fully characterized IDO 7.1's
    Chow-priority coloring for the function — the `save/units` priority
    formula, the pop-order tie break, and the exact pop chain the target
    requires — by instrumenting `uopt` and exhaustively enumerating feasible
@@ -118,7 +118,8 @@ review; the dossiers below are its evidence).
 5. **Composition to words=0.** The exact source composed four independently
    proven mechanisms — the triple-conditional branch-to-next barrier, a
    goto-pair fallthrough inversion, a Duff-nested dispatch layout, and a
-   ternary selector-temp reshape — none of which moved the residual alone.
+   ternary selector-temp reshape — no one of which produced the exact
+   object alone.
    Composed, the local comparison reached `words=0` / `exact=true`
    (postmortem, "What the campaign actually took").
 6. **The target-scope fix.** With a genuine local `words=0`, the hosted
