@@ -16,6 +16,7 @@ from .cli_options import (
     add_explain_keys_argument,
     add_list_file_argument,
     add_symbol_argument,
+    add_watch_rows_argument,
 )
 from .compose import ComposeError, parse_zone
 from .csource import CSourceError
@@ -25,6 +26,14 @@ from .sweep import (
     SweepManifest,
     read_manifest,
     write_family,
+)
+from .sweep_build import (
+    DEFAULT_JOBS,
+    DEFAULT_NICE,
+    SORT_ORDERS,
+    build_lines,
+    collect_sources,
+    run_sweep_build,
 )
 from .sweep_generators import (
     carrier_pool,
@@ -38,6 +47,7 @@ from .sweep_generators import (
 )
 from .sweep_ingest import ingest_lines, ingest_sweep
 from .terminal import add_terminal_arguments, emit_lines
+from .watch_rows import WatchRowError, parse_watch_rows
 
 __all__ = ["register_sweep_commands"]
 
@@ -49,6 +59,7 @@ _SWEEP_ERRORS = (
     SweepError,
     ComposeError,
     CSourceError,
+    WatchRowError,
     OSError,
     RuntimeError,
     ValueError,
@@ -259,6 +270,45 @@ def sweep_fuse_command(args: argparse.Namespace) -> int:
         return _emit_manifest(args, manifest)
     except _SWEEP_ERRORS as error:
         return _fail(error)
+
+
+# --------------------------------------------------------------------------
+# build -- the compile fan-out between the generators and the ingest
+# --------------------------------------------------------------------------
+
+
+def sweep_build_command(args: argparse.Namespace) -> int:
+    try:
+        sources = collect_sources(args.sources, suffix=args.source_suffix)
+        watch = parse_watch_rows(args.watch_rows)
+        wave = run_sweep_build(
+            sources,
+            target=args.target,
+            template=args.compile_command,
+            objects=args.objects,
+            jobs=args.jobs,
+            niceness=args.nice,
+            watch=watch,
+            objdump=args.objdump,
+            symbol=args.symbol,
+            section=args.section,
+            object_suffix=args.object_suffix,
+            compile_cwd=args.compile_cwd,
+            timeout=args.timeout,
+            order=args.sort,
+            refresh=args.refresh,
+        )
+    except _SWEEP_ERRORS as error:
+        return _fail(error)
+    if args.json:
+        print(json.dumps(wave.as_dict(), indent=2, sort_keys=True))
+    else:
+        limit = args.limit if args.limit else len(wave.results) or 1
+        emit_lines(build_lines(wave, limit=limit), width=args.width, pager=args.pager)
+    # Exit 1 when nothing scored: a wave whose every candidate failed to build
+    # is not a negative result about the search space, and a driver that reads
+    # exit 0 as "measured" would record it as one.
+    return 0 if wave.ranked else 1
 
 
 # --------------------------------------------------------------------------
@@ -564,6 +614,133 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
     add_list_file_argument(fuse, option="donor", dest="donor", noun="donors")
     _add_generator_arguments(fuse)
     fuse.set_defaults(handler=sweep_fuse_command, report_command="sweep-fuse")
+
+    build = commands.add_parser(
+        "sweep-build",
+        help=argparse.SUPPRESS,
+        description=(
+            "Compile a wave of candidate sources and score them into one "
+            "table. This is the middle of the search loop the generators and "
+            "`sweep ingest` already bracketed, and the piece three successive "
+            "ad hoc scorers rebuilt in one endgame: a bounded pool at nice, a "
+            "skip for any object whose source and compile command are "
+            "unchanged, and one row per candidate carrying the standard "
+            "metric columns plus a watch-row heal signature. The signature is "
+            "the column that converged when words and opcodes misled -- "
+            "opcodes conflates schedule with allocation, and words "
+            "over-charges a block permutation by three orders of magnitude."
+        ),
+        epilog=(
+            "example: decomp-workbench sweep build variants/ --target target.o "
+            "--objects objects/ --compile-command 'cc -c -O2 -o {output} "
+            "{source}' --watch-rows r49=49,cx2=1620,sx3=1677"
+        ),
+    )
+    build.add_argument(
+        "sources",
+        nargs="+",
+        help=(
+            "candidate sources: files, directories of them, or a generated "
+            "sweep directory holding sweep.json"
+        ),
+    )
+    build.add_argument(
+        "--target",
+        required=True,
+        metavar="OBJ",
+        help="the reference object every candidate is scored against",
+    )
+    build.add_argument(
+        "--compile-command",
+        required=True,
+        metavar="TEMPLATE",
+        help="command template containing {source} and {output}",
+    )
+    build.add_argument(
+        "--objects",
+        required=True,
+        metavar="DIR",
+        help="write (and reuse) the built objects here",
+    )
+    build.add_argument(
+        "--jobs",
+        type=int,
+        default=DEFAULT_JOBS,
+        metavar="N",
+        help=(
+            f"parallel compiler processes (default: {DEFAULT_JOBS}). Small on "
+            "purpose: a wave runs beside the session reading its table"
+        ),
+    )
+    build.add_argument(
+        "--nice",
+        type=int,
+        default=DEFAULT_NICE,
+        metavar="N",
+        help=(
+            f"niceness for every compiler process (default: {DEFAULT_NICE}; "
+            "0 disables). Ignored where the platform has no nice(1)"
+        ),
+    )
+    build.add_argument(
+        "--refresh",
+        action="store_true",
+        help="rebuild every candidate, ignoring objects that are already current",
+    )
+    build.add_argument(
+        "--sort",
+        default="words",
+        choices=SORT_ORDERS,
+        help=(
+            "row order (default: words). `watch` ranks by healed columns "
+            "first, `rows-away` by the shift-tolerant distance where one was "
+            "computed, `name` not at all. Every order breaks ties on the "
+            "label, so re-running a wave never reshuffles equal rows"
+        ),
+    )
+    build.add_argument(
+        "--source-suffix",
+        default=".c",
+        metavar="EXT",
+        help="which files a named directory contributes (default: .c)",
+    )
+    build.add_argument(
+        "--object-suffix",
+        default=".o",
+        metavar="EXT",
+        help="built object name is <source stem><EXT> (default: .o)",
+    )
+    build.add_argument(
+        "--compile-cwd",
+        metavar="DIR",
+        help="run the compiler here (default: the current directory)",
+    )
+    build.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        metavar="SECONDS",
+        help="per-candidate compiler deadline (default: 300)",
+    )
+    build.add_argument(
+        "--section", default=".text", help="object section (default: .text)"
+    )
+    build.add_argument(
+        "--objdump", help="GNU-compatible MIPS objdump; auto-detected when omitted"
+    )
+    add_symbol_argument(build, help_text="score only this exact symbol")
+    add_watch_rows_argument(build)
+    build.add_argument(
+        "--limit",
+        type=int,
+        default=40,
+        metavar="N",
+        help="scored rows to print before eliding (default: 40; 0 prints all)",
+    )
+    build.add_argument("--json", action="store_true", help="emit JSON")
+    add_explain_keys_argument(build)
+    add_terminal_arguments(build)
+    build.set_defaults(handler=sweep_build_command, report_command="sweep-build")
 
     ingest = commands.add_parser(
         "sweep-ingest",

@@ -3,18 +3,22 @@
 **Read this if:** the next move is a search rather than a single edit — you
 have a base, a site, and a family of things to try at it.
 
-A sweep is three steps, and the workbench owns the first and the third:
+A sweep is three steps:
 
 ```text
 sweep <generator> ... --write DIR      emit variant sources + sweep.json
-<your compile-one wrapper>             DIR/*.c -> OBJDIR/*.o
+sweep build DIR --compile-command ...  compile the wave, scored table out
 sweep ingest DIR --objects OBJDIR ...  gate, score, rank, report coverage
 ```
 
-The middle step is yours. That is the same boundary
-[`campaign`](campaigns.md) draws — the workbench does not run a project's
-build system — and it is why a sweep directory is a plain directory of `.c`
-files with a manifest beside them.
+The build step runs *your* compile command — the workbench does not own a
+project's build system, which is the same boundary
+[`campaign`](campaigns.md) draws, and why a sweep directory is a plain
+directory of `.c` files with a manifest beside them. What `sweep build` adds
+is everything around that command: a bounded pool, `nice`, a skip for objects
+that are already current, and one scored row per candidate. Drive the wrapper
+yourself instead if you prefer; `sweep ingest` reads the objects back either
+way.
 
 | Command | What it emits |
 |---|---|
@@ -25,6 +29,8 @@ files with a manifest beside them.
 | `sweep fuse` | one variant per donor fused into the target |
 | `sweep carriers` | *(read-only)* the locals that are dead at a site |
 | `sweep donors` | *(read-only)* the locals whose live range avoids a target's |
+| `sweep build` | compiles a wave of candidates and scores it into one table |
+| `sweep ingest` | reads built objects back, with the gate line and coverage |
 
 ## `sweep regress` — the experiment nobody runs
 
@@ -196,6 +202,68 @@ Anchors are re-read **at their own line** after composing, through the line map
 the edits produced. The strongest campaign composer searched the whole emitted
 file for its anchor text, which a coincidental duplicate elsewhere satisfies.
 
+## `sweep build` — the compile fan-out
+
+```sh
+decomp-workbench sweep build variants/ \
+    --target target.o --objects objects/ \
+    --compile-command 'cc -c -G 0 -non_shared -O2 -mips2 -o {output} {source}' \
+    --watch-rows r49=49,cx2=1620,sx3=1677
+```
+
+```text
+sweep build: 4 candidate(s) -> target.o
+3 compiled, 0 already current, 1 failed, 0 unreadable  (jobs=4, nice=10)
+
+watch rows (. healed, X broken, ? out of range): r49 cx2 sx3
+
+ words   raw  opcodes  regs   fp  gaps  insns   frame  sig      verdict                    candidate
+     0     0        0     0    0     0   1866    -168  ...      instruction-words-identical  p2-duff-ternary
+     9    12        0     9    8     0   1866    -168  ..X      allocation-mismatch          p2-duff
+  1791  1803      612    44   31   116   1866    -168  X.X      structure-mismatch           p2-plain
+
+not scored (1):
+  failed      p2-anchored  cc-1020 undefined symbol `sMagic'
+```
+
+Takes candidate sources, directories of them, or a generated sweep directory
+(whose `sweep.json` order is preserved). Defaults are `--jobs 4` and
+`--nice 10`, both small on purpose: a wave runs beside the session that is
+reading its table. A candidate whose source and compile command are unchanged
+is **not** rebuilt — the sidecar keys on content and command, not mtime,
+because a wave is usually re-run precisely because the command changed.
+`--refresh` rebuilds everything.
+
+Nothing is dropped: a candidate the compiler refused is a row under
+`not scored` with the compiler's own last line, and a wave that scores nothing
+at all exits 1, because that is not a negative result about the search space.
+
+**The `sig` column is the point.** `--watch-rows` names positional rows you
+chose because they discriminate — the same coordinates `diff_sites[].index`
+and `compare --show-diff` use — and prints one healed/broken column each. In
+the endgame this command was extracted from, that six-column signature was the
+fitness function that converged after `opcodes` conflated schedule with
+allocation and `words` over-charged a block permutation by three orders of
+magnitude (see [Trap 8](metric-traps.md)). Take the row set from a file with
+`--watch-rows @probes.json` — a watchlist is a durable campaign artifact, not
+a thing to retype.
+
+`--sort` picks the order: `words` (default), `watch` (most healed columns
+first), `rows-away` (the shift-tolerant distance where one was computed), or
+`name`. Every order breaks ties on the label, so re-running a wave never
+reshuffles equal rows and two tables can be diffed.
+
+### Why this is `sweep build` and not a `campaign` mode
+
+[`campaign`](campaigns.md) is a per-function lifecycle: registration,
+persistent state, a ledger, resume, declarative signals, stop-on-exact. That
+engine is right for a long-lived search with a memory, and `sweep build`
+borrows its pieces — the `{source}`/`{output}` template, the process-group
+ownership and timeout that stop a leaked compiler outliving its run. A scoring
+wave has no memory and wants the opposite defaults: score everything, keep
+nothing, print a table. It belongs beside the generators whose output it
+consumes.
+
 ## `sweep ingest` — the gate, the score, the coverage
 
 ```sh
@@ -242,4 +310,7 @@ still read. It is a review surface, not a proof — read the diff.
 - [The p1 decision arithmetic](p1-decision-arithmetic.md) — why an occurrence
   with no instruction cost still moves the decision.
 - [Metric traps](metric-traps.md) — including the coset trap the ingest gate
-  line exists to catch.
+  line exists to catch, and Trap 8, the moved-block trap the watch-row
+  signature answers.
+- [Object comparison](object-comparison.md) — `compare --watch-rows` and the
+  automatic layout verdict, which `sweep build` renders one row at a time.
