@@ -116,6 +116,12 @@ the inclusive lower and upper bounds, the case-table and default labels, and
 the dense `Uclab`/`Uujp` value-to-label map that immediately follows it.
 `--json` emits the same lossless records and raw words for automation.
 
+For integer `Uldc` selector operands, `constant_value` names the active union
+member. A single-word Jdt/Ldt constant has a second storage word because
+`Sconstval` is a two-word `union Valu`; the report calls that companion
+`inactive_constant_word` so stale bytes there are not mistaken for part of the
+integer value.
+
 The case/default distinction is structural: `Uxjp` word 1 names the case-table
 label and word 2 names the default label. As with `pass binasm`, this is static
 pass-boundary evidence. It proves what the retained stream contains, not which

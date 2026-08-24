@@ -554,6 +554,32 @@ class UcodeRecord:
         return " ".join(f"{word:08x}" for word in self.words)
 
     @property
+    def integer_constant(self) -> int | None:
+        """Return the active integer member of an Uldc ``union Valu``.
+
+        ``Sconstval`` always occupies two words, but a single-word Jdt/Ldt
+        constant uses only ``swpart.Ival`` (the first on-disk payload word).
+        The companion word is the inactive ``swpart.Chars`` member and can
+        retain unrelated data.  Idt/Kdt are emitted low-word first by
+        ``libu/bwri.c`` and therefore need reconstructing in the opposite
+        order from XJP's big-endian bounds.
+        """
+
+        if self.name != "ldc" or len(self.words) < self.base_word_length + 2:
+            return None
+        first = self.words[self.base_word_length]
+        second = self.words[self.base_word_length + 1]
+        if self.dtype == 5:  # Idt: signed double-word integer
+            return _signed((second << 32) | first, 64)
+        if self.dtype == 6:  # Jdt: signed single-word integer
+            return _signed(first, 32)
+        if self.dtype == 7:  # Kdt: unsigned double-word integer
+            return (second << 32) | first
+        if self.dtype == 8:  # Ldt: non-negative single-word integer
+            return first
+        return None
+
+    @property
     def detail(self) -> str:
         if self.name == "xjp":
             return (
@@ -569,10 +595,18 @@ class UcodeRecord:
         if self.name == "loc":
             return f"file={self.lexlev} line={self.words[1]}"
         if self.name == "ldc" and len(self.words) >= self.base_word_length + 2:
-            constant = self.words[self.base_word_length]
-            if self.dtype == 6:
-                constant = _signed(constant, 32)
-            return f"constant={constant} length={self.words[2]}"
+            constant = self.integer_constant
+            if constant is not None:
+                detail = f"constant={constant} length={self.words[2]}"
+                if self.dtype in {6, 8}:
+                    inactive = self.words[self.base_word_length + 1]
+                    detail += f" inactive-word=0x{inactive:08x}"
+                return detail
+            payload = self.words[self.base_word_length : self.base_word_length + 2]
+            return (
+                f"constant-payload=0x{payload[0]:08x}/0x{payload[1]:08x} "
+                f"length={self.words[2]}"
+            )
         if self.name in {"lod", "str"}:
             return (
                 f"{MTYPE_NAMES[self.mtype]} block={self.words[1]} "
@@ -593,7 +627,7 @@ class UcodeRecord:
         return _signed((self.words[6] << 32) | self.words[7], 64)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "index": self.index,
             "byte_offset": self.byte_offset,
             "offset_hex": f"0x{self.byte_offset:x}",
@@ -609,6 +643,19 @@ class UcodeRecord:
             "lexlev": self.lexlev,
             "detail": self.detail,
         }
+        if self.name == "ldc" and len(self.words) >= self.base_word_length + 2:
+            result["constant_storage_words"] = [
+                f"0x{word:08x}"
+                for word in self.words[
+                    self.base_word_length : self.base_word_length + 2
+                ]
+            ]
+            result["constant_value"] = self.integer_constant
+            if self.dtype in {6, 8}:
+                result["inactive_constant_word"] = (
+                    f"0x{self.words[self.base_word_length + 1]:08x}"
+                )
+        return result
 
 
 def parse_ucode(data: bytes) -> tuple[UcodeRecord, ...]:
