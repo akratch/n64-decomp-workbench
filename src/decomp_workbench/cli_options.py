@@ -108,6 +108,29 @@ class ExplainKeysAction(argparse.Action):
         parser.exit()
 
 
+#: Help for the watch-row selector, shared by every command that renders
+#: comparison rows so a signature means the same thing wherever it appears.
+WATCH_ROWS_HELP = (
+    "watch these positional rows and print a healed/broken column for each "
+    "(. healed, X broken, ? out of range). Takes 49,1620,1677, or "
+    "r49=49,cx2=1620 to name the columns, or @probes.json for a named set. "
+    "Scalar metrics conflate schedule with allocation and over-charge block "
+    "permutations; a signature over rows you chose because they discriminate "
+    "does neither"
+)
+
+
+def add_watch_rows_argument(parser: argparse.ArgumentParser) -> None:
+    """Offer the heal-signature watchlist wherever comparison rows are read."""
+
+    parser.add_argument(
+        "--watch-rows",
+        metavar="ROWS",
+        default=None,
+        help=WATCH_ROWS_HELP,
+    )
+
+
 def add_explain_keys_argument(parser: argparse.ArgumentParser) -> None:
     """Offer the metric registry wherever reported keys are printed."""
 

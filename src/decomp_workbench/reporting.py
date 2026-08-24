@@ -108,6 +108,7 @@ SCHEMAS: dict[str, str] = {
     "shift-rehearse": "decomp-workbench-shift-rehearse-v1",
     "shift-orchestrate": "decomp-workbench-shift-rehearse-v1",
     "slots": "decomp-workbench-stack-slots-v1",
+    "sweep-build": "decomp-workbench-sweep-build-v1",
     "sweep-carriers": "decomp-workbench-carrier-pool-v1",
     "sweep-commute": "decomp-workbench-sweep-v1",
     "sweep-copies": "decomp-workbench-sweep-v1",

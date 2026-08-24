@@ -20,6 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .elf_instructions import MINIMUM_ELIDED_RUN
+from .elf_symbols import SymbolExtent, symbol_extent
 from .model import Instruction, Relocation
 
 #: How many symbol names an error lists before eliding the rest. Enough to
@@ -38,6 +39,18 @@ RELOCATION_RE = re.compile(
     r"(?:\s+(.+?))?\s*$"
 )
 SYMBOL_RE = re.compile(r"^\s*[0-9a-fA-F]+\s+<(?P<name>[^>]+)>:\s*$")
+
+#: A conditional branch and the symbol it names as its destination. A
+#: conditional branch never leaves the function it is in, so the label it
+#: reaches is *interior* -- part of the body, not the start of the next
+#: function. Linking branches (``bal`` and friends) are excluded because they
+#: are calls, and a call's destination is exactly the thing that is not
+#: interior. The addend spelling ``<name+0x10>`` is deliberately not matched:
+#: that names an offset into a symbol, which says nothing about the label.
+_BRANCH_DESTINATION_RE = re.compile(
+    r"^(?P<opcode>b[a-z0-9._]*)\s+[^<>]*<(?P<name>[^>+ ]+)>\s*$"
+)
+_LINKING_BRANCHES = frozenset({"bal", "bgezal", "bgezall", "bltzal", "bltzall"})
 
 
 @dataclass(frozen=True)
@@ -375,8 +388,56 @@ def scrub_control_characters(value: str) -> str:
     return value.translate(_CONTROL_CHARACTERS)
 
 
-def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instruction]:
+def interior_labels(text: str) -> frozenset[str]:
+    """Return labels a conditional branch reaches, which are never boundaries.
+
+    The text-only half of the fix described in
+    :mod:`decomp_workbench.elf_symbols`. A ``<name>:`` header does not mean a
+    new function: splat-extracted target objects carry a symbol for every
+    jump-table destination *inside* one body, and ending the selection at the
+    first of them carved 68 instructions out of an 1,868-instruction function.
+
+    When an object file is on hand the symbol table settles this exactly. Text
+    alone has one honest signal left: a conditional branch cannot leave its
+    function, so anything one names is interior by construction. It is a
+    sound rule, not a complete one -- a label reached only through a jump
+    table is invisible to it -- so it narrows the text path's error without
+    pretending to be the ELF answer.
+    """
+
+    found: set[str] = set()
+    for line in text.splitlines():
+        instruction = INSTRUCTION_RE.match(line)
+        if instruction is None:
+            continue
+        destination = _BRANCH_DESTINATION_RE.match(
+            scrub_control_characters(instruction.group(3)).strip()
+        )
+        if destination is None:
+            continue
+        if destination.group("opcode") in _LINKING_BRANCHES:
+            continue
+        found.add(destination.group("name"))
+    return frozenset(found)
+
+
+def parse_disassembly(
+    text: str,
+    *,
+    symbol: str | None = None,
+    extent: SymbolExtent | None = None,
+) -> list[Instruction]:
     """Parse GNU objdump instruction lines, optionally for one symbol.
+
+    ``extent`` is the object's own answer to "where does this symbol's code
+    live" (see :func:`decomp_workbench.elf_symbols.symbol_extent`). When it is
+    supplied, selection is by section-relative address and printed labels are
+    ignored entirely -- which is the point: an interior label is not a
+    boundary, and believing it was is the defect this parameter closes.
+
+    Without it, selection falls back to the printed labels, holding the
+    selection open across any label `interior_labels` proves a conditional
+    branch reaches.
 
     When ``symbol`` has no exact match, a unique case-insensitive match is
     accepted: Pascal-era frontends (``upas``) fold identifiers to lower
@@ -387,27 +448,34 @@ def parse_disassembly(text: str, *, symbol: str | None = None) -> list[Instructi
     """
 
     match_symbol = symbol
-    if symbol is not None:
+    if symbol is not None and extent is None:
         names = [m.group("name") for m in map(SYMBOL_RE.match, text.splitlines()) if m]
         if symbol not in names:
             folded = [name for name in names if name.casefold() == symbol.casefold()]
             if len(folded) == 1:
                 match_symbol = folded[0]
     relocations = parse_relocations(text)
+    interior = interior_labels(text) if match_symbol is not None else frozenset()
     instructions: list[Instruction] = []
     selected = match_symbol is None
     for line in text.splitlines():
         symbol_match = SYMBOL_RE.match(line)
         if symbol_match:
-            selected = (
-                match_symbol is None or symbol_match.group("name") == match_symbol
-            )
+            if extent is None:
+                name = symbol_match.group("name")
+                selected = (
+                    match_symbol is None
+                    or name == match_symbol
+                    or (selected and name in interior)
+                )
             continue
-        if not selected:
+        if not selected and extent is None:
             continue
         match = INSTRUCTION_RE.match(line)
         if match:
             address = int(match.group(1), 16)
+            if extent is not None and not extent.contains(address):
+                continue
             instructions.append(
                 Instruction(
                     address=address,
@@ -689,6 +757,7 @@ def _whole_section_pass(
     *,
     section: str,
     symbol: str,
+    extent: SymbolExtent | None = None,
 ) -> tuple[str, list[Instruction]]:
     """Re-dump the whole section once, and answer both questions with it.
 
@@ -714,7 +783,7 @@ def _whole_section_pass(
     retry = _run_objdump(executable, path, section=section, symbol=None)
     if retry.returncode:
         return "", []
-    return retry.stdout, parse_disassembly(retry.stdout, symbol=symbol)
+    return retry.stdout, parse_disassembly(retry.stdout, symbol=symbol, extent=extent)
 
 
 def dump_object(
@@ -730,7 +799,11 @@ def dump_object(
     result = _run_objdump(executable, path, section=section, symbol=symbol)
     if result.returncode:
         raise RuntimeError(_objdump_failure(path, result))
-    instructions = parse_disassembly(result.stdout, symbol=symbol)
+    # The object's own symbol table, when it has one, is what bounds the
+    # function -- not the ``<label>:`` headers objdump prints, which include
+    # every jump-table destination inside the body. See `elf_symbols`.
+    extent = symbol_extent(path, symbol, section=section) if symbol else None
+    instructions = parse_disassembly(result.stdout, symbol=symbol, extent=extent)
     if instructions:
         return result.stdout, instructions
     evidence = result.stdout
@@ -738,7 +811,7 @@ def dump_object(
         # One unfiltered pass answers both "is this a case slip we can honour?"
         # and "what does this object actually define?". See its docstring.
         section_text, retried = _whole_section_pass(
-            executable, path, section=section, symbol=symbol
+            executable, path, section=section, symbol=symbol, extent=extent
         )
         if retried:
             return section_text, retried

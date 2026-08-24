@@ -383,6 +383,15 @@ METRICS: tuple[Metric, ...] = (
         "indices, class, and raw/relocation-aware equality only",
     ),
     Metric(
+        "layout",
+        "layout",
+        "the shift-tolerant edit script, computed automatically when the "
+        "verdict is structure-mismatch and null otherwise: block counts, "
+        "rows_away, and the blocks present in both objects at different "
+        "positions. Read it before words= on that verdict -- a moved block "
+        "costs one edit and thousands of positional words",
+    ),
+    Metric(
         "commutative_findings",
         "commutative_findings",
         "commutative operand pairs with the source edit each one names, "

@@ -136,6 +136,77 @@ campaigns:
 
 A verdict never suppresses evidence; see the diff-site policy above.
 
+### The two layout verdicts run the aligner for you
+
+`structure-mismatch` and `schedule-mismatch` are the two verdicts a **block
+permutation** lands on — the first when the move also changes the instruction
+count or the opcodes around it, the second when the instruction multiset
+survives the move intact. Both are verdicts on which `words` is actively
+misleading, because `words` is positional: move a block and every row between
+its old home and its new one is compared against a stranger. One campaign
+candidate whose real edit script was a single relocated 29-row block reported
+**1,791 differing words** and was ranked below strictly worse candidates.
+
+So on those two verdicts, and only those two, `compare` runs the shift-tolerant
+aligner itself and prints the result beside the positional count:
+
+```text
+verdict=structure-mismatch words=1791 opcodes=612 gaps=116 ...
+layout (shift-tolerant edit script, run automatically on structure-mismatch):
+  blocks=3 replaced=0 inserted=29 deleted=29 rows=1866->1866 (+0)
+  rows_away=30 (30 edit + 0 residual) against words=1791
+  moved blocks: 1 (29 row(s)) present in both objects at different positions
+       29 row(s)  target 1204..1232  ->  candidate 887..915  (-317)
+  A permutation is a block-order question, not a 1791-word one. Run `align`
+  for the full script.
+```
+
+The same object is under `layout` in `--json`, with every moved block. When
+`moved_block_count` is non-zero the `next:` guidance leads with it. When it is
+zero the block says so — the difference is not a permutation, and the
+positional counts are reading real changed code.
+
+Blocks are matched on the `normalized` key (mnemonics, operand shape and
+registers, addresses and immediates abstracted) and must be at least three
+rows: verbatim text would refuse every real move, since a relocated block's
+branch destinations change with it, and opcodes alone would call any two
+similarly shaped runs a relocation. No other verdict pays for an alignment.
+
+### Watch rows: a heal signature instead of a scalar
+
+```sh
+decomp-workbench compare target.o candidate.o --watch-rows r49=49,cx2=1620,sx3=1677
+```
+
+```text
+watch rows (.=healed X=broken): 1 healed, 2 broken
+  r49 cx2 sx3
+  X   .   X
+  signature=X.X
+  [   49] r49: register
+          target    addiu	t3,v0,-250
+          candidate addiu	t3,v1,-250
+```
+
+A watchlist is a set of **positional rows you chose because they discriminate**
+— the same coordinates `diff_sites[].index` and `--show-diff` print, so a row
+number read off one report pastes straight into the next command. Each becomes
+one column: `.` healed, `X` broken, `?` past the end of the comparison, which
+is its own glyph so a candidate that lost the tail of the function cannot print
+a clean signature.
+
+This is not a distance and does not average. That is the point: in the
+campaign it came from, a six-column signature was the fitness function that
+converged after `opcodes` conflated schedule with allocation and `words`
+over-charged a permutation (see [Trap 8](metric-traps.md)). `--json` carries
+`watch_rows`, `watch_signature`, and the healed/broken/out-of-range tallies.
+
+The same option is on `compare-dumps`, on `rank` (one signature per ranked
+row, under one header), and on [`sweep build`](sweeps.md) (the `sig` column of
+the wave table). Bare rows label themselves (`--watch-rows 49,1620`);
+`LABEL=ROW` names the columns; `@probes.json` reads a named set from a file,
+which is what a durable campaign watchlist should be.
+
 ## One name per metric
 
 The terminal label and the JSON key are the same string, rendered from one
