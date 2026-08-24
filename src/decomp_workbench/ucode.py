@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .binasm import BINASM_RECORD_SIZE, parse_binasm
+
 UCODE_REPORT_SCHEMA = "decomp-workbench-ucode-xjp-v1"
 
 # Append-only Uopcode enum order from src/ucode.h.
@@ -510,6 +512,25 @@ def _stack_pop(name: str) -> int:
     return 0
 
 
+def _wrong_pass_format_hint(data: bytes) -> str:
+    """Name fixed-record Binasm when it was passed as variable Ucode."""
+
+    if not data or len(data) % BINASM_RECORD_SIZE:
+        return ""
+    records = parse_binasm(data)
+    recognized = sum(record.kind != "unknown" for record in records)
+    # Binasm deliberately retains unknown record families, so demand a strong
+    # majority rather than requiring every record to have a calibrated name.
+    if recognized * 4 < len(records) * 3:
+        return ""
+    return (
+        f"; input appears to be fixed {BINASM_RECORD_SIZE}-byte Binasm "
+        f"({recognized}/{len(records)} records recognized). UGEN's -temp "
+        "output is Binasm-shaped, not its input Ucode; inspect that file with "
+        "`pass binasm` and give `pass ucode` UGEN's positional input"
+    )
+
+
 @dataclass(frozen=True)
 class UcodeRecord:
     """One losslessly framed IDO binary Ucode instruction."""
@@ -606,6 +627,7 @@ def parse_ucode(data: bytes) -> tuple[UcodeRecord, ...]:
         if opcode >= len(OPCODE_NAMES):
             raise ValueError(
                 f"unknown Ucode opcode 0x{opcode:02x} at byte offset 0x{cursor * 4:x}"
+                f"{_wrong_pass_format_hint(data)}"
             )
         name = OPCODE_NAMES[opcode]
         dtype = (header >> 16) & 0x1F

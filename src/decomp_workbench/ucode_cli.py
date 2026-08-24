@@ -75,7 +75,10 @@ def register_ucode_command(
             "and dense Uclab/Uujp table. This command does not run a compiler."
         ),
     )
-    parser.add_argument("stream", help="retained IDO binary Ucode input")
+    parser.add_argument(
+        "stream",
+        help="retained IDO binary Ucode input (UGEN positional input, not -temp)",
+    )
     parser.add_argument(
         "--expression-limit",
         type=int,

@@ -103,6 +103,13 @@ that uopt handed to ugen without replaying any pass:
 decomp-workbench pass ucode retained.U
 ```
 
+Pass UGEN's positional input file here. Do not pass the file named by UGEN's
+`-temp` option: despite that generic option name, the retained `-temp` output
+is a fixed 16-byte Binasm stream and belongs with `pass binasm`. UGEN's `-o`
+output is Binasm as well. The Ucode inspector detects strongly Binasm-shaped
+inputs and reports this provenance error instead of treating them as damaged
+Ucode.
+
 The report decodes every `Uxjp` from IDO's variable-width, big-endian Ucode
 format. It prints the exact postfix selector expression consumed by the jump,
 the inclusive lower and upper bounds, the case-table and default labels, and
