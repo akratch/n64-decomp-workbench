@@ -20,6 +20,7 @@ from .cli_options import (
     add_census_argument,
     add_explain_keys_argument,
     add_symbol_argument,
+    add_watch_rows_argument,
 )
 from .compare import (
     MIXED_ALIGNMENT_CAUTION,
@@ -52,6 +53,15 @@ from .regions import (
 )
 from .schema import COMPARISON_CENSUS_KEYS
 from .terminal import Painter, add_color_argument, resolve_color
+from .watch_rows import (
+    WatchRow,
+    WatchRowError,
+    evaluate_watch_rows,
+    parse_watch_rows,
+    watch_row_lines,
+    watch_row_payload,
+    watch_signature,
+)
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -126,6 +136,29 @@ def _region_report(
     )
 
 
+def comparison_rows(item: Comparison) -> int:
+    """How many positional rows a comparison covers.
+
+    The longer of the two streams: a watched row past it belongs to neither
+    object, which is a different answer from "that row matches".
+    """
+
+    return max(item.target_instructions, item.candidate_instructions)
+
+
+def _watch_results(
+    comparison: Comparison, rows: Sequence[WatchRow]
+) -> tuple[dict[str, object], list[str]]:
+    """Score the watchlist against one comparison, for JSON and terminal."""
+
+    results = evaluate_watch_rows(
+        rows,
+        diff_sites=comparison.diff_sites,
+        compared_rows=comparison_rows(comparison),
+    )
+    return watch_row_payload(results), watch_row_lines(results)
+
+
 def _emit_comparison(
     comparison: Comparison,
     args: argparse.Namespace,
@@ -138,9 +171,13 @@ def _emit_comparison(
     try:
         census = evaluate_census(predicates, comparison.as_dict())
         regions = _region_report(comparison, args, candidate_instructions)
+        watched = parse_watch_rows(getattr(args, "watch_rows", None))
     except (OSError, RegionError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    watch_payload, watch_lines = (
+        _watch_results(comparison, watched) if watched else ({}, [])
+    )
     if args.json:
         payload = comparison_payload(
             comparison,
@@ -149,6 +186,7 @@ def _emit_comparison(
         )
         if regions is not None:
             payload["by_region"] = regions.as_dict()
+        payload.update(watch_payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
@@ -159,6 +197,8 @@ def _emit_comparison(
         for line in relocation_symbol_caution_lines(comparison):
             print(line)
         print(comparison_line(comparison, painter))
+        for line in watch_lines:
+            print(line)
         print_comparison_explanation(comparison, cross_rom=args.cross_rom)
         if show_ranges:
             print(f"register ranges: {comparison.register_mismatch_ranges or 'none'}")
@@ -265,6 +305,11 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
 def rank_command(args: argparse.Namespace) -> int:
     comparisons: list[Comparison] = []
     errors: list[dict[str, str]] = []
+    try:
+        watched = parse_watch_rows(getattr(args, "watch_rows", None))
+    except WatchRowError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     for candidate in args.candidates:
         try:
             comparisons.append(
@@ -282,16 +327,23 @@ def rank_command(args: argparse.Namespace) -> int:
     comparisons, alignment_ranking_unsafe = rank_comparisons(comparisons)
     limited = comparisons[: args.limit] if args.limit else comparisons
     if args.json:
+        results: list[dict[str, Any]] = []
+        for item in limited:
+            payload = item.as_dict()
+            if watched:
+                payload.update(_watch_results(item, watched)[0])
+            results.append(payload)
         print(
             json.dumps(
                 {
-                    "results": [item.as_dict() for item in limited],
+                    "results": results,
                     "errors": errors,
                     "ranked_by": (
                         "words" if alignment_ranking_unsafe else "aligned_total"
                     ),
                     "mixed_alignment": mixed_alignment,
                     "alignment_ranking_unsafe": alignment_ranking_unsafe,
+                    "watch_row_set": [entry.as_dict() for entry in watched],
                 },
                 indent=2,
                 sort_keys=True,
@@ -301,6 +353,13 @@ def rank_command(args: argparse.Namespace) -> int:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
         if alignment_ranking_unsafe:
             print(MIXED_ALIGNMENT_CAUTION)
+        if watched:
+            # One header for the batch, then one column string per row: a
+            # per-candidate legend would cost more screen than the table.
+            print(
+                "watch rows (. healed, X broken, ? out of range): "
+                + " ".join(entry.label for entry in watched)
+            )
         for rank, item in enumerate(limited, 1):
             for line in warning_lines(item.warnings):
                 print(line)
@@ -308,7 +367,19 @@ def rank_command(args: argparse.Namespace) -> int:
                 print(line)
             for line in relocation_symbol_caution_lines(item):
                 print(line)
-            print(f"{rank:3d} {comparison_line(item, painter)}")
+            signature = ""
+            if watched:
+                signature = (
+                    watch_signature(
+                        evaluate_watch_rows(
+                            watched,
+                            diff_sites=item.diff_sites,
+                            compared_rows=comparison_rows(item),
+                        )
+                    )
+                    + " "
+                )
+            print(f"{rank:3d} {signature}{comparison_line(item, painter)}")
         for failure in errors:
             print(
                 f"ERROR {failure['candidate']}: {failure['error']}",
@@ -365,6 +436,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    add_watch_rows_argument(compare)
     _add_by_region_arguments(compare)
     add_census_argument(compare)
     compare.set_defaults(handler=compare_handler)
@@ -391,6 +463,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    add_watch_rows_argument(dumps)
     _add_by_region_arguments(dumps)
     add_census_argument(dumps)
     dumps.set_defaults(handler=compare_dumps_handler)
@@ -410,4 +483,5 @@ def register_rank_command(
     rank.add_argument("candidates", nargs="+", help="candidate objects")
     rank.add_argument("--limit", type=int, default=20, help="maximum results to show")
     add_common_compare_arguments(rank)
+    add_watch_rows_argument(rank)
     rank.set_defaults(handler=handler)
