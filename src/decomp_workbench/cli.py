@@ -151,6 +151,7 @@ from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
 from .sweep_cli import register_sweep_commands
+from .target_audit_cli import register_target_commands
 from .toolchain import toolchain_status
 from .toolchain_cli import register_toolchain_commands
 from .trace import (
@@ -2136,6 +2137,10 @@ def build_parser() -> argparse.ArgumentParser:
     # about one function's rows, and `shift audit` is about a whole linked
     # image's addresses.
     register_shift_commands(commands)
+    # `target audit` asks the question one stage earlier than either: is the
+    # object a campaign is about to spend days matching against even the
+    # right scope to begin with.
+    register_target_commands(commands)
     register_collateral_command(commands)
     register_rank_command(commands, handler=rank_command)
     register_guide_command(commands)

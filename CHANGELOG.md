@@ -32,6 +32,17 @@ in [design notes](docs/history/design-notes.md).
   99.91% hosted frontier through allocator reverse-engineering, the
   one-word `as1` wall, the conditional-fjp barrier proof, mechanism
   composition to `words=0`, and the target-scope fix.
+- `target audit TARGET.o [--rom --rom-offset --va] [--json]` verifies a
+  campaign/scratch target object's scope before anyone spends time matching
+  against it: ELF sanity (relocation entry counts against `sh_entsize`,
+  symbol table consistency), the literal-pool truncation heuristic (a
+  function-owned literal pool externalized and `.rodata` truncated exactly
+  at the jump table boundary to hide it — the cef4c defect), a data-scope
+  report of every undefined symbol reached through a `%hi`/`%lo` pair, and
+  an optional read-only ROM cross-check. Verdict `ok`/`warnings`/`defects`
+  gates campaign registration (exit 0/1/2). New generic ELF32 big-endian
+  reader (`decomp_workbench.elf`: sections, symbols, relocations) backs it.
+  See `docs/target-audit.md`.
 
 ## 0.6.0 - 2026-08-17
 
