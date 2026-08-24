@@ -25,6 +25,7 @@ from decomp_workbench.target_audit import (
     DEFECT,
     INFO,
     WARNING,
+    TargetAudit,
     audit_target,
     target_audit_lines,
 )
@@ -37,7 +38,7 @@ def _write(data: bytes, name: str = "obj.o") -> Path:
     return path
 
 
-def _codes(audit, severity: str | None = None) -> list[str]:
+def _codes(audit: TargetAudit, severity: str | None = None) -> list[str]:
     return [
         item.code
         for item in audit.findings
