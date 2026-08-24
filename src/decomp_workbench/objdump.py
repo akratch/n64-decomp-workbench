@@ -388,8 +388,19 @@ def scrub_control_characters(value: str) -> str:
     return value.translate(_CONTROL_CHARACTERS)
 
 
+def _branch_destination(assembly: str) -> str | None:
+    """Return the label a non-linking conditional branch names, if any."""
+
+    destination = _BRANCH_DESTINATION_RE.match(assembly)
+    if destination is None:
+        return None
+    if destination.group("opcode") in _LINKING_BRANCHES:
+        return None
+    return destination.group("name")
+
+
 def interior_labels(text: str) -> frozenset[str]:
-    """Return labels a conditional branch reaches, which are never boundaries.
+    """Return every label a conditional branch in ``text`` reaches.
 
     The text-only half of the fix described in
     :mod:`decomp_workbench.elf_symbols`. A ``<name>:`` header does not mean a
@@ -403,6 +414,12 @@ def interior_labels(text: str) -> frozenset[str]:
     sound rule, not a complete one -- a label reached only through a jump
     table is invisible to it -- so it narrows the text path's error without
     pretending to be the ELF answer.
+
+    This is the *unscoped* inventory, over the whole dump.
+    `parse_disassembly` does not use it directly: a label is only interior to
+    the function being selected when a branch *inside that selection* reaches
+    it, and asking the whole dump instead let the next function's own loop
+    head vouch for the next function. See `parse_disassembly`.
     """
 
     found: set[str] = set()
@@ -410,14 +427,11 @@ def interior_labels(text: str) -> frozenset[str]:
         instruction = INSTRUCTION_RE.match(line)
         if instruction is None:
             continue
-        destination = _BRANCH_DESTINATION_RE.match(
+        name = _branch_destination(
             scrub_control_characters(instruction.group(3)).strip()
         )
-        if destination is None:
-            continue
-        if destination.group("opcode") in _LINKING_BRANCHES:
-            continue
-        found.add(destination.group("name"))
+        if name is not None:
+            found.add(name)
     return frozenset(found)
 
 
@@ -436,8 +450,12 @@ def parse_disassembly(
     boundary, and believing it was is the defect this parameter closes.
 
     Without it, selection falls back to the printed labels, holding the
-    selection open across any label `interior_labels` proves a conditional
-    branch reaches.
+    selection open across any label a conditional branch *already inside the
+    selection* reaches. The scoping is the point: computed over the whole
+    dump, the rule let a function whose entry is its own loop head -- a
+    ``bnez`` in its first rows naming its own label -- vouch for itself, so
+    selecting the function before it ran on through the next function's body
+    and every function after it that did the same.
 
     When ``symbol`` has no exact match, a unique case-insensitive match is
     accepted: Pascal-era frontends (``upas``) fold identifiers to lower
@@ -455,7 +473,10 @@ def parse_disassembly(
             if len(folded) == 1:
                 match_symbol = folded[0]
     relocations = parse_relocations(text)
-    interior = interior_labels(text) if match_symbol is not None else frozenset()
+    #: Branch destinations named from inside the selection so far -- the only
+    #: labels this parser will run through. It grows as the selection does,
+    #: which is what keeps the next function's own labels out of it.
+    reached: set[str] = set()
     instructions: list[Instruction] = []
     selected = match_symbol is None
     for line in text.splitlines():
@@ -466,7 +487,7 @@ def parse_disassembly(
                 selected = (
                     match_symbol is None
                     or name == match_symbol
-                    or (selected and name in interior)
+                    or (selected and name in reached)
                 )
             continue
         if not selected and extent is None:
@@ -474,13 +495,18 @@ def parse_disassembly(
         match = INSTRUCTION_RE.match(line)
         if match:
             address = int(match.group(1), 16)
+            assembly = scrub_control_characters(match.group(3)).strip()
+            if extent is None and match_symbol is not None:
+                destination = _branch_destination(assembly)
+                if destination is not None:
+                    reached.add(destination)
             if extent is not None and not extent.contains(address):
                 continue
             instructions.append(
                 Instruction(
                     address=address,
                     word=match.group(2).lower(),
-                    assembly=scrub_control_characters(match.group(3)).strip(),
+                    assembly=assembly,
                     relocations=relocations.get(address, ()),
                 )
             )

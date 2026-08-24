@@ -112,6 +112,26 @@ Disassembly of section .text:
 """
 
 
+#: Two functions, where the *second* opens with a loop head that branches to
+#: itself. Read over the whole dump the branch-target rule calls `wb_beta` an
+#: interior label, and the selection of `wb_alpha` runs straight through it.
+DUMP_WITH_SELF_TARGETED_SUCCESSOR = """
+demo.o:     file format elf32-tradbigmips
+
+Disassembly of section .text:
+
+00000000 <wb_alpha>:
+   0:\t27bdffe8 \taddiu\tsp,sp,-24
+   4:\t03e00008 \tjr\tra
+   8:\t27bd0018 \taddiu\tsp,sp,24
+
+0000000c <wb_beta>:
+   c:\t8c820000 \tlw\tv0,0(a0)
+  10:\t1440fffe \tbnez\tv0,c <wb_beta>
+  14:\t00000000 \tnop
+"""
+
+
 class InteriorLabelTests(unittest.TestCase):
     def test_a_conditional_branch_target_is_an_interior_label(self) -> None:
         self.assertEqual(interior_labels(DUMP_WITH_INTERIOR_LABELS), {"wb_second_case"})
@@ -129,6 +149,21 @@ class InteriorLabelTests(unittest.TestCase):
         # a known limit rather than becoming an accidental behaviour change.
         parsed = parse_disassembly(DUMP_WITH_INTERIOR_LABELS, symbol="wb_second_tail")
         self.assertEqual([item.address for item in parsed], [0x18, 0x1C])
+
+    def test_a_successors_own_loop_head_does_not_extend_the_selection(self) -> None:
+        # The scoping defect: `interior_labels` over the whole dump reports
+        # `wb_beta`, because `wb_beta`'s own first branch names it. Selecting
+        # `wb_alpha` then ran on through `wb_beta`'s body and returned six
+        # rows for a three-row function.
+        self.assertIn("wb_beta", interior_labels(DUMP_WITH_SELF_TARGETED_SUCCESSOR))
+        parsed = parse_disassembly(
+            DUMP_WITH_SELF_TARGETED_SUCCESSOR, symbol="wb_alpha"
+        )
+        self.assertEqual([item.address for item in parsed], [0, 4, 8])
+
+    def test_the_self_targeting_successor_still_selects_itself(self) -> None:
+        parsed = parse_disassembly(DUMP_WITH_SELF_TARGETED_SUCCESSOR, symbol="wb_beta")
+        self.assertEqual([item.address for item in parsed], [0xC, 0x10, 0x14])
 
     def test_extent_selection_ignores_labels_entirely(self) -> None:
         with TemporaryDirectory() as temp:
@@ -206,6 +241,46 @@ class SymbolExtentTests(unittest.TestCase):
             (extent.start, extent.stop, extent.basis), (0, None, "section-end")
         )
         self.assertTrue(extent.contains(len(SECOND) - 4))
+
+    def _handwritten_object(self) -> Path:
+        """Two functions the way a hand-written `.s` file declares them.
+
+        No ``STT_FUNC`` anywhere: each entry is a bare ``.globl`` label, and
+        `wb_first_case` is the local jump-table destination that must not be
+        mistaken for one.
+        """
+
+        path = self.directory / "handwritten.o"
+        path.write_bytes(
+            build_object(
+                text=FIRST + SECOND,
+                symbols=[
+                    ("wb_first", 0, 0, STT_NOTYPE, STB_GLOBAL),
+                    ("wb_first_case", 8, 0, STT_NOTYPE, STB_LOCAL),
+                    ("wb_second", SECOND_START, 0, STT_NOTYPE, STB_GLOBAL),
+                ],
+            )
+        )
+        return path
+
+    def test_a_global_untyped_sibling_bounds_a_sizeless_symbol(self) -> None:
+        # The defect: with only STT_FUNC allowed to terminate, `wb_first`'s
+        # extent ran to the end of the section and swallowed `wb_second`.
+        extent = symbol_extent(self._handwritten_object(), "wb_first")
+        assert extent is not None
+        self.assertEqual(
+            (extent.start, extent.stop, extent.basis),
+            (0, SECOND_START, "next-global"),
+        )
+        self.assertFalse(extent.contains(SECOND_START))
+
+    def test_a_local_untyped_label_still_never_bounds_a_function(self) -> None:
+        # The other half of the same rule: `wb_first_case` sits at offset 8
+        # with the same type and size as `wb_first`, and is local, so it is
+        # inside the extent rather than the end of it.
+        extent = symbol_extent(self._handwritten_object(), "wb_first")
+        assert extent is not None
+        self.assertTrue(extent.contains(8))
 
     def test_a_unique_case_fold_is_honoured(self) -> None:
         extent = symbol_extent(self.two, "WB_Second")

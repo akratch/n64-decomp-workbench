@@ -31,6 +31,15 @@ Two rules, in order:
   still the honest signal, and it is exactly the one the interior labels do
   not have. A jump-table destination is ``STT_NOTYPE`` and therefore never
   ends a function here.
+* Otherwise the next *externally visible* symbol -- global or weak binding --
+  in the same section. A handwritten-``.s`` object has no ``STT_FUNC`` at all:
+  every one of its functions is a bare ``.globl`` label, ``STT_NOTYPE`` and
+  size 0, so the ``STT_FUNC`` rule alone ran the first function's extent to
+  the end of the section and swallowed every sibling after it. The *binding*
+  is what separates the two ``STT_NOTYPE`` populations: a function another
+  translation unit can call is global or weak, and a jump-table destination
+  or local branch target is ``STB_LOCAL``. Local symbols therefore still
+  never end a function, which is the rule this module exists to keep.
 
 Everything else -- a stripped object, a symbol that is not in the table, a file
 that is not an ELF this reader understands -- returns ``None`` so the caller
@@ -58,10 +67,23 @@ _ELFDATA2MSB = 2
 _SHT_SYMTAB = 2
 _SHT_NOBITS = 8
 
-#: ``STT_FUNC``: the low nibble of ``st_info``. The only symbol type that ends
-#: another function's body -- see this module's docstring for why the type,
-#: and not the mere presence of a label, is the boundary.
+#: ``STT_FUNC``: the low nibble of ``st_info``. The symbol type that ends
+#: another function's body outright -- see this module's docstring for why the
+#: type, and not the mere presence of a label, is the boundary.
 STT_FUNC = 2
+
+#: ``STT_SECTION`` and ``STT_FILE``: the two types that name something other
+#: than a datum in the section, and so never bound a function even when they
+#: are globally bound.
+STT_SECTION = 3
+STT_FILE = 4
+
+#: The bindings of a symbol another translation unit can reach. A sizeless,
+#: typeless symbol with one of these is a handwritten-assembly function entry;
+#: the same symbol with ``STB_LOCAL`` is an interior label.
+STB_GLOBAL = 1
+STB_WEAK = 2
+EXTERNAL_BINDINGS = frozenset({STB_GLOBAL, STB_WEAK})
 
 
 @dataclass(frozen=True)
@@ -69,7 +91,7 @@ class SymbolExtent:
     """One symbol's section-relative byte range, and how it was decided.
 
     ``stop is None`` means "to the end of the section": the symbol is the last
-    ``STT_FUNC`` in it and declared no size. That is still a usable extent --
+    function entry in it and declared no size. That is still a usable extent --
     it excludes everything *before* the symbol, which is the half that carved
     a prologue out of a target object -- and it is honest about the half it
     cannot bound.
@@ -80,7 +102,9 @@ class SymbolExtent:
     start: int
     stop: int | None
     #: ``size`` when ``st_size`` bounded it, ``next-function`` when the next
-    #: ``STT_FUNC`` did, ``section-end`` when nothing did.
+    #: ``STT_FUNC`` did, ``next-global`` when an untyped but externally bound
+    #: sibling did (the handwritten-assembly shape), ``section-end`` when
+    #: nothing did.
     basis: str
 
     def contains(self, offset: int) -> bool:
@@ -104,8 +128,30 @@ class ElfSymbol:
         return self.info & 0xF
 
     @property
+    def binding(self) -> int:
+        return self.info >> 4
+
+    @property
     def is_function(self) -> bool:
         return self.kind == STT_FUNC
+
+    @property
+    def starts_a_function(self) -> bool:
+        """True when this symbol can only be another function's entry point.
+
+        Either it says so (``STT_FUNC``), or it is a named, externally bound
+        symbol of no particular type -- which is all a handwritten-assembly
+        function ever is. Section and file symbols are excluded because they
+        name the container, not anything inside it.
+        """
+
+        if self.is_function:
+            return True
+        return bool(
+            self.name
+            and self.binding in EXTERNAL_BINDINGS
+            and self.kind not in (STT_SECTION, STT_FILE)
+        )
 
 
 def _sections(data: bytes) -> list[tuple[str, int, int, int, int, int]] | None:
@@ -262,21 +308,23 @@ def symbol_extent(
             stop=match.value + match.size,
             basis="size",
         )
-    # No declared size: the next *function* symbol bounds it. Interior labels
-    # -- jump-table destinations, local branch targets -- are STT_NOTYPE and
-    # deliberately do not, which is the entire defect this module fixes.
+    # No declared size: the next symbol that can only be another function's
+    # entry bounds it. Interior labels -- jump-table destinations, local
+    # branch targets -- are local and deliberately do not, which is the entire
+    # defect this module fixes.
     successors = [
-        item.value
+        item
         for item in in_section
-        if item.is_function and item.value > match.value
+        if item.starts_a_function and item.value > match.value
     ]
     if successors:
+        nearest = min(successors, key=lambda item: (item.value, not item.is_function))
         return SymbolExtent(
             name=match.name,
             section=section,
             start=match.value,
-            stop=min(successors),
-            basis="next-function",
+            stop=nearest.value,
+            basis="next-function" if nearest.is_function else "next-global",
         )
     return SymbolExtent(
         name=match.name,
