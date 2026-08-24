@@ -50,12 +50,15 @@ from .model import Instruction
 __all__ = [
     "ALIGNMENT_GRANULARITIES",
     "DEFAULT_GRANULARITY",
+    "MINIMUM_MOVED_ROWS",
     "EditBlock",
+    "MovedBlock",
     "RowPairing",
     "ShiftDiff",
     "alignment_key",
     "build_shift_diff",
     "comparable_text",
+    "moved_blocks",
     "relocation_rows",
     "shift_diff_lines",
 ]
@@ -469,6 +472,124 @@ def build_shift_diff(
         pairing=pairing,
         positional_mismatches=positional,
     )
+
+
+#: Below this, a "moved block" is noise. Two objects always share short runs
+#: of ``nop``/``lw``/``addiu``; calling one of them a relocated basic block
+#: would turn every ordinary residual into a layout story. Measured against
+#: the case this exists for -- a 29-row dispatch body relocated wholesale --
+#: which clears it by an order of magnitude.
+MINIMUM_MOVED_ROWS = 3
+
+
+@dataclass(frozen=True)
+class MovedBlock:
+    """A run of instructions the candidate kept but put somewhere else.
+
+    The edit script spells one relocation as two unrelated entries: a
+    ``delete`` where the block was and an ``insert`` where it went. Read as
+    two entries it is a large structural difference; read as one pair it is a
+    *permutation*, which is a different source question and a much smaller
+    one. ``words`` cannot tell them apart at all -- it charged 1,791 for a
+    candidate whose real edit script was one moved block -- which is why this
+    is computed and printed rather than left to the reader's eye.
+    """
+
+    target_start: int
+    target_stop: int
+    candidate_start: int
+    candidate_stop: int
+
+    @property
+    def rows(self) -> int:
+        return self.target_stop - self.target_start
+
+    @property
+    def displacement(self) -> int:
+        """How far the block moved, in rows, candidate minus target."""
+
+        return self.candidate_start - self.target_start
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "target_start": self.target_start,
+            "target_stop": self.target_stop,
+            "candidate_start": self.candidate_start,
+            "candidate_stop": self.candidate_stop,
+            "rows": self.rows,
+            "displacement": self.displacement,
+        }
+
+
+def moved_blocks(
+    diff: ShiftDiff,
+    target: Sequence[Instruction],
+    candidate: Sequence[Instruction],
+    *,
+    minimum_rows: int = MINIMUM_MOVED_ROWS,
+) -> tuple[MovedBlock, ...]:
+    """Find each non-equal block whose code the candidate kept somewhere else.
+
+    Every block the edit script did *not* call equal is a candidate for having
+    been relocated rather than rewritten, so each one's target-side rows are
+    looked for, verbatim and contiguous, elsewhere in the candidate stream.
+
+    Searching rather than pairing ``delete`` against ``insert`` is deliberate.
+    :class:`difflib.SequenceMatcher` chooses which side of a swap to call the
+    move, slides block boundaries onto whatever rows happen to compare equal,
+    and folds an unrelated neighbouring edit into a ``replace`` -- all three
+    broke a pairing implementation on the very first fixture, and all three are
+    invisible to a search for the content.
+
+    Equality is on the ``normalized`` key: mnemonics, operand shape and
+    registers, with addresses and immediates abstracted. Verbatim text would
+    refuse every real move, because a relocated block's branch destinations are
+    absolute and change when the block does. Opcodes alone would accept any
+    two similarly shaped runs.
+
+    A destination is claimed once, so two identical blocks cannot both report
+    the same landing place.
+    """
+
+    blocks = [
+        block
+        for block in diff.blocks
+        if block.tag != "insert" and block.target_rows >= minimum_rows
+    ]
+    if not blocks:
+        return ()
+    target_keys = [alignment_key(item, granularity="normalized") for item in target]
+    candidate_keys = [
+        alignment_key(item, granularity="normalized") for item in candidate
+    ]
+    claimed: list[tuple[int, int]] = []
+    found: list[MovedBlock] = []
+    for block in blocks:
+        wanted = target_keys[block.target_start : block.target_stop]
+        width = len(wanted)
+        if not width or width > len(candidate_keys):
+            continue
+        for start in range(len(candidate_keys) - width + 1):
+            stop = start + width
+            # Not where the aligner already put this block: a replace whose
+            # own candidate rows happen to match is not a relocation.
+            if start < block.candidate_stop and stop > block.candidate_start:
+                continue
+            if any(start < end and stop > begin for begin, end in claimed):
+                continue
+            if candidate_keys[start:stop] != wanted:
+                continue
+            claimed.append((start, stop))
+            found.append(
+                MovedBlock(
+                    target_start=block.target_start,
+                    target_stop=block.target_stop,
+                    candidate_start=start,
+                    candidate_stop=stop,
+                )
+            )
+            break
+    return tuple(found)
 
 
 def _block_line(block: EditBlock) -> str:

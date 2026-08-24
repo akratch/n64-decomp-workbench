@@ -8,14 +8,17 @@ all did exactly what they were built to do; the mistake was trusting what
 they did not measure. The first six each cost a real stage of real work in
 the GE007 `object_interaction` campaign (54 → 0 differing words); the seventh
 comes from one level up, where the number being misread is the matching gate
-itself.
+itself; the eighth comes from the SSB64 `cef4c` endgame, where the number
+being misread is the one this project tells you to rank on.
 
 Each trap about the compiler links to its entry in
 [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md), which carries the formal
 statement, the receipt, and the falsification history. This page is the
 narrative version — what the mistake felt like from the inside, so you
 recognize it before you repeat it. Trap 7 is not about the compiler at all —
-it is about the linker — and links to its own page instead.
+it is about the linker — and links to its own page instead. Trap 8 is about
+the comparator, and unlike the rest it now carries its own correction: the
+command prints the counter-evidence beside the misleading number.
 
 ## Trap 1: a ring-quotiented score can hide a 100x-worse object
 
@@ -263,6 +266,58 @@ refuse to cross, and
 [The shiftability campaign](shiftability-campaign.md) for the order to run
 them in on a project that has never been shifted.
 
+## Trap 8: `words` over-charges a moved block by three orders of magnitude
+
+**The trap:** `words` is the metric this project tells you to rank on, and it
+is the right one — *for a candidate the compiler emitted at the target's
+shape*. It is a **positional** count: candidate row *i* against target row
+*i*. Move a block of code and every row between its old home and its new one
+is compared against a stranger, so a candidate whose real edit script is one
+relocated block reports a four-figure residual and reads as garbage.
+
+**The incident.** In the SSB64 `cef4c` endgame, the p2 layout family produced
+a candidate reporting **1,791 differing words**. It was ranked below several
+strictly worse candidates and nearly abandoned. Its actual difference was a
+**single 29-row block relocated** — one edit, in a family whose whole purpose
+was to find that block's correct position. The same postmortem records the
+mirror-image failure on the o3and family, where `opcodes` conflated a
+schedule change with an allocation change and sent two waves at the wrong
+layer.
+
+**Why it happened.** A positional metric has no model of correspondence. It
+cannot distinguish "these two objects disagree about 1,791 instructions" from
+"these two objects agree about all of them and disagree about where one run of
+29 sits." Both readings produce the same number, and the number is the one on
+the summary line.
+
+**The rule:** on `structure-mismatch` and `schedule-mismatch` — the two
+verdicts a permutation lands on — read the `layout` block before `words`.
+`compare` now computes it for you: it runs the shift-tolerant aligner
+automatically on those verdicts and prints the edit script, the moved-block
+count and rows, and `rows_away` beside the positional count, in text and under
+`layout` in `--json`. When `moved_block_count` is non-zero, the guidance line
+leads with it, because the next experiment is a block-order question and not a
+1,791-word one. Run [`align`](from-verdict-to-edit.md) for the full script.
+
+Nothing here retires `words`. It stays the comparable number across a
+candidate set (Trap 1, and
+[L18](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric));
+the fix is that the reading now arrives with its own correction attached
+rather than three screens away in a command nobody thought to run.
+
+**Corollary — a scalar is the wrong fitness function for a layout search.**
+The number that actually converged that endgame was not a scalar at all: it
+was a six-column *heal signature* over rows chosen because they discriminate
+between the mechanisms in play (`compare --watch-rows r49=49,cx2=1620,…`,
+and the same column in `rank` and `sweep build`). `.` healed, `X` broken, one
+column per watched row. It is not a distance and does not pretend to be one,
+which is exactly why it does not average away the thing you are looking for.
+
+See
+[the cef4c postmortem](history/postmortem-2026-08-24-cef4c-exact.md), "What
+failed or was missing" item 5, for both halves of this trap in their original
+form. The objects are not redistributable and are not in this repository.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
@@ -271,6 +326,11 @@ them in on a project that has never been shifted.
   several of these traps were made while reasoning about.
 - [Postmortem: GE007 `object_interaction`](history/postmortem-2026-08-09-ge007.md) —
   the full campaign the first six traps are drawn from.
+- [Hotwash: the cef4c exact-match endgame](history/postmortem-2026-08-24-cef4c-exact.md) —
+  where Trap 8 was paid for, and where the heal-signature fitness function
+  that answers its corollary was invented.
+- [From verdict to edit](from-verdict-to-edit.md) — `align`, the full
+  shift-tolerant edit script Trap 8's summary is drawn from.
 - [Shiftability](shiftability.md) — the commands Trap 7 routes to, and the
   worked example of a matched ROM carrying an address bug.
 - [L18, positional words are the honest metric](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric) and

@@ -9,7 +9,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from .commutative import CommutativeFinding, commutative_findings
 from .elf_instructions import true_instruction_count as elf_true_instruction_count
@@ -27,6 +27,7 @@ from .objdump import (
     symbol_labels,
     true_instruction_count,
 )
+from .shift_align import build_shift_diff, moved_blocks
 
 REGISTER_RE = re.compile(
     r"(?<![A-Za-z0-9_$])\$?(?:f\d+|zero|at|v[01]|a[0-3]|t\d|s\d|k[01]|gp|sp|fp|ra)\b"
@@ -1269,6 +1270,68 @@ def _comparison_guidance(
     )
 
 
+#: JSON identity for :func:`layout_summary`.
+LAYOUT_SUMMARY_SCHEMA = "decomp-workbench-layout-summary-v1"
+
+#: The verdicts that automatically compute the shift-tolerant edit script.
+#: These are the two a block permutation reaches -- ``schedule-mismatch`` when
+#: the instruction multiset survives the move intact, ``structure-mismatch``
+#: when the count or the surrounding opcodes also change -- and the two whose
+#: headline number a permutation inflates. Every other verdict is answering a
+#: question the aligner does not help with, and paying for an alignment on all
+#: of them would cost a scoring wave several minutes for nothing.
+LAYOUT_VERDICTS = frozenset({"structure-mismatch", "schedule-mismatch"})
+
+
+def layout_summary(
+    target: Sequence[Instruction], candidate: Sequence[Instruction]
+) -> dict[str, Any]:
+    """Return the shift-tolerant edit script beside the positional count.
+
+    ``structure-mismatch`` is the verdict a block permutation lands on, and it
+    is the one verdict where the headline number is actively misleading.
+    ``words`` is positional: move a 29-row block and every row between its old
+    and new home is compared with a stranger, so a candidate whose true edit
+    script is *one relocated block* reported 1,791 differing words. Two
+    campaign waves ranked such candidates below strictly worse ones on that
+    number (`docs/history/postmortem-2026-08-24-cef4c-exact.md`, "What failed
+    or was missing" item 5).
+
+    So the aligner runs automatically on this verdict rather than waiting for
+    someone to think of `align`, and the summary travels with the comparison:
+    how many blocks the edit script has, how many of them are the same code in
+    a different place, and what the shift-tolerant distance is. Nothing here
+    replaces ``words`` -- it is printed beside it, because a reader who sees
+    only one of the two numbers is the reader this exists for.
+    """
+
+    # ``normalized`` rather than the module default ``opcode``: this alignment
+    # exists to answer "is this the same code somewhere else", and at opcode
+    # granularity two unrelated loads compare equal, which slides block
+    # boundaries onto rows the two objects do not actually share.
+    diff = build_shift_diff(target, candidate, granularity="normalized")
+    moved = moved_blocks(diff, target, candidate)
+    return {
+        "schema": LAYOUT_SUMMARY_SCHEMA,
+        "granularity": diff.granularity,
+        "target_rows": diff.target_rows,
+        "candidate_rows": diff.candidate_rows,
+        "row_delta": diff.candidate_rows - diff.target_rows,
+        "block_count": len(diff.blocks),
+        "replaced": diff.replaced,
+        "inserted": diff.inserted,
+        "deleted": diff.deleted,
+        "edit_distance": diff.edit_distance,
+        "paired_mismatches": diff.paired_mismatches,
+        "rows_away": diff.rows_away,
+        "positional_mismatches": diff.positional_mismatches,
+        "insertion_only": diff.insertion_only,
+        "moved_block_count": len(moved),
+        "moved_rows": sum(block.rows for block in moved),
+        "moved_blocks": [block.as_dict() for block in moved],
+    }
+
+
 def compare_instructions(
     target: list[Instruction],
     candidate: list[Instruction],
@@ -1404,6 +1467,29 @@ def compare_instructions(
         target_frame_size=target_frame,
         candidate_frame_size=candidate_frame,
     )
+    # The aligner runs itself on the verdicts where the positional headline is
+    # known to mislead. See `layout_summary`. Both are needed and neither is
+    # enough: a permutation whose instruction multiset survives intact lands on
+    # `schedule-mismatch`, and one that also changes the instruction count or
+    # the opcodes around it lands on `structure-mismatch`. Reporting the edit
+    # script for only one of them would leave half the permutations ranked on
+    # a number that over-charges them.
+    layout = (
+        layout_summary(target, candidate)
+        if verdict in LAYOUT_VERDICTS and target and candidate
+        else None
+    )
+    if layout is not None and layout["moved_block_count"]:
+        moved_count = int(layout["moved_block_count"])
+        noun = "block" if moved_count == 1 else "blocks"
+        guidance.insert(
+            0,
+            f"Layout: {moved_count} {noun} of code ({layout['moved_rows']} row(s)) "
+            "are present in both objects at different positions. A permutation "
+            f"is not {exact_mismatches} words of difference -- the shift-tolerant "
+            f"edit script is {layout['rows_away']} row(s). Fix the block order "
+            "before reading the positional counts.",
+        )
     if target_frame != candidate_frame:
         target_save_bytes = target_frame_layout["observed_save_bytes"]
         candidate_save_bytes = candidate_frame_layout["observed_save_bytes"]
@@ -1516,6 +1602,7 @@ def compare_instructions(
             and candidate_true_instructions is not None
         ),
         aligned_row_receipts=row_receipts,
+        layout=layout,
     )
 
 

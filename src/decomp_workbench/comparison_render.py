@@ -292,6 +292,67 @@ def true_instruction_lines(item: Comparison) -> list[str]:
     return lines
 
 
+#: Moved blocks quoted on the terminal before the rest are deferred to
+#: ``--json``. A permutation with more than a handful of relocated blocks is a
+#: restructuring, and the count is the finding at that point, not the list.
+LAYOUT_BLOCKS = 6
+
+
+def layout_lines(item: Comparison) -> list[str]:
+    """Render the auto-run edit script beside ``words``, or nothing.
+
+    Placement is the whole point. ``words`` is on the summary line above; a
+    reader who meets the edit script three screens down in ``--json`` has
+    already ranked the candidate on a number that over-charges a permutation
+    by three orders of magnitude. See
+    ``decomp_workbench.compare.layout_summary``.
+    """
+
+    layout = item.layout
+    if not layout:
+        return []
+    moved = list(layout.get("moved_blocks") or [])
+    lines = [
+        f"layout (shift-tolerant edit script, run automatically on {item.verdict}):",
+        f"  blocks={layout['block_count']} "
+        f"replaced={layout['replaced']} inserted={layout['inserted']} "
+        f"deleted={layout['deleted']} "
+        f"rows={layout['target_rows']}->{layout['candidate_rows']} "
+        f"({int(layout['row_delta']):+d})",
+        f"  rows_away={layout['rows_away']} "
+        f"({layout['edit_distance']} edit + {layout['paired_mismatches']} "
+        f"residual) against words={item.word_mismatches}",
+    ]
+    if not moved:
+        lines.append(
+            "  moved blocks: none -- the difference is not a permutation, so "
+            "the positional counts are reading real new or changed code."
+        )
+        return lines
+    lines.append(
+        f"  moved blocks: {layout['moved_block_count']} "
+        f"({layout['moved_rows']} row(s)) present in both objects at "
+        "different positions"
+    )
+    for block in moved[:LAYOUT_BLOCKS]:
+        lines.append(
+            f"    {block['rows']:>5} row(s)  target "
+            f"{block['target_start']}..{block['target_stop'] - 1}  ->  "
+            f"candidate {block['candidate_start']}..{block['candidate_stop'] - 1}  "
+            f"({int(block['displacement']):+d})"
+        )
+    if len(moved) > LAYOUT_BLOCKS:
+        lines.append(
+            f"    ... {len(moved) - LAYOUT_BLOCKS} more; the full list is in "
+            "--json under layout.moved_blocks"
+        )
+    lines.append(
+        "  A permutation is a block-order question, not a "
+        f"{item.word_mismatches}-word one. Run `align` for the full script."
+    )
+    return lines
+
+
 def comparison_explanation_lines(
     item: Comparison,
     *,
@@ -349,6 +410,7 @@ def comparison_explanation_lines(
     )
     if breakdown:
         lines.append(f"raw difference classes: {breakdown}")
+    lines.extend(layout_lines(item))
     lines.extend(raw_versus_words_lines(item))
     lines.extend(relocation_target_difference_lines(item))
     if item.diff_sites:
