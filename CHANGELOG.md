@@ -95,7 +95,6 @@ in [design notes](docs/history/design-notes.md).
   in `--json`. One campaign candidate whose real edit script was a single
   relocated 29-row block reported 1,791 differing words and was ranked below
   strictly worse candidates. Documented as Trap 8 in `docs/metric-traps.md`.
-
 - `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
   including the selector expression, XJP range/default/case labels, and dense
   case-target table.
