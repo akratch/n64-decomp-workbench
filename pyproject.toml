@@ -79,6 +79,8 @@ strict = true
 [tool.codespell]
 # "tne" is the MIPS trap-if-not-equal mnemonic; "pavin" is the uopt
 # partial-availability-in per-block field decoded in the dp64 field notes;
-# "statics" is the C term for file-scope static definitions.
-ignore-words-list = "disjointness,dout,pavin,tne,nd,statics,sucessors"
+# "statics" is the C term for file-scope static definitions; "lod" is IDO's
+# Ucode load opcode and "Valu" its constant union, both spelled as the
+# compiler's own source spells them.
+ignore-words-list = "disjointness,dout,pavin,tne,nd,statics,sucessors,lod,valu"
 skip = "./research-archive"

@@ -47,6 +47,7 @@ from .campaign_state import (
     initialize_manifest,
     record_control_preflight,
 )
+from .capture_cli import register_capture_commands
 from .cascade_cli import register_cascade_commands
 from .cli_options import (
     SYMBOL_OPTION_DEST,
@@ -127,6 +128,7 @@ from .object_cli import (
 from .oracle_cli import register_oracle_commands
 from .pass_adapter_cli import register_pass_adapter_command
 from .pass_replay import ListingEdit, replay_as1
+from .pass_replay_cli import register_replay_ugen_command
 from .phase_cli import register_phase_commands
 from .preflight import compile_preflight
 from .project_cli import register_project_commands
@@ -150,6 +152,7 @@ from .shift_cli import register_shift_commands
 from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
+from .streams_cli import register_stream_commands
 from .sweep_cli import register_sweep_commands
 from .target_audit_cli import register_target_commands
 from .toolchain import toolchain_status
@@ -2165,6 +2168,14 @@ def build_parser() -> argparse.ArgumentParser:
     # Inspect the preceding uopt-to-ugen stream when a switch's XJP range or
     # selector normalization owns the control-flow shape.
     register_ucode_command(commands)
+    # Retain those streams in the first place: the arg-preserving wrappers
+    # that make a normal build leave every pass boundary on disk.
+    register_capture_commands(commands)
+    # Read, compare and edit the retained streams by record.
+    register_stream_commands(commands)
+    # Replay one edited stream through the stock phases with the captured
+    # argv, so a boundary hypothesis is proven before any C is hunted for it.
+    register_replay_ugen_command(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.

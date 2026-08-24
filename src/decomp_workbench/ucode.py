@@ -21,7 +21,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .binasm import BINASM_RECORD_SIZE, parse_binasm
+from .binasm import (
+    BINASM_RECORD_SIZE,
+    StreamSource,
+    parse_binasm,
+    read_stream_bytes,
+)
 
 UCODE_REPORT_SCHEMA = "decomp-workbench-ucode-xjp-v1"
 
@@ -658,9 +663,10 @@ class UcodeRecord:
         return result
 
 
-def parse_ucode(data: bytes) -> tuple[UcodeRecord, ...]:
+def parse_ucode(source: StreamSource) -> tuple[UcodeRecord, ...]:
     """Parse one complete big-endian IDO binary Ucode stream."""
 
+    data = read_stream_bytes(source)
     if len(data) % 4:
         raise ValueError(
             f"Ucode stream is {len(data)} bytes; expected complete 32-bit words"
@@ -771,9 +777,7 @@ def _label_blocks(
     auditable when a less trivial record appears after the jump.
     """
 
-    positions = [
-        index for index, record in enumerate(records) if record.name == "lab"
-    ]
+    positions = [index for index, record in enumerate(records) if record.name == "lab"]
     blocks: dict[int, tuple[UcodeRecord, ...]] = {}
     for offset, start in enumerate(positions):
         end = positions[offset + 1] if offset + 1 < len(positions) else len(records)
@@ -786,9 +790,7 @@ def _trivial_jump_target(block: tuple[UcodeRecord, ...]) -> int | None:
     """Return the destination of a metadata-only label/jump trampoline."""
 
     semantic = [
-        record
-        for record in block
-        if record.name not in {"lab", "loc", "nop", "comm"}
+        record for record in block if record.name not in {"lab", "loc", "nop", "comm"}
     ]
     if len(semantic) == 1 and semantic[0].name == "ujp":
         return semantic[0].words[1]

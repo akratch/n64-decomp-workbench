@@ -23,9 +23,7 @@ def _integer(value: str) -> int:
 def binasm_boundary_command(args: argparse.Namespace) -> int:
     try:
         peep_text = (
-            Path(args.peep_log).read_text(encoding="utf-8")
-            if args.peep_log
-            else None
+            Path(args.peep_log).read_text(encoding="utf-8") if args.peep_log else None
         )
         probe_results = (
             json.loads(Path(args.probe_results).read_text(encoding="utf-8"))
@@ -56,8 +54,7 @@ def binasm_boundary_command(args: argparse.Namespace) -> int:
         f"sha256={stream['sha256'][:12]}"
     )
     print(
-        f"boundary: {boundary['offset_hex']} before record "
-        f"{boundary['record_index']}"
+        f"boundary: {boundary['offset_hex']} before record {boundary['record_index']}"
     )
     for item in boundary["window"]:
         marker = ">" if item["boundary_before"] else " "
@@ -149,4 +146,3 @@ def register_binasm_command(
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.set_defaults(handler=binasm_boundary_command)
-

@@ -416,6 +416,18 @@ The unedited replay must reproduce the normal object. After that, test one
 uniquely matched `--insert-before` or `--insert-after` edit. See
 [Pass replay](pass-replay.md).
 
+When the driver deletes its temporaries, or the suspect boundary is the Ucode
+uopt handed ugen, capture the phases and replay the stream itself:
+
+```sh
+decomp-workbench capture make /path/to/ido/7.1 .decomp-workbench/capture
+decomp-workbench pass replay-ugen patched.U --toolchain .decomp-workbench/capture \
+  --argv-from .decomp-workbench/capture/captures/20260824-083209-19786-ugen \
+  -o candidate.o
+```
+
+See [Phase capture, stream surgery, and replay](phase-capture.md).
+
 ## Static-recompiled IDO instrumentation
 
 Use the generic `instrument-ugen` command for shallow function and free-list
