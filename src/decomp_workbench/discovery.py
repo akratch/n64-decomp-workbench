@@ -139,6 +139,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("replay-as1", "calibrate and probe late assembler scheduling"),
         ("diff", "compare user-supplied original and static pass boundaries"),
         ("binasm", "inspect a retained ugen-to-as1 peephole boundary"),
+        ("ucode", "inspect retained XJP ranges, selectors, and case tables"),
     ),
     "probe": (
         ("lines", "probe whether statement line assignment owns a schedule"),
@@ -242,6 +243,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("pass", "replay-as1"): "replay-as1",
     ("pass", "diff"): "pass-diff",
     ("pass", "binasm"): "inspect-binasm",
+    ("pass", "ucode"): "inspect-ucode",
     ("probe", "deadread"): "probe-deadread",
     ("probe", "equiv"): "probe-equiv",
     ("probe", "lines"): "probe-lines",
@@ -306,6 +308,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "campaign-survey",
         "next-dumps",
         "inspect-binasm",
+        "inspect-ucode",
         "note-add",
         "note-list",
         "note-merge",

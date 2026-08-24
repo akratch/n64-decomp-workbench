@@ -94,6 +94,26 @@ survives cfe/uopt/ugen and emits that record. The report therefore separates
 assembler-mode controls from source-search families such as width
 normalization, alias/call metadata, and real control-flow joins.
 
+## Inspect a retained binary Ucode switch
+
+When the suspicious boundary is earlier than ugen, inspect the binary Ucode
+that uopt handed to ugen without replaying any pass:
+
+```sh
+decomp-workbench pass ucode retained.U
+```
+
+The report decodes every `Uxjp` from IDO's variable-width, big-endian Ucode
+format. It prints the exact postfix selector expression consumed by the jump,
+the inclusive lower and upper bounds, the case-table and default labels, and
+the dense `Uclab`/`Uujp` value-to-label map that immediately follows it.
+`--json` emits the same lossless records and raw words for automation.
+
+The case/default distinction is structural: `Uxjp` word 1 names the case-table
+label and word 2 names the default label. As with `pass binasm`, this is static
+pass-boundary evidence. It proves what the retained stream contains, not which
+C spelling produced it.
+
 ## Controls
 
 Run at least three cells:

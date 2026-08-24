@@ -162,6 +162,7 @@ from .trace import (
     replay_fifo,
     trace_summary,
 )
+from .ucode_cli import register_ucode_command
 from .view import MechanismView
 from .view_cli import (
     Painter,
@@ -2154,6 +2155,9 @@ def build_parser() -> argparse.ArgumentParser:
     # Inspect the retained ugen-to-as1 stream before treating a late register
     # rewrite as an allocator or source-shape problem.
     register_binasm_command(commands)
+    # Inspect the preceding uopt-to-ugen stream when a switch's XJP range or
+    # selector normalization owns the control-flow shape.
+    register_ucode_command(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.

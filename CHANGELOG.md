@@ -7,6 +7,9 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
+  including the selector expression, XJP range/default/case labels, and dense
+  case-target table.
 - `pass binasm` statically inspects one fixed-record ugen-to-as1 boundary,
   summarizes IDO 7.1 `-peepdbg` copy rewrites, and turns exact barrier-probe
   cells into source-search families without overstating upstream survival.
