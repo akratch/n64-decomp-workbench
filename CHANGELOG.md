@@ -16,6 +16,22 @@ in [design notes](docs/history/design-notes.md).
 - `trace a71` parses and diffs the compact IDO 7.1 final-color stream,
   decoding priorities and masks while warning that web IDs are run-local and
   the producer's historical `refs`/`defs` fields are invalid.
+- Agent skill: `references/evidence-ladder.md` v2 adds byte-pattern search,
+  phase-capture decode/diff, and Ucode patch-and-replay as evidence rungs,
+  plus "prove at the boundary, then hunt C" doctrine.
+- Agent skill: new `references/late-stage-doctrine.md` — mechanism
+  composition (prove levers in isolation, compose late), saturation-scope
+  hygiene (negatives are basin-local; re-open dials after equilibrium
+  shifts), per-site heal-signature fitness over scalar metrics, and target
+  trust (audit target section scope at campaign registration).
+- Agent skill: `references/campaign-hygiene.md` documents the fan-out
+  pattern — asserted-unique-anchor generators, waved sweeps with interim
+  standings, mid-flight steering, and byte-search verification of agent
+  claims.
+- `docs/final-function-campaigns.md`: the cef4c case study, from the
+  99.91% hosted frontier through allocator reverse-engineering, the
+  one-word `as1` wall, the conditional-fjp barrier proof, mechanism
+  composition to `words=0`, and the target-scope fix.
 
 ## 0.6.0 - 2026-08-17
 

@@ -74,6 +74,69 @@ Takeaway:
 - Cross-ROM structural comparison can rule out a regional source branch and
   turn another revision into a trustworthy structural witness.
 
+## cef4c: the last function, from 99.91% hosted to words=0
+
+`func_ovl0_800CEF4C` (`lbParticleUpdateStruct`, 1,868 instructions) was the
+last unmatched function in a full-project campaign. It went from a 99.91%
+hosted frontier to an exact source through five stages, each recorded in a
+standalone dossier
+(`docs/history/postmortem-2026-08-24-cef4c-exact.md` is the after-action
+review; the dossiers below are its evidence).
+
+1. **Allocator reverse-engineering.** With the residual pinned at one
+   register-allocation word, the campaign fully characterized IDO 7.1's
+   Chow-priority coloring for the function — the `save/units` priority
+   formula, the pop-order tie break, and the exact pop chain the target
+   requires — by instrumenting `uopt` and exhaustively enumerating feasible
+   pop orders. This did not move the residual; it explained precisely why
+   every tested source family couldn't ("ALLOCATOR_MODEL.md" in the campaign
+   dossiers).
+2. **The one-word `as1` wall.** Nearly 5,000 compiled-and-compared source
+   variants converged on a single fixed point: UGEN already emitted the
+   target's instruction stream, but `as1`'s `peep_reg` copy-propagation
+   rewrote one register on one instruction by path-local analysis, and no
+   tested C spelling could suppress it. Binasm-level barrier probes proved
+   the mechanism and its zero-cost artificial fix, but not yet a legal
+   source route to it (`FABLE_HANDOFF.md`).
+3. **The conditional-fjp barrier, proven at the phase boundary.** Ucode
+   patch-and-replay found that inserting three (never two, never four)
+   chained conditional branch-to-next records at a specific byte offset
+   healed the wall with zero instruction cost, because UGEN's
+   branch-to-next eliminator removes at most two conditional branches while
+   `as1`'s copy-fact carry rule dies at the surviving one's transient block
+   boundary. This was proven `words=0` by stream surgery before any source
+   spelling reached it (`FJP_BARRIER_PROOF.md`).
+4. **Making the barrier source-reachable.** A source-level `if/else`
+   partition on the dispatch switch's range test, containing the empty-bodied
+   triple-conditional statement, reproduced the barrier from C for the first
+   time and healed the historical one-word residual — while introducing a
+   new, unrelated dispatch-layout residual (high-case bodies relocated
+   relative to the target's placement) (`PARTITION_BARRIER.md`). A lateral
+   rediscovery of the same `as1` wall, from the integer-rotation side, found
+   a donor-free three-word basin using the identical triple-read statement
+   and gave the priority-arithmetic tables behind it (`O3AND_COUNTERDIAL.md`).
+5. **Composition to words=0.** The exact source composed four independently
+   proven mechanisms — the triple-conditional branch-to-next barrier, a
+   goto-pair fallthrough inversion, a Duff-nested dispatch layout, and a
+   ternary selector-temp reshape — none of which moved the residual alone.
+   Composed, the local comparison reached `words=0` / `exact=true`
+   (postmortem, "What the campaign actually took").
+6. **The target-scope fix.** With a genuine local `words=0`, the hosted
+   score still reported a nonzero residual. An ELF autopsy against ROM bytes
+   found the hosted target object's own `.rodata` extraction had cut the
+   function's literal pool short by 20 bytes (four constants mis-attributed
+   to a neighboring symbol); a corrected target scored exact
+   (`hosted-fix/TARGET_RODATA_FIX.md`).
+
+Takeaway: the last percent of a hard function is rarely one more source
+variant. It was an allocator model, a phase-boundary proof, a source route to
+that proof, and a target-scope audit — four different kinds of evidence, in
+that order. See
+[references/late-stage-doctrine.md](../src/decomp_workbench/skills/n64-decomp-campaign/references/late-stage-doctrine.md)
+and
+[references/evidence-ladder.md](../src/decomp_workbench/skills/n64-decomp-campaign/references/evidence-ladder.md)
+for the doctrine this campaign earned.
+
 ## A practical decision table
 
 | Comparator result | First response | Avoid |

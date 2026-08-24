@@ -27,6 +27,34 @@ finish` performs a fresh rebuild; optional scratch, collateral, handoff, and
 project checks are separate gates and must not be summarized as run when their
 receipt says `NOT RUN`.
 
+## Fan out safely
+
+A large mechanical sweep is safe to run unattended, at a cheaper model or
+larger batch size, only when the generator can prove each substitution is
+unambiguous before it runs. Have every generator assert that its anchor
+string (the token or line it is about to rewrite) is unique in the source
+before substituting; a non-unique anchor is a generator bug, not a variant,
+and must fail loud rather than silently rewrite the wrong occurrence.
+
+Run a wave this way with interim standings, not as one opaque batch: compile
+and score a bounded slice, record the best-so-far signature, and let a
+human or a steering agent look at the trajectory before committing the next
+slice's parameter ranges. A sweep that runs to completion unattended can
+waste its entire budget rediscovering a basin the first tenth of it already
+found.
+
+Steer an in-flight fan-out with fresh discriminating evidence as soon as it
+exists — a byte-pattern check that distinguishes basins, a new heal-signature
+row — rather than waiting for the wave to finish on its original plan. A
+single well-timed discriminating check, applied mid-sweep, can save an entire
+wasted wave that the original plan would have run to exhaustion.
+
+Verify an agent's completion or exhaustion claim about a sweep with an
+independent byte-pattern search over the actual retained objects before
+accepting it, especially when the claim is negative ("no candidate reached
+X"). A claim is a report about what an agent tried, not a measurement; the
+byte search is the measurement.
+
 ## Keep public proof useful and safe
 
 Publish only material your project may redistribute. Prefer a minimal scratch

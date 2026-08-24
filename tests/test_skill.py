@@ -44,6 +44,7 @@ class AgentSkillTests(unittest.TestCase):
                 "ido-late-stage-patterns.md",
                 "campaign-hygiene.md",
                 "frontend-lineage.md",
+                "late-stage-doctrine.md",
             ],
         )
         for reference in references:
