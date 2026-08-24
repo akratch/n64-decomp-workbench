@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import shutil
 import sys
 import unittest
@@ -118,6 +119,42 @@ class CollectSourcesTests(unittest.TestCase):
             collect_sources(["/nonexistent/variants"])
         self.assertIn("sweep.json", str(caught.exception))
 
+    def test_a_manifest_variant_whose_file_is_missing_is_still_collected(self) -> None:
+        # A candidate that vanishes from the table reads as a candidate that
+        # was never tried, so a declared-but-absent variant is carried through
+        # to the wave, which gives it a `failed` row.
+        with TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "v-present.c").write_text("x", encoding="utf-8")
+            (directory / "sweep.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "decomp-workbench-sweep-v1",
+                        "generator": "demo",
+                        "base": "base.c",
+                        "base_sha256": "0" * 64,
+                        "variants": [
+                            {
+                                "site": "L1",
+                                "class": "H",
+                                "carrier": "-",
+                                "filename": "v-present.c",
+                            },
+                            {
+                                "site": "L2",
+                                "class": "H",
+                                "carrier": "-",
+                                "filename": "v-vanished.c",
+                            },
+                        ],
+                        "coverage": {"basis": "sampled", "covered": 2},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            found = collect_sources([directory])
+        self.assertEqual([item.name for item in found], ["v-present.c", "v-vanished.c"])
+
     def test_a_source_named_twice_is_built_once(self) -> None:
         with TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -156,7 +193,9 @@ class WaveTests(unittest.TestCase):
         self.compiler.write_text(
             "import shutil, sys, pathlib\n"
             "source, output = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])\n"
-            f"prebuilt = pathlib.Path({str(self.prebuilt)!r}) / (source.stem + '.o')\n"
+            f"root = pathlib.Path({str(self.prebuilt)!r})\n"
+            "scoped = root / (source.parent.name + '-' + source.stem + '.o')\n"
+            "prebuilt = scoped if scoped.is_file() else root / (source.stem + '.o')\n"
             "if not prebuilt.is_file():\n"
             "    sys.stderr.write('no rule to make ' + source.stem + '\\n')\n"
             "    raise SystemExit(2)\n"
@@ -290,6 +329,111 @@ class WaveTests(unittest.TestCase):
         self.assertEqual(payload["nice"], DEFAULT_NICE)
         self.assertEqual(payload["jobs"], 2)
         self.assertEqual([entry["label"] for entry in payload["watch_row_set"]], ["r1"])
+
+    def test_same_named_sources_from_two_directories_do_not_collide(self) -> None:
+        first = self.root / "wave-a"
+        second = self.root / "wave-b"
+        for directory, text in ((first, TARGET_WORDS), (second, FAR_WORDS)):
+            directory.mkdir()
+            (directory / "hoist.c").write_text("/* hoist */\n", encoding="utf-8")
+            (self.prebuilt / f"{directory.name}-hoist.o").write_bytes(_object(text))
+        objects = self.root / "collision-objects"
+        wave = run_sweep_build(
+            collect_sources([first, second]),
+            target=self.target,
+            template=self.template,
+            objects=objects,
+            jobs=2,
+            niceness=0,
+            timeout=60.0,
+        )
+        # Before the fix both candidates compiled to `hoist.o` and both rows
+        # scored whichever compile finished last.
+        self.assertEqual(wave.colliding_stems, ("hoist",))
+        labels = [item.label for item in wave.ranked]
+        self.assertEqual(len(set(labels)), 2)
+        self.assertTrue(all(label.startswith("hoist-") for label in labels), labels)
+        self.assertEqual(
+            sorted(
+                item.comparison.word_mismatches
+                for item in wave.ranked
+                if item.comparison
+            ),
+            [0, 2],
+        )
+        self.assertEqual(len(sorted(objects.glob("hoist-*.o"))), 2)
+        self.assertIn(
+            "appear in more than one input directory", "\n".join(build_lines(wave))
+        )
+
+    def test_a_declared_variant_whose_file_is_missing_gets_a_row(self) -> None:
+        directory = self.root / "manifest"
+        directory.mkdir()
+        (directory / "near.c").write_text("/* near */\n", encoding="utf-8")
+        (directory / "sweep.json").write_text(
+            json.dumps(
+                {
+                    "schema": "decomp-workbench-sweep-v1",
+                    "generator": "demo",
+                    "base": "base.c",
+                    "base_sha256": "0" * 64,
+                    "variants": [
+                        {
+                            "site": "L1",
+                            "class": "H",
+                            "carrier": "-",
+                            "filename": "near.c",
+                        },
+                        {
+                            "site": "L2",
+                            "class": "H",
+                            "carrier": "-",
+                            "filename": "vanished.c",
+                        },
+                    ],
+                    "coverage": {"basis": "sampled", "covered": 2},
+                }
+            ),
+            encoding="utf-8",
+        )
+        wave = run_sweep_build(
+            collect_sources([directory]),
+            target=self.target,
+            template=self.template,
+            objects=self.root / "manifest-objects",
+            jobs=1,
+            niceness=0,
+            timeout=60.0,
+        )
+        self.assertEqual([item.label for item in wave.unscored], ["vanished"])
+        self.assertEqual(wave.unscored[0].status, "failed")
+        self.assertIn("does not exist", wave.unscored[0].detail)
+        self.assertEqual(wave.count("failed"), 1)
+        self.assertEqual([item.label for item in wave.ranked], ["near"])
+
+    @unittest.skipUnless(os.name == "posix", "needs an executable script as argv[0]")
+    def test_a_swapped_compiler_binary_invalidates_the_cache(self) -> None:
+        wrapper = self.root / "cc-wrapper"
+        wrapper.write_text(
+            f'#!/bin/sh\nexec {sys.executable} "{self.compiler}" "$1" "$2"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        template = f"{wrapper} {{source}} {{output}}"
+        first = self._run(template=template, objects=self.root / "swap-objects")
+        self.assertEqual(first.count("compiled"), 3)
+        # Same path, same command, same sources: only the binary behind the
+        # path changed. Without the compiler's identity in the fingerprint the
+        # whole wave reported `cached` and served the old objects.
+        wrapper.write_text(
+            f"#!/bin/sh\n# rebuilt toolchain\nexec {sys.executable} "
+            f'"{self.compiler}" "$1" "$2"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        again = self._run(template=template, objects=self.root / "swap-objects")
+        self.assertEqual(again.count("compiled"), 3)
+        self.assertEqual(again.count("cached"), 0)
 
     def test_a_wave_that_scores_nothing_exits_one(self) -> None:
         empty = self.root / "none"

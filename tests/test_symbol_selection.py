@@ -156,9 +156,7 @@ class InteriorLabelTests(unittest.TestCase):
         # `wb_alpha` then ran on through `wb_beta`'s body and returned six
         # rows for a three-row function.
         self.assertIn("wb_beta", interior_labels(DUMP_WITH_SELF_TARGETED_SUCCESSOR))
-        parsed = parse_disassembly(
-            DUMP_WITH_SELF_TARGETED_SUCCESSOR, symbol="wb_alpha"
-        )
+        parsed = parse_disassembly(DUMP_WITH_SELF_TARGETED_SUCCESSOR, symbol="wb_alpha")
         self.assertEqual([item.address for item in parsed], [0, 4, 8])
 
     def test_the_self_targeting_successor_still_selects_itself(self) -> None:

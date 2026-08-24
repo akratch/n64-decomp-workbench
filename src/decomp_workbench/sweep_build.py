@@ -39,12 +39,18 @@ import hashlib
 import json
 import os
 import shutil
-from collections.abc import Iterable, Sequence
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .campaign import CompilerTimeoutError, render_compile_command, run_compiler
+from .campaign import (
+    CompilerTimeoutError,
+    executable_identity,
+    render_compile_command,
+    run_compiler,
+)
 from .compare import TargetObject, compare_candidate, load_target
 from .model import Comparison, display_path
 from .objdump import discover_objdump
@@ -58,6 +64,7 @@ __all__ = [
     "SORT_ORDERS",
     "BuildResult",
     "SweepBuild",
+    "assign_labels",
     "build_lines",
     "collect_sources",
     "run_sweep_build",
@@ -197,6 +204,10 @@ class SweepBuild:
     watch: tuple[WatchRow, ...]
     results: tuple[BuildResult, ...]
     order: str = "words"
+    #: File stems more than one input source shares. Reported rather than
+    #: silently disambiguated: two candidates with one name is usually two
+    #: generator runs pointed at one wave, and the reader wants to know.
+    colliding_stems: tuple[str, ...] = ()
 
     @property
     def ranked(self) -> tuple[BuildResult, ...]:
@@ -234,6 +245,7 @@ class SweepBuild:
             "cached": self.count("cached"),
             "failed": self.count("failed"),
             "unreadable": self.count("unreadable"),
+            "colliding_stems": list(self.colliding_stems),
             "results": [item.as_dict() for item in self.ranked],
             "unscored": [item.as_dict() for item in self.unscored],
         }
@@ -249,6 +261,13 @@ def collect_sources(
     order, so a generated family builds in the order its own catalogue
     declares. Duplicates are dropped rather than built twice, keeping the
     first mention.
+
+    A manifest variant whose file is missing is still returned. It cannot
+    build, and `run_sweep_build` gives it a ``failed`` row saying so -- which
+    is the invariant `BuildResult.status` states: a candidate that vanishes
+    from the table reads as a candidate that was never tried, and the
+    generator that declared it is exactly the thing the reader needs told
+    about.
     """
 
     found: list[Path] = []
@@ -268,9 +287,7 @@ def collect_sources(
             if manifest_path.is_file():
                 manifest = read_manifest(manifest_path)
                 for variant in manifest.variants:
-                    candidate = path / variant.filename
-                    if candidate.is_file():
-                        add(candidate)
+                    add(path / variant.filename)
                 continue
             for candidate in sorted(path.glob(f"*{suffix}")):
                 add(candidate)
@@ -301,13 +318,55 @@ def _nice_prefix(niceness: int) -> list[str]:
     return [executable, "-n", str(niceness)] if executable else []
 
 
-def _fingerprint(source: Path, command: Sequence[str]) -> str:
-    """Identify what an object was built from: source bytes plus the command."""
+def assign_labels(sources: Sequence[Path]) -> dict[Path, str]:
+    """Give every source a label unique across the whole wave.
+
+    The label names the row in the table, the object on disk, and the cache
+    entry, so two sources sharing one stem -- ``variants/a/hoist.c`` and
+    ``variants/b/hoist.c``, which is what two generator runs produce -- used
+    to race to compile the same ``hoist.o`` and then score whichever one won
+    twice, once under each candidate's name. A colliding stem therefore keeps
+    the stem and gains a short digest of its own path.
+    """
+
+    counts = Counter(source.stem for source in sources)
+    labels: dict[Path, str] = {}
+    for source in sources:
+        if counts[source.stem] == 1:
+            labels[source] = source.stem
+            continue
+        digest = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:8]
+        labels[source] = f"{source.stem}-{digest}"
+    return labels
+
+
+def _colliding_stems(sources: Sequence[Path]) -> tuple[str, ...]:
+    """Return the stems more than one source in the wave shares."""
+
+    counts = Counter(source.stem for source in sources)
+    return tuple(sorted(stem for stem, count in counts.items() if count > 1))
+
+
+def _fingerprint(
+    source: Path, command: Sequence[str], *, compiler: Mapping[str, str | None]
+) -> str:
+    """Identify what an object was built from.
+
+    Source bytes, the command, *and* the compiler's own identity. The last is
+    what `campaign`'s cache key has always carried (`candidate_provenance`):
+    swapping the toolchain behind an unchanged path leaves source and command
+    identical, and without the compiler's hash a whole wave reports ``cached``
+    while serving objects the previous toolchain built.
+    """
 
     digest = hashlib.sha256()
     digest.update(source.read_bytes())
     digest.update(b"\0")
     digest.update("\0".join(command).encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(
+        json.dumps(compiler, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
     return digest.hexdigest()
 
 
@@ -343,11 +402,12 @@ def _compile_one(
     compile_cwd: Path,
     timeout: float | None,
     cached_fingerprint: str | None,
+    compiler: Mapping[str, str | None],
 ) -> tuple[str, str, str]:
     """Build one candidate. Returns ``(status, detail, fingerprint)``."""
 
     command = _nice_prefix(niceness) + render_compile_command(template, source, output)
-    fingerprint = _fingerprint(source, command)
+    fingerprint = _fingerprint(source, command, compiler=compiler)
     if (
         cached_fingerprint == fingerprint
         and output.is_file()
@@ -424,10 +484,26 @@ def run_sweep_build(
     cache = {} if refresh else _read_cache(object_dir)
     fresh: dict[str, str] = {}
 
+    labels = assign_labels(sources)
     plan = [
-        (source, object_dir / f"{source.stem}{object_suffix}") for source in sources
+        (source, object_dir / f"{labels[source]}{object_suffix}") for source in sources
     ]
-    outcomes: dict[Path, tuple[str, str, str]] = {}
+    # The compiler is the same for every candidate in a wave, so its identity
+    # is read once here rather than per source: `_fingerprint` needs it, and
+    # hashing the binary once per candidate would cost a wave real time.
+    compiler = (
+        executable_identity(
+            render_compile_command(template, sources[0], object_dir / "probe.o"),
+            cwd=cwd,
+        )
+        if sources
+        else {}
+    )
+    outcomes: dict[Path, tuple[str, str, str]] = {
+        source: ("failed", "the candidate source does not exist", "")
+        for source, _output in plan
+        if not source.is_file()
+    }
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {
             pool.submit(
@@ -439,9 +515,11 @@ def run_sweep_build(
                 environment=env,
                 compile_cwd=cwd,
                 timeout=timeout,
-                cached_fingerprint=cache.get(source.stem),
+                cached_fingerprint=cache.get(labels[source]),
+                compiler=compiler,
             ): source
             for source, output in plan
+            if source not in outcomes
         }
         for future in concurrent.futures.as_completed(futures):
             source = futures[future]
@@ -458,11 +536,11 @@ def run_sweep_build(
     for source, output in plan:
         status, detail, fingerprint = outcomes.get(source, ("failed", "not built", ""))
         if status in {"compiled", "cached"} and fingerprint:
-            fresh[source.stem] = fingerprint
+            fresh[labels[source]] = fingerprint
         if status == "failed":
             results.append(
                 BuildResult(
-                    label=source.stem,
+                    label=labels[source],
                     source=display_path(source),
                     object_path=None,
                     status=status,
@@ -477,7 +555,7 @@ def run_sweep_build(
         except (OSError, RuntimeError, ValueError) as error:
             results.append(
                 BuildResult(
-                    label=source.stem,
+                    label=labels[source],
                     source=display_path(source),
                     object_path=display_path(output),
                     status="unreadable",
@@ -499,7 +577,7 @@ def run_sweep_build(
             )
         results.append(
             BuildResult(
-                label=source.stem,
+                label=labels[source],
                 source=display_path(source),
                 object_path=display_path(output),
                 status=status,
@@ -517,6 +595,7 @@ def run_sweep_build(
         watch=tuple(watch),
         results=tuple(results),
         order=order,
+        colliding_stems=_colliding_stems(sources),
     )
 
 
@@ -537,6 +616,19 @@ def build_lines(wave: SweepBuild, *, limit: int = 40) -> list[str]:
         f"(jobs={wave.jobs}, nice={wave.nice})",
         "",
     ]
+    if wave.colliding_stems:
+        shown = ", ".join(wave.colliding_stems[:8])
+        more = len(wave.colliding_stems) - 8
+        lines.extend(
+            (
+                f"note: {len(wave.colliding_stems)} file name(s) appear in more "
+                f"than one input directory ({shown}"
+                + (f", +{more} more" if more > 0 else "")
+                + "). Each candidate still gets its own object and row; the "
+                "labels below carry a short path digest to tell them apart.",
+                "",
+            )
+        )
     if wave.watch:
         lines.extend(
             (
