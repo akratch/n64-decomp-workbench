@@ -38,7 +38,6 @@ import concurrent.futures
 import hashlib
 import json
 import os
-import shutil
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,6 +47,7 @@ from typing import Any
 from .campaign import (
     CompilerTimeoutError,
     executable_identity,
+    nice_prefix,
     render_compile_command,
     run_compiler,
 )
@@ -309,15 +309,6 @@ def collect_sources(
     return tuple(found)
 
 
-def _nice_prefix(niceness: int) -> list[str]:
-    """Return the ``nice`` prefix, or nothing when it cannot be applied."""
-
-    if niceness <= 0 or os.name != "posix":
-        return []
-    executable = shutil.which("nice")
-    return [executable, "-n", str(niceness)] if executable else []
-
-
 def assign_labels(sources: Sequence[Path]) -> dict[Path, str]:
     """Give every source a label unique across the whole wave.
 
@@ -406,7 +397,7 @@ def _compile_one(
 ) -> tuple[str, str, str]:
     """Build one candidate. Returns ``(status, detail, fingerprint)``."""
 
-    command = _nice_prefix(niceness) + render_compile_command(template, source, output)
+    command = nice_prefix(niceness) + render_compile_command(template, source, output)
     fingerprint = _fingerprint(source, command, compiler=compiler)
     if (
         cached_fingerprint == fingerprint
@@ -688,8 +679,3 @@ def build_lines(wave: SweepBuild, *, limit: int = 40) -> list[str]:
     )
     return lines
 
-
-def signature_table(wave: SweepBuild) -> dict[str, str]:
-    """Label to signature, for a caller that wants only the fitness column."""
-
-    return {item.label: item.signature for item in wave.ranked if item.signature}

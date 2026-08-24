@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .campaign import file_sha256
 from .elf_instructions import ElfFormatError, read_section
 from .model import Instruction, display_path
 from .objdump import dump_object, parse_disassembly
@@ -88,14 +89,6 @@ class CacheEvent:
         if self.reason is None:
             return f"{self.status}: {self.object_path}"
         return f"{self.status}: {self.object_path} ({self.reason})"
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _section_words(path: Path, section: str) -> int | None:
@@ -169,7 +162,7 @@ class DisassemblyCache:
 
         path = Path(object_path)
         display = display_path(path)
-        digest = _sha256(path)
+        digest = file_sha256(path)
         expected_words = _section_words(path, section) if symbol is None else None
         entry = self.entry_path(path, symbol=symbol, section=section)
 

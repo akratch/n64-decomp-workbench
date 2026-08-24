@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .campaign import file_sha256
 
 
 @dataclass(frozen=True)
@@ -16,14 +17,6 @@ class ScratchBundleResult:
 
     output: str
     manifest: dict[str, Any]
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _copy_input(source: str | Path, destination: Path) -> None:
@@ -79,7 +72,9 @@ def bundle_scratch(
     for name, input_path in inputs.items():
         _copy_input(input_path, output_path / name)
 
-    files = {name: {"sha256": _sha256(output_path / name)} for name in sorted(inputs)}
+    files = {
+        name: {"sha256": file_sha256(output_path / name)} for name in sorted(inputs)
+    }
     decomp_me: dict[str, str] = {
         "platform": platform,
         "compiler": compiler,

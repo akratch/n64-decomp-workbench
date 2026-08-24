@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
@@ -12,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import DEFAULT_STREAM_LIMIT, capture_streams
-from .campaign import CompilerTimeoutError, run_compiler
+from .campaign import (
+    CompilerTimeoutError,
+    file_sha256,
+    nice_prefix,
+    run_compiler,
+)
 from .capture import (
     CaptureRun,
     find_capture_run,
@@ -309,14 +313,6 @@ def replay_as1(
     )
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _rebuild_argv(
     run: CaptureRun,
     *,
@@ -363,15 +359,6 @@ def _replay_environment(overrides: dict[str, str] | None) -> dict[str, str]:
     environment["WORKBENCH_CAPTURE_OFF"] = "1"
     environment.update(overrides or {})
     return environment
-
-
-def _nice_prefix(level: int | None) -> list[str]:
-    if level is None:
-        return []
-    nice = Path("/usr/bin/nice")
-    if not nice.is_file():
-        return []
-    return [str(nice), "-n", str(level)]
 
 
 def replay_ugen(
@@ -458,7 +445,7 @@ def replay_ugen(
         "ucode": {
             "path": str(stream),
             "bytes": stream.stat().st_size,
-            "sha256": _file_sha256(stream),
+            "sha256": file_sha256(stream),
         },
         "toolchain": str(Path(toolchain).expanduser().resolve()),
         "ugen_binary": str(ugen_binary),
@@ -503,7 +490,7 @@ def replay_ugen(
         if ugen_run.argv.index_of("listing") is not None:
             replacements["listing"] = listing
         ugen_command = [
-            *_nice_prefix(nice),
+            *nice_prefix(nice),
             str(ugen_binary),
             *_rebuild_argv(ugen_run, input_path=stream, replacements=replacements),
         ]
@@ -536,7 +523,7 @@ def replay_ugen(
             raise RuntimeError(f"ugen succeeded but did not create {binasm}")
         report["binasm"] = {
             "bytes": binasm.stat().st_size,
-            "sha256": _file_sha256(binasm),
+            "sha256": file_sha256(binasm),
         }
 
         object_path = (
@@ -549,7 +536,7 @@ def replay_ugen(
                 "symtab": symtab,
             }
             as1_command = [
-                *_nice_prefix(nice),
+                *nice_prefix(nice),
                 str(as1_binary),
                 *_rebuild_argv(
                     as1_run, input_path=binasm, replacements=as1_replacements
@@ -584,7 +571,7 @@ def replay_ugen(
                 raise RuntimeError(f"as1 succeeded but did not create {replay_object}")
             report["object"] = {
                 "bytes": replay_object.stat().st_size,
-                "sha256": _file_sha256(replay_object),
+                "sha256": file_sha256(replay_object),
             }
             report["verification"] = _verify_replay_object(
                 replay_object,
@@ -652,8 +639,8 @@ def _verify_replay_object(
                 "as1 run retains its -o file, or pass --expect."
             ),
         }
-    replayed_hash = _file_sha256(replayed)
-    reference_hash = _file_sha256(reference)
+    replayed_hash = file_sha256(replayed)
+    reference_hash = file_sha256(reference)
     identical = replayed_hash == reference_hash
     result: dict[str, Any] = {
         "reference": str(reference),

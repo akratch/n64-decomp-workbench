@@ -26,7 +26,6 @@ run directories collected before this module existed still read correctly:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -36,6 +35,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .campaign import file_sha256
 
 CAPTURE_SCHEMA = "decomp-workbench-capture-toolchain-v1"
 CAPTURE_RUNS_SCHEMA = "decomp-workbench-capture-runs-v1"
@@ -127,14 +128,6 @@ done
 printf '%d\\n' "$status" > "$run_dir/status.txt"
 exit "$status"
 """
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _make_executable(path: Path) -> None:
@@ -313,7 +306,7 @@ def make_capture_toolchain(
                     "carried": "wrapped",
                     "real": real.name,
                     "bytes": entry.stat().st_size,
-                    "sha256": _sha256(entry),
+                    "sha256": file_sha256(entry),
                 }
             )
             continue
@@ -354,7 +347,7 @@ def make_capture_toolchain(
         "wrapped_phases": list(wanted),
         "wrapper": {
             "name": WRAPPER_NAME,
-            "sha256": _sha256(wrapper),
+            "sha256": file_sha256(wrapper),
         },
         "self_aliases": aliases,
         "entries": carried,

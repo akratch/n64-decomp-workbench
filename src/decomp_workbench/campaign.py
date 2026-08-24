@@ -222,6 +222,22 @@ def render_compile_command(template: str, source: Path, output: Path) -> list[st
     ]
 
 
+def nice_prefix(level: int | None) -> list[str]:
+    """Return the ``nice`` prefix for a background pass, or nothing.
+
+    Every long-running fan-out in this workbench -- a scoring wave, a pass
+    replay -- runs beside the interactive session that is reading its output,
+    so it runs at a niceness by default. ``None`` or a non-positive level asks
+    for none, and a host that has no ``nice`` runs without it rather than
+    failing: the niceness is a courtesy, not a correctness property.
+    """
+
+    if level is None or level <= 0 or os.name != "posix":
+        return []
+    executable = shutil.which("nice")
+    return [executable, "-n", str(level)] if executable else []
+
+
 def file_sha256(path: Path) -> str:
     """Hash one file without retaining it in memory."""
 

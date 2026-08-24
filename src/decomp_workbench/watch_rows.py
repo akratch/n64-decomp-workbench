@@ -298,12 +298,6 @@ def watch_row_payload(results: Sequence[WatchRowResult]) -> dict[str, Any]:
     }
 
 
-def watch_header(results: Sequence[WatchRowResult]) -> str:
-    """The label row a signature is read under, one column per watched row."""
-
-    return " ".join(item.label for item in results)
-
-
 def watch_row_lines(results: Sequence[WatchRowResult]) -> list[str]:
     """Render the signature and then the per-site detail for broken rows."""
 

@@ -163,6 +163,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("deadread", "positions where a zero-footprint discarded read can be tried"),
     ),
     "sweep": (
+        ("build", "compile a wave of candidates and score them into one table"),
         ("regress", "price every accumulated construct by removing it"),
         ("carriers", "the locals that are dead at a site, and therefore free"),
         ("donors", "the locals whose live range avoids a fusion target's"),
@@ -184,6 +185,9 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("rehearse", "relink against a padded script and explain every changed word"),
         ("config", "prove a linker-config edit reproduces the shipped link exactly"),
         ("plan", "merge the reports into one ranked, gated remediation queue"),
+    ),
+    "target": (
+        ("audit", "verify a target object's ELF scope and literal-pool extent"),
     ),
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),

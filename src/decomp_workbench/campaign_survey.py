@@ -35,12 +35,13 @@ would have institutionalised.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .campaign import file_sha256
 
 __all__ = ["SURVEY_SCHEMA", "CampaignSurveyError", "survey_campaign", "survey_lines"]
 
@@ -63,14 +64,6 @@ _SKIP = frozenset({".git", "__pycache__", ".mypy_cache", ".ruff_cache", ".venv"}
 
 class CampaignSurveyError(ValueError):
     """The campaign directory could not be read."""
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _stamp(seconds: float) -> str:
@@ -260,7 +253,7 @@ def survey_campaign(
             raise CampaignSurveyError(f"--base does not exist: {pinned_path}")
         pinned = {
             "path": str(pinned_path),
-            "sha256": _sha256(pinned_path),
+            "sha256": file_sha256(pinned_path),
             "modified": _stamp(_mtime(pinned_path)),
         }
     newest_source = max(
