@@ -292,6 +292,9 @@ class WaveTests(unittest.TestCase):
             [row["label"] for row in payload["results"]], ["exact", "near", "far"]
         )
         self.assertEqual(payload["results"][0]["watch_signature"], ".")
+        # A row is a row, not a watch-row document: the merged watch
+        # keys are all namespaced, so none of them renames its host.
+        self.assertNotIn("schema", payload["results"][0])
         self.assertEqual(payload["results"][0]["words"], 0)
         self.assertEqual([row["label"] for row in payload["unscored"]], ["broken"])
 

@@ -30,6 +30,16 @@ A census document holds one single-candidate report per entry under
 `candidates`, so a consumer that already reads the single shape can loop over
 that list unchanged.
 
+### Sub-documents never rename their host
+
+Optional blocks merged into a report keep their keys namespaced and name
+themselves under a prefixed key, never `schema`. `--watch-rows` adds
+`watch_rows`, `watch_signature`, the tallies, and `watch_schema`
+(`decomp-workbench-watch-rows-v1`) to a `compare`, `rank`, or `sweep build`
+document; the document's own top-level `schema` is unchanged. Switch on
+`schema` to know what you are holding, and on the presence of the prefixed
+keys to know which optional blocks came with it.
+
 `decomp-workbench commands --json` is the versioned discovery surface. Existing
 flat command names and journey spellings return the same report:
 `object diagnose` is an alias of `diagnose`, and `campaign status` is an alias

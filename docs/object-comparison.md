@@ -200,6 +200,10 @@ campaign it came from, a six-column signature was the fitness function that
 converged after `opcodes` conflated schedule with allocation and `words`
 over-charged a permutation (see [Trap 8](metric-traps.md)). `--json` carries
 `watch_rows`, `watch_signature`, and the healed/broken/out-of-range tallies.
+Every watch key is namespaced, `watch_schema`
+(`decomp-workbench-watch-rows-v1`) included: the watchlist is merged into
+whatever report asked for it, and the host document keeps its own top-level
+`schema` — `decomp-workbench-comparison-v1` for `compare`, and so on.
 
 The same option is on `compare-dumps`, on `rank` (one signature per ranked
 row, under one header), and on [`sweep build`](sweeps.md) (the `sig` column of

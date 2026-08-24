@@ -16,10 +16,12 @@ from decomp_workbench.compare import compare_instructions
 from decomp_workbench.model import Comparison
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.object_cli import compare_dumps_command
+from decomp_workbench.reporting import with_schema
 from decomp_workbench.watch_rows import (
     BROKEN,
     HEALED,
     OUT_OF_RANGE,
+    WATCH_ROWS_SCHEMA,
     WatchRow,
     WatchRowError,
     evaluate_watch_rows,
@@ -165,6 +167,22 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(payload["watch_broken"], 1)
         self.assertEqual(payload["watch_out_of_range"], 1)
 
+    def test_every_payload_key_is_namespaced(self) -> None:
+        # The payload is merged into a host report, so a bare `schema` key
+        # here overwrote the host's own identity.
+        payload = watch_row_payload(
+            evaluate_watch_rows(
+                parse_watch_rows("a=0"),
+                diff_sites=_comparison().diff_sites,
+                compared_rows=len(TARGET),
+            )
+        )
+        self.assertNotIn("schema", payload)
+        self.assertEqual(payload["watch_schema"], WATCH_ROWS_SCHEMA)
+        self.assertTrue(
+            all(key.startswith("watch_") for key in payload), sorted(payload)
+        )
+
     def test_the_terminal_block_quotes_only_the_broken_rows(self) -> None:
         comparison = _comparison()
         lines = watch_row_lines(
@@ -218,6 +236,15 @@ class CommandSurfaceTests(unittest.TestCase):
     def test_the_json_carries_the_array_and_the_signature(self) -> None:
         _status, output = self._run(json=True)
         payload = json.loads(output)
+        # The document is still a comparison. The watch payload is merged in
+        # last, and a bare `schema` key in it beat `with_schema`'s setdefault
+        # and renamed the whole document.
+        self.assertNotIn("schema", payload)
+        self.assertEqual(
+            with_schema("compare-dumps", payload)["schema"],
+            "decomp-workbench-comparison-v1",
+        )
+        self.assertEqual(payload["watch_schema"], WATCH_ROWS_SCHEMA)
         self.assertEqual(payload["watch_signature"], ".XX")
         self.assertEqual(
             [entry["label"] for entry in payload["watch_rows"]], ["a", "b", "c"]

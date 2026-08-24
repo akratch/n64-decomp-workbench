@@ -50,6 +50,9 @@ __all__ = [
     "watch_signature",
 ]
 
+#: The identity of the watch-row *sub-document*. It is reported under
+#: ``watch_schema``, never ``schema``: these keys are merged into a host
+#: report that has a schema of its own.
 WATCH_ROWS_SCHEMA = "decomp-workbench-watch-rows-v1"
 
 HEALED = "."
@@ -275,10 +278,18 @@ def watch_signature(results: Sequence[WatchRowResult]) -> str:
 
 
 def watch_row_payload(results: Sequence[WatchRowResult]) -> dict[str, Any]:
-    """The machine-readable half: the array, the signature, and the tally."""
+    """The machine-readable half: the array, the signature, and the tally.
+
+    Every key is prefixed, ``watch_schema`` included. This payload is always
+    *merged into* a host document -- a comparison, a ranked row, a wave row --
+    and a bare ``schema`` key here overwrote the host's own identity, so a
+    ``compare --json --watch-rows`` document announced itself as a watch-row
+    set and every ranked row claimed to be one. The sub-document's identity is
+    worth keeping; owning the top-level name is not.
+    """
 
     return {
-        "schema": WATCH_ROWS_SCHEMA,
+        "watch_schema": WATCH_ROWS_SCHEMA,
         "watch_rows": [item.as_dict() for item in results],
         "watch_signature": watch_signature(results),
         "watch_healed": sum(1 for item in results if item.healed is True),
