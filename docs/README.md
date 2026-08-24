@@ -58,6 +58,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You downloaded a decomp.me ZIP or the browser/local results disagree | [decomp.me export checking](decompme-exports.md) | Export ZIP/directory; compiler optional |
 | You need a complete local decomp.me handoff | [Scratch bundles](scratch-bundles.md) | Target assembly, context, source, settings |
 | You are about to publish a proof or integration repository | [Public handoff audit](public-handoffs.md) | Exact handoff tree; optional project dependency root |
+| You are about to register a campaign against a scratch/hosted target and want to know its scope is trustworthy before spending days on it | [Target audit](target-audit.md) | A target object; optionally a ROM and a known VA/offset pair |
 | Your project is 100% matched and someone wants to mod it, or you need to know which words in the ROM are not explained by a symbol reference | [Shiftability](shiftability.md) | A linker map and a linked image; a relink script for the empirical half |
 | You want to actually make your matched project shiftable, start to finish | [The shiftability campaign](shiftability-campaign.md) | The same, plus the ability to edit your linker configuration and relink |
 | You know the symptom but not which command to reach for | [Workflow selection](workflows.md) | A target and a current hypothesis |

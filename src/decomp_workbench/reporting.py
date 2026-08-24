@@ -126,6 +126,7 @@ SCHEMAS: dict[str, str] = {
     "toolchain-init": "decomp-workbench-toolchain-v1",
     "toolchain-calibrate": "decomp-workbench-toolchain-v1",
     "toolchain-status": "decomp-workbench-toolchain-v1",
+    "target-audit": "decomp-workbench-target-audit-v1",
     "view": "decomp-workbench-view-v1",
     "view-dumps": "decomp-workbench-view-v1",
 }
