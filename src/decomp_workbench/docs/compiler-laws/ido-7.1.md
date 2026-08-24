@@ -68,7 +68,9 @@ falsified after the schedule equilibrium moved
 ([L19](#l19-a-saturation-verdict-is-scoped-to-its-basin)).
 
 **Provisional laws** are marked in their heading and say what evidence is
-missing. Two clauses on this page are provisional; nothing else is.
+missing. No clause on this page is provisional: the two that shipped
+provisional (L9's owning pass, L11's survival condition) were closed by
+directed probes the same day, and their receipts are inline.
 
 **Artifact paths** are campaign-private (the `ssb-decomp-re` checkout's
 `.workbench/cef4c/` tree, the Codex worktree's `ref10-rom0j/` tree, and the
@@ -443,12 +445,16 @@ pair. With a nested inner switch it is not remotely equivalent —
 `part7/p7__else-o3` scores `words=1797 opcodes=1656 gaps=26 insns=1864`, four
 instructions short and structurally different — while the goto pair scores 13.
 
-**Provisional: the owning pass.** The transform is attributed to `uopt` by
-analogy with L7/L8 (it is a CFG normalisation, and cfe preserves lexical
-order), but no phase capture in this campaign isolated *this* rewrite at the
-uopt boundary. The behaviour is T2-solid; the attribution is not. Missing
-evidence: a cfe-output and uopt-output capture of the goto-pair source,
-compared for branch sense at the range test.
+**The owning pass — proven `uopt`.** A `cc -K` compile of the exact
+goto-pair source (`part8/p8__ge-plain.c`) keeps cfe's own output Ucode
+(`probe.B`), and it is the naive lexical form: `lod; cvt; ldc 209; geq;
+fjp L21` with the true arm's `ujp L22` (the goto to HIGH), then
+`L21: ujp L23` (the goto to LOW), then `lab L22` — both gotos intact, no
+inversion, blocks in source order. The uopt-output capture of the same
+source (`ido71-ugen-capture/captures/20260824-125523-1862`) shows the
+normalised form this law describes: `geq; fjp` straight to the low
+dispatch, both `ujp`s eliminated, the high dispatch as the fallthrough.
+The rewrite happens between those two streams, and only `uopt` runs there.
 
 ### L10. globalcolor is Chow priority colouring, and the priority is `save / units`
 
@@ -535,15 +541,35 @@ compose: every donor composed with the counter-dial re-broke the rotation, and
 the counter-dial "cannot simply be summed until it overcomes the donor's
 priority drop".
 
-**Provisional: the survival condition.** The campaign summary records that dead
-reads survive to the allocator "only on dead or undefined variables". The
-supporting negative half is solid and cited — bare labels, bare expression
-statements, self-assignments and casts are pruned before `uopt` with no
-references and no blocks, and declaration moves are FP-inert. The positive
-half — a *live* variable's dead read being folded where a dead one's is not —
-was not isolated in an artifact this page's author could read. Missing evidence:
-a paired grid holding placement fixed and varying only the read target's
-liveness, with `compute_save` reference counts from the instrument.
+**The survival condition — measured, and the campaign summary had it
+backwards.** A nine-variant grid on the one-word base (fixed slots — before
+the dispatch `switch` and at the head of the first case body — varying only
+the read target) separates the outcomes on **reaching definitions**, not
+liveness:
+
+| slot | read target | outcome | words | opcodes | gaps | insns | frame |
+|---|---|---|---:|---:|---:|---:|---|
+| pre-switch | `opcode` (defined, live — the selector itself) | erased, no observable effect at all | 1 | 0 | 0 | 1868 | −168 |
+| pre-switch | `command` (defined, live) | erased; pure allocation rotation | 9 | 0 | 0 | 1868 | −168 |
+| pre-switch | `csr` (defined, live pointer) | erased; larger rotation | 15 | 0 | 0 | 1868 | −168 |
+| case-body head | `command` (defined, live) | erased; the same rotation | 9 | 0 | 0 | 1868 | −168 |
+| pre-switch | `temp1` (no reaching definition) | real schedule damage | 116 | 34 | 48 | 1868 | −168 |
+| case-body head | `temp1` (no reaching definition) | real schedule damage | 102 | 34 | 44 | 1868 | −168 |
+| pre-switch | `svar2` (no reaching definition) | catastrophic; frame moves | 1791 | 1626 | 18 | 1864 | −176 |
+
+An empty-body read is erased at zero instruction cost whenever the variable
+has a **reaching definition on that path** — being live afterwards is
+irrelevant, and reading the switch's own selector is even reference-inert.
+What is fatal is a read with *no* reaching definition: the upward-exposed
+use drags a web back through the CFG (here, through the interpreter loop)
+with schedule collateral that scales up to a frame change. The campaign
+summary's "survives only on dead or undefined variables" conflated
+defined-but-dead with undefined: the exact-match family's phase reads
+(`f1`, `temp1`, `f0` in the vortex tail) were safe because those variables
+were **defined earlier in the same block**, not because they were dead. The
+solid negative half is unchanged: bare labels, bare expression statements,
+self-assignments and casts are pruned before `uopt` with no references and
+no blocks, and declaration moves are FP-inert.
 
 ### L12. Interference is block-granular, and address-escaped locals fuse into one alias-class web
 

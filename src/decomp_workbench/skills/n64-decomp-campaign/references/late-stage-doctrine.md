@@ -14,7 +14,7 @@ every single-lever probe is not evidence that no lever works; it can mean the
 final source needs several at once.
 
 The cef4c endgame's exact source composed four independently proven
-mechanisms, none of which moved the residual alone: a phase-boundary branch
+mechanisms, no one of which produced the exact object alone: a phase-boundary branch
 barrier, a goto-pair fallthrough inversion, a dispatch-layout construct, and a
 selector-temp reshape. Each had its own isolated probe and its own dossier
 before anyone tried them together. Compose only levers that already have an

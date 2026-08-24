@@ -164,13 +164,22 @@ class Ido71LawContentTests(LawContentTests):
     era = "ido71"
 
     def test_provisional_laws_say_what_evidence_is_missing(self) -> None:
-        """A hedge without a gap named is a hedge that never gets closed."""
+        """A hedge without a gap named is a hedge that never gets closed.
+
+        The page shipped with two provisional clauses (L9's owning pass,
+        L11's survival condition); both were closed by directed probes the
+        same day. Any *future* provisional clause must name its missing
+        evidence; none existing is the healthy state.
+        """
 
         # The page is hard-wrapped at 79 columns, so a phrase can be split
         # across a newline; match against the unwrapped body.
         bodies = {name: " ".join(body.split()) for name, body in self.sections.items()}
-        provisional = [name for name, body in bodies.items() if "rovisional" in body]
-        self.assertNotEqual(provisional, [])
+        provisional = [
+            name
+            for name, body in bodies.items()
+            if "Provisional:" in body
+        ]
         for name in provisional:
             with self.subTest(law=name):
                 self.assertIn("Missing evidence", bodies[name])

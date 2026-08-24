@@ -6,7 +6,7 @@ Use the strongest available evidence and state its scope precisely.
 |---|---|---|
 | decomp.me percentage or visual diff | A direction worth investigating | Exact code, context, or ROM match |
 | Normalized instruction similarity | A structural neighborhood | Literal operands, allocation, or final bytes |
-| Byte-pattern search for a discriminating encoding across many objects | Instantly, whether a specific candidate reached a known mechanism, across dozens of objects, without recompiling or rescoring anything | Which source spelling produced the encoding, or overall exactness |
+| Byte-pattern search for a discriminating encoding across many objects | That a specific candidate did or did not reach a known mechanism — instantly, across dozens of objects, with no recompiling or rescoring | Which source spelling produced the encoding, or overall exactness |
 | Same opcode shape | Stable control-flow and instruction schedule | Matching registers or relocation layout |
 | Region collapses under `-g0` | Debug metadata constrains the `-g3` schedule; as1 can reach that order | Original or correct source topology |
 | Cross-ROM structural match | Shared compiler/source lineage evidence | Exact target object or project match |
