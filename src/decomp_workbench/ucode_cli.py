@@ -54,9 +54,7 @@ def ucode_xjp_command(args: argparse.Namespace) -> int:
             for start in range(0, len(cases), 8):
                 rendered = ", ".join(
                     f"{case['value']}->"
-                    + "->".join(
-                        f"L{label}" for label in case["target_chain"]["labels"]
-                    )
+                    + "->".join(f"L{label}" for label in case["target_chain"]["labels"])
                     for case in cases[start : start + 8]
                 )
                 print(f"    {rendered}")

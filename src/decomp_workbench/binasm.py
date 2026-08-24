@@ -57,6 +57,52 @@ _INSTRUCTION_NAMES: dict[int, str] = {
     0x00B2: "xor",
     0x01A8: "addiu",
     0x01AE: "andi",
+    # The one instruction record that is not self-contained: word 3 is a byte
+    # length and the following ceil(length/16) records are raw, space-padded
+    # ASCII digits rather than words. Established by three retained streams in
+    # which the lengths 3, 12 and 22 framed "0.0", "4294967296.0" and
+    # "3.0517578125000000e-05" exactly (22 = 16 + 6).
+    0x01F8: "float-literal",
+}
+
+#: The instruction record whose successors are an ASCII payload, not records.
+_LITERAL_INSTRUCTION = 0x01F8
+
+#: Record families keyed by the high half of word 1.
+#:
+#: ``calibrated`` families were established by assembling a hand-written probe
+#: listing through as0 and reading the record it produced one-for-one, by an
+#: as1 diagnostic naming the record's effect, or by a structural pairing that
+#: cannot be coincidence. ``inferred`` families were only ever *observed* in a
+#: retained stream with a payload that fits a familiar directive; their raw
+#: words remain the evidence and the name is a reading aid.
+_RECORD_FAMILIES: dict[int, tuple[str, str, str, str]] = {
+    # opcode: (kind, name, description, evidence)
+    0x0002: ("symbol-scope", "globl", "global symbol declaration", "calibrated"),
+    0x0009: (
+        "symbol-definition",
+        "symbol-def",
+        "symbol definition; as1 rejects a duplicate of it",
+        "calibrated",
+    ),
+    0x0015: ("section", "text", "switch to the text section", "calibrated"),
+    0x0018: ("procedure", "end", "procedure end", "calibrated"),
+    0x001A: (
+        "section",
+        "section-switch",
+        "leave the text section for embedded data",
+        "calibrated",
+    ),
+    0x001B: ("procedure", "ent", "procedure entry", "calibrated"),
+    0x0026: ("procedure", "mask", "register save mask and frame offset", "inferred"),
+    0x002A: ("stream-header", "header", "Binasm stream header record", "calibrated"),
+    0x002B: ("procedure", "frame", "frame description", "inferred"),
+    0x0035: (
+        "call-metadata",
+        "call-live",
+        "ugen's own call-site liveness metadata",
+        "inferred",
+    ),
 }
 
 _PEEP_REPLACEMENT_RE = re.compile(
@@ -77,6 +123,23 @@ _PEEP_MEMORY_RE = re.compile(
 )
 
 
+#: What either phase decoder accepts: the stream's bytes, or a path to them.
+StreamSource = bytes | bytearray | memoryview | str | Path
+
+
+def read_stream_bytes(source: StreamSource) -> bytes:
+    """Return one phase stream's bytes from either a buffer or a path.
+
+    Both decoders take this so a caller holding a patched stream in memory and
+    a caller holding a retained capture file use the same entry point. A `str`
+    is always a path: a phase stream is binary and never text.
+    """
+
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        return bytes(source)
+    return Path(source).expanduser().read_bytes()
+
+
 def _signed_u32(value: int) -> int:
     return value - (1 << 32) if value & (1 << 31) else value
 
@@ -92,6 +155,10 @@ class BinasmRecord:
     name: str
     detail: str
     source_lever: str | None = None
+    #: ``calibrated`` for a family established by a probe listing, an as1
+    #: diagnostic, or a structural pairing; ``inferred`` for one only observed;
+    #: ``none`` for a record left raw.
+    evidence: str = "calibrated"
 
     @property
     def raw_hex(self) -> str:
@@ -108,6 +175,7 @@ class BinasmRecord:
             "name": self.name,
             "detail": self.detail,
             "source_lever": self.source_lever,
+            "evidence": self.evidence,
         }
 
 
@@ -170,9 +238,7 @@ def _instruction_source_lever(name: str, operands: int, immediate: int) -> str |
     if name == "nop-pseudo":
         return "assembler no-op; useful as a boundary control, not direct C evidence"
     if name in {"sll", "srl"} and immediate == 0:
-        return (
-            "zero shift identity; source-spellable but normally removed upstream"
-        )
+        return "zero shift identity; source-spellable but normally removed upstream"
     if operands:
         return None
     return None
@@ -183,18 +249,53 @@ def _classify_record(
 ) -> BinasmRecord:
     first, opcode, operands, immediate = words
     signed_first = _signed_u32(first)
-    if opcode == 0 and signed_first < 0 and operands == 0 and immediate == 0:
-        label = -signed_first
+    if opcode == 0 and operands == 0 and immediate == 0 and first:
+        # A label *definition* is the empty-opcode record. ugen mints local
+        # labels as negative numbers and as0 emits named and numeric labels as
+        # positive symbol indices; both are the same record family, and the
+        # decoder used to see only the negative half of it.
+        if signed_first < 0:
+            return BinasmRecord(
+                index,
+                offset,
+                words,
+                "control-flow",
+                "local-label",
+                f"local label ${-signed_first}",
+                "an explicit label/goto or a control-flow join can create "
+                "this boundary",
+            )
         return BinasmRecord(
             index,
             offset,
             words,
             "control-flow",
-            "local-label",
-            f"local label ${label}",
-            "an explicit label/goto or a control-flow join can create this boundary",
+            "symbol-label",
+            f"label definition for symbol index {first}",
+            "a named label, a function entry, or an assembled local label",
         )
-    if opcode == 0x001C0000:
+    if opcode >> 16 == 0x0016:
+        # The dense case table: one record per case, word 0 naming the target
+        # local label, inside a section-switch/text pair. Two retained tables
+        # of 6 and 81 entries matched their Ucode `Uclab` length and the range
+        # guard of the branch that preceded them.
+        target = f"${-signed_first}" if signed_first < 0 else str(first)
+        extra = (
+            ""
+            if (operands, immediate) == (0, 1)
+            else f" (unusual payload {operands:#x}/{immediate:#x})"
+        )
+        return BinasmRecord(
+            index,
+            offset,
+            words,
+            "jump-table",
+            "table-entry",
+            f"case target {target}{extra}",
+            "a switch whose dense range ugen chose to lower as a jump table; "
+            "the table's width follows the selector range, not the C spelling",
+        )
+    if opcode >> 16 == 0x001C:
         return BinasmRecord(
             index,
             offset,
@@ -207,7 +308,7 @@ def _classify_record(
                 "selected frontend/debug mode emits them"
             ),
         )
-    if opcode == 0x00200000:
+    if opcode >> 16 == 0x0020:
         mode = _SET_MODES.get(operands, f"unknown-{operands}")
         return BinasmRecord(
             index,
@@ -226,13 +327,19 @@ def _classify_record(
         name = _INSTRUCTION_NAMES.get(
             instruction_opcode, f"instruction-0x{instruction_opcode:04x}"
         )
+        detail = f"Binasm operands=0x{operands:08x} value=0x{immediate:08x}"
+        if instruction_opcode == _LITERAL_INSTRUCTION:
+            detail += (
+                f"; {immediate} ASCII byte(s) follow in "
+                f"{_literal_payload_records(immediate)} payload record(s)"
+            )
         return BinasmRecord(
             index,
             offset,
             words,
             "instruction",
             name,
-            f"Binasm operands=0x{operands:08x} value=0x{immediate:08x}",
+            detail,
             _instruction_source_lever(name, operands, immediate),
         )
     if opcode & 0xFFFF0000 in {0x00300000, 0x00310000}:
@@ -266,6 +373,25 @@ def _classify_record(
             f"{name} mask=0x{operands:08x}",
             "call placement and values live across the call can alter this metadata",
         )
+    family = _RECORD_FAMILIES.get(opcode >> 16)
+    if family is not None:
+        kind, name, description, evidence = family
+        low = opcode & 0xFFFF
+        detail = description
+        if low:
+            detail += f"; flags=0x{low:04x}"
+        if operands or immediate:
+            detail += f"; payload=0x{operands:08x}/0x{immediate:08x}"
+        return BinasmRecord(
+            index,
+            offset,
+            words,
+            kind,
+            name,
+            detail,
+            None,
+            evidence,
+        )
     if words == (0, 0, 0, 0):
         return BinasmRecord(index, offset, words, "empty", "zero", "all-zero record")
     return BinasmRecord(
@@ -275,12 +401,21 @@ def _classify_record(
         "unknown",
         "unknown",
         "unclassified record; raw words retained",
+        None,
+        "none",
     )
 
 
-def parse_binasm(data: bytes, *, byteorder: str = "big") -> list[BinasmRecord]:
+def _literal_payload_records(byte_length: int) -> int:
+    """Return how many 16-byte records one ASCII float literal occupies."""
+
+    return (byte_length + BINASM_RECORD_SIZE - 1) // BINASM_RECORD_SIZE
+
+
+def parse_binasm(source: StreamSource, *, byteorder: str = "big") -> list[BinasmRecord]:
     """Parse a fixed 16-byte IDO Binasm stream without discarding unknowns."""
 
+    data = read_stream_bytes(source)
     if byteorder not in {"big", "little"}:
         raise ValueError("Binasm byte order must be 'big' or 'little'")
     if len(data) % BINASM_RECORD_SIZE:
@@ -290,9 +425,35 @@ def parse_binasm(data: bytes, *, byteorder: str = "big") -> list[BinasmRecord]:
         )
     prefix = ">" if byteorder == "big" else "<"
     records: list[BinasmRecord] = []
+    payload_remaining = 0
     for offset in range(0, len(data), BINASM_RECORD_SIZE):
-        words = struct.unpack(f"{prefix}IIII", data[offset : offset + 16])
-        records.append(_classify_record(offset // 16, offset, words))
+        chunk = data[offset : offset + BINASM_RECORD_SIZE]
+        words = struct.unpack(f"{prefix}IIII", chunk)
+        index = offset // BINASM_RECORD_SIZE
+        if payload_remaining:
+            # A float literal's digits, not a record. Word-decoding these is
+            # what turned ASCII such as b"96.0            " into invented
+            # record families in the first ad hoc classifier.
+            payload_remaining -= 1
+            text = chunk.decode("ascii", errors="replace").rstrip()
+            records.append(
+                BinasmRecord(
+                    index,
+                    offset,
+                    words,
+                    "literal-payload",
+                    "ascii-payload",
+                    f"ASCII literal digits {text!r}",
+                    None,
+                    "calibrated",
+                )
+            )
+            continue
+        record = _classify_record(index, offset, words)
+        records.append(record)
+        if record.name == "float-literal":
+            remaining = (len(data) - offset) // BINASM_RECORD_SIZE - 1
+            payload_remaining = min(_literal_payload_records(words[3]), remaining)
     return records
 
 
@@ -553,7 +714,10 @@ def build_binasm_boundary_report(
             "byteorder": byteorder,
             "decoder_scope": (
                 "Known Binasm record families only; unknown records remain raw and "
-                "lossless. Instruction operands are not guessed."
+                "lossless. Instruction operands are not guessed. Each record "
+                "carries `evidence`: calibrated (established by a probe listing, "
+                "an as1 diagnostic, or a structural pairing), inferred (observed "
+                "with a fitting payload), or none (left raw)."
             ),
         },
         "stream": {
@@ -562,6 +726,9 @@ def build_binasm_boundary_report(
             "sha256": hashlib.sha256(data).hexdigest(),
             "record_count": len(records),
             "kind_counts": dict(sorted(kinds.items())),
+            "evidence_counts": dict(
+                sorted(Counter(item.evidence for item in records).items())
+            ),
         },
         "boundary": {
             "offset": boundary,
@@ -592,7 +759,5 @@ def build_binasm_boundary_report(
     if peep_text is not None:
         report["peephole"] = _peep_report(peep_text, limit=limit)
     if probe_results is not None:
-        report["barrier_probes"] = _barrier_probe_report(
-            probe_results, limit=limit
-        )
+        report["barrier_probes"] = _barrier_probe_report(probe_results, limit=limit)
     return report

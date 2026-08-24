@@ -40,6 +40,81 @@ class BinasmTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "multiple of 16"):
             parse_binasm(b"short")
 
+    def test_a_stream_is_read_from_bytes_or_from_a_path(self) -> None:
+        data = record(0, 0x001C0000, 28, 85)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "unit.G"
+            path.write_bytes(data)
+            from_path = parse_binasm(path)
+            from_text_path = parse_binasm(str(path))
+        self.assertEqual(
+            [item.words for item in from_path],
+            [item.words for item in parse_binasm(data)],
+        )
+        self.assertEqual(from_text_path[0].name, "loc")
+
+    def test_both_label_definition_shapes_are_named(self) -> None:
+        """ugen mints negative local labels; as0 emits positive symbol ones.
+
+        The decoder used to recognize only the negative half of one record
+        family, so every label in an as0-produced stream read as "unknown".
+        """
+
+        parsed = parse_binasm(record(0xFFFFFFDB, 0, 0, 0) + record(3, 0, 0, 0))
+        self.assertEqual(
+            [(item.name, item.detail) for item in parsed],
+            [
+                ("local-label", "local label $37"),
+                ("symbol-label", "label definition for symbol index 3"),
+            ],
+        )
+
+    def test_a_case_table_entry_names_its_target_label(self) -> None:
+        parsed = parse_binasm(
+            record(0, 0x001A0000, 0, 0)
+            + record(0xFFFFFFDD, 0, 0, 0)
+            + record(0xFFFFFF9D, 0x00160000, 0, 1)
+            + record(0, 0x00150000, 0, 0)
+        )
+        self.assertEqual(
+            [item.name for item in parsed],
+            ["section-switch", "local-label", "table-entry", "text"],
+        )
+        self.assertEqual(parsed[2].kind, "jump-table")
+        self.assertEqual(parsed[2].detail, "case target $99")
+
+    def test_a_float_literal_frames_its_ascii_digits_as_payload(self) -> None:
+        """Word 3 is a byte length, and the digits that follow are not words.
+
+        A decoder that walks 16 bytes at a time and classifies on word 1 reads
+        b"00e-05          " as a record family, which is how the ad hoc
+        classifier invented opcodes such as 0x30320000.
+        """
+
+        parsed = parse_binasm(
+            record(0, 0x001701F8, 0x5D208000, 22)
+            + b"3.05175781250000"
+            + b"00e-05          "
+            + record(0, 0x001C0000, 28, 86)
+        )
+        self.assertEqual(
+            [item.name for item in parsed],
+            ["float-literal", "ascii-payload", "ascii-payload", "loc"],
+        )
+        self.assertIn("2 payload record(s)", parsed[0].detail)
+        self.assertEqual(parsed[2].detail, "ASCII literal digits '00e-05'")
+
+    def test_an_observed_family_is_marked_inferred_not_calibrated(self) -> None:
+        parsed = parse_binasm(
+            record(0, 0x00150000, 0, 0)
+            + record(0, 0x00350000, 0x0C00000E, 0)
+            + record(1, 0x00FF0000, 0, 0)
+        )
+        self.assertEqual(
+            [item.evidence for item in parsed], ["calibrated", "inferred", "none"]
+        )
+        self.assertEqual(parsed[2].kind, "unknown")
+
     def test_peepdbg_pairs_replacement_with_removed_copy(self) -> None:
         events, unparsed = parse_peepdbg(
             ">>Repl_reg (INST 3) 3 with 2\n"
@@ -81,4 +156,3 @@ class BinasmTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
