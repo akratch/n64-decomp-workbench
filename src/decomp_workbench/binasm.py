@@ -156,8 +156,9 @@ class BinasmRecord:
     detail: str
     source_lever: str | None = None
     #: ``calibrated`` for a family established by a probe listing, an as1
-    #: diagnostic, or a structural pairing; ``inferred`` for one only observed;
-    #: ``none`` for a record left raw.
+    #: diagnostic, or a structural pairing, **in exactly the form observed**;
+    #: ``inferred`` for one only observed, or for a variant of a calibrated
+    #: family carrying bits no probe explains; ``none`` for a record left raw.
     evidence: str = "calibrated"
 
     @property
@@ -244,6 +245,25 @@ def _instruction_source_lever(name: str, operands: int, immediate: int) -> str |
     return None
 
 
+def _variant_evidence(
+    detail: str, low: int, *, observed: str = "calibrated"
+) -> tuple[str, str]:
+    """Fold a family's unexplained low bits into its detail and its evidence.
+
+    Every record family below is keyed on the *high* half of word 1, and the
+    low half is zero in every record the calibration probes produced. A
+    nonzero low half is therefore a variant nobody has observed. Dropping
+    those bits and still calling the reading ``calibrated`` was the worst of
+    both: the evidence tag claimed a probe established this exact record, and
+    the only trace of the part that was not established had been deleted from
+    the output. So the bits are rendered, and the claim is downgraded.
+    """
+
+    if not low:
+        return detail, observed
+    return f"{detail}; flags=0x{low:04x}", "inferred"
+
+
 def _classify_record(
     index: int, offset: int, words: tuple[int, int, int, int]
 ) -> BinasmRecord:
@@ -280,50 +300,62 @@ def _classify_record(
         # of 6 and 81 entries matched their Ucode `Uclab` length and the range
         # guard of the branch that preceded them.
         target = f"${-signed_first}" if signed_first < 0 else str(first)
-        extra = (
-            ""
-            if (operands, immediate) == (0, 1)
-            else f" (unusual payload {operands:#x}/{immediate:#x})"
-        )
+        detail, evidence = _variant_evidence(f"case target {target}", opcode & 0xFFFF)
+        if (operands, immediate) != (0, 1):
+            detail += f" (unusual payload {operands:#x}/{immediate:#x})"
+            evidence = "inferred"
         return BinasmRecord(
             index,
             offset,
             words,
             "jump-table",
             "table-entry",
-            f"case target {target}{extra}",
+            detail,
             "a switch whose dense range ugen chose to lower as a jump table; "
             "the table's width follows the selector range, not the C spelling",
+            evidence,
         )
     if opcode >> 16 == 0x001C:
+        detail, evidence = _variant_evidence(
+            f"file={operands} line={immediate}", opcode & 0xFFFF
+        )
         return BinasmRecord(
             index,
             offset,
             words,
             "source-location",
             "loc",
-            f"file={operands} line={immediate}",
+            detail,
             (
                 "statement attribution or #line can change LOC records when the "
                 "selected frontend/debug mode emits them"
             ),
+            evidence,
         )
     if opcode >> 16 == 0x0020:
         mode = _SET_MODES.get(operands, f"unknown-{operands}")
+        detail, evidence = _variant_evidence(f".set {mode}", opcode & 0xFFFF)
+        if operands not in _SET_MODES:
+            # The prefix says ".set"; the mode number is one no probe named.
+            evidence = "inferred"
         return BinasmRecord(
             index,
             offset,
             words,
             "assembler-mode",
             f"set-{mode}",
-            f".set {mode}",
+            detail,
             (
                 "assembler directive only; use as a downstream boundary proof, "
                 "then seek a source event that creates the same peephole break"
             ),
+            evidence,
         )
     if opcode & 0xFFFF0000 == 0x00170000:
         instruction_opcode = opcode & 0xFFFF
+        # Here the low half *is* the instruction opcode, so it is explained
+        # exactly when it is one of the opcodes the as0 probes established.
+        named = instruction_opcode in _INSTRUCTION_NAMES
         name = _INSTRUCTION_NAMES.get(
             instruction_opcode, f"instruction-0x{instruction_opcode:04x}"
         )
@@ -341,21 +373,26 @@ def _classify_record(
             name,
             detail,
             _instruction_source_lever(name, operands, immediate),
+            "calibrated" if named else "inferred",
         )
     if opcode & 0xFFFF0000 in {0x00300000, 0x00310000}:
         is_alias = opcode & 0xFFFF0000 == 0x00310000
         name = "alias" if is_alias else "noalias"
+        detail, evidence = _variant_evidence(
+            f"{name} metadata opcode=0x{opcode:08x}", opcode & 0xFFFF
+        )
         return BinasmRecord(
             index,
             offset,
             words,
             "alias-metadata",
             name,
-            f"{name} metadata opcode=0x{opcode:08x}",
+            detail,
             (
                 "pointer provenance, restrict-like separation, or volatile access "
                 "may alter alias metadata; verify the exact frontend emits it"
             ),
+            evidence,
         )
     call_metadata = {
         0x00360000: "gjaldef",
@@ -375,11 +412,10 @@ def _classify_record(
         )
     family = _RECORD_FAMILIES.get(opcode >> 16)
     if family is not None:
-        kind, name, description, evidence = family
-        low = opcode & 0xFFFF
-        detail = description
-        if low:
-            detail += f"; flags=0x{low:04x}"
+        kind, name, description, observed = family
+        detail, evidence = _variant_evidence(
+            description, opcode & 0xFFFF, observed=observed
+        )
         if operands or immediate:
             detail += f"; payload=0x{operands:08x}/0x{immediate:08x}"
         return BinasmRecord(
@@ -715,9 +751,11 @@ def build_binasm_boundary_report(
             "decoder_scope": (
                 "Known Binasm record families only; unknown records remain raw and "
                 "lossless. Instruction operands are not guessed. Each record "
-                "carries `evidence`: calibrated (established by a probe listing, "
-                "an as1 diagnostic, or a structural pairing), inferred (observed "
-                "with a fitting payload), or none (left raw)."
+                "carries `evidence`: calibrated (this exact record form was "
+                "established by a probe listing, an as1 diagnostic, or a "
+                "structural pairing), inferred (only observed, or a variant of "
+                "a calibrated family carrying unexplained bits, which are "
+                "rendered as flags=0x....), or none (left raw)."
             ),
         },
         "stream": {

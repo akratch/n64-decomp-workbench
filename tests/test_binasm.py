@@ -115,6 +115,54 @@ class BinasmTests(unittest.TestCase):
         )
         self.assertEqual(parsed[2].kind, "unknown")
 
+    def test_an_unobserved_family_variant_keeps_its_bits_and_drops_the_claim(
+        self,
+    ) -> None:
+        # 0x001C0007 is a LOC record carrying seven bits in the half of word 1
+        # no probe ever explained. The widened prefix guard classified it, put
+        # `calibrated` on it, and threw the seven bits away.
+        parsed = parse_binasm(
+            record(0, 0x001C0007, 28, 85)
+            + record(0, 0x00160003, 0xFFFFFFFF, 1)
+            + record(0, 0x00020009, 0, 0)
+        )
+        self.assertEqual(
+            [item.name for item in parsed], ["loc", "table-entry", "globl"]
+        )
+        self.assertEqual([item.evidence for item in parsed], ["inferred"] * 3)
+        self.assertIn("flags=0x0007", parsed[0].detail)
+        self.assertIn("flags=0x0003", parsed[1].detail)
+        self.assertIn("flags=0x0009", parsed[2].detail)
+
+    def test_an_unnamed_instruction_opcode_is_not_calibrated(self) -> None:
+        parsed = parse_binasm(
+            record(0, 0x001701AE, 0x060D0000, 0xFF)  # andi: an as0-probed opcode
+            + record(0, 0x00170123, 0, 0)  # not one this decoder has ever seen
+            + record(0, 0x00200000, 99, 0)  # .set with a mode number no probe named
+        )
+        self.assertEqual(
+            [item.name for item in parsed],
+            ["andi", "instruction-0x0123", "set-unknown-99"],
+        )
+        self.assertEqual(
+            [item.evidence for item in parsed],
+            ["calibrated", "inferred", "inferred"],
+        )
+
+    def test_the_evidence_tally_counts_only_exact_observed_forms(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "unit.G"
+            path.write_bytes(
+                record(0, 0x001C0000, 28, 85)
+                + record(0, 0x001C0007, 28, 85)
+                + record(0, 0x00FF0000, 0, 0)
+            )
+            report = build_binasm_boundary_report(path, boundary=0)
+        self.assertEqual(
+            report["stream"]["evidence_counts"],
+            {"calibrated": 1, "inferred": 1, "none": 1},
+        )
+
     def test_peepdbg_pairs_replacement_with_removed_copy(self) -> None:
         events, unparsed = parse_peepdbg(
             ">>Repl_reg (INST 3) 3 with 2\n"

@@ -104,11 +104,21 @@ pairing (the case table's section-switch/`.text` bracket). `inferred` families
 were only ever observed with a payload that fits a familiar directive. `none`
 means the record is left raw, which is always better evidence than a guess.
 
+`calibrated` means *this exact record form*. A family is recognized by the
+high half of its first opcode word, so a record whose low half is nonzero is a
+variant no probe established: it is read under the family's name, its
+unexplained bits are printed as `flags=0x....`, and its evidence is `inferred`.
+An instruction record whose opcode is not one of the as0-probed set is
+`inferred` for the same reason — the record is an instruction, but its identity
+is not established.
+
 One framing trap is worth knowing: a float literal is an instruction record
 whose fourth word is a **byte length**, followed by that many bytes of ASCII
 digits spread over whole records. A decoder that walks 16 bytes at a time and
 classifies on the opcode word reads `00e-05          ` as a record family. The
-decoder frames those as `ascii-payload` instead.
+decoder frames those as `ascii-payload` instead — and `ucode patch` treats a
+literal and its payload records as one group, refusing an edit placed between
+them, because the bytes there are the literal's digits and not a boundary.
 
 ## 3. Compare two boundaries
 
