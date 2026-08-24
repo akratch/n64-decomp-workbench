@@ -56,6 +56,7 @@ SCHEMAS: dict[str, str] = {
     "install-skill": "decomp-workbench-skill-install-v1",
     "instrument-gate": "decomp-workbench-instrument-gate-v1",
     "instrument-scheduler": "decomp-workbench-scheduler-instrument-v1",
+    "inspect-binasm": "decomp-workbench-binasm-boundary-v1",
     "lineage": "decomp-workbench-cross-rom-lineage-v1",
     "matrix": "decomp-workbench-matrix-v1",
     "next": "decomp-workbench-next-v1",

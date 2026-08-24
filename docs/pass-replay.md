@@ -68,6 +68,32 @@ decomp-workbench compare target.o candidate.o \
   --fail-on-mismatch
 ```
 
+## Inspect an existing Binasm boundary without replaying it
+
+When the retained ugen listing is already semantically right but as1 rewrites
+one register, inspect the actual 16-byte Binasm records at the suspected
+boundary before opening another source sweep:
+
+```sh
+decomp-workbench pass binasm retained.G \
+  --boundary 0x980 \
+  --peep-log as1-peepdbg.stdout \
+  --probe-results binasm-barrier-results.json
+```
+
+`--boundary` is the byte insertion point *before* a record and must be aligned
+to 16 bytes. The report losslessly prints the local record window, names only
+calibrated record families (`LOC`, `.set`, instruction, alias/call metadata,
+local label), and leaves every unknown record as raw words. It also reads IDO
+7.1 `-peepdbg` lines such as `Repl_reg ... changed to NOP` and summarizes a
+barrier sweep whose JSON has `results[].name` and `results[].exact`.
+
+The claim boundary matters: an exact inserted Binasm record proves that the
+record is sufficient *downstream of ugen*. It does not prove that a C spelling
+survives cfe/uopt/ugen and emits that record. The report therefore separates
+assembler-mode controls from source-search families such as width
+normalization, alias/call metadata, and real control-flow joins.
+
 ## Controls
 
 Run at least three cells:

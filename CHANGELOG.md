@@ -3,6 +3,14 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
+## Unreleased
+
+### Added
+
+- `pass binasm` statically inspects one fixed-record ugen-to-as1 boundary,
+  summarizes IDO 7.1 `-peepdbg` copy rewrites, and turns exact barrier-probe
+  cells into source-search families without overstating upstream survival.
+
 ## 0.6.0 - 2026-08-17
 
 ### Added

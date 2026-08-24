@@ -22,6 +22,7 @@ from .agent_skill import install_agent_skill
 from .align_cli import register_align_commands
 from .allocator_cli import register_allocator_commands
 from .artifacts import capture_streams
+from .binasm_cli import register_binasm_command
 from .cache import cache_status as inspect_cache
 from .cache import format_bytes
 from .cache_cli import register_cache_commands
@@ -2150,6 +2151,9 @@ def build_parser() -> argparse.ArgumentParser:
     register_force_rows_commands(commands)
     register_source_correlation_command(commands)
     register_pass_adapter_command(commands)
+    # Inspect the retained ugen-to-as1 stream before treating a late register
+    # rewrite as an allocator or source-shape problem.
+    register_binasm_command(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.
