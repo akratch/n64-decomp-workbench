@@ -208,12 +208,21 @@ confirms the mechanism, find the natural layout that carries the same
 assignment (field-guide lever 25).
 
 Read [references/campaign-hygiene.md](references/campaign-hygiene.md) when
-creating candidates, scratch artifacts, commits, or a public progress repo.
-Read [references/frontend-lineage.md](references/frontend-lineage.md) when a
+creating candidates, scratch artifacts, commits, or a public progress repo —
+including the fan-out pattern for asserted-anchor generators, waved sweeps
+with interim standings, and mid-flight steering. Read
+[references/frontend-lineage.md](references/frontend-lineage.md) when a
 residual survives every source family and the shape looks impossible for the
 project compiler — the frontend is a variable, not a constant, and hundreds of
 variants against an unreachable shape are the most expensive way to learn
 that.
+
+Read [references/late-stage-doctrine.md](references/late-stage-doctrine.md)
+when composing more than one independently proven mechanism, judging whether
+a saturation or exhaustion verdict measured earlier still holds, choosing a
+fitness metric for a layout- or allocation-shaped candidate instead of a
+scalar score, or auditing a campaign target's section scope before trusting
+it at registration.
 
 Before calling a compiler path patched or impossible, run
 `fingerprint-toolchain` through every plausible stock driver. Its dense-four

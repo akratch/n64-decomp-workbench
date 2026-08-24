@@ -78,6 +78,20 @@ the older items are preserved in
     ([troubleshooting](troubleshooting.md)); `doctor` can test all of them in
     milliseconds.
 
+## In flight: the cef4c elevation campaign (2026-08-24)
+
+The cef4c exact-match endgame (`docs/history/postmortem-2026-08-24-cef4c-exact.md`)
+earned a six-wave elevation plan — W1 the IDO 7.1 compiler-law book, W2
+instrumentation productization (`capture`, `pass replay-ugen`, `ucode patch`,
+decoder hardening), W3 metrics and sweeps (heal-signature scoring, `sweep`,
+layout-aware verdicts, the `compare --symbol` fix), W4 target trust
+(`target audit`), W5 skill and doc updates (this wave), and W6 release. The
+full spec, acceptance criteria, and ordering rationale live in the
+postmortem's "Campaign plan: elevating the lessons" section; do not
+re-derive it here. Track wave completion against that document rather than
+this roadmap until the waves land, at which point their shipped state folds
+into the sections above.
+
 ## Open design questions, carried forward
 
 Filed with their full discussion in
