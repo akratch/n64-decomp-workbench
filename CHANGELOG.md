@@ -17,7 +17,69 @@ in [design notes](docs/history/design-notes.md).
   `st_size`, else the next `STT_FUNC`, else the section end -- and the parser
   selects by address rather than by label. `compare-dumps`, which has no
   object to read, keeps the selection open across any label a conditional
-  branch reaches. See `docs/known-defects.md`.
+  branch *inside the selection so far* reaches. See `docs/known-defects.md`.
+- That text-only rule is now scoped to the function being selected. Read over
+  the whole dump, it let a function whose entry is its own loop head vouch for
+  itself, so selecting the function before it ran on through that function's
+  body and every function after it that did the same.
+- `symbol_extent` no longer swallows the next function in a handwritten-
+  assembly object. Only `STT_FUNC` could terminate a size-0 symbol, and a
+  hand-written `.s` file has no `STT_FUNC` at all -- every entry is a bare
+  `.globl` label, `STT_NOTYPE` and sizeless -- so the first function's extent
+  ran to the end of the section. The next externally bound symbol terminates
+  it too; a *local* untyped label (a jump-table destination) still never does.
+- `sweep build` gives every candidate its own object, cache entry, and row.
+  Outputs were keyed on the bare file stem, so same-named sources from two
+  input directories raced to compile one object and both rows scored whichever
+  compile finished last; a colliding stem now carries a short path digest, and
+  the wave reports the collision. The build fingerprint also carries the
+  compiler's own identity, as `campaign`'s cache key always has: swapping the
+  toolchain behind an unchanged path used to serve every stale object as
+  `cached`. Existing `.sweep-build.json` sidecars rebuild once.
+- `sweep build` no longer drops a `sweep.json` variant whose `.c` file is
+  missing. It now gets a `failed` row saying the source does not exist, which
+  is the module's own invariant: a candidate that vanishes from the table
+  reads as a candidate that was never tried.
+- `ucode patch` refuses an edit placed between a Binasm float literal and its
+  own ASCII payload records. That boundary frames like a record boundary and
+  is not one -- the literal declares how many bytes follow it -- so an
+  insertion there was read as the literal's digits and silently vanished while
+  the decode-back check passed, because any 16-byte multiple decodes as
+  Binasm. The check now compares record framing on both sides of the edit
+  (`result.framing_preserved`, `result.framing_error`), which also catches a
+  spec that turns its own neighbours into a literal's payload.
+- Stream format detection no longer reads a zero-padded Ucode stream as
+  Binasm. Every all-zero 16-byte window decodes as an `empty` Binasm record,
+  and counting those as recognized let a tail of padding clear the 75% gate.
+- `target audit` no longer forges the literal-pool truncation defect on a
+  healthy object. Every `.rodata` word relocating into `.text` counted as a
+  jump-table word, so a `const` array of function pointers ending `.rodata`
+  produced the same zero-bytes-left-over coincidence the defect is read from.
+  The defect now additionally requires the relocated run to be dense,
+  ascending, and to start the section; the same coincidence without that shape
+  is a `warning` (`rodata-ends-at-text-relocated-words`) naming which half did
+  not hold. A relocation offset past `.rodata`'s own end is reported as
+  `rodata-relocation-out-of-range` instead of making the byte count negative.
+- `pass binasm` only calls a record `calibrated` in the form a probe
+  established. A family is matched on the high half of its opcode word, and a
+  record whose low half was nonzero -- a variant nobody has observed -- was
+  reported as calibrated evidence *with those bits deleted from the output*.
+  They are now rendered as `flags=0x....` and the record reads `inferred`; an
+  instruction record whose opcode is not one of the as0-probed set, and a
+  `.set` mode number no probe named, stop counting as calibrated too.
+- `--watch-rows` no longer renames the report it is merged into. The block
+  carried a top-level `schema`, so `compare --json --watch-rows` announced
+  itself as a watch-row set rather than a comparison and `rank` stamped the
+  same id onto every `results[]` entry. The sub-document's identity is now
+  `watch_schema`, and every key the block contributes is namespaced.
+- Internal: `sweep build` and `target audit` joined the discovery surface;
+  five copies of the streaming file digest and a second, divergent nice-prefix
+  helper import `campaign`'s; `replay_ugen`'s two copies of the pass
+  launch/capture/blame block became one helper; the unreferenced
+  `signature_table` and `watch_header` are gone; the aligner's verdict set is
+  built from named constants and the two docstrings that still said
+  "structure-mismatch only" are corrected; and each hand-rolled ELF
+  reader/writer now names `decomp_workbench.elf` as its intended home.
 - `pass ucode --json` declares its report schema, which the suite's
   schema-coverage check required.
 - The documentation-output checker no longer attributes a `text` transcript to
