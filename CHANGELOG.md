@@ -5,7 +5,49 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Fixed
+
+- `compare --symbol` (and `--function`) no longer carves a function's prologue
+  out of its body on an object whose code carries interior labels. The
+  selector ended the selection at the first `<label>:` header after the named
+  symbol, and a ROM-extracted target object has a symbol for every jump-table
+  destination *inside* one function: one campaign's probe reported
+  `words=1799 opcodes=1798 gaps=1798` for two objects that differed by a
+  single word. The extent now comes from the object's own symbol table --
+  `st_size`, else the next `STT_FUNC`, else the section end -- and the parser
+  selects by address rather than by label. `compare-dumps`, which has no
+  object to read, keeps the selection open across any label a conditional
+  branch reaches. See `docs/known-defects.md`.
+- `pass ucode --json` declares its report schema, which the suite's
+  schema-coverage check required.
+- The documentation-output checker no longer attributes a `text` transcript to
+  a runnable command that did not immediately precede it, which made a correct
+  page fail because an intervening example was written against `target.o`.
+
 ### Added
+
+- `compare --watch-rows` scores a chosen set of positional rows as
+  healed/broken columns -- `r49=49,cx2=1620,...`, or `@probes.json` for a
+  named set -- and reports the signature in text and as `watch_rows` /
+  `watch_signature` in `--json`. The same option is on `compare-dumps`,
+  `rank` (one signature per ranked row), and `sweep build`. A six-column
+  signature over discriminating rows was the fitness function that converged
+  one endgame after `opcodes` conflated schedule with allocation and `words`
+  over-charged a permutation.
+- `sweep build` compiles a wave of candidate sources and scores it into one
+  table: bounded pool (`--jobs 4`), `nice -n 10`, a skip for any object whose
+  source *and* compile command are unchanged, the standard metric columns, the
+  watch-row signature, the verdict, and stable ordering (`--sort words |
+  rows-away | watch | name`, every order breaking ties on the label). Takes
+  files, directories, or a generated sweep directory. The productized form of
+  a scorer three campaign sessions rewrote by hand.
+- Layout-aware verdicts: on `structure-mismatch` and `schedule-mismatch` --
+  the two verdicts a block permutation lands on -- `compare` now runs the
+  shift-tolerant aligner itself and reports the edit script, the moved-block
+  count and rows, and `rows_away` beside `words`, in text and under `layout`
+  in `--json`. One campaign candidate whose real edit script was a single
+  relocated 29-row block reported 1,791 differing words and was ranked below
+  strictly worse candidates. Documented as Trap 8 in `docs/metric-traps.md`.
 
 - `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
   including the selector expression, XJP range/default/case labels, and dense

@@ -144,9 +144,19 @@ def discover() -> list[DocumentedCommand]:
     discovered: list[DocumentedCommand] = []
     for document in DOCUMENTS:
         pending: list[tuple[int, tuple[str, ...], list[tuple[int, str]]]] = []
+        #: Whether the block immediately before this one added a runnable
+        #: command. A `text` block is that command's promised output *only*
+        #: when it directly follows it. Without this, a shell block written
+        #: against `target.o` -- not runnable, so it adds nothing to `pending`
+        #: -- left its transcript attached to whatever runnable command
+        #: appeared earlier in the page, and the checker then demanded that
+        #: one print another command's output. That reads as a documentation
+        #: error in a page that is correct.
+        adjacent = False
         for line, info, body in fenced_blocks(document):
             language = info.lower()
             if language in SHELL_LANGUAGES:
+                added = False
                 for command in command_lines(body):
                     arguments = split_arguments(command)
                     if not arguments or arguments[0] != PROGRAM:
@@ -158,12 +168,17 @@ def discover() -> list[DocumentedCommand]:
                     ):
                         continue
                     pending.append((line, arguments[1:], []))
-            elif language == "text" and pending:
-                offset = line
-                for index, raw in enumerate(body, start=1):
-                    text = raw.strip()
-                    if text:
-                        pending[-1][2].append((offset + index, text))
+                    added = True
+                adjacent = added
+            elif language == "text":
+                if pending and adjacent:
+                    offset = line
+                    for index, raw in enumerate(body, start=1):
+                        text = raw.strip()
+                        if text:
+                            pending[-1][2].append((offset + index, text))
+            else:
+                adjacent = False
         discovered.extend(
             DocumentedCommand(document, line, argv, tuple(expected))
             for line, argv, expected in pending
@@ -270,6 +285,16 @@ class DocumentedCommandTests(unittest.TestCase):
         self.assertIn(ROOT / "docs" / "START_HERE.md", documents)
         self.assertIn(ROOT / "README.md", documents)
         self.assertGreaterEqual(len(self.commands), 8)
+        # `test_documented_output_is_real` skips a command with no promised
+        # output, so an extractor that stopped attaching transcripts would
+        # turn that test green while checking nothing. 34 commands and 211
+        # expectation lines at the time of writing; the floor is well below
+        # both and far above the point where the check is vacuous.
+        with_output = [item for item in self.commands if item.expectations]
+        self.assertGreaterEqual(len(with_output), 20)
+        self.assertGreaterEqual(
+            sum(len(item.expectations) for item in with_output), 120
+        )
 
     def test_documented_commands_succeed(self) -> None:
         failures: list[str] = []
