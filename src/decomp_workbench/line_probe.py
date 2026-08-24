@@ -28,6 +28,15 @@ The comparison is over raw instruction *words* (4-byte chunks of the
 compiled ``.text`` section, or of one function's byte range when
 ``--function`` is given), never a disassembly: the campaign's finding was
 about which 4-byte words land at which position, not about mnemonics.
+
+This module reads ELF32 big-endian bytes with its own minimal struct code, and
+so do :mod:`decomp_workbench.elf_symbols`,
+:mod:`decomp_workbench.elf_instructions`, :mod:`decomp_workbench.ldmap`,
+:mod:`decomp_workbench.objdump`. Each answers one narrow question and each
+declines rather than raising where a general reader would refuse the file.
+:mod:`decomp_workbench.elf` is the intended future home for all of them;
+folding them in changes five distinct failure behaviours, so it is deliberate
+work rather than a refactor to do in passing.
 """
 
 from __future__ import annotations

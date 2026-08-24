@@ -45,6 +45,15 @@ Everything else -- a stripped object, a symbol that is not in the table, a file
 that is not an ELF this reader understands -- returns ``None`` so the caller
 falls back to the printed-text rule rather than turning a coarse answer into a
 hard failure.
+
+This module reads ELF32 big-endian bytes with its own minimal struct code, and
+so do :mod:`decomp_workbench.elf_instructions`, :mod:`decomp_workbench.ldmap`,
+:mod:`decomp_workbench.line_probe`, :mod:`decomp_workbench.objdump`. Each
+answers one narrow question and each declines rather than raising where a
+general reader would refuse the file. :mod:`decomp_workbench.elf` is the
+intended future home for all of them; folding them in changes five distinct
+failure behaviours, so it is deliberate work rather than a refactor to do in
+passing.
 """
 
 from __future__ import annotations

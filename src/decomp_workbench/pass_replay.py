@@ -361,6 +361,55 @@ def _replay_environment(overrides: dict[str, str] | None) -> dict[str, str]:
     return environment
 
 
+def _run_phase(
+    phase: str,
+    command: list[str],
+    *,
+    environment: dict[str, str] | None,
+    compile_cwd: Path,
+    timeout: float,
+    stream_limit: int,
+    artifact_dir: str | Path | None,
+    stem: str,
+    produces: Path,
+) -> dict[str, Any]:
+    """Run one stock pass binary and return the report entry for it.
+
+    ugen and as1 are launched, captured, checked and blamed identically, and
+    the two copies of that block had already begun to drift in their wording.
+    Raises `RuntimeError` naming the phase for a timeout, a nonzero exit, or a
+    success that produced no file -- so a caller chaining passes gets one
+    failure vocabulary rather than two.
+    """
+
+    try:
+        result = run_compiler(
+            command,
+            environment=_replay_environment(environment),
+            compile_cwd=compile_cwd,
+            timeout=timeout,
+        )
+    except CompilerTimeoutError as error:
+        raise RuntimeError(f"{phase} {error}") from error
+    streams = capture_streams(
+        result.stdout,
+        result.stderr,
+        limit=stream_limit,
+        artifact_dir=artifact_dir,
+        stem=stem,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"{phase} failed ({result.returncode}): {detail}")
+    if not produces.is_file():
+        raise RuntimeError(f"{phase} succeeded but did not create {produces}")
+    return {
+        "returncode": result.returncode,
+        "stdout": streams.stdout,
+        "stderr": streams.stderr,
+    }
+
+
 def replay_ugen(
     ucode: str | Path,
     *,
@@ -495,32 +544,17 @@ def replay_ugen(
             *_rebuild_argv(ugen_run, input_path=stream, replacements=replacements),
         ]
         report["ugen_command"] = ugen_command
-        try:
-            ugen = run_compiler(
-                ugen_command,
-                environment=_replay_environment(environment),
-                compile_cwd=cwd,
-                timeout=timeout,
-            )
-        except CompilerTimeoutError as error:
-            raise RuntimeError(f"ugen {error}") from error
-        ugen_streams = capture_streams(
-            ugen.stdout,
-            ugen.stderr,
-            limit=stream_limit,
+        report["ugen"] = _run_phase(
+            "ugen",
+            ugen_command,
+            environment=environment,
+            compile_cwd=cwd,
+            timeout=timeout,
+            stream_limit=stream_limit,
             artifact_dir=artifact_dir,
             stem="replay-ugen",
+            produces=binasm,
         )
-        report["ugen"] = {
-            "returncode": ugen.returncode,
-            "stdout": ugen_streams.stdout,
-            "stderr": ugen_streams.stderr,
-        }
-        if ugen.returncode:
-            detail = ugen.stderr.strip() or ugen.stdout.strip()
-            raise RuntimeError(f"ugen failed ({ugen.returncode}): {detail}")
-        if not binasm.is_file():
-            raise RuntimeError(f"ugen succeeded but did not create {binasm}")
         report["binasm"] = {
             "bytes": binasm.stat().st_size,
             "sha256": file_sha256(binasm),
@@ -543,32 +577,17 @@ def replay_ugen(
                 ),
             ]
             report["as1_command"] = as1_command
-            try:
-                as1 = run_compiler(
-                    as1_command,
-                    environment=_replay_environment(environment),
-                    compile_cwd=cwd,
-                    timeout=timeout,
-                )
-            except CompilerTimeoutError as error:
-                raise RuntimeError(f"as1 {error}") from error
-            as1_streams = capture_streams(
-                as1.stdout,
-                as1.stderr,
-                limit=stream_limit,
+            report["as1"] = _run_phase(
+                "as1",
+                as1_command,
+                environment=environment,
+                compile_cwd=cwd,
+                timeout=timeout,
+                stream_limit=stream_limit,
                 artifact_dir=artifact_dir,
                 stem="replay-as1",
+                produces=replay_object,
             )
-            report["as1"] = {
-                "returncode": as1.returncode,
-                "stdout": as1_streams.stdout,
-                "stderr": as1_streams.stderr,
-            }
-            if as1.returncode:
-                detail = as1.stderr.strip() or as1.stdout.strip()
-                raise RuntimeError(f"as1 failed ({as1.returncode}): {detail}")
-            if not replay_object.is_file():
-                raise RuntimeError(f"as1 succeeded but did not create {replay_object}")
             report["object"] = {
                 "bytes": replay_object.stat().st_size,
                 "sha256": file_sha256(replay_object),

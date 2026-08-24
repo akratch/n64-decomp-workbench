@@ -174,9 +174,11 @@ class Comparison:
     #: consume this receipt instead of re-reading a whole section or retaining
     #: target instruction text/words in the ledger.
     aligned_row_receipts: list[dict[str, Any]] = field(default_factory=list)
-    #: The shift-tolerant edit script, computed automatically when the verdict
-    #: is ``structure-mismatch`` and ``None`` otherwise. That verdict is where
-    #: a block permutation lands, and it is the one place the positional
+    #: The shift-tolerant edit script, computed automatically on either of the
+    #: two verdicts a block permutation reaches -- ``structure-mismatch`` and
+    #: ``schedule-mismatch`` (``decomp_workbench.compare.LAYOUT_VERDICTS``) --
+    #: and ``None`` otherwise. Those are where a block permutation lands, and
+    #: they are where the positional
     #: headline is known to mislead: moving a 29-row block charged 1,791
     #: ``words`` for a candidate whose real edit script was one relocated
     #: block. ``moved_block_count``/``moved_rows`` say how much of the

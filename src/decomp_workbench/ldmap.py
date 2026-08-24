@@ -96,6 +96,15 @@ cross-toolchain happens to be on ``PATH`` at audit time -- for a command whose
 whole point is reading a build somebody else produced. The parse is
 ~60 lines of `struct`, has no dependency beyond the standard library, and is
 tested against a handcrafted ELF built byte by byte in the test module.
+
+This module reads ELF32 big-endian bytes with its own minimal struct code, and
+so do :mod:`decomp_workbench.elf_symbols`,
+:mod:`decomp_workbench.elf_instructions`, :mod:`decomp_workbench.line_probe`,
+:mod:`decomp_workbench.objdump`. Each answers one narrow question and each
+declines rather than raising where a general reader would refuse the file.
+:mod:`decomp_workbench.elf` is the intended future home for all of them;
+folding them in changes five distinct failure behaviours, so it is deliberate
+work rather than a refactor to do in passing.
 """
 
 from __future__ import annotations

@@ -386,7 +386,8 @@ METRICS: tuple[Metric, ...] = (
         "layout",
         "layout",
         "the shift-tolerant edit script, computed automatically when the "
-        "verdict is structure-mismatch and null otherwise: block counts, "
+        "verdict is structure-mismatch or schedule-mismatch and null "
+        "otherwise: block counts, "
         "rows_away, and the blocks present in both objects at different "
         "positions. Read it before words= on that verdict -- a moved block "
         "costs one edit and thousands of positional words",

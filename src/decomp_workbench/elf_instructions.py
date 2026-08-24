@@ -32,6 +32,15 @@ docstring), so there is nothing more precise to read. Callers comparing one
 named symbol out of several should treat this as "how long is the section",
 not "how long is the symbol", and fall back to the disassembly-based count
 for that question.
+
+This module reads ELF32 big-endian bytes with its own minimal struct code, and
+so do :mod:`decomp_workbench.elf_symbols`, :mod:`decomp_workbench.ldmap`,
+:mod:`decomp_workbench.line_probe`, :mod:`decomp_workbench.objdump`. Each
+answers one narrow question and each declines rather than raising where a
+general reader would refuse the file. :mod:`decomp_workbench.elf` is the
+intended future home for all of them; folding them in changes five distinct
+failure behaviours, so it is deliberate work rather than a refactor to do in
+passing.
 """
 
 from __future__ import annotations

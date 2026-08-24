@@ -313,6 +313,12 @@ def relocation_symbol_signature(
 #: one of these where the target names an object may have manufactured its own
 #: private copy of storage another translation unit owns, which shifts the
 #: linked layout even though every instruction bit agrees.
+#: The two verdicts a block permutation reaches, named because more than one
+#: place has to agree on them: the verdict itself, the frozenset below that
+#: decides whether the aligner runs, and the docs describing both.
+VERDICT_SCHEDULE_MISMATCH = "schedule-mismatch"
+VERDICT_STRUCTURE_MISMATCH = "structure-mismatch"
+
 SECTION_SYMBOLS = frozenset({".text", ".data", ".rodata", ".bss", ".sdata", ".sbss"})
 
 
@@ -1178,7 +1184,7 @@ def _comparison_guidance(
         and classes <= {"opcode"}
     ):
         return (
-            "schedule-mismatch",
+            VERDICT_SCHEDULE_MISMATCH,
             [
                 "Instruction count and the full instruction multiset "
                 "(registers included) are identical; only their order differs. "
@@ -1198,7 +1204,7 @@ def _comparison_guidance(
         )
     if opcode_mismatches or instruction_delta:
         return (
-            "structure-mismatch",
+            VERDICT_STRUCTURE_MISMATCH,
             [
                 *mixed_site_callouts(site_classes),
                 "Instruction shape differs: work at the C/control-flow or "
@@ -1280,7 +1286,7 @@ LAYOUT_SUMMARY_SCHEMA = "decomp-workbench-layout-summary-v1"
 #: headline number a permutation inflates. Every other verdict is answering a
 #: question the aligner does not help with, and paying for an alignment on all
 #: of them would cost a scoring wave several minutes for nothing.
-LAYOUT_VERDICTS = frozenset({"structure-mismatch", "schedule-mismatch"})
+LAYOUT_VERDICTS = frozenset({VERDICT_STRUCTURE_MISMATCH, VERDICT_SCHEDULE_MISMATCH})
 
 
 def layout_summary(

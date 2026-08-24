@@ -678,4 +678,3 @@ def build_lines(wave: SweepBuild, *, limit: int = 40) -> list[str]:
         )
     )
     return lines
-
