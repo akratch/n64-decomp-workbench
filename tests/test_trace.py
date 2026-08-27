@@ -162,6 +162,23 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(request.register, 96)
         self.assertEqual(request.as_dict()["register_name"], "96")
 
+    def test_exposes_integer_temp_ring_pop_sequence(self) -> None:
+        # ALLOC_GP_RESULT records the register f_get_free_reg returned, an
+        # integer register (0-31, no 32 + n fp offset), so the integer temp
+        # ring pops read back as their conventional names.
+        events = parse_trace(
+            "DKWB-FREELIST ALLOC_GP reg=176 emitted=60\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT reg=14 emitted=60\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT reg=15 emitted=64\n"
+        )
+        results = [
+            event for event in events if event.fields["_event"] == "ALLOC_GP_RESULT"
+        ]
+        self.assertEqual(
+            [event.as_dict()["register_name"] for event in results], ["t6", "t7"]
+        )
+        self.assertTrue(all(event.action == "allocate" for event in events))
+
     def test_joins_fifo_events_to_emitted_rows_and_source(self) -> None:
         events = parse_trace(
             "DKWB-FREELIST ADD reg=14 emitted=257\n"

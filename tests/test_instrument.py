@@ -18,10 +18,17 @@ static void helper(void) {
 }
 """
 
-# The recompiled fp allocator takes a request descriptor in a0 and returns the
-# register it chose in v0; only a return-site hook can see the allocation.
+# The recompiled allocators take a request descriptor in a0 and return the
+# register they chose in v0; only a return-site hook can see the allocation.
+# f_get_free_reg is the integer temp allocator, f_get_free_fp_reg the fp one.
 FP_ALLOC_SOURCE = """\
 #include "header.h"
+static uint32_t f_get_free_reg(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
+uint32_t v0 = 0, s0 = 0;
+s0 = a0;
+v0 = s0;
+return v0;
+}
 static uint32_t f_get_free_fp_reg(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2) {
 uint32_t v0 = 0, s0 = 0;
 s0 = a0;
@@ -56,17 +63,20 @@ class InstrumentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already instrumented"):
             instrument_ugen(once)
 
-    def test_fp_allocator_records_returned_register(self) -> None:
+    def test_allocators_record_returned_register(self) -> None:
         result = instrument_ugen(FP_ALLOC_SOURCE)
-        self.assertEqual(result.result_hooks, 1)
-        # The entry hook still stamps the request descriptor (a0)...
-        self.assertIn('dkwb_freelist("ALLOC_FP", a0, mem);', result.source)
-        # ...and a return-site hook now stamps the allocated register (v0),
-        # placed immediately before the return so it fires on that exit.
-        self.assertIn('dkwb_freelist("ALLOC_FP_RESULT", v0, mem);', result.source)
-        result_index = result.source.index('dkwb_freelist("ALLOC_FP_RESULT", v0, mem);')
-        return_index = result.source.index("return v0;")
-        self.assertLess(result_index, return_index)
+        # Both the integer (f_get_free_reg) and fp (f_get_free_fp_reg)
+        # allocators get a return-site result hook.
+        self.assertEqual(result.result_hooks, 2)
+        for event in ("ALLOC_GP", "ALLOC_FP"):
+            # The entry hook still stamps the request descriptor (a0)...
+            self.assertIn(f'dkwb_freelist("{event}", a0, mem);', result.source)
+            # ...and a return-site hook stamps the allocated register (v0),
+            # placed immediately before the matching return.
+            self.assertIn(
+                f'dkwb_freelist("{event}_RESULT", v0, mem);\nreturn v0;',
+                result.source,
+            )
 
     def test_no_result_hook_without_the_named_function(self) -> None:
         # SOURCE defines f_alloc_reg/f_free_reg but not f_get_free_fp_reg, so

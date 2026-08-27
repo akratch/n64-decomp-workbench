@@ -83,23 +83,25 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   near-misses by revealing whether a *source foothold* exists (add/remove a
   mask to shift a ring pop; reorder a statement to move a schedule slot) instead
   of the operator guessing.
-- **Progress (2026-08-27).** Part (a), the **fp** temp ring, is landed. The
-  entry `ALLOC_FP` hook logged the allocator's *request* descriptor, not the
-  register it returned, so the pop sequence was unreadable; `instrument-ugen`
-  now injects a return-site hook that emits `ALLOC_FP_RESULT` with the
-  allocated register (`v0`), and `trace` decodes ugen's `32 + n` fp numbering.
-  On `func_80012574` the result stream is the `$f4 $f6 $f8 $f10` ring rotating
-  in dequeue order — the ring is now observable from the pop side and a phantom
-  pop (a request resolving to an already-live register) is visible by comparing
-  the paired `ALLOC_FP` / `ALLOC_FP_RESULT` records at one ordinal. See the
-  CHANGELOG. **Still open:** (i) the *integer* temp ring has an analogous
-  `f_alloc_reg` that returns `v0` and should get the same return-site hook
-  (the doc notes it does not fire per-allocation in the sampled procedure —
-  confirm before wiring); (ii) each pop's **statement-line** is still not
-  emitted — `trace.py` already parses a `line=` field, so the emitter need only
-  stamp ugen's current source-line global on the freelist record; (iii) part
-  (b), the **g0 scheduler slot** provenance, is untouched (this is sub-goal 3
-  below).
+- **Progress (2026-08-27).** Part (a), the **temp-ring pop sequences** for
+  both register classes, is landed. The entry `ALLOC_FP` hook logged the
+  allocator's *request* descriptor, not the register it returned, and the
+  integer allocator was not hooked at all (`f_alloc_reg`/`ALLOC` never fires;
+  `f_get_free_reg` is the one that does). `instrument-ugen` now injects
+  return-site hooks that emit `ALLOC_GP_RESULT` / `ALLOC_FP_RESULT` with the
+  allocated register (`v0`), and `trace` decodes ugen's unified space (integer
+  `0`–`31` by name, fp `32 + n` → `$fn`, request descriptors ≥ 64 numeric). On
+  `func_80012574` the integer stream reads `t6 t7` and the fp stream is the
+  `$f4 $f6 $f8 $f10` ring rotating in dequeue order — both rings observable
+  from the pop side, and a phantom pop (a request resolving to an already-live
+  register) is visible by comparing the paired `ALLOC_*` / `ALLOC_*_RESULT`
+  records at one ordinal. See the CHANGELOG. **Still open:** (i) each pop's
+  **statement-line** is not emitted — `trace.py` already parses a `line=`
+  field, so the emitter need only stamp ugen's current source-line global on
+  the freelist record, which would tie a pop to the *source construct* that
+  consumed it (the piece that turns "one phase off" ring residuals like Mickey
+  `func_8001A154` into a specific source edit); (ii) part (b), the **g0
+  scheduler slot** provenance, is untouched (sub-goal 3 below).
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;

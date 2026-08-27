@@ -60,24 +60,31 @@ measured as running only inside `f_init_regs` — ten calls for a
 4644-instruction procedure. It shows the initial pool being built and says
 nothing about the allocations that follow, so a study of "which register does
 the n-th temporary get" that hooks there will see nothing and conclude wrongly.
-The two hooks that fire per allocation are `f_get_free_fp_reg` (`ALLOC_FP` /
-`ALLOC_FP_RESULT`, floating point) and `f_free_reg` (`FREE`).
+The hooks that fire per allocation are `f_get_free_reg` (`ALLOC_GP` /
+`ALLOC_GP_RESULT`, integer), `f_get_free_fp_reg` (`ALLOC_FP` /
+`ALLOC_FP_RESULT`, floating point), and `f_free_reg` (`FREE`). Note that
+`f_alloc_reg` (`ALLOC`) does *not* fire in the sampled procedures, and
+`f_remove_from_free_list` (`REMOVE`) is dominated by the `v0`/`v1` setup
+removals — neither is the integer temp-ring pop.
 
-#### `ALLOC_FP` is the request; `ALLOC_FP_RESULT` is the allocated register
+#### `ALLOC_*` is the request; `ALLOC_*_RESULT` is the allocated register
 
-`f_get_free_fp_reg` is handed a class/hint descriptor in `a0` and *returns* the
-register it chose in `v0`. The entry hook can only see `a0`, so the `ALLOC_FP`
-record stamps the request, not the result — a recorded trace showed `a0`
-values such as 96 and 208 that no object uses as an fp register. A second hook
-injected before the function's return emits `ALLOC_FP_RESULT` carrying `v0`,
+`f_get_free_reg` and `f_get_free_fp_reg` are each handed a class/hint
+descriptor in `a0` and *return* the register they chose in `v0`. The entry hook
+can only see `a0`, so the `ALLOC_GP` / `ALLOC_FP` record stamps the request,
+not the result — a recorded trace showed `a0` values such as 96, 176, and 208
+that no object uses as that register. A second hook injected before the
+function's return emits `ALLOC_GP_RESULT` / `ALLOC_FP_RESULT` carrying `v0`,
 the register actually allocated. Read the two together: the same ordinal with a
 request that resolves to an already-live register is a **phantom pop**, and the
-`ALLOC_FP_RESULT` stream alone is the fp temp ring in dequeue order.
+`*_RESULT` stream alone is the temp ring in dequeue order.
 
-ugen numbers an fp register as `32 + n` in this unified space, so the fp temp
+The integer allocator returns a register directly (`0`–`31`), so an
+`ALLOC_GP_RESULT` reads back as its conventional name (`reg=14` → `t6`). ugen
+numbers an *fp* register as `32 + n` in the same unified space, so the fp temp
 ring `$f4 $f6 $f8 $f10` arrives as `36 38 40 42` and `trace` names it back
 (`reg=36` → `$f4`). A `reg` at or above 64 is the request descriptor, not a
-register, and stays numeric. On the Mickey `func_80012574` fp-web case the
+register, and stays numeric. On the Mickey `func_80012574` fp-web case the fp
 result stream is exactly `36 38 40 42` rotating — the `FP_LOCAL_RING` seen from
 the pop side, independent of the globalcolor `bestcolor` decode.
 

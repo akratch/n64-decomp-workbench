@@ -23,6 +23,7 @@ FUNCTION_RE = re.compile(
 #: get" had to add it by hand.
 FREE_LIST_FUNCTIONS = {
     "f_alloc_reg": "ALLOC",
+    "f_get_free_reg": "ALLOC_GP",
     "f_get_free_fp_reg": "ALLOC_FP",
     "f_free_reg": "FREE",
     "f_force_free_reg": "FORCE_FREE",
@@ -40,10 +41,19 @@ FREE_LIST_FUNCTIONS = {
 #: ``v0``. The entry `ALLOC_FP` hook therefore stamps the request, not the
 #: result, and a study of the fp pop sequence reads it wrongly. These functions
 #: get a second hook injected before every ``return`` so the allocated register
-#: is visible as a distinct ``ALLOC_FP_RESULT`` record carrying ``v0``. The
-#: entry hook is kept: request-then-result on one ordinal shows a phantom pop
-#: (a request that resolves to an already-live register) for what it is.
+#: is visible as a distinct ``*_RESULT`` record carrying ``v0``. The entry hook
+#: is kept: request-then-result on one ordinal shows a phantom pop (a request
+#: that resolves to an already-live register) for what it is.
+#:
+#: ``f_get_free_reg`` is the integer analog and the register allocator that
+#: actually fires per integer-temp allocation -- ``f_alloc_reg`` (``ALLOC``)
+#: does not fire in the sampled procedures, and ``f_remove_from_free_list``
+#: (``REMOVE``) is dominated by the `v0`/`v1` setup removals, so neither is the
+#: integer temp-ring pop. ``f_get_free_reg`` returns the integer register
+#: directly (0-31, no ``32 + n`` fp offset), so ``ALLOC_GP_RESULT`` is the
+#: integer temp-ring dequeue sequence.
 RESULT_HOOK_FUNCTIONS = {
+    "f_get_free_reg": "ALLOC_GP_RESULT",
     "f_get_free_fp_reg": "ALLOC_FP_RESULT",
 }
 
