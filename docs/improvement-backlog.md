@@ -95,13 +95,18 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   `$f4 $f6 $f8 $f10` ring rotating in dequeue order — both rings observable
   from the pop side, and a phantom pop (a request resolving to an already-live
   register) is visible by comparing the paired `ALLOC_*` / `ALLOC_*_RESULT`
-  records at one ordinal. See the CHANGELOG. **Still open:** (i) each pop's
-  **statement-line** is not emitted — `trace.py` already parses a `line=`
-  field, so the emitter need only stamp ugen's current source-line global on
-  the freelist record, which would tie a pop to the *source construct* that
-  consumed it (the piece that turns "one phase off" ring residuals like Mickey
-  `func_8001A154` into a specific source edit); (ii) part (b), the **g0
-  scheduler slot** provenance, is untouched (sub-goal 3 below).
+  records at one ordinal. Part (i) below is now landed too: each free-list
+  record carries `line=`, ugen's current source line (`0x10018e00`, the value
+  `f_warning` prints), tying a pop to its source construct. On Mickey
+  `func_8001A154` this located the phantom pop directly — line 42
+  (`flare.blue = entry->blue & 0xFFFFU`) is the one line consuming *two* ring
+  pops; removing the redundant mask realigns the entire field-copy ring to the
+  target (blue→`t4`, alpha→`t5`, size→`t7`, scale→`t9`, `multu $t8,$t9`). What
+  then remains on that function is **g0-scheduler-owned** (the `li -1`
+  materialization timing and the `div`-sequence `nop`/result register), which
+  is sub-goal 3. **Still open:** part (b), the **g0 scheduler slot**
+  provenance (sub-goal 3 below) — the last residual class walling the ring
+  functions whose source construct is already correct.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;

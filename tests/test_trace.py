@@ -167,9 +167,9 @@ class TraceTests(unittest.TestCase):
         # integer register (0-31, no 32 + n fp offset), so the integer temp
         # ring pops read back as their conventional names.
         events = parse_trace(
-            "DKWB-FREELIST ALLOC_GP reg=176 emitted=60\n"
-            "DKWB-FREELIST ALLOC_GP_RESULT reg=14 emitted=60\n"
-            "DKWB-FREELIST ALLOC_GP_RESULT reg=15 emitted=64\n"
+            "DKWB-FREELIST ALLOC_GP reg=176 emitted=60 line=42\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT reg=14 emitted=60 line=42\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT reg=15 emitted=64 line=42\n"
         )
         results = [
             event for event in events if event.fields["_event"] == "ALLOC_GP_RESULT"
@@ -178,6 +178,9 @@ class TraceTests(unittest.TestCase):
             [event.as_dict()["register_name"] for event in results], ["t6", "t7"]
         )
         self.assertTrue(all(event.action == "allocate" for event in events))
+        # The source line stamped on the record ties each pop to the source
+        # construct that consumed it (two pops on one line = a phantom pop).
+        self.assertEqual([event.source_line for event in results], [42, 42])
 
     def test_joins_fifo_events_to_emitted_rows_and_source(self) -> None:
         events = parse_trace(

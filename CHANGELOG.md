@@ -104,6 +104,14 @@ in [design notes](docs/history/design-notes.md).
   `t6 t7` and the fp stream is the `$f4 $f6 $f8 $f10` ring rotating in dequeue
   order (`36 38 40 42`, ugen's `32 + n` fp numbering), confirming
   `FP_LOCAL_RING` from the pop side.
+- `instrument-ugen` stamps ugen's current source line (`line=`, the value
+  `f_warning` prints as `line %d`) on every free-list record, so a temp-ring
+  pop ties to the source construct that consumed it. Two pops sharing one line
+  is a phantom pop -- e.g. a redundant `entry->blue & 0xFFFFU` on a `u8` field
+  allocates a temp that is then folded away, advancing the ring one phase; the
+  line that gains or loses a pop is the exact statement to edit. Confirmed on
+  Mickey `func_8001A154`, where line provenance located the phantom pop
+  (removing the mask realigns the whole field-copy ring to the target).
 - `trace` decodes ugen's unified register space: a free-list `reg` of `32`-`63`
   now names an fp register (`36` -> `$f4`), while integer results stay their
   conventional names (`14` -> `t6`) and a value at or above `64` stays numeric

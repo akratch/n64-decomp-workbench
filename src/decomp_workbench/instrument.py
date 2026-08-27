@@ -92,10 +92,21 @@ static long dkwb_emit_index(uint8_t *mem) {
     if (mem == NULL) return -1;
     return (long) MEM_U32(DKWB_IBUFFER_FORWARD_CURSOR) - 1;
 }
+/* ugen's current source line, the value f_warning prints as "line %d". It is
+ * updated as codegen walks the statement list, so stamping it on a free-list
+ * record ties a temp-ring pop to the source construct that consumed it -- a
+ * phantom pop from a redundant mask shares the line of the masked assignment,
+ * and a ring shift shows exactly which statement moved it. */
+#define DKWB_CURRENT_SOURCE_LINE 0x10018e00u
+static long dkwb_source_line(uint8_t *mem) {
+    if (mem == NULL) return -1;
+    return (long) MEM_U32(DKWB_CURRENT_SOURCE_LINE);
+}
 static void dkwb_freelist(const char *event, unsigned reg, uint8_t *mem) {
     if (dkwb_trace_on()) {
-        fprintf(stderr, "DKWB-FREELIST %s reg=%u emitted=%ld\n",
-                event, reg & 0xffu, dkwb_emit_index(mem));
+        fprintf(stderr, "DKWB-FREELIST %s reg=%u emitted=%ld line=%ld\n",
+                event, reg & 0xffu, dkwb_emit_index(mem),
+                dkwb_source_line(mem));
     }
 }
 #define DKWB_TRACE_FRAME(name) \

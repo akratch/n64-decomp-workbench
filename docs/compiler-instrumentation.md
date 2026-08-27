@@ -44,7 +44,12 @@ The generated source emits:
 
 - `DKWB-CALL` entry/exit records for selected `f_*` functions;
 - `DKWB-FREELIST` records at known allocator/free-list helper entries, stamped
-  with the current forward-ibuffer emitted ordinal.
+  with the current forward-ibuffer emitted ordinal *and* ugen's current source
+  line (`line=`, the value `f_warning` prints as `line %d`). The source line
+  ties a temp-ring pop to the construct that consumed it: two pops on one line
+  is a phantom pop (e.g. a redundant `x & 0xFFFF` on a byte field allocates a
+  temp that is folded away, advancing the ring one phase), and the line that
+  gains or loses a pop is the exact source statement to edit.
 
 Restrict function tracing:
 

@@ -53,6 +53,14 @@ class InstrumentTests(unittest.TestCase):
         self.assertIn("DKWB_IBUFFER_FORWARD_CURSOR", result.source)
         self.assertNotIn('DKWB_TRACE_FRAME("helper");', result.source)
 
+    def test_freelist_record_carries_source_line(self) -> None:
+        result = instrument_ugen(SOURCE)
+        # Each free-list record stamps ugen's current source line so a pop
+        # ties to the source construct that consumed it.
+        self.assertIn("line=%ld", result.source)
+        self.assertIn("DKWB_CURRENT_SOURCE_LINE", result.source)
+        self.assertIn("dkwb_source_line(mem)", result.source)
+
     def test_filter_retains_free_list_hook(self) -> None:
         result = instrument_ugen(SOURCE, function_pattern=r"^f_free")
         self.assertEqual(result.functions, 1)
