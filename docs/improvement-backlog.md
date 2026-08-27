@@ -107,6 +107,35 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   is sub-goal 3. **Still open:** part (b), the **g0 scheduler slot**
   provenance (sub-goal 3 below) — the last residual class walling the ring
   functions whose source construct is already correct.
+- **Ring-residual survey (2026-08-27), using the new line provenance.** Across
+  the Mickey resident `register-only` residents (`size_delta=0`), the pop-line
+  correlation sorts each residual into an owner cleanly, which is the payoff
+  this item promised. Results:
+  - `func_8003A2C8` (menu): **color**, not ring. The 5-word residual is a
+    `v0`/`v1` inversion of the `mode`/`modeBits` webs; both are `REMOVE`d from
+    the free list at entry and colored by globalcolor, never popped from the
+    ring. Belongs to the uopt-color / verdict track (item #5).
+  - `func_8002C94C` (saves): **color**, not ring. A `s5`/`s6` (callee-saved)
+    inversion — a phase-one globalcolor web, never a ring temp.
+  - `func_8001A154` (lights): **ring, then g0.** The redundant `& 0xFFFFU` on a
+    `u8` field is the phantom pop; removing it aligns the whole field ring, and
+    the remainder is g0-scheduler-owned (above).
+  - `func_8002CF6C` (saves) and `func_80020D8C` (models): **ring, same-length
+    permutation.** Every differing word is a `t`-register substitution (a
+    uniform phase shift, e.g. `+2` on models), but the objects are the same
+    length with no *removable* folded-mask phantom — the redundant masks that
+    exist (`& 0x40` on a proven-`{0,1}` value; `& 0xFF` on a `u32` index) are
+    emitted in the target too. Shifting the ring here without changing
+    instruction count is a **g0 schedule-order** decision, so these are gated
+    on part (b), not on a source mask.
+  - **Conclusion.** The removable-phantom-pop lever (part (i)) resolves the
+    *ring* portion wherever one exists, but every surveyed resident then bottoms
+    out on either globalcolor (v0/v1, s-web inversions) or the g0 scheduler
+    (same-length permutation, `li`-hoist timing, div `nop`). **Part (b), g0
+    slot provenance, is the single highest-leverage remaining piece** for the
+    resident register-only tail — it is what stands between "ring source is
+    correct" and an exact match on `func_8001A154`, `func_8002CF6C`,
+    `func_80020D8C`, and their kind.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
