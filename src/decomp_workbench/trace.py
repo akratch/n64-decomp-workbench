@@ -99,10 +99,25 @@ def parse_register(value: str) -> int:
     return parsed
 
 
+#: ugen numbers a floating-point register as ``32 + n`` in the unified register
+#: space its free-list events report, so the fp temp ring ``$f4 $f6 $f8 $f10``
+#: reaches the trace as 36, 38, 40, 42. Integer registers stay 0-31, so one
+#: decode covers both halves without ambiguity. Values at or above 64 are not
+#: registers in this space -- the ``ALLOC_FP`` *entry* hook stamps a request
+#: descriptor (e.g. 96, 208), not the allocated register -- and stay numeric so
+#: a request is never misread as ``$f64``.
+FP_REGISTER_BASE = 32
+FP_REGISTER_LIMIT = 64
+
+
 def register_name(number: int) -> str:
     """Return a conventional name, retaining unknown numeric registers."""
 
-    return REGISTER_NAMES.get(number, str(number))
+    if number in REGISTER_NAMES:
+        return REGISTER_NAMES[number]
+    if FP_REGISTER_BASE <= number < FP_REGISTER_LIMIT:
+        return f"$f{number - FP_REGISTER_BASE}"
+    return str(number)
 
 
 @dataclass(frozen=True)
@@ -139,7 +154,11 @@ def normalize_action(tag: str, fields: dict[str, str]) -> str:
         return "base"
     if upper.endswith("FREELIST"):
         event = fields.get("_event")
-        if event == "ALLOC":
+        # ALLOC, ALLOC_FP (the fp request), and ALLOC_FP_RESULT (the register
+        # the fp allocator returned) are all allocations; match the family by
+        # prefix so a new allocation event does not fall through to the raw
+        # tag name.
+        if event is not None and event.startswith("ALLOC"):
             return "allocate"
         if event in {"ADD", "FREE", "FORCE_FREE"}:
             return "append"

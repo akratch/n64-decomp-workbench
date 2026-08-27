@@ -88,6 +88,24 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `instrument-ugen` now stamps the register the fp allocator **returned**, not
+  only the request it was handed. `f_get_free_fp_reg` takes a class/hint
+  descriptor in `a0` (a recorded trace showed values such as 96 and 208 that no
+  object uses as an fp register) and returns the chosen register in `v0`; the
+  old entry hook logged `a0`, so a study of "which register does the n-th fp
+  temp get" -- the exact question the fp temp ring poses -- read the request,
+  not the result. A return-site hook now emits a distinct `ALLOC_FP_RESULT`
+  record carrying `v0`, and the entry `ALLOC_FP` record is kept so a request
+  that resolves to an already-live register (a phantom pop) is visible as such.
+  Validated on the Mickey `func_80012574` fp-web case: the result stream is the
+  `$f4 $f6 $f8 $f10` ring rotating in dequeue order (`36 38 40 42`, ugen's
+  `32 + n` fp numbering), confirming `FP_LOCAL_RING` from the pop side.
+- `trace` decodes ugen's unified register space: a free-list `reg` of `32`-`63`
+  now names an fp register (`36` -> `$f4`), while a value at or above `64`
+  stays numeric so the `ALLOC_FP` request descriptor is never misread as a
+  register. `ALLOC_FP` and `ALLOC_FP_RESULT` normalize to the `allocate`
+  action (previously any `ALLOC_*` beyond bare `ALLOC` fell through to the raw
+  tag name).
 - `docs/compiler-laws/ido-7.1.md`: the IDO 7.1 law book, 19 laws from the
   SSB64 `func_ovl0_800CEF4C` campaign (one word to `exact=true`). `as1`'s
   `peep_reg` copy propagation and `update_ctnt`'s six-gate cross-block carry

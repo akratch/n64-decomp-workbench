@@ -11,6 +11,7 @@ from decomp_workbench.trace import (
     parse_emission_map,
     parse_register,
     parse_trace,
+    register_name,
     replay_fifo,
     trace_summary,
 )
@@ -123,6 +124,43 @@ class TraceTests(unittest.TestCase):
                 "move-end",
             ],
         )
+
+    def test_names_floating_point_registers_from_unified_space(self) -> None:
+        # ugen reports an fp register as 32 + n, so the fp temp ring
+        # $f4 $f6 $f8 $f10 arrives as 36 38 40 42.
+        self.assertEqual(register_name(36), "$f4")
+        self.assertEqual(register_name(38), "$f6")
+        self.assertEqual(register_name(42), "$f10")
+        # Integer registers keep their conventional names.
+        self.assertEqual(register_name(14), "t6")
+        # The ALLOC_FP *entry* hook stamps a request descriptor (e.g. 96),
+        # not a register; values past the fp block stay numeric so a request
+        # is never misread as a register.
+        self.assertEqual(register_name(96), "96")
+        self.assertEqual(register_name(208), "208")
+
+    def test_exposes_fp_temp_ring_pop_sequence(self) -> None:
+        # ALLOC_FP_RESULT records the register the fp allocator returned
+        # (v0), decoding to the fp temp ring; the ALLOC_FP entry hook still
+        # carries the request descriptor it was handed.
+        events = parse_trace(
+            "DKWB-FREELIST ALLOC_FP reg=96 emitted=3\n"
+            "DKWB-FREELIST ALLOC_FP_RESULT reg=36 emitted=3\n"
+            "DKWB-FREELIST ALLOC_FP reg=208 emitted=4\n"
+            "DKWB-FREELIST ALLOC_FP_RESULT reg=38 emitted=4\n"
+        )
+        results = [event for event in events if event.fields["_event"] == "ALLOC_FP_RESULT"]
+        self.assertEqual([event.register for event in results], [36, 38])
+        self.assertEqual(
+            [event.as_dict()["register_name"] for event in results],
+            ["$f4", "$f6"],
+        )
+        # Every ALLOC_FP/ALLOC_FP_RESULT record still normalizes to allocate.
+        self.assertTrue(all(event.action == "allocate" for event in events))
+        # The entry hook's request descriptor is retained verbatim, unnamed.
+        request = next(event for event in events if event.fields["_event"] == "ALLOC_FP")
+        self.assertEqual(request.register, 96)
+        self.assertEqual(request.as_dict()["register_name"], "96")
 
     def test_joins_fifo_events_to_emitted_rows_and_source(self) -> None:
         events = parse_trace(

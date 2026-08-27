@@ -32,19 +32,39 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
 
 ## P1 — Coverage (invisible residual classes)
 
-### 2. FP register-web instrumentation
-- **Symptom.** A function was opcode/frame/schedule EXACT with the fp-temp ring
-  identical, differing only by an **FP-pool bijection** (e.g. `f14 ↔ f18`).
-  `CDX_FORCE` could not steer it and no source lever reached it, because the
-  instrumented `globalcolor` profile emits **integer webs only** — every
-  `p1dec`/`p2dec` bestreg observed was an integer register; FP allocation is
-  wholly unobserved. Such residuals are currently **unprovable and unreachable**.
-- **Proposed change.** Extend `globalcolor.py` + `instrument_uopt.py` /
-  `instrument_profiles.py` to also emit FP register webs (f0–f31 / fp-pool slot
-  assignments) and to accept `CDX_FORCE` directives over FP colors. Surface the
-  FP free-list/pool state in the trace the way the integer ring already is.
-- **Payoff.** Opens the entire **FP-allocator residual class** to analysis and
-  force-proof — today a hard dead-end (see the Mickey `func_80012574` case).
+### 2. FP register-web instrumentation — mostly landed; residual reclassified
+- **Original symptom.** A function (Mickey `func_80012574`) was
+  opcode/frame/schedule EXACT, differing only by an **`f14 ↔ f18` bijection**
+  (7 words). It was believed unreachable because "the instrumented
+  `globalcolor` profile emits integer webs only".
+- **What the trace actually shows (2026-08-27).** That premise was wrong. FP
+  webs **are** emitted, as `class=2` `p1dec`/`p2dec` records with
+  `bestreg=?` — the pass keeps the integer decode table and the reader names
+  the color (`globalcolor.py` `FP_COLOR_REGISTERS`, `c24`–`c29`, WB-80). For
+  `func_80012574` the trace shows eight fp webs colored `c24`–`c30`; the
+  `f14/f18` pair is web 40 (`c27`=`$f14`) and web 25 (`c29`=`$f18`).
+  `CDX_FORCE` **does** steer fp colors: forcing `p1:w40=c29` moved the square
+  web to `$f18` (a fresh force-and-diff receipt confirming `c29=$f18`). So the
+  FP emission, reader map, force path, and tests already exist and are green.
+- **Why the case is still walled.** The swap is **interference-forbidden**, not
+  colorable: web 40 is colored before web 25 and takes `c27`; when web 25 is
+  colored, `c27` sits in its forbidden mask (`0xf8`), and *stays* forbidden
+  (`0xf4`) even after web 40 is forced off it — a second interferer holds it —
+  so `p1:w25=c27` is **declined**. The target's coloring (projection→`c27`,
+  square→`c29`) requires the **projection web to win coloring priority over the
+  square web**, which is a `save`-order decision (projection `save=1.333`,
+  square `save=1.5`), not a force. Declaration/lifetime/volatile/ABI probes do
+  not move it, matching the plateau note in the source.
+- **Remaining work.** This is now an item **#5** problem (name the owning pass
+  and reachability): `diagnose` should tag `func_80012574`'s residual
+  *uopt-fp / interference-forbidden* and point at the priority lever
+  (`docs/p1-decision-arithmetic.md`) instead of at `CDX_FORCE`. Confirm the
+  register names for fp colors `c30`–`c32` (observed; `c30` appears as the
+  first spill/`split` color, so it may not be a register) before adding them to
+  `FP_COLOR_REGISTERS`.
+- **Payoff.** The FP-allocator residual class is already analysable and
+  force-provable; the outstanding gain is verdict clarity so an operator is not
+  sent to probe a force that must decline.
 
 ### 3. ugen temp-ring and g0-scheduler decision exposure
 - **Symptom.** A batch of `register-only` near-misses (≤10 words, frame-exact)
@@ -63,6 +83,23 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   near-misses by revealing whether a *source foothold* exists (add/remove a
   mask to shift a ring pop; reorder a statement to move a schedule slot) instead
   of the operator guessing.
+- **Progress (2026-08-27).** Part (a), the **fp** temp ring, is landed. The
+  entry `ALLOC_FP` hook logged the allocator's *request* descriptor, not the
+  register it returned, so the pop sequence was unreadable; `instrument-ugen`
+  now injects a return-site hook that emits `ALLOC_FP_RESULT` with the
+  allocated register (`v0`), and `trace` decodes ugen's `32 + n` fp numbering.
+  On `func_80012574` the result stream is the `$f4 $f6 $f8 $f10` ring rotating
+  in dequeue order — the ring is now observable from the pop side and a phantom
+  pop (a request resolving to an already-live register) is visible by comparing
+  the paired `ALLOC_FP` / `ALLOC_FP_RESULT` records at one ordinal. See the
+  CHANGELOG. **Still open:** (i) the *integer* temp ring has an analogous
+  `f_alloc_reg` that returns `v0` and should get the same return-site hook
+  (the doc notes it does not fire per-allocation in the sampled procedure —
+  confirm before wiring); (ii) each pop's **statement-line** is still not
+  emitted — `trace.py` already parses a `line=` field, so the emitter need only
+  stamp ugen's current source-line global on the freelist record; (iii) part
+  (b), the **g0 scheduler slot** provenance, is untouched (this is sub-goal 3
+  below).
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
