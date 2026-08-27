@@ -259,3 +259,33 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   targeting pass** (in Mickey: `tools/nm_ranking.py`). Consider a workbench
   helper that stamps a ranking with the tree hash it was computed against and
   warns when that hash is stale.
+
+---
+
+## P1 — New (2026-08-27, from the permuter campaign false floors)
+
+### 7. Permuter health-check / flag sanity
+- **Symptom.** decomp-permuter's importer defaults to `-mips1`; the host build
+  is `-mips2`. A naive flag-correction via `gmake -n <obj>` prints nothing for an
+  already-built object, so the scratch silently stayed at `-mips1` and the search
+  explored the wrong ISA — 8/12 targets "found nothing instantly," read as hard
+  functions but actually a flag fault. (Fixed host-side: touch the source first
+  plus a loud warning.)
+- **Proposed change.** A workbench `permuter doctor <fn>` / import preflight:
+  assert the scratch `compile.sh` ISA/flags match the project's real per-file
+  flags, that `base.o` compiles, and that the base score is finite and > 0;
+  refuse or loudly warn otherwise.
+- **Payoff.** Kills the most expensive false-floor class: a permuter quietly
+  searching the wrong target for hours.
+
+### 8. `diagnose` verdicts must defer to the permuter, never read as walls
+- **Symptom.** "interference-forbidden colour" and "list-scheduler slot-fill — no
+  source lever" verdicts were taken as proof of un-matchability; the permuter then
+  matched func_8002C94C and func_8001A154 anyway. An over-confident verdict sent
+  ~1M tokens to bespoke instrumentation instead of a 20-minute permuter run.
+- **Proposed change.** Whenever `diagnose` emits a "no hand-lever" verdict for a
+  register/colour/schedule tie, append: "no *hand* lever found — permuter target;
+  run permute.sh before concluding a wall." Never phrase an allocation tie as
+  proven-unmatchable.
+- **Payoff.** Routes ties to the tool that cracks them; stops analysis from
+  manufacturing false floors.
