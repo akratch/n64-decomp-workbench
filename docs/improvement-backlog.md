@@ -302,3 +302,10 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   so the scratch object == the real object. Then track.c permuter matches transfer.
 - **Payoff.** Unblocks the whole track.c permuter class and removes a subtle, expensive
   false-ceiling source.
+
+  - **Also (same root):** the importer injects its own `gDP*`/`gSP*` macro definitions
+    via `#pragma _permuter latedefine`. If a TU's real header macros differ, gfx-heavy
+    functions (Mickey particles.c func_80041CE4: frame -136 vs -128) also fail to
+    transfer. The scratch should use the TU's real macro context, not injected stubs.
+    Net rule: a permuter scratch object must be bit-identical to the real per-TU object
+    (flags + post-compile objcopy + real macros), or its score-0 is not a real match.
