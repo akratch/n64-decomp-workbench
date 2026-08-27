@@ -170,6 +170,33 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
      one free early (hoisting `-1`) that the target's schedule does not. Until
      it exists, `func_8001A154` is recorded g0-scheduler-owned with no manual
      source lever.
+- **Reachability pre-check + single-decision isolation (2026-08-27, third
+  pass).** Before building part (b), the authorized reachability question was
+  settled: **the protective-nop schedule IS reachable through the project
+  toolchain.** `func_80024D00` (camera.c, a fully C-matched resident — no
+  `GLOBAL_ASM`, not in `asm/nonmatchings`) computes `((a - b) * m) / (c - d)`
+  and its verified ROM object carries `multu; mflo; nop; nop; div`. So the IDO
+  `cc` → ugen → `asm-processor` → `mips64-elf-as` path emits the `-Wab,-r4300_mul`
+  mul→div nops from C; these residents are **not** a toolchain limit.
+- **But reachable ≠ lever-able, and the residual is now a *single* scheduler
+  decision.** Diffing `func_8001A154` (no-mask) against the target on the
+  authoritative path, the two objects are **byte-identical for the first 24
+  instructions** — prologue, the three `mtc1`/`cvt.s.w` float conversions, and
+  the early-hoisted constants `at=0x64` (the `/100` divisor, at insn 9) and the
+  `0x41`/`0x2B` field constants. They diverge at **exactly one slot**: the
+  1-cycle `mtc1 $f16` → `cvt.s.w` latency bubble (target insn 25, a real `nop`).
+  The scheduler in our build *fills* that bubble with `li -1` (reusing `t1`,
+  just freed from the `z` load), which pins `flare.index` to `t1` and cascades
+  the whole tail (the `-1` lands at `t2` insn 31 in the target, leaving the
+  mul→div slots as the two nops). `li -1` is a zero-dependency constant, always
+  ready, so **no source dependency can hold it out of that bubble** — the
+  difference is a pure list-scheduler slot-fill/priority choice, invisible to
+  the source. g0 slot provenance would *display* this decision but not hand over
+  a lever for it, so for `func_8001A154` part (b) would **confirm-and-record,
+  not unlock**. This is the sharpest statement of the resident register-only
+  wall: where a residual reduces to which ready instruction the list scheduler
+  drops into a fixed latency bubble, there is no C-level steering — it is a
+  permuter/rescheduler target, not a source-edit target.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
