@@ -136,6 +136,40 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
     resident register-only tail — it is what stands between "ring source is
     correct" and an exact match on `func_8001A154`, `func_8002CF6C`,
     `func_80020D8C`, and their kind.
+- **g0 instrumentation feasibility + authoritative-path deepening
+  (2026-08-27, second pass).** Two findings that must precede any further push
+  on part (b):
+  1. **No clean hook for the scheduler.** Unlike the free list (discrete
+     helpers `f_get_free_reg` / `f_get_free_fp_reg` with a single return), a
+     search of the recompiled ugen for a scheduler / nop-insertion / reorg
+     pass (`sched|reorder|slot|cycle|delay|nop|peep|interlock|hazard|r4300`)
+     finds **no discrete function** to instrument. The instruction ordering
+     and the `-Wab,-r4300_mul` protective-nop insertion appear distributed
+     through the low-level emit path, so g0 slot provenance needs the emit
+     records themselves tagged (per-instruction slot + line at the point each
+     word is written to the ibuffer), not a helper hook — a materially larger
+     change than the ring/line work, and the reason part (b) is not yet built.
+  2. **Isolated `cc` differs from the real build path — always diff on the
+     authoritative path.** An isolated `cc -c` of a single function does *not*
+     schedule identically to the project path (`asm-processor` +
+     `mips64-elf-as`) that `gmake verify` uses: on `func_8001A154` the two
+     disagreed on instruction count (56 vs 58) and nop placement. Redone on the
+     authoritative path across ~9 `func_8001A154` source variants (blue mask
+     on/off, signed vs unsigned mask, explicit product temp, statement
+     reorders), **no source form reproduces the target schedule**: the target
+     is `multu; mflo; nop; nop; div` with `li -1` hoisted late (`t2`, 58
+     instrs), while every variant lands either fields-correct with `-1` early
+     (55 instrs, no nops) or fields-shifted with `-1` late (56 instrs). Both the
+     isolated (IDO `as1`) and the authoritative (`mips64-elf-as`) paths omit the
+     two `multu`→`div` protective nops, so the nops are **ugen-scheduled and
+     source-dependent** — not an assembler artifact — and the source form that
+     makes ugen emit them (an extra dependency that denies the scheduler the
+     slot it otherwise fills, which also holds `li -1` down to `t2`) was not
+     found by hand. This is precisely what part (b) g0 slot provenance would
+     show: per-instruction, which slot each landed in and why the scheduler had
+     one free early (hoisting `-1`) that the target's schedule does not. Until
+     it exists, `func_8001A154` is recorded g0-scheduler-owned with no manual
+     source lever.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
