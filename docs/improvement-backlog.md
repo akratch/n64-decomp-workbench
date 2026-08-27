@@ -289,3 +289,16 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   proven-unmatchable.
 - **Payoff.** Routes ties to the tool that cracks them; stops analysis from
   manufacturing false floors.
+
+### 9. Permuter scratch must replicate the TU's post-compile objcopy steps
+- **Symptom.** Some TUs get a Makefile `objcopy --redefine-sym A=B` after compile
+  (Mickey track.c, from the func_8000D018 TrapDanglingJump fix). The permuter's
+  import builds its scratch object WITHOUT that objcopy, so a score-0 in the scratch
+  does not transfer to the real build — every track.c permuter result was a
+  non-transferring "false ceiling" (func_80012574: 2–4 words off, frame exact).
+- **Proposed change.** The import/scratch build should detect and apply the same
+  post-compile object transforms the Makefile applies to that TU's .o (parse the
+  `objcopy`/`--redefine-sym` from `gmake -n <obj>`, already used for flag recovery),
+  so the scratch object == the real object. Then track.c permuter matches transfer.
+- **Payoff.** Unblocks the whole track.c permuter class and removes a subtle, expensive
+  false-ceiling source.
