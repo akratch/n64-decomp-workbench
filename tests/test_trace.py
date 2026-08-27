@@ -149,7 +149,7 @@ class TraceTests(unittest.TestCase):
             "DKWB-FREELIST ALLOC_FP reg=208 emitted=4\n"
             "DKWB-FREELIST ALLOC_FP_RESULT reg=38 emitted=4\n"
         )
-        results = [event for event in events if event.fields["_event"] == "ALLOC_FP_RESULT"]
+        results = [e for e in events if e.fields["_event"] == "ALLOC_FP_RESULT"]
         self.assertEqual([event.register for event in results], [36, 38])
         self.assertEqual(
             [event.as_dict()["register_name"] for event in results],
@@ -158,7 +158,7 @@ class TraceTests(unittest.TestCase):
         # Every ALLOC_FP/ALLOC_FP_RESULT record still normalizes to allocate.
         self.assertTrue(all(event.action == "allocate" for event in events))
         # The entry hook's request descriptor is retained verbatim, unnamed.
-        request = next(event for event in events if event.fields["_event"] == "ALLOC_FP")
+        request = next(e for e in events if e.fields["_event"] == "ALLOC_FP")
         self.assertEqual(request.register, 96)
         self.assertEqual(request.as_dict()["register_name"], "96")
 

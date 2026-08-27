@@ -29,7 +29,7 @@ s0 = a0;
 v0 = s0;
 return v0;
 }
-static uint32_t f_get_free_fp_reg(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2) {
+static uint32_t f_get_free_fp_reg(uint8_t *mem, uint32_t sp, uint32_t a0) {
 uint32_t v0 = 0, s0 = 0;
 s0 = a0;
 v0 = s0;
