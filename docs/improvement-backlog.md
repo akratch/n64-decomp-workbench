@@ -309,3 +309,53 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
     transfer. The scratch should use the TU's real macro context, not injected stubs.
     Net rule: a permuter scratch object must be bit-identical to the real per-TU object
     (flags + post-compile objcopy + real macros), or its score-0 is not a real match.
+
+---
+
+## Status update (2026-08-28, Mickey Epoch 14 setup)
+
+- **#7 landed host-side** in Mickey `tools/permute_batch.py` (`build_recipe_for`):
+  the real cc line is recovered from `gmake -n <obj>` after touching the source.
+  Two further faults found while porting, both worth a workbench preflight:
+  (a) gmake echoes the recipe with a backslash continuation, so the flags sit
+  on a line that does not name the compiler -- join `\`+newline before parsing;
+  (b) the static "flag group" tables every host tends to keep were wrong for a
+  TU that *looked* default (`lights.c` carries `-Wab,-r4300_mul`); only the
+  build's own dry-run is authoritative. Proof: `func_8001A154` is re-found from
+  its pre-match source in 75 s and promotes through the real build.
+- **#9 landed host-side** (objcopy chain appended to the scratch `compile.sh`,
+  digest-guarded `.py` passes skipped and listed in `recipe.txt`). The injected
+  gfx-macro context part is still open.
+
+### 10. Permuter sweep driver as a first-class workbench command
+- **Symptom.** Every host re-invents the same batch loop around decomp-permuter,
+  and each re-invention re-introduces the fidelity faults (#7, #9, stack-diffs).
+  Mickey's 2026-08-25 farm (0 hits / 38 searches) was such a re-invention and
+  produced a false "queue exhausted" verdict for a 300 KB NON_MATCHING queue.
+- **Proposed change.** `decomp-workbench permute-sweep <queue>`: closest-first
+  ordering from the ranking, scratch built from the project's real recipe
+  (flags + post-compile transforms), `--stack-diffs` forced, niced and
+  load-gated launches, resume from a summary, score-trend extension (re-seed
+  from the best candidate only when the best result landed in the final third
+  of the window), and verify-once promotion on the authoritative build path.
+  Reference implementation: Mickey `tools/permute_batch.py` + `permute_sweep.sh`.
+- **Payoff.** The single highest-EV, zero-token lever in a late-stage campaign
+  becomes a one-command, hard-to-misconfigure tool.
+
+### 11. Ranking freshness stamp
+- **Symptom.** (Promoted from the workflow note above.) A closeness ranking
+  drifts within hours; Mickey's snapshot carried two already-matched functions
+  and was used as an ownership ledger it never was.
+- **Proposed change.** Stamp every ranking with the tree hash it was computed
+  against; `diagnose`/sweep consumers warn when HEAD differs, and the sweep
+  regenerates it per pass.
+
+### 12. Permuter outcomes as the wall-class evidence
+- **Symptom.** Wall classes (P / P! / F / S / W) are assigned by hand from
+  verdict prose, and the "unwinnable" class has repeatedly been wrong.
+- **Proposed change.** Aggregate the sweep's `summary.json` (base score, best
+  score, extended?, promoted?) into the per-function record so a function is
+  classed `P!` (permuter-stuck, score still descending) or `W-candidate` (flat
+  from the first minutes) by measurement, and only *then* routed to trace
+  levers or instrumentation. Mickey's Epoch 14 uses exactly this list to decide
+  whether the g0-scheduler provenance build (#3) is worth funding.
