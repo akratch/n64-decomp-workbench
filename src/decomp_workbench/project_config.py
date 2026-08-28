@@ -23,7 +23,9 @@ tomllib: Any = importlib.import_module(
 
 CONFIG_NAME = ".decomp-workbench.toml"
 PROJECT_CONFIG_SCHEMA = "decomp-workbench-project-v1"
-_SECTIONS = frozenset({"project", "object", "build", "compiler", "campaign"})
+_SECTIONS = frozenset(
+    {"project", "object", "build", "compiler", "campaign", "permuter"}
+)
 _KEYS = {
     "project": frozenset({"name"}),
     "object": frozenset(
@@ -32,7 +34,85 @@ _KEYS = {
     "build": frozenset({"command", "cwd", "env", "inherit_env"}),
     "compiler": frozenset({"id", "frontend", "language", "driver", "backend"}),
     "campaign": frozenset({"state_dir", "cache_dir", "retain_sources"}),
+    "permuter": frozenset(
+        {
+            "make",
+            "python",
+            "permuter_dir",
+            "object_template",
+            "compiler_marker",
+            "compiler_command",
+            "assembler_command",
+            "compiler_type",
+            "preserve_macros",
+            "decompme_compiler",
+            "output_dir",
+            "ranking",
+            "fallback_flags",
+            "skip_postprocess",
+            "minutes",
+            "jobs",
+            "threads",
+            "load_threshold",
+            "nice",
+        }
+    ),
 }
+
+
+@dataclass(frozen=True)
+class PermuterOptions:
+    """How this project drives decomp-permuter.
+
+    Every field here exists because a permuter scratch that does not
+    reproduce the project's real per-object recipe searches a target the
+    real build never emits. `compiler_command` is the invariant half of the
+    compile line (base arguments, includes, defines); the codegen flags are
+    recovered per object from the build itself and appended to it.
+    """
+
+    make: str = "make"
+    python: str | None = None
+    permuter_dir: Path | None = None
+    object_template: str = "build/{source}.o"
+    compiler_marker: str | None = None
+    compiler_command: str | None = None
+    assembler_command: str | None = None
+    compiler_type: str = "ido"
+    preserve_macros: tuple[str, ...] = ()
+    decompme_compiler: str | None = None
+    output_dir: Path | None = None
+    ranking: Path | None = None
+    fallback_flags: tuple[str, ...] = ()
+    skip_postprocess: tuple[str, ...] = (r"\.py\b",)
+    minutes: int = 20
+    jobs: int = 1
+    threads: int | None = None
+    load_threshold: float = 0.0
+    nice: int = 15
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "make": self.make,
+            "python": self.python,
+            "permuter_dir": str(self.permuter_dir) if self.permuter_dir else None,
+            "object_template": self.object_template,
+            "compiler_marker": self.compiler_marker,
+            "compiler_command": self.compiler_command,
+            "assembler_command": self.assembler_command,
+            "compiler_type": self.compiler_type,
+            "preserve_macros": list(self.preserve_macros),
+            "decompme_compiler": self.decompme_compiler,
+            "output_dir": str(self.output_dir) if self.output_dir else None,
+            "ranking": str(self.ranking) if self.ranking else None,
+            "fallback_flags": list(self.fallback_flags),
+            "skip_postprocess": list(self.skip_postprocess),
+            "minutes": self.minutes,
+            "jobs": self.jobs,
+            "threads": self.threads,
+            "load_threshold": self.load_threshold,
+            "nice": self.nice,
+        }
 
 
 @dataclass(frozen=True)
@@ -59,6 +139,7 @@ class ProjectConfig:
     state_dir: Path | None = None
     cache_dir: Path | None = None
     retain_sources: str = "leaders"
+    permuter: PermuterOptions = field(default_factory=PermuterOptions)
 
     @property
     def root(self) -> Path:
@@ -173,6 +254,7 @@ class ProjectConfig:
                 "cache_dir": shown(self.cache_dir),
                 "retain_sources": self.retain_sources,
             },
+            "permuter": self.permuter.as_dict(),
         }
 
 
@@ -232,6 +314,87 @@ def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
+def _string_list(value: object, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise ValueError(f"{field_name} must be an array of non-empty strings")
+    return tuple(value)
+
+
+def _positive_integer(value: object, field_name: str, default: int) -> int:
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
+    """Validate the [permuter] table, refusing an unusable sweep early."""
+
+    macros = _string_list(data.get("preserve_macros"), "permuter.preserve_macros")
+    if any("=" not in entry for entry in macros):
+        raise ValueError("permuter.preserve_macros entries must use PATTERN=TYPE")
+    threads = data.get("threads")
+    if threads is not None:
+        threads = _positive_integer(threads, "permuter.threads", 1)
+    load_threshold = data.get("load_threshold", 0.0)
+    if isinstance(load_threshold, bool) or not isinstance(load_threshold, (int, float)):
+        raise ValueError("permuter.load_threshold must be a number")
+    if load_threshold < 0:
+        raise ValueError("permuter.load_threshold must not be negative")
+    nice = data.get("nice", 15)
+    if isinstance(nice, bool) or not isinstance(nice, int):
+        raise ValueError("permuter.nice must be an integer")
+    template = data.get("object_template", "build/{source}.o")
+    if not isinstance(template, str) or "{" not in template:
+        raise ValueError(
+            "permuter.object_template must name at least one of "
+            "{source}, {stem}, {name}, {parent}"
+        )
+    defaults = PermuterOptions()
+    return PermuterOptions(
+        make=_optional_string(data.get("make"), "permuter.make") or defaults.make,
+        python=_optional_string(data.get("python"), "permuter.python"),
+        permuter_dir=_path(root, data.get("permuter_dir"), "permuter.permuter_dir"),
+        object_template=template,
+        compiler_marker=_optional_string(
+            data.get("compiler_marker"), "permuter.compiler_marker"
+        ),
+        compiler_command=_optional_string(
+            data.get("compiler_command"), "permuter.compiler_command"
+        ),
+        assembler_command=_optional_string(
+            data.get("assembler_command"), "permuter.assembler_command"
+        ),
+        compiler_type=_optional_string(
+            data.get("compiler_type"), "permuter.compiler_type"
+        )
+        or defaults.compiler_type,
+        preserve_macros=macros,
+        decompme_compiler=_optional_string(
+            data.get("decompme_compiler"), "permuter.decompme_compiler"
+        ),
+        output_dir=_path(root, data.get("output_dir"), "permuter.output_dir"),
+        ranking=_path(root, data.get("ranking"), "permuter.ranking"),
+        fallback_flags=_string_list(
+            data.get("fallback_flags"), "permuter.fallback_flags"
+        ),
+        skip_postprocess=_string_list(
+            data.get("skip_postprocess"), "permuter.skip_postprocess"
+        )
+        or defaults.skip_postprocess,
+        minutes=_positive_integer(data.get("minutes"), "permuter.minutes", 20),
+        jobs=_positive_integer(data.get("jobs"), "permuter.jobs", 1),
+        threads=threads,
+        load_threshold=float(load_threshold),
+        nice=nice,
+    )
+
+
 def load_project_config(path: str | Path) -> ProjectConfig:
     source = Path(path).expanduser().resolve()
     try:
@@ -251,6 +414,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
     build = _table(data, "build")
     compiler = _table(data, "compiler")
     campaign = _table(data, "campaign")
+    permuter = _permuter_options(source.parent, _table(data, "permuter"))
     command = build.get("command", [])
     inherit = build.get("inherit_env", [])
     environment = build.get("env", [])
@@ -318,6 +482,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
             "campaign.cache_dir",
         ),
         retain_sources=str(retain),
+        permuter=permuter,
     )
 
 
@@ -507,6 +672,7 @@ def write_project_config(discovery: ProjectDiscovery) -> Path:
 __all__ = [
     "CONFIG_NAME",
     "PROJECT_CONFIG_SCHEMA",
+    "PermuterOptions",
     "ProjectConfig",
     "ProjectDiscovery",
     "discover_project",
