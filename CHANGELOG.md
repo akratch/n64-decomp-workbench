@@ -21,7 +21,7 @@ in [design notes](docs/history/design-notes.md).
 
   `reloc-surface` generates the values instead. For a candidate whose schedule
   already agrees at the site, each is a pure function of the stored addends --
-  `synthetic_vma | (imm26 << 2)` for a call, `(hi << 16) + sext16(lo)` for a
+  `(synthetic_vma & 0xF0000000) | (imm26 << 2)` for a call, `(hi << 16) + sext16(lo)` for a
   pair, the word itself for an `R_MIPS_32` -- less the addend the object's own
   instruction carries, which is what lets one base symbol serve many field
   references. Inputs are the module's objects, a section map the host writes
@@ -38,16 +38,20 @@ in [design notes](docs/history/design-notes.md).
   built, the target image, and each function's image range (`--range
   NAME:START:END`, or a `decomp-workbench-image-ranges-v1` file), it classifies
   every range `exact` / `text-exact` (the range agrees; collateral outside it)
-  / `text-differs N words` / `size-differs (+N)`, with the first differing
-  offset inside and outside each range. No build orchestration: only the
+  / `text-differs N words` / `size-differs` (different image lengths, or a
+  range past the image), with the first differing offset inside and outside
+  each range. No build orchestration: only the
   project knows how it builds, and the host-side loop is written out in the
   documentation rather than guessed at here.
 
   `permute-doctor --target-object` closes the loop by telling this case apart
   from L69's badly-configured scratch, which has the same symptom -- a search
-  that finds nothing. When every `R_MIPS_26` site in the target names the
-  function itself or a symbol the candidate object does not carry, it warns
-  that the score cannot reach zero and names `linked-compare`.
+  that finds nothing. When every `R_MIPS_26` site in the target names a
+  symbol the candidate object does not carry, it warns that the score cannot
+  reach zero and names `linked-compare`. `--candidate-object` is what makes
+  that a measurement: a site naming the containing function is equally the
+  shape of ordinary self-recursion, so the candidate is checked first, and
+  without one the report says recursion is the other reading.
 
   The measurements behind all of it are Mickey's Speedway USA's: 1773/1773
   hand-written values reproduced with zero refusals, and a measurable
