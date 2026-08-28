@@ -10,10 +10,12 @@ makes the search answer a question nobody asked.
 | The scratch searches the wrong ISA | "8 of 12 targets found nothing instantly" — read as *hard functions* | The importer defaults to `-mips1`; the project builds `-mips2` |
 | The scratch object is not the real object | A score of 0 that does not survive the real build | The build applies a post-compile `objcopy` the scratch never ran |
 | The score is normalized | A "match" whose rebuild differs | Without `--stack-diffs` a spill at the wrong slot scores 0 |
+| The scratch compiles a different function | A score of 0 whose frame is wrong by 8 bytes | The importer replaced the file's macros with stubs of its own |
 
 The command forces the parts that are not opinions: the codegen flags come
 from the build itself, the post-compile chain is replicated into the scratch,
-and `--stack-diffs` is always passed.
+`--stack-diffs` is always passed, and the scratch object is measured against
+the object the project's own build produces before a window is spent on it.
 
 ## What it does not do
 
@@ -40,6 +42,7 @@ compiler_marker = "tools/ido/cc"
 compiler_command = "tools/ido/cc -c -non_shared -G 0 -I include -DVERSION_us"
 assembler_command = "tools/binutils/mips64-elf-as -march=vr4300 -32 -G0"
 preserve_macros = ["g[DS]P.*=void", "OS_PHYSICAL_TO_K0=void *"]
+preserve_macro_modes = ["configured", "none"]
 fallback_flags = ["-O2", "-mips2", "-32"]
 ranking = "config/ranking.json"
 output_dir = ".decomp-workbench/permute"
@@ -53,6 +56,86 @@ here — they are recovered per object from the build, because a static flag
 table is wrong exactly when it matters. One Mickey translation unit that
 looked entirely default carried `-Wab,-r4300_mul`; only the build's own dry
 run knew.
+
+
+## The scratch has to be the object the build produces
+
+The three faults above are about the *recipe*. There is a fourth about the
+*source*, and it is the quietest of them.
+
+decomp-permuter's `import.py` does not hand your translation unit to the
+compiler. It preprocesses it first, and for every macro named in
+`[preserve_macros]` it hides the real definition and injects a stub of its own
+through `#pragma _permuter latedefine` — which is what lets the permuter
+permute *inside* a macro call instead of treating it as opaque text. Where the
+stub expands to what the real macro expands to, this costs nothing. Where it
+does not — the N64 `gDP*`/`gSP*` display-list macros are the standard case,
+along with `_SHIFTL` and its relatives — the scratch compiles a different
+function. On Mickey's `particles.c` `func_80041CE4` the scratch takes a -136
+frame where the build takes -128, and every score measured on it is a score
+about code the build never emits.
+
+So the sweep checks. After each import it compiles the scratch's unmodified
+base through the scratch's *own* `compile.sh` — the one carrying the recovered
+flags and the replicated `objcopy` chain — and compares that object with the
+project's object for the same translation unit, through the same object oracle
+`compare` uses (see [Object comparison](object-comparison.md)).
+
+```text
+scratch object  identical [configured]
+scratch object  differs(4 words) [none]
+scratch object  unknown
+```
+
+| Verdict | Meaning |
+|---|---|
+| `identical` | the scratch's object carries the same words for this function as the build's. A score of 0 here is a score of 0 in the build |
+| `differs(N words)` | it does not. The search will answer a question about a different function, and a loud `WARNING:` says so |
+| `unknown` | the comparison could not be made: the project's object is not built, no objdump was found, or the base did not compile. Not a verdict about the function |
+| `unchecked` | `--no-fidelity` |
+
+The comparison is the *function's* words, not the sections. A scratch holds
+one pruned function where the project object holds a whole translation unit,
+so their `.data` and `.rodata` differ for reasons that have nothing to do with
+codegen; comparing them would report a difference on every function. What does
+carry across is the function's instruction words and the relocations they name,
+and that is exactly where a macro expanding differently shows up — as a
+different frame, a different schedule, or a different symbol being read.
+
+### Repairing it: fewer preserved macros
+
+When the scratch differs *and* the importer actually preserved macros (it says
+so in `import.log`, and the sweep reads it), the import is retried with a
+narrower preserved set, and the first mode whose object is identical wins:
+
+```toml
+[permuter]
+preserve_macro_modes = ["configured", "none"]
+```
+
+| Mode | What it imports |
+|---|---|
+| `configured` | the project's own `[preserve_macros]` set |
+| `none` | nothing preserved, so the translation unit's real header macros expand into the scratch exactly as they expand in the build |
+| anything else | a narrowing regex, handed to `import.py --preserve-macros` with the project's type table still in place |
+
+`none` is a real trade, not a free win: with nothing preserved the permuter
+cannot permute inside those macro calls — a display-list write is opaque text
+to it. That is the right price. A search that can reach inside a macro call in
+an object the build never emits reaches nowhere.
+
+Two modes that reach `import.py` identically are collapsed, so a project with
+no `[preserve_macros]` imports once rather than importing twice to compare a
+scratch with itself. A scratch that differs having preserved *nothing* is not
+retried at all: whatever it differs by, a narrower preserve set is the same
+import again. And when no mode is identical, the smallest measured difference
+is kept — `configured` winning ties — and re-imported if it was not the one
+left on disk.
+
+`--require-fidelity` turns a non-`identical` verdict into a refusal, for the
+runs where a score about the wrong object is worse than no score. It refuses
+having spent the import and nothing else. `--no-fidelity` skips the check
+entirely, for a project that cannot build the object to compare against.
 
 ## The queue
 
@@ -107,6 +190,9 @@ and a sweep that spends its first hours on unmeasured functions reports
 | `--list`, `--dry-run` | print the ordered queue and the resolved limits, and stop |
 | `--permuter-arg ARG` | forward one argument to `permuter.py` (repeatable) |
 | `--require-fresh` | refuse to run unless the ranking's stamp matches HEAD |
+| `--require-fidelity` | refuse a function whose scratch object is not the object the build produces |
+| `--no-fidelity` | skip the scratch-fidelity check |
+| `--objdump EXE` | the disassembler the fidelity comparison uses (default: `object.objdump`) |
 
 `--extend-minutes` is a trend test, not a time budget. A search whose best
 result landed early and then sat has plateaued, and a second window buys
@@ -163,12 +249,13 @@ Per function, in `summary.json` (schema
 `decomp-workbench-permute-sweep-v1`) and `summary.txt`:
 
 ```text
-function                           base   best  zero  ext  flags      time
-func_8001A154                       214      0  yes   no   real          75s
-func_80012574                        18      2  no    yes  real        1215s
+function                           base   best  zero  ext  flags     scratch         time
+func_8001A154                       214      0  yes   no   real      identical        75s
+func_80012574                        18      2  no    yes  real      DIFFERS/8      1215s
 ```
 
-`flags` is the column to read first. `FALLBACK` means the codegen flags were
+`flags` and `scratch` are the columns to read first: between them they say
+whether the two score columns beside them mean anything at all. `FALLBACK` means the codegen flags were
 *not* recovered from the build, so that row searched whatever the fallback
 named — possibly the wrong ISA, and possibly for hours.
 
@@ -194,6 +281,10 @@ descending when it ended -- while `window_seconds` is both windows together.
 | `hit_cap` | the search was stopped by the clock rather than finishing. Reported for the reader; the classifier does not use it |
 | `best_output_mtime_fraction` | where in the searched window the best candidate landed, 0.0 (first moment) to 1.0 (the last); `null` when nothing improved |
 | `extended` | the run earned a re-seeded second window |
+| `scratch_fidelity` | `identical`, `differs`, `unknown`, `unchecked` — see above |
+| `scratch_fidelity_words` | how many words the scratch object differs by, when it differs |
+| `scratch_fidelity_mode` | the preserved-macro import mode the searched scratch was built with |
+| `scratch_fidelity_reason` | why the comparison could not be made, when it could not |
 
 ## Preflight one function
 
@@ -208,16 +299,21 @@ permute-doctor func_80012574
   codegen flags    -O2 -mips2 -Wab,-r4300_mul -32 [make -n]
   objcopy steps    1
     replicated     objcopy --redefine-sym A=B "$OUTPUT"
+  scratch object  identical [none]
+    mode          configured: differs (12 word(s))
+    mode          none: identical
   base            compiles, score 18
   verdict         ready
 ```
 
-It answers the three questions a sweep cannot recover from getting wrong:
-are these the flags the real build uses, does the scratch replicate the
-post-compile chain, and does the base compile to a finite non-zero score. A
-base that already scores 0 is not scoring the function under test at all —
-it would report an instant "match" that does not rebuild. Exit status is 0
-when ready and 1 when not.
+It answers the four questions a sweep cannot recover from getting wrong: are
+these the flags the real build uses, does the scratch replicate the
+post-compile chain, is the scratch's object the object the build produces, and
+does the base compile to a finite non-zero score. A base that already scores 0
+is not scoring the function under test at all — it would report an instant
+"match" that does not rebuild. Exit status is 0 when ready and 1 when not; a
+differing scratch is a warning here rather than a refusal, unless
+`--require-fidelity` is passed.
 
 ## Reading a sweep's results as evidence
 
@@ -289,5 +385,11 @@ recorded `best_output_mtime_fraction` cannot show that a search plateaued, so
 an improvement with no timing is classed as descending — being wrong towards
 `P_STUCK_FLAT` is what funds an instrumentation build for a function nobody
 actually measured.
+
+A third caution the classifier does not print, because it is not the
+classifier's to make: `permute classify` reads the score columns and says
+nothing about `scratch_fidelity`. A row whose scratch `differs` is a class
+about a function the build does not contain, and `MATCHED` on such a row is a
+candidate that will not rebuild. Read the `scratch` column before the class.
 
 [permuter]: https://github.com/simonlindholm/decomp-permuter

@@ -122,6 +122,7 @@ compiler_marker = "tools/ido/cc"
 compiler_command = "tools/ido/cc -c -non_shared -G 0 -I include -DVERSION_us"
 assembler_command = "tools/binutils/mips64-elf-as -march=vr4300 -32 -G0"
 preserve_macros = ["g[DS]P.*=void"]
+preserve_macro_modes = ["configured", "none"]
 fallback_flags = ["-O2", "-mips2", "-32"]
 ranking = "config/ranking.json"
 output_dir = ".decomp-workbench/permute"

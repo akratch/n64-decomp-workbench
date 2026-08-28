@@ -32,6 +32,34 @@ in [design notes](docs/history/design-notes.md).
   three preflight questions -- real flags, replicated chain, a base that
   compiles to a finite non-zero score -- before an hour is spent on a
   function. See [Permuter sweeps](docs/permute-sweep.md).
+- `permute-sweep` and `permute-doctor` now measure the scratch object against
+  the object the project's own build produces, and repair it when they can.
+  decomp-permuter's importer does not hand a translation unit to the compiler:
+  it preprocesses it, and for every macro named in `[preserve_macros]` injects
+  a stub definition of its own through `#pragma _permuter latedefine`, which is
+  what lets the permuter permute inside a macro call. Where the stub expands to
+  something the real header macro does not -- the N64 `gDP*`/`gSP*` display-list
+  macros are the standard case -- the scratch compiles a different function, and
+  every score measured on it describes code the build never emits (Mickey's
+  `particles.c func_80041CE4`: a -136 frame in the scratch against -128 in the
+  build). After each import the scratch's own base is compiled through the
+  scratch's own `compile.sh` -- the one carrying the recovered flags and the
+  replicated `objcopy` chain -- and compared with the project's object through
+  the same object oracle `compare` uses, reported as `scratch_fidelity:
+  identical | differs(N words) | unknown | unchecked` in the doctor, in the
+  sweep's table, and in each summary row. The comparison is the function's own
+  words rather than whole sections, because a scratch holds one pruned function
+  where the project object holds a translation unit. A difference is a loud
+  warning; `--require-fidelity` makes it a refusal, having spent the import and
+  nothing else, and `--no-fidelity` skips the check. When the scratch differs
+  and the importer did preserve macros, the import is retried through
+  `[permuter] preserve_macro_modes` (default `["configured", "none"]`, and any
+  other entry is a narrowing regex) and the first mode whose object is identical
+  wins -- `none` giving up the ability to permute inside those macro calls,
+  which is the right price for searching the object the build actually has.
+  Modes that reach `import.py` identically collapse, a scratch that preserved
+  nothing is not retried, and with no identical mode the smallest measured
+  difference is kept. See [Permuter sweeps](docs/permute-sweep.md).
 - `permute classify` (`permute-classify`): a sweep's `summary.json` now
   assigns each function a measured wall class instead of a hand-written one.
   Wall classes were argued from verdict prose, and the class that says

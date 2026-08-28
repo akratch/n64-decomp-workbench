@@ -325,7 +325,28 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   its pre-match source in 75 s and promotes through the real build.
 - **#9 landed host-side** (objcopy chain appended to the scratch `compile.sh`,
   digest-guarded `.py` passes skipped and listed in `recipe.txt`). The injected
-  gfx-macro context part is still open.
+  gfx-macro context part landed in the workbench afterwards; see the status
+  below.
+
+**Status (#9 landed in full).** Both halves are in `permute-sweep` /
+`permute-doctor`. The post-compile `objcopy` chain is recovered from the
+build's own dry run and replicated into the scratch's `compile.sh`. The
+injected-macro half is now measured rather than assumed: after each import the
+scratch base is compiled through that same `compile.sh` and its object compared
+with the project's object for the translation unit, reported as
+`scratch_fidelity` (`identical` / `differs(N words)` / `unknown` /
+`unchecked`). When it differs and `import.log` says macros were preserved, the
+import is retried through `[permuter] preserve_macro_modes` -- default
+`["configured", "none"]` -- and the first byte-identical mode wins;
+`--require-fidelity` refuses a function whose scratch is not the real object.
+Two limits worth stating. The comparison is the function's instruction words
+and their relocations, not whole sections: a scratch holds one pruned function
+where the project object holds a whole translation unit, so `.data` and
+`.rodata` differ there for reasons that are not codegen. And repairing by
+*narrowing* is all the workbench can do -- importing the real macro
+definitions while still letting the permuter permute inside them would be a
+change to decomp-permuter's importer, not to a driver around it. `none` is the
+trade: the real expansions, and macro calls the permuter treats as opaque.
 
 ### 10. Permuter sweep driver as a first-class workbench command
 - **Symptom.** Every host re-invents the same batch loop around decomp-permuter,
