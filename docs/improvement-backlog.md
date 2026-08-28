@@ -384,3 +384,20 @@ the project regenerates.
   from the first minutes) by measurement, and only *then* routed to trace
   levers or instrumentation. Mickey's Epoch 14 uses exactly this list to decide
   whether the g0-scheduler provenance build (#3) is worth funding.
+
+**Status (landed).** `decomp-workbench permute classify <summary.json>`
+assigns `MATCHED`, `P_STUCK_DESCENDING`, `P_STUCK_FLAT` or `IMPORT_FAULT`
+from the sweep's own record, prints the numbers behind each call, and emits
+either a pasteable markdown table or JSON
+(`decomp-workbench-permute-classify-v1`). The sweep summary gained the fields
+the call needs -- `best_output_mtime_fraction`, `window_seconds`, `hit_cap` --
+because decomp-permuter overwrites its output directories and nothing else
+records when a search last improved. The routing is documented with the
+classes: only `P_STUCK_DESCENDING` goes to trace levers or a human,
+`P_STUCK_FLAT` is the pool that argues for or against funding instrumentation,
+and `IMPORT_FAULT` goes to the scratch. Two deliberate conservatisms: a run on
+fallback flags is listed as describing the scratch rather than the function,
+and an improvement whose timing was never recorded is classed descending, since
+being wrong towards `P_STUCK_FLAT` is what funds a build for a function nobody
+measured. The `P`/`P!`/`F`/`S`/`W` letters stay a host convention; this command
+supplies the measurement they are supposed to encode.

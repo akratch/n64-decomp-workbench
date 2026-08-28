@@ -169,6 +169,22 @@ Each function also keeps its own directory: `recipe.txt` (the flags, their
 origin, every replicated and every skipped post-compile step), the settings
 file, the import and permuter logs, and the scratch itself.
 
+Each result row carries the fields the classifier below reads. Four of them
+are about *timing*, and they exist because nothing else in the record keeps
+it: decomp-permuter's output directories are overwritten, so once the run is
+over there is no other way to know when its best candidate arrived.
+
+| Field | Meaning |
+|---|---|
+| `base_score`, `best_score` | the unmodified base, and the lowest score any candidate reached (`null` when nothing beat the base) |
+| `ok`, `error` | whether the scratch ran at all, and what stopped it |
+| `flags_recovered` | the codegen flags came from the build, not the fallback |
+| `seconds` | wall clock actually spent on this function |
+| `window_seconds` | the cap it was given, extension included |
+| `hit_cap` | the search was stopped by the clock rather than finishing |
+| `best_output_mtime_fraction` | where in the searched window the best candidate landed, 0.0 (first moment) to 1.0 (the last); `null` when nothing improved |
+| `extended` | the run earned a re-seeded second window |
+
 ## Preflight one function
 
 ```sh
@@ -202,5 +218,66 @@ scheduler analysis; the second just wants more time. Do not conclude that a
 register or schedule tie is unmatchable before a sweep has actually run on
 it with real flags — that conclusion has been wrong often enough to be worth
 a rule.
+
+`permute classify` makes that distinction from the record rather than from
+prose:
+
+```sh
+decomp-workbench permute classify examples/fixtures/permute-summary.json
+```
+
+```text
+Sweep: `examples/fixtures/permute-summary.json`
+
+| function | class | base | best | delta | best at | elapsed | ext |
+|---|---|---:|---:|---:|---:|---:|---|
+| `synth_reached_zero` | MATCHED | 214 | 0 | 214 | 94% | 75s | no |
+| `synth_still_descending` | P_STUCK_DESCENDING | 18 | 2 | 16 | 81% | 1215s | yes |
+| `synth_plateaued` | P_STUCK_FLAT | 40 | 39 | 1 | 4% | 1200s | no |
+| `synth_never_moved` | P_STUCK_FLAT | 96 | - | 0 | - | 1200s | no |
+| `synth_bad_scratch` | IMPORT_FAULT | - | - | - | - | 4s | no |
+
+| class | functions | routes to |
+|---|---:|---|
+| MATCHED | 1 | verify on the authoritative build, then promote |
+| P_STUCK_DESCENDING | 1 | trace levers or manual work; the search is still moving |
+| P_STUCK_FLAT | 2 | the pool that decides whether deeper instrumentation is worth funding |
+| IMPORT_FAULT | 1 | fix the scratch (prototype conflicts, missing context, flags) |
+```
+
+`--json` emits the same classes as a document (schema
+`decomp-workbench-permute-classify-v1`) with every number and the reason
+behind each class; `--class NAME` narrows the report to one class.
+
+### The four classes
+
+| Class | Measured by | Routes to |
+|---|---|---|
+| `MATCHED` | `best_score == 0` | verify on the authoritative build, then promote. The sweep does not promote |
+| `P_STUCK_DESCENDING` | improved on the base, **and** either the extension ran or the best candidate landed in the final third of the window | trace levers, or manual work. The search was still moving when the clock stopped it |
+| `P_STUCK_FLAT` | never improved on the base, or improved only in the opening fraction of the window and then sat | the pool from which the case for deeper instrumentation is argued |
+| `IMPORT_FAULT` | no base score: the scratch failed to import or compile | fix the scratch — prototype conflicts, missing context, an object target the build spells differently |
+
+The decision rule those columns encode:
+
+- **Only `P_STUCK_DESCENDING` routes to trace levers or a human.** The search
+  is still finding improvements, so the expensive resources have something to
+  work with.
+- **`P_STUCK_FLAT` is a pool, not a verdict.** It is the evidence that decides
+  whether a deeper instrumentation build is worth funding — a class that is
+  large, on functions searched with *real* flags, is the argument for that
+  spend. A single flat function is not a wall; it is one measurement.
+- **`IMPORT_FAULT` is not a result about the function at all.** Nothing has
+  been searched. It routes to the scratch, and `permute-doctor` is what reads
+  it.
+
+Two cautions the report prints for itself. A row whose flags were *not*
+recovered describes the scratch, not the function, and is listed under the
+table for that reason: a search on the wrong ISA is flat for reasons that
+have nothing to do with the C. And a summary written before the sweep
+recorded `best_output_mtime_fraction` cannot show that a search plateaued, so
+an improvement with no timing is classed as descending — being wrong towards
+`P_STUCK_FLAT` is what funds an instrumentation build for a function nobody
+actually measured.
 
 [permuter]: https://github.com/simonlindholm/decomp-permuter

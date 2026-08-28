@@ -89,6 +89,7 @@ SCHEMAS: dict[str, str] = {
     "ranking-stamp": "decomp-workbench-ranking-stamp-v1",
     "ranking-check": "decomp-workbench-ranking-stamp-v1",
     "permute-doctor": "decomp-workbench-permute-doctor-v1",
+    "permute-classify": "decomp-workbench-permute-classify-v1",
     "pass-diff": "decomp-workbench-original-pass-diff-v1",
     "phase": "decomp-workbench-phase-v1",
     "phase-dumps": "decomp-workbench-phase-v1",

@@ -529,6 +529,21 @@ def should_extend(
     return best_age < window / 3.0
 
 
+def output_fraction(*, elapsed: float, best_age: float | None) -> float | None:
+    """Where in the window the best output landed, as a 0..1 fraction.
+
+    Computed from the output directory's mtime because that is the only
+    timestamp decomp-permuter leaves behind: it writes an output directory
+    when it improves on the score, so the newest one's age is how long the
+    search ran after its last improvement. 1.0 means "improved as the clock
+    stopped it"; 0.1 means "found it in the first minutes and then sat".
+    """
+
+    if best_age is None or elapsed <= 0:
+        return None
+    return min(1.0, max(0.0, (elapsed - best_age) / elapsed))
+
+
 def best_output(scratch: Path) -> tuple[Path | None, int | None]:
     """Return decomp-permuter's lowest-scoring output directory and its score."""
 
@@ -604,6 +619,17 @@ class SweepResult:
     replicated_objcopy: int = 0
     skipped_postprocess: int = 0
     output_dir: str | None = None
+    #: Where in the searched window the best candidate landed, 0.0 (first
+    #: moment) to 1.0 (the last). This is the field that separates a search
+    #: still descending when the clock stopped it from one that plateaued in
+    #: its first minutes, and no other record of the run carries it: the
+    #: output directories are the permuter's, and they are overwritten.
+    best_output_mtime_fraction: float | None = None
+    #: The wall-clock cap this search was given, in seconds, and whether it
+    #: actually reached it. A run that stopped early stopped for a reason --
+    #: score 0, or a crash -- and its timing means something different.
+    window_seconds: float | None = None
+    hit_cap: bool = False
     seconds: float = 0.0
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -718,6 +744,7 @@ __all__ = [
     "load_ranking",
     "object_target",
     "order_queue",
+    "output_fraction",
     "parse_base_score",
     "parse_dry_run",
     "permuter_argv",

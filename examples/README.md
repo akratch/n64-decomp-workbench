@@ -155,3 +155,14 @@ static-recompiled IDO 5.3 build. It exercises integer and floating-point live
 ranges, a loop, global memory, and alias queries. Use it for the positive and
 negative controls in
 [compiler instrumentation](../docs/compiler-instrumentation.md#required-fidelity-gates).
+
+## Permuter sweep summary fixture
+
+```sh
+decomp-workbench permute classify examples/fixtures/permute-summary.json
+```
+
+`examples/fixtures/permute-summary.json` is a synthetic
+`decomp-workbench-permute-sweep-v1` summary -- five invented functions, no
+project and no permuter involved -- carrying one row of each wall class so
+the classifier's routing can be read without running a search.

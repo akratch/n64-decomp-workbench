@@ -28,6 +28,27 @@ in [design notes](docs/history/design-notes.md).
   three preflight questions -- real flags, replicated chain, a base that
   compiles to a finite non-zero score -- before an hour is spent on a
   function. See [Permuter sweeps](docs/permute-sweep.md).
+- `permute classify` (`permute-classify`): a sweep's `summary.json` now
+  assigns each function a measured wall class instead of a hand-written one.
+  Wall classes were argued from verdict prose, and the class that says
+  "nothing will move this" has repeatedly been wrong -- expensively, because
+  it is the class that routes a function away from a cheap search and towards
+  a bespoke instrumentation build. `MATCHED` is `best == 0`;
+  `P_STUCK_DESCENDING` improved on the base and either earned its extension
+  or landed its best candidate in the final third of the window, and is the
+  only class that routes to trace levers or a human; `P_STUCK_FLAT` never
+  improved, or improved only in its opening minutes, and is the pool from
+  which the case for deeper instrumentation is argued; `IMPORT_FAULT` never
+  scored a base at all and routes to fixing the scratch, because a function
+  nobody searched is not evidence of a wall. The report is a pasteable
+  markdown table, or JSON under
+  `decomp-workbench-permute-classify-v1`. To carry that, each sweep result
+  now records `best_output_mtime_fraction` (where in the searched window the
+  best candidate landed), `window_seconds` and `hit_cap` -- decomp-permuter
+  overwrites its output directories, so nothing else keeps that timing. A
+  summary written without the fraction is classed as descending rather than
+  flat: absent evidence is not evidence of a plateau. See
+  [Permuter sweeps](docs/permute-sweep.md).
 - `ranking stamp` and `ranking check`: a closeness ranking now records the
   tree hash it was measured against, so a consumer can tell a measurement
   from a memory. A ranking decays within hours -- a function that has since

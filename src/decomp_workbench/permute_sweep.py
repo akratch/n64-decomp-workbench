@@ -30,6 +30,7 @@ from .permute import (
     append_compile_steps,
     best_output,
     object_target,
+    output_fraction,
     parse_base_score,
     permuter_argv,
     recipe_report,
@@ -301,6 +302,17 @@ def run_permuter(
     return parse_base_score(text), elapsed
 
 
+def _best_age(best_dir: Path | None, now: Callable[[], float]) -> float | None:
+    """How long ago the best output directory was written, in seconds."""
+
+    if best_dir is None:
+        return None
+    try:
+        return now() - best_dir.stat().st_mtime
+    except OSError:  # pragma: no cover - stat of a live directory
+        return None
+
+
 def search_function(
     plan: SweepPlan,
     item: QueueItem,
@@ -334,13 +346,13 @@ def search_function(
         )
         result.base_score = base_score
         result.ok = True
+        result.window_seconds = plan.minutes * 60.0
+        result.hit_cap = elapsed >= result.window_seconds * 0.95
         best_dir, best_score = best_output(scratch)
-        age = None
-        if best_dir is not None:
-            try:
-                age = now() - best_dir.stat().st_mtime
-            except OSError:  # pragma: no cover - stat of a live directory
-                age = None
+        age = _best_age(best_dir, now)
+        result.best_output_mtime_fraction = output_fraction(
+            elapsed=elapsed, best_age=age
+        )
         if should_extend(
             elapsed=elapsed,
             minutes=plan.minutes,
@@ -356,7 +368,7 @@ def search_function(
                 label=f"before extending {item.function}",
                 report=report,
             )
-            run_permuter(
+            _base, extra = run_permuter(
                 plan,
                 scratch,
                 out_dir,
@@ -365,7 +377,15 @@ def search_function(
                 runner=runner,
                 clock=clock,
             )
+            result.window_seconds += plan.extend_minutes * 60.0
+            result.hit_cap = extra >= plan.extend_minutes * 60.0 * 0.95
             best_dir, best_score = best_output(scratch)
+            # The extension re-seeds from the best candidate, so its own
+            # window is the one that says whether the search was still
+            # descending when it ended.
+            result.best_output_mtime_fraction = output_fraction(
+                elapsed=extra, best_age=_best_age(best_dir, now)
+            )
         result.best_score = best_score
         result.zero_found = best_score == 0
         result.output_dir = str(best_dir) if best_dir is not None else str(out_dir)

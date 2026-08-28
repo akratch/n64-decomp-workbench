@@ -42,6 +42,11 @@ from decomp_workbench.permute import (
     sweep_payload,
     wait_for_headroom,
 )
+from decomp_workbench.permute_classify import (
+    MATCHED,
+    P_STUCK_DESCENDING,
+    classify_row,
+)
 from decomp_workbench.permute_sweep import (
     PermuterError,
     doctor,
@@ -546,6 +551,51 @@ class SearchTests(unittest.TestCase):
         self.assertNotIn("promoted", results[0].as_dict())
         payload = sweep_payload(results, final=True)
         self.assertEqual(payload["totals"]["zero_found"], 1)
+
+    def test_the_record_says_where_in_the_window_the_best_result_landed(
+        self,
+    ) -> None:
+        """The one thing no other record keeps.
+
+        decomp-permuter overwrites its output directories, so once a run is
+        over its mtime is the only evidence of when the search last
+        improved -- and that is exactly what separates a plateau from a
+        search the clock cut off.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            plan = resolve_plan(project.root, project.options, minutes=1)
+            ticks = iter([0.0, 0.0, 60.0, 60.0])
+            result = search_function(
+                plan,
+                project.item,
+                runner=project.run,
+                clock=lambda: next(ticks),
+            )
+        self.assertEqual(result.window_seconds, 60.0)
+        self.assertTrue(result.hit_cap)
+        # The fake permuter wrote its output just now, so the best result
+        # landed at the very end of the window.
+        assert result.best_output_mtime_fraction is not None
+        self.assertGreater(result.best_output_mtime_fraction, 0.9)
+        self.assertEqual(classify_row(result.as_dict()).wall_class, P_STUCK_DESCENDING)
+
+    def test_a_search_that_stopped_early_did_not_hit_its_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.outputs = ("output-0-win",)
+            plan = resolve_plan(project.root, project.options, minutes=20)
+            ticks = iter([0.0, 0.0, 75.0, 75.0])
+            result = search_function(
+                plan,
+                project.item,
+                runner=project.run,
+                clock=lambda: next(ticks),
+            )
+        self.assertFalse(result.hit_cap)
+        self.assertEqual(result.window_seconds, 1200.0)
+        self.assertEqual(classify_row(result.as_dict()).wall_class, MATCHED)
 
     def test_a_preparation_failure_records_the_error_and_keeps_going(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

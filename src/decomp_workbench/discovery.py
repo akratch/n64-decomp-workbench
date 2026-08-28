@@ -192,6 +192,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "permute": (
         ("sweep", "drive decomp-permuter over a queue with a faithful scratch"),
         ("doctor", "preflight one function's scratch before searching it"),
+        ("classify", "assign each swept function a measured wall class"),
     ),
     "ranking": (
         ("stamp", "record the tree hash a closeness ranking was measured on"),

@@ -27,6 +27,12 @@ from .permute import (
     render_table,
     sweep_payload,
 )
+from .permute_classify import (
+    CLASSES,
+    classify_payload,
+    classify_summary,
+    render_markdown,
+)
 from .permute_sweep import (
     PermuterError,
     doctor,
@@ -59,6 +65,22 @@ _SWEEP_DESCRIPTION = (
     "descending can be re-seeded once from its own best candidate. "
     "Promotion is deliberately out of scope: a scratch score of 0 is a "
     "candidate until the project's authoritative build says otherwise."
+)
+
+_CLASSIFY_DESCRIPTION = (
+    "Read a sweep's summary.json and assign every function a measured wall "
+    "class. Wall classes used to be assigned by hand from verdict prose, and "
+    "the class that says 'nothing will move this' has repeatedly been wrong "
+    "-- which is expensive, because it is the class that routes a function "
+    "away from cheap search and towards bespoke instrumentation. The sweep "
+    "already measured what settles it: the base score, the best score, where "
+    "in the window the best candidate landed, and whether the search earned "
+    "its extension. MATCHED verifies on the real build. P_STUCK_DESCENDING "
+    "was still improving when the clock stopped it, and is the only class "
+    "that routes to trace levers or a human. P_STUCK_FLAT never improved, or "
+    "improved only in its opening minutes, and is the pool from which the "
+    "case for deeper instrumentation is argued. IMPORT_FAULT never measured "
+    "anything and routes to fixing the scratch."
 )
 
 _DOCTOR_DESCRIPTION = (
@@ -229,6 +251,24 @@ def permute_sweep_command(args: argparse.Namespace) -> int:
     return 1 if any(result.error for result in results) else 0
 
 
+def permute_classify_command(args: argparse.Namespace) -> int:
+    try:
+        payload = json.loads(Path(args.summary).expanduser().read_text("utf-8"))
+        rows = classify_summary(payload)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.wall_class:
+        wanted = set(args.wall_class)
+        rows = [row for row in rows if row.wall_class in wanted]
+    document = classify_payload(rows, source=str(args.summary))
+    if args.json:
+        print(json.dumps(document, indent=2))
+    else:
+        print("\n".join(render_markdown(rows, source=str(args.summary))))
+    return 0
+
+
 def permute_doctor_command(args: argparse.Namespace) -> int:
     try:
         plan = _plan(args, [])
@@ -343,6 +383,17 @@ def register_permute_commands(commands: argparse._SubParsersAction[Any]) -> None
     )
     _add_doctor_arguments(doctor_parser)
 
+    classify = commands.add_parser(
+        "permute-classify",
+        help="assign each swept function a measured wall class",
+        description=_CLASSIFY_DESCRIPTION,
+        epilog=(
+            "example: decomp-workbench permute-classify "
+            ".decomp-workbench/permute/summary.json"
+        ),
+    )
+    _add_classify_arguments(classify)
+
     group = commands.add_parser(
         "permute",
         help="run and preflight bounded decomp-permuter searches",
@@ -366,6 +417,13 @@ def register_permute_commands(commands: argparse._SubParsersAction[Any]) -> None
             "doctor",
             help="preflight one function's permuter scratch before searching it",
             description=_DOCTOR_DESCRIPTION,
+        )
+    )
+    _add_classify_arguments(
+        operations.add_parser(
+            "classify",
+            help="assign each swept function a measured wall class",
+            description=_CLASSIFY_DESCRIPTION,
         )
     )
 
@@ -446,6 +504,26 @@ def _add_sweep_arguments(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(handler=permute_sweep_command, report_command="permute-sweep")
 
 
+def _add_classify_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("summary", help="a permute-sweep summary.json")
+    parser.add_argument(
+        "--class",
+        action="append",
+        choices=CLASSES,
+        dest="wall_class",
+        metavar="NAME",
+        help=f"report only this class (repeatable): {', '.join(CLASSES)}",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit JSON instead of the pasteable markdown table",
+    )
+    parser.set_defaults(
+        handler=permute_classify_command, report_command="permute-classify"
+    )
+
+
 def _add_doctor_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("function", help="the function to preflight")
     _add_shared_arguments(parser)
@@ -480,6 +558,7 @@ def _add_doctor_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 __all__ = [
+    "permute_classify_command",
     "permute_doctor_command",
     "permute_sweep_command",
     "register_permute_commands",
