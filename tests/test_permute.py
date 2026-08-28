@@ -783,6 +783,18 @@ class PragmaExpansionTests(unittest.TestCase):
         expanded = expand_permuter_pragmas(f"#pragma _permuter b64literal {encoded}\n")
         self.assertIn('__asm__("nop");', expanded)
 
+    def test_the_mwcc_fixed_address_encoding_is_decoded(self) -> None:
+        """`import.py` encodes MWCC's `u32 v : 0x1234;` as a call, and the
+        permuter decodes it before every compile. A fidelity check that did
+        not would hand the compiler a call to an undeclared function and
+        report `unknown` for a scratch that is perfectly good.
+        """
+
+        self.assertEqual(
+            expand_permuter_pragmas("u32 v = FIXEDADDR(0x1234);\n"),
+            "u32 v : (0x1234);\n",
+        )
+
     def test_source_without_pragmas_is_returned_unchanged(self) -> None:
         self.assertEqual(expand_permuter_pragmas("int f(void);\n"), "int f(void);\n")
 

@@ -336,8 +336,19 @@ def expand_permuter_pragmas(source: str) -> str:
     `base.c` as written -- which would leave the fake `void gDPPipeSync();`
     declarations in place and quietly compile function calls where the real
     build has an inlined display-list write.
+
+    This is a port of decomp-permuter's own `process_pragmas`, deliberately
+    line for line: the point is not to expand the file sensibly, it is to
+    expand it *identically*, including the MWCC fixed-address encoding and
+    the one-output-line-per-input-line rule that keeps line numbers put. The
+    permuter regenerates its source from a parsed AST rather than from
+    `base.c` as written, so the two are the same expansion of the same
+    declarations and not the same bytes.
     """
 
+    # MWCC's "u32 var : 0x1234;" survives the C parser encoded as a call;
+    # the permuter decodes it before every compile, including the base's.
+    source = source.replace(" = FIXEDADDR(", " : (")
     if "#pragma" not in source:
         return source
     prefix = "#pragma _permuter "
