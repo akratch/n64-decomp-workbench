@@ -490,15 +490,21 @@ def check_scratch_fidelity(
 FidelityChecker = Callable[..., ScratchFidelity]
 
 
+#: The verdict a scratch carries when nothing measured it. Shared because
+#: `ScratchFidelity` is frozen and this value has no state of its own.
+UNCHECKED_FIDELITY = ScratchFidelity()
+
+
 class ScratchPreparation(NamedTuple):
     """One prepared scratch: where it is, how it was built, and whether it
-    reproduces the object the project's own build produces."""
+    reproduces the object the project's own build produces.
+    """
 
     out_dir: Path
     scratch: Path
     recipe: BuildRecipe
     steps: tuple[str, ...]
-    fidelity: ScratchFidelity = field(default_factory=ScratchFidelity)
+    fidelity: ScratchFidelity = UNCHECKED_FIDELITY
 
 
 @dataclass(frozen=True)

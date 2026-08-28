@@ -17,29 +17,41 @@ import tempfile
 import time
 import unittest
 import unittest.mock
+from base64 import b64encode
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from decomp_workbench.cli import main
 from decomp_workbench.permute import (
+    FIDELITY_DIFFERS,
+    FIDELITY_IDENTICAL,
+    FIDELITY_UNCHECKED,
+    FIDELITY_UNKNOWN,
+    FidelityAttempt,
     QueueItem,
+    ScratchFidelity,
     SweepResult,
     best_output,
     completed_functions,
     earlier_results,
+    fidelity_warning,
     join_continuations,
     load_gate_note,
     load_queue,
     load_ranking,
+    macro_attributable,
     object_target,
     order_queue,
     parse_base_score,
     parse_dry_run,
+    parse_preserved_macros,
     permuter_argv,
     recipe_report,
     recover_recipe,
     render_settings,
     render_table,
+    resolve_preserve_macro_modes,
     retarget_labels,
     retarget_objcopy,
     should_extend,
@@ -53,7 +65,9 @@ from decomp_workbench.permute_classify import (
 )
 from decomp_workbench.permute_sweep import (
     PermuterError,
+    check_scratch_fidelity,
     doctor,
+    expand_permuter_pragmas,
     prepare_scratch,
     render_doctor,
     resolve_plan,
@@ -506,13 +520,23 @@ class SummaryTests(unittest.TestCase):
 class FakeProject:
     """A project tree plus a runner that impersonates the three tools."""
 
-    def __init__(self, root: Path, *, dry_run: str = CONTINUED_DRY_RUN) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        dry_run: str = CONTINUED_DRY_RUN,
+        preserve_macros: tuple[str, ...] = (),
+    ) -> None:
         self.root = root
         self.dry_run = dry_run
         self.base_score = 214
         self.outputs: tuple[str, ...] = ("output-9-aaa",)
         self.import_fails = False
         self.commands: list[list[str]] = []
+        self.preserve_macros = preserve_macros
+        #: What `import.py` reports having preserved, per call.
+        self.preserved_report = "macros: gDPPipeSync, gSPEndDisplayList"
+        self.imports: list[str | None] = []
         (root / "src" / "game").mkdir(parents=True)
         (root / "src" / "game" / "track.c").write_text("int f(void);\n", "utf-8")
         (root / "asm").mkdir()
@@ -532,7 +556,16 @@ class FakeProject:
             compiler_command="tools/ido/cc -c -I include",
             assembler_command="as -march=vr4300",
             output_dir=self.root / "out",
+            preserve_macros=self.preserve_macros,
         )
+
+    def build_the_object(self) -> Path:
+        """Create the project object the fidelity check compares against."""
+
+        obj = self.root / OBJECT
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        obj.write_bytes(b"\x7fELF")
+        return obj
 
     @property
     def item(self) -> QueueItem:
@@ -550,11 +583,23 @@ class FakeProject:
         if any(part.endswith("import.py") for part in argv):
             if self.import_fails:
                 return subprocess.CompletedProcess(argv, 1, "not found in base.c", "")
+            regex = (
+                argv[argv.index("--preserve-macros") + 1]
+                if "--preserve-macros" in argv
+                else None
+            )
+            self.imports.append(regex)
             scratch = self.root / "nonmatchings" / "f"
             scratch.mkdir(parents=True, exist_ok=True)
             (scratch / "compile.sh").write_text('#!/bin/sh\ncc "$1"\n', "utf-8")
             (scratch / "base.c").write_text("int f(void) { return 0; }\n", "utf-8")
-            return subprocess.CompletedProcess(argv, 0, "imported", "")
+            preserved = "no macros" if regex == "" else self.preserved_report
+            return subprocess.CompletedProcess(
+                argv, 0, f"Preserving {preserved}. Use --preserve-macros\n", ""
+            )
+        if argv[0].endswith("compile.sh"):
+            Path(argv[argv.index("-o") + 1]).write_bytes(b"\x7fELF")
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if any(part.endswith("permuter.py") for part in argv):
             scratch = Path(argv[-1])
             for name in self.outputs:
@@ -614,6 +659,272 @@ class ScratchPreparationTests(unittest.TestCase):
             with self.assertRaises(PermuterError) as raised:
                 prepare_scratch(plan, project.item, runner=project.run)
         self.assertIn("permuter_dir", str(raised.exception))
+
+
+class FakeComparison:
+    """Just enough of a `Comparison` for the fidelity classifier to read."""
+
+    def __init__(self, words: int, *, delta: int = 0, error: str | None = None) -> None:
+        self.word_mismatches = words
+        self.raw_word_mismatches = words
+        self.instruction_delta = delta
+        self.exact = words == 0 and delta == 0
+        self.error = error
+
+
+class ScriptedFidelity:
+    """A fidelity checker that answers from a script instead of a compiler."""
+
+    def __init__(self, *answers: ScratchFidelity) -> None:
+        self.answers = list(answers)
+        self.modes: list[str] = []
+
+    def __call__(
+        self,
+        plan: Any,
+        item: QueueItem,
+        scratch: Path,
+        out_dir: Path,
+        *,
+        mode: str,
+        preserved_macros: tuple[str, ...] | None = None,
+        runner: Any = None,
+    ) -> ScratchFidelity:
+        self.modes.append(mode)
+        answer = self.answers[min(len(self.modes) - 1, len(self.answers) - 1)]
+        return replace(
+            answer, mode=mode, preserved_macros=tuple(preserved_macros or ())
+        )
+
+
+class PreserveMacroModeTests(unittest.TestCase):
+    def test_the_default_modes_are_the_configured_set_then_none(self) -> None:
+        modes = resolve_preserve_macro_modes(("g[DS]P.*=void",))
+        self.assertEqual([mode.name for mode in modes], ["configured", "none"])
+        self.assertEqual(modes[0].macros, ("g[DS]P.*=void",))
+        self.assertIsNone(modes[0].regex)
+        self.assertEqual(modes[1].macros, ())
+        self.assertEqual(modes[1].regex, "")
+
+    def test_a_project_with_no_macros_does_not_import_the_same_thing_twice(
+        self,
+    ) -> None:
+        # `configured` with nothing configured *is* `none`: importing both
+        # would spend a second import comparing a scratch with itself.
+        modes = resolve_preserve_macro_modes(())
+        self.assertEqual([mode.name for mode in modes], ["configured"])
+        self.assertEqual(modes[0].regex, "")
+
+    def test_a_mode_that_is_neither_name_is_a_narrowing_regex(self) -> None:
+        modes = resolve_preserve_macro_modes(
+            ("g[DS]P.*=void", "OS_PHYSICAL_TO_K0=void *"),
+            ("configured", "OS_PHYSICAL_TO_K0", "none"),
+        )
+        self.assertEqual(
+            [mode.name for mode in modes],
+            ["configured", "OS_PHYSICAL_TO_K0", "none"],
+        )
+        # The narrowed mode keeps the type table and narrows the regex.
+        self.assertEqual(modes[1].regex, "OS_PHYSICAL_TO_K0")
+        self.assertEqual(modes[1].macros, modes[0].macros)
+
+
+class PreservedMacroLogTests(unittest.TestCase):
+    def test_the_import_log_says_which_macros_were_preserved(self) -> None:
+        log = "Compiler type: ido\nPreserving macros: gDPPipeSync, gSPMatrix. Use\n"
+        self.assertEqual(parse_preserved_macros(log), ("gDPPipeSync", "gSPMatrix"))
+
+    def test_preserving_nothing_and_saying_nothing_are_different_answers(
+        self,
+    ) -> None:
+        # An empty tuple rules preserved macros out as the cause of a
+        # differing scratch; None rules nothing out.
+        self.assertEqual(parse_preserved_macros("Preserving no macros. Use\n"), ())
+        self.assertIsNone(parse_preserved_macros("Function name: f\n"))
+
+    def test_only_a_scratch_that_preserved_something_is_worth_reimporting(
+        self,
+    ) -> None:
+        differs = ScratchFidelity(
+            status=FIDELITY_DIFFERS,
+            differing_words=4,
+            attempts=(FidelityAttempt(mode="configured", status=FIDELITY_DIFFERS),),
+        )
+        self.assertFalse(macro_attributable(differs))
+        self.assertTrue(
+            macro_attributable(replace(differs, preserved_macros=("gDPPipeSync",)))
+        )
+        self.assertFalse(macro_attributable(replace(differs, status=FIDELITY_UNKNOWN)))
+
+
+class PragmaExpansionTests(unittest.TestCase):
+    def test_the_latedefine_block_becomes_the_real_defines(self) -> None:
+        source = "\n".join(
+            (
+                "#pragma _permuter latedefine start",
+                "#pragma _permuter define gDPPipeSync(pkt) _g(pkt)",
+                "void gDPPipeSync();",
+                "#pragma _permuter latedefine end",
+                "void f(void) { gDPPipeSync(x); }",
+            )
+        )
+        expanded = expand_permuter_pragmas(source)
+        self.assertIn("#define gDPPipeSync(pkt) _g(pkt)", expanded)
+        # The fake declaration is what makes a macro call compile as a
+        # function call; it must not reach the compiler.
+        self.assertNotIn("void gDPPipeSync();", expanded)
+        self.assertIn("void f(void) { gDPPipeSync(x); }", expanded)
+
+    def test_a_b64_literal_is_restored(self) -> None:
+        encoded = b64encode(b'__asm__("nop");').decode("ascii")
+        expanded = expand_permuter_pragmas(f"#pragma _permuter b64literal {encoded}\n")
+        self.assertIn('__asm__("nop");', expanded)
+
+    def test_source_without_pragmas_is_returned_unchanged(self) -> None:
+        self.assertEqual(expand_permuter_pragmas("int f(void);\n"), "int f(void);\n")
+
+
+class ScratchFidelityTests(unittest.TestCase):
+    def test_an_unbuilt_project_object_is_unknown_not_a_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            plan = resolve_plan(project.root, project.options)
+            out_dir = plan.output_dir / "f"
+            out_dir.mkdir(parents=True)
+            fidelity = check_scratch_fidelity(
+                plan,
+                project.item,
+                out_dir / "scratch",
+                out_dir,
+                mode="configured",
+                runner=project.run,
+            )
+        self.assertEqual(fidelity.status, FIDELITY_UNKNOWN)
+        self.assertEqual(fidelity.summary, "unknown")
+        self.assertIn("is not built", fidelity.reason or "")
+        self.assertEqual(fidelity.object, OBJECT)
+
+    def test_an_identical_scratch_object_is_the_transferable_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.build_the_object()
+            plan = resolve_plan(project.root, project.options)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_sweep.compare_objects",
+                return_value=FakeComparison(0),
+            ):
+                preparation = prepare_scratch(plan, project.item, runner=project.run)
+        self.assertEqual(preparation.fidelity.status, FIDELITY_IDENTICAL)
+        self.assertEqual(preparation.fidelity.summary, "identical")
+        self.assertIsNone(fidelity_warning(preparation.fidelity, "f"))
+
+    def test_a_differing_scratch_counts_its_words_and_is_loud(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.build_the_object()
+            plan = resolve_plan(project.root, project.options)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_sweep.compare_objects",
+                return_value=FakeComparison(4),
+            ):
+                preparation = prepare_scratch(plan, project.item, runner=project.run)
+        self.assertEqual(preparation.fidelity.status, FIDELITY_DIFFERS)
+        self.assertEqual(preparation.fidelity.summary, "differs(4 words)")
+        warning = fidelity_warning(preparation.fidelity, "f")
+        self.assertIsNotNone(warning)
+        self.assertIn("does not have to transfer", warning or "")
+
+    def test_the_base_is_compiled_through_the_scratchs_own_compile_script(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.build_the_object()
+            plan = resolve_plan(project.root, project.options)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_sweep.compare_objects",
+                return_value=FakeComparison(0),
+            ):
+                prepare_scratch(plan, project.item, runner=project.run)
+            compiles = [
+                argv for argv in project.commands if argv[0].endswith("compile.sh")
+            ]
+        self.assertEqual(len(compiles), 1)
+        # Through compile.sh, because that is the script carrying the
+        # recovered flags and the replicated objcopy chain.
+        self.assertTrue(compiles[0][0].endswith("scratch/compile.sh"))
+        self.assertTrue(compiles[0][1].endswith("fidelity-base.c"))
+
+    def test_the_check_can_be_switched_off_entirely(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.build_the_object()
+            plan = resolve_plan(project.root, project.options, check_fidelity=False)
+            preparation = prepare_scratch(plan, project.item, runner=project.run)
+            compiles = [
+                argv for argv in project.commands if argv[0].endswith("compile.sh")
+            ]
+        self.assertEqual(preparation.fidelity.status, FIDELITY_UNCHECKED)
+        self.assertEqual(compiles, [])
+
+
+class PreserveMacroFallbackTests(unittest.TestCase):
+    MACROS = ("g[DS]P.*=void",)
+
+    def test_the_first_identical_mode_wins_and_stops_the_search(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=8),
+            ScratchFidelity(status=FIDELITY_IDENTICAL, differing_words=0),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary), preserve_macros=self.MACROS)
+            plan = resolve_plan(project.root, project.options)
+            preparation = prepare_scratch(
+                plan, project.item, runner=project.run, fidelity_checker=checker
+            )
+        self.assertEqual(checker.modes, ["configured", "none"])
+        # `none` is spelled to import.py as an empty --preserve-macros, which
+        # is what makes the translation unit's real headers expand.
+        self.assertEqual(project.imports, [None, ""])
+        self.assertEqual(preparation.fidelity.status, FIDELITY_IDENTICAL)
+        self.assertEqual(preparation.fidelity.mode, "none")
+        self.assertEqual(
+            [attempt.mode for attempt in preparation.fidelity.attempts],
+            ["configured", "none"],
+        )
+
+    def test_a_difference_no_macro_can_explain_is_not_reimported(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=8)
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary), preserve_macros=self.MACROS)
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options)
+            preparation = prepare_scratch(
+                plan, project.item, runner=project.run, fidelity_checker=checker
+            )
+        self.assertEqual(checker.modes, ["configured"])
+        self.assertEqual(project.imports, [None])
+        self.assertEqual(preparation.fidelity.status, FIDELITY_DIFFERS)
+
+    def test_with_no_identical_mode_the_smallest_difference_is_kept(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=2),
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=7),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary), preserve_macros=self.MACROS)
+            plan = resolve_plan(project.root, project.options)
+            preparation = prepare_scratch(
+                plan, project.item, runner=project.run, fidelity_checker=checker
+            )
+        self.assertEqual(checker.modes, ["configured", "none"])
+        # The kept mode was not the one left on disk, so it is re-imported.
+        self.assertEqual(project.imports, [None, "", None])
+        self.assertEqual(preparation.fidelity.mode, "configured")
+        self.assertEqual(preparation.fidelity.differing_words, 2)
+        self.assertEqual(len(preparation.fidelity.attempts), 2)
 
 
 class SearchTests(unittest.TestCase):
@@ -694,6 +1005,81 @@ class SearchTests(unittest.TestCase):
             results = run_sweep(plan, [project.item, project.item], runner=project.run)
         self.assertEqual(len(results), 2)
         self.assertTrue(all(result.error for result in results))
+
+
+class FidelityReportingTests(unittest.TestCase):
+    def test_a_search_records_the_fidelity_and_warns_about_a_difference(
+        self,
+    ) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=6)
+        )
+        messages: list[str] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options)
+            result = search_function(
+                plan,
+                project.item,
+                runner=project.run,
+                report=messages.append,
+                fidelity_checker=checker,
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.scratch_fidelity, FIDELITY_DIFFERS)
+        self.assertEqual(result.scratch_fidelity_words, 6)
+        self.assertEqual(result.scratch_fidelity_mode, "configured")
+        self.assertTrue(any("does not have to transfer" in line for line in messages))
+        # The search still ran: a difference is loud, not fatal.
+        self.assertEqual(result.base_score, 214)
+
+    def test_require_fidelity_refuses_before_the_window_is_spent(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=6)
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options, require_fidelity=True)
+            result = search_function(
+                plan, project.item, runner=project.run, fidelity_checker=checker
+            )
+            launched = [
+                argv
+                for argv in project.commands
+                if any(part.endswith("permuter.py") for part in argv)
+            ]
+        self.assertFalse(result.ok)
+        self.assertIn("--require-fidelity", result.error or "")
+        self.assertIn("differs(6 words)", result.error or "")
+        self.assertEqual(launched, [])
+
+    def test_the_summary_row_and_the_table_carry_the_verdict(self) -> None:
+        results = [
+            SweepResult(
+                function="clean",
+                source="a.c",
+                ok=True,
+                scratch_fidelity=FIDELITY_IDENTICAL,
+                scratch_fidelity_words=0,
+            ),
+            SweepResult(
+                function="dirty",
+                source="b.c",
+                ok=True,
+                scratch_fidelity=FIDELITY_DIFFERS,
+                scratch_fidelity_words=8,
+            ),
+        ]
+        payload = sweep_payload(results, final=True)
+        table = "\n".join(render_table(results))
+        self.assertEqual(payload["totals"]["scratch_differs"], 1)
+        self.assertEqual(payload["results"][0]["scratch_fidelity"], FIDELITY_IDENTICAL)
+        self.assertIn("scratch", table)
+        self.assertIn("identical", table)
+        self.assertIn("DIFFERS/8", table)
+        self.assertIn("1 on a scratch that is not the real object", table)
 
 
 class ProcessOwnershipTests(unittest.TestCase):
@@ -792,6 +1178,47 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertIn("not scoring the function under test", report.problems[0])
 
+    def test_the_doctor_reports_the_scratch_object_verdict(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=3)
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                fidelity_checker=checker,
+            )
+            rendered = "\n".join(render_doctor(report))
+        self.assertEqual(report.fidelity.status, FIDELITY_DIFFERS)
+        self.assertIn("scratch object  differs(3 words) [configured]", rendered)
+        self.assertIn("mode          configured: differs", rendered)
+        # Loud, but not a refusal: the operator may know why it differs.
+        self.assertTrue(report.ok)
+        self.assertIn("ready", rendered.splitlines()[-1])
+
+    def test_require_fidelity_makes_a_differing_scratch_a_problem(self) -> None:
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=3)
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options, require_fidelity=True)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                fidelity_checker=checker,
+            )
+        self.assertFalse(report.ok)
+        self.assertIn("not the object the build produces", report.problems[0])
+
     def test_unrecovered_flags_are_a_problem_not_a_footnote(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project = FakeProject(Path(temporary), dry_run="")
@@ -889,6 +1316,45 @@ class PermuteCliTests(unittest.TestCase):
             with self.assertRaises(ValueError) as raised:
                 load_project_config(root / ".decomp-workbench.toml")
         self.assertIn("PATTERN=TYPE", str(raised.exception))
+
+    def test_the_import_modes_and_their_objdump_are_read_from_the_config(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".decomp-workbench.toml").write_text(
+                "[object]\nobjdump = 'mips-objdump'\n"
+                "[permuter]\n"
+                "preserve_macro_modes = ['configured', 'OS_PHYSICAL_TO_K0', 'none']\n",
+                encoding="utf-8",
+            )
+            config = load_project_config(root / ".decomp-workbench.toml")
+        self.assertEqual(
+            config.permuter.preserve_macro_modes,
+            ("configured", "OS_PHYSICAL_TO_K0", "none"),
+        )
+        # The fidelity comparison disassembles the same target with the same
+        # tool as every other comparison, so it inherits object.objdump.
+        self.assertEqual(config.permuter.objdump, "mips-objdump")
+
+    def test_the_default_modes_are_the_configured_set_then_none(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".decomp-workbench.toml").write_text(
+                "[permuter]\nmake = 'gmake'\n", encoding="utf-8"
+            )
+            config = load_project_config(root / ".decomp-workbench.toml")
+        self.assertEqual(config.permuter.preserve_macro_modes, ("configured", "none"))
+
+    def test_an_unusable_import_mode_is_refused_at_config_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".decomp-workbench.toml").write_text(
+                "[permuter]\npreserve_macro_modes = ['gDP(']\n", encoding="utf-8"
+            )
+            with self.assertRaises(ValueError) as raised:
+                load_project_config(root / ".decomp-workbench.toml")
+        self.assertIn("preserve_macro_modes", str(raised.exception))
 
     def test_an_unusable_skip_pattern_is_refused_at_config_time(self) -> None:
         """A bad regex would otherwise crash mid-sweep, not at load.
