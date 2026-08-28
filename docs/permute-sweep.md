@@ -100,7 +100,7 @@ and a sweep that spends its first hours on unmeasured functions reports
 |---|---|
 | `--minutes N` | per-function wall-clock cap |
 | `--jobs N` / `--threads N` | concurrent functions, and permuter threads each |
-| `--load-threshold X` | wait for the one-minute load average to drop below `X` before each launch |
+| `--load-threshold X` | wait for the one-minute load average to drop below `X` before each launch. POSIX only: a host with no load average cannot gate, and the sweep says so once instead of pretending it did |
 | `--extend-minutes N` | re-seed once from the best candidate, but only when the run hit its cap with its best result in the final third of the window |
 | `--resume` | skip the functions a previous run in this output directory actually searched; a row that errored is retried, because nothing was measured about it |
 | `--limit N`, `--function NAME` | narrow the queue |

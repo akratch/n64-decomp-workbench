@@ -64,14 +64,22 @@ SWEEP_SCHEMA = "decomp-workbench-permute-sweep-v1"
 DOCTOR_SCHEMA = "decomp-workbench-permute-doctor-v1"
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
-LoadReader = Callable[[], float]
+LoadReader = Callable[[], "float | None"]
 
 
-def _default_load() -> float:
+def load_average() -> float | None:
+    """The one-minute load average, or None where the host has none.
+
+    None is not zero. Reporting an unmeasurable load as an idle machine is
+    how a `--load-threshold` that the operator set, and believes in, lets
+    every launch through on a platform without `getloadavg` -- Windows.
+    The gate says so once instead of pretending it is holding.
+    """
+
     try:
         return os.getloadavg()[0]
     except (OSError, AttributeError):  # pragma: no cover - Windows
-        return 0.0
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +520,7 @@ def wait_for_headroom(
     threshold: float,
     *,
     label: str = "",
-    load: LoadReader = _default_load,
+    load: LoadReader = load_average,
     sleep: Callable[[float], None] = time.sleep,
     interval: float = 15.0,
     report: Callable[[str], None] | None = None,
@@ -522,6 +530,10 @@ def wait_for_headroom(
     An unthrottled fleet of permuter instances is the fastest way to make a
     workstation unusable; every compile-heavy launch gates on headroom first.
     Returns how many waits happened, so a caller can report the stall.
+
+    A host that cannot report a load average does not stall: the gate is
+    inert there, and `load_gate_note` says so once rather than every launch
+    pretending to have checked.
     """
 
     if threshold <= 0:
@@ -529,12 +541,32 @@ def wait_for_headroom(
     waited = 0
     while True:
         current = load()
-        if current < threshold:
+        if current is None or current < threshold:
+            # An unmeasurable load is not headroom, but blocking forever on
+            # a host that can never report one is worse. `load_gate_note`
+            # is what tells the operator the gate is not holding.
             return waited
         if waited == 0 and report is not None:
             report(f"load {current:.1f} >= {threshold:.1f}; waiting {label}".rstrip())
         sleep(interval)
         waited += 1
+
+
+def load_gate_note(threshold: float, *, load: LoadReader = load_average) -> str | None:
+    """The one line a sweep prints when its load gate cannot work here.
+
+    A configured threshold reads as a promise that launches are throttled.
+    On a host with no load average there is nothing to throttle against, and
+    an operator who is not told that discovers it from the machine.
+    """
+
+    if threshold <= 0 or load() is not None:
+        return None
+    return (
+        f"note: load_threshold {threshold:g} is set, but this host reports no "
+        "load average, so launches are not gated. Use --jobs/--threads to "
+        "bound the work instead."
+    )
 
 
 def should_extend(
@@ -604,16 +636,21 @@ def permuter_argv(
     threads: int,
     extra: Sequence[str] = (),
     nice: int | None = 15,
+    posix: bool = os.name == "posix",
 ) -> list[str]:
     """Build the permuter command line, with the fidelity flags forced on.
 
     ``--stack-diffs`` is not optional. Without it the scorer normalizes
     stack offsets, and a spill at the wrong slot scores zero -- a "match"
     that does not rebuild.
+
+    ``nice`` is a POSIX program, and prefixing it where it does not exist
+    is not a de-prioritized search but a `FileNotFoundError` for every
+    function in the queue. ``posix`` says which host this argv is for.
     """
 
     argv: list[str] = []
-    if nice is not None:
+    if nice is not None and posix:
         argv += ["nice", "-n", str(nice)]
     argv += [
         python,
@@ -786,6 +823,8 @@ __all__ = [
     "completed_functions",
     "earlier_results",
     "join_continuations",
+    "load_average",
+    "load_gate_note",
     "load_queue",
     "load_ranking",
     "object_mention_re",

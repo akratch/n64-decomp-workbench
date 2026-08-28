@@ -21,6 +21,7 @@ from decomp_workbench.campaign import (
 from decomp_workbench.cli import main
 from decomp_workbench.command_line import split_command
 from decomp_workbench.notes import add_note, merge_notes
+from decomp_workbench.permute import load_gate_note, permuter_argv, wait_for_headroom
 
 
 class WindowsCompatibilityTests(unittest.TestCase):
@@ -109,6 +110,32 @@ class WindowsCompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "\N{REPLACEMENT CHARACTER}")
+
+    def test_the_permuter_is_not_prefixed_with_a_program_windows_lacks(
+        self,
+    ) -> None:
+        """`nice` is POSIX. Prefixing it elsewhere fails every function."""
+
+        argv = permuter_argv(
+            python="python",
+            permuter=Path(r"C:\permuter\permuter.py"),
+            scratch=Path(r"C:\work\scratch"),
+            threads=2,
+            posix=False,
+        )
+        self.assertEqual(argv[0], "python")
+        self.assertNotIn("nice", argv)
+        self.assertIn("--stack-diffs", argv)
+
+    def test_a_load_gate_without_a_load_average_says_it_is_not_gating(
+        self,
+    ) -> None:
+        """Windows has no `getloadavg`, and silence would read as headroom."""
+
+        self.assertEqual(wait_for_headroom(9.0, load=lambda: None), 0)
+        note = load_gate_note(9.0, load=lambda: None)
+        assert note is not None
+        self.assertIn("no load average", note)
 
     def test_cache_dry_run_handles_native_paths_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

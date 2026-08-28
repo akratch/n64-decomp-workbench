@@ -28,6 +28,7 @@ from decomp_workbench.permute import (
     completed_functions,
     earlier_results,
     join_continuations,
+    load_gate_note,
     load_queue,
     load_ranking,
     object_target,
@@ -367,6 +368,22 @@ class RunPolicyTests(unittest.TestCase):
         self.assertEqual(slept, [1.0, 1.0])
         self.assertEqual(len(messages), 1)
         self.assertIn("before permuting f", messages[0])
+
+    def test_a_host_with_no_load_average_is_not_reported_as_idle(self) -> None:
+        """None is not zero.
+
+        `os.getloadavg` does not exist on Windows. Reading that as an idle
+        machine lets every launch through a gate the operator set and
+        believes in, so the gate does not stall -- there is nothing to wait
+        for -- and the sweep says once that it is not gating.
+        """
+
+        self.assertEqual(wait_for_headroom(9.0, load=lambda: None), 0)
+        note = load_gate_note(9.0, load=lambda: None)
+        assert note is not None
+        self.assertIn("not gated", note)
+        self.assertIsNone(load_gate_note(9.0, load=lambda: 0.5))
+        self.assertIsNone(load_gate_note(0.0, load=lambda: None))
 
     def test_a_disabled_load_gate_never_reads_the_load(self) -> None:
         def explode() -> float:

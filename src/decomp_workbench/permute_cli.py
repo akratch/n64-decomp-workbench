@@ -20,6 +20,7 @@ from .permute import (
     QueueItem,
     completed_functions,
     earlier_results,
+    load_gate_note,
     load_queue,
     load_ranking,
     order_queue,
@@ -228,6 +229,9 @@ def permute_sweep_command(args: argparse.Namespace) -> int:
         f"running {len(ordered)} function(s), {plan.jobs} concurrent, "
         f"{plan.threads} permuter thread(s) each, {plan.minutes} min cap each"
     )
+    gate_note = load_gate_note(plan.load_threshold)
+    if gate_note is not None:
+        print(gate_note)
 
     def record(results: list[Any]) -> None:
         write_summary(
