@@ -97,6 +97,43 @@ _DOCTOR_DESCRIPTION = (
 )
 
 
+def _positive(text: str) -> int:
+    """An integer argument that must be greater than zero.
+
+    `--minutes 0` used to fall through to the configured default, because
+    zero is falsy, and `--minutes -1` produced a negative timeout: an
+    instant expiry recorded as a completed search of no seconds.
+    """
+
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"{text!r} must be greater than 0")
+    return value
+
+
+def _non_negative(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"{text!r} must not be negative")
+    return value
+
+
+def _non_negative_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"{text!r} must not be negative")
+    return value
+
+
 def _load_options(args: argparse.Namespace) -> tuple[Path, PermuterOptions]:
     """Resolve the project root and its `[permuter]` defaults."""
 
@@ -339,19 +376,19 @@ def _add_shared_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--make", metavar="EXE", help="the project's make binary")
     parser.add_argument(
         "--minutes",
-        type=int,
+        type=_positive,
         metavar="N",
         help="per-function wall-clock cap",
     )
     parser.add_argument(
         "--threads",
-        type=int,
+        type=_positive,
         metavar="N",
         help="threads per permuter instance (permuter.py -j)",
     )
     parser.add_argument(
         "--load-threshold",
-        type=float,
+        type=_non_negative_float,
         metavar="X",
         help=(
             "wait until the one-minute load average is below this before each "
@@ -468,14 +505,20 @@ def _add_sweep_arguments(parser: argparse.ArgumentParser) -> None:
         help="restrict the sweep to this function (repeatable)",
     )
     parser.add_argument(
-        "--limit", type=int, metavar="N", help="cap how many functions are searched"
+        "--limit",
+        type=_positive,
+        metavar="N",
+        help="cap how many functions are searched",
     )
     parser.add_argument(
-        "--jobs", type=int, metavar="N", help="how many functions to search at once"
+        "--jobs",
+        type=_positive,
+        metavar="N",
+        help="how many functions to search at once",
     )
     parser.add_argument(
         "--extend-minutes",
-        type=int,
+        type=_non_negative,
         default=0,
         metavar="N",
         help=(
@@ -556,7 +599,7 @@ def _add_doctor_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--seconds",
-        type=int,
+        type=_positive,
         default=120,
         metavar="N",
         help="how long the base-score check may run (default: 120)",

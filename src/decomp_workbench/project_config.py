@@ -349,6 +349,15 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
     nice = data.get("nice", 15)
     if isinstance(nice, bool) or not isinstance(nice, int):
         raise ValueError("permuter.nice must be an integer")
+    skips = _string_list(data.get("skip_postprocess"), "permuter.skip_postprocess")
+    for pattern in skips:
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            raise ValueError(
+                f"permuter.skip_postprocess entry {pattern!r} is not a valid "
+                f"regular expression: {error}"
+            ) from None
     template = data.get("object_template", "build/{source}.o")
     if not isinstance(template, str) or "{" not in template:
         raise ValueError(
@@ -383,10 +392,7 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
         fallback_flags=_string_list(
             data.get("fallback_flags"), "permuter.fallback_flags"
         ),
-        skip_postprocess=_string_list(
-            data.get("skip_postprocess"), "permuter.skip_postprocess"
-        )
-        or defaults.skip_postprocess,
+        skip_postprocess=skips or defaults.skip_postprocess,
         minutes=_positive_integer(data.get("minutes"), "permuter.minutes", 20),
         jobs=_positive_integer(data.get("jobs"), "permuter.jobs", 1),
         threads=threads,

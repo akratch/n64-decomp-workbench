@@ -890,6 +890,50 @@ class PermuteCliTests(unittest.TestCase):
                 load_project_config(root / ".decomp-workbench.toml")
         self.assertIn("PATTERN=TYPE", str(raised.exception))
 
+    def test_an_unusable_skip_pattern_is_refused_at_config_time(self) -> None:
+        """A bad regex would otherwise crash mid-sweep, not at load.
+
+        `skip_postprocess` is compiled inside the dry-run parser, and
+        `re.error` is not one of the exceptions the batch loop catches, so
+        one malformed entry ends the whole run with a traceback after the
+        first function's `make -n`.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".decomp-workbench.toml").write_text(
+                "[permuter]\nskip_postprocess = ['*.py']\n", encoding="utf-8"
+            )
+            with self.assertRaises(ValueError) as raised:
+                load_project_config(root / ".decomp-workbench.toml")
+        self.assertIn("skip_postprocess", str(raised.exception))
+        self.assertIn("regular expression", str(raised.exception))
+
+    def test_a_cap_of_zero_minutes_is_a_usage_error_not_a_default(self) -> None:
+        """Zero is falsy, so it used to read as "no --minutes at all".
+
+        A negative one was worse: a negative timeout expires immediately,
+        and the row recorded a completed search of no seconds.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, _ranking = self.write_project(root)
+            for value in ("0", "-5"):
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_cli(
+                        [
+                            "permute-sweep",
+                            str(queue),
+                            "--project",
+                            str(root),
+                            "--minutes",
+                            value,
+                            "--dry-run",
+                        ]
+                    )
+                self.assertEqual(raised.exception.code, 2)
+
     def test_a_missing_function_row_is_a_usage_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
