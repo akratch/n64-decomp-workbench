@@ -363,6 +363,18 @@ gfx-macro context.
   against; `diagnose`/sweep consumers warn when HEAD differs, and the sweep
   regenerates it per pass.
 
+**Status (landed, except regeneration).** `decomp-workbench ranking stamp`
+records `tree_hash` + `generated_at` into the ranking as one added key, and
+`ranking check` compares it with `git rev-parse HEAD`, exiting 1 on anything
+but a match. `permute-sweep` and `permute-doctor` run that check on the
+ranking they were given: `stale` and `unknown` are loud warnings, `unstamped`
+is a quiet note (it is where every project starts, and a warning everybody
+sees is one nobody reads), and `--require-fresh` refuses. **Regenerating the
+ranking per sweep pass stayed out**: producing a ranking needs the project's
+own build and its own notion of what "unmatched" means, which is the same
+reason the queue is an input. The stamp is what makes the staleness visible;
+the project regenerates.
+
 ### 12. Permuter outcomes as the wall-class evidence
 - **Symptom.** Wall classes (P / P! / F / S / W) are assigned by hand from
   verdict prose, and the "unwinnable" class has repeatedly been wrong.

@@ -40,6 +40,12 @@ from .project_config import (
     find_project_config,
     load_project_config,
 )
+from .ranking import (
+    check_ranking_fresh,
+    freshness_note,
+    freshness_warning,
+    git_head,
+)
 
 _SWEEP_DESCRIPTION = (
     "Drive decomp-permuter over a queue of functions with the fidelity a "
@@ -99,6 +105,38 @@ def _plan(args: argparse.Namespace, extra: list[str]) -> Any:
     )
 
 
+def _ranking_gate(root: Path, ranking_path: Any, *, require_fresh: bool) -> int | None:
+    """Warn -- or refuse -- when the ranking measured a different tree.
+
+    A ranking orders the whole sweep, so a stale one does not fail: it
+    quietly spends the window in the wrong order, on functions that may
+    already match. The warning is loud for that reason, and
+    ``--require-fresh`` exists for the runs where being wrong about the
+    order is worse than not running.
+    """
+
+    if ranking_path is None:
+        if require_fresh:
+            print(
+                "error: --require-fresh needs a ranking to check; pass "
+                "--ranking or set permuter.ranking",
+                file=sys.stderr,
+            )
+            return 2
+        return None
+    freshness = check_ranking_fresh(ranking_path, git_head(root))
+    if require_fresh and not freshness.fresh:
+        print(f"error: {freshness.message}", file=sys.stderr)
+        return 2
+    warning = freshness_warning(freshness)
+    if warning is not None:
+        print(warning, file=sys.stderr)
+    note = freshness_note(freshness)
+    if note is not None:
+        print(note)
+    return None
+
+
 def _forwarded(args: argparse.Namespace) -> list[str]:
     """Arguments to hand decomp-permuter verbatim.
 
@@ -122,6 +160,9 @@ def permute_sweep_command(args: argparse.Namespace) -> int:
         wanted = set(args.function)
         queue = [item for item in queue if item.function in wanted]
     ranking_path = args.ranking or plan.options.ranking
+    refused = _ranking_gate(plan.root, ranking_path, require_fresh=args.require_fresh)
+    if refused is not None:
+        return refused
     try:
         ranking = load_ranking(ranking_path)
     except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -191,6 +232,11 @@ def permute_sweep_command(args: argparse.Namespace) -> int:
 def permute_doctor_command(args: argparse.Namespace) -> int:
     try:
         plan = _plan(args, [])
+        refused = _ranking_gate(
+            plan.root, plan.options.ranking, require_fresh=args.require_fresh
+        )
+        if refused is not None:
+            return refused
         if args.queue:
             queue = {item.function: item for item in load_queue(args.queue)}
             item = queue.get(args.function)
@@ -263,6 +309,14 @@ def _add_shared_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--require-fresh",
+        action="store_true",
+        help=(
+            "refuse to run unless the ranking's stamp matches the project's "
+            "git HEAD; without it a mismatch is only a warning"
+        ),
+    )
 
 
 def register_permute_commands(commands: argparse._SubParsersAction[Any]) -> None:

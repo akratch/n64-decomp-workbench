@@ -193,6 +193,10 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("sweep", "drive decomp-permuter over a queue with a faithful scratch"),
         ("doctor", "preflight one function's scratch before searching it"),
     ),
+    "ranking": (
+        ("stamp", "record the tree hash a closeness ranking was measured on"),
+        ("check", "report whether a ranking still describes the current tree"),
+    ),
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),
         ("diff", "compare compiler decisions by semantic web provenance"),

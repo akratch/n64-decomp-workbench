@@ -106,11 +106,49 @@ and a sweep that spends its first hours on unmeasured functions reports
 | `--limit N`, `--function NAME` | narrow the queue |
 | `--list`, `--dry-run` | print the ordered queue and the resolved limits, and stop |
 | `--permuter-arg ARG` | forward one argument to `permuter.py` (repeatable) |
+| `--require-fresh` | refuse to run unless the ranking's stamp matches HEAD |
 
 `--extend-minutes` is a trend test, not a time budget. A search whose best
 result landed early and then sat has plateaued, and a second window buys
 nothing; only a search still descending when the clock stopped it is
 re-seeded.
+
+## The ranking is a measurement, and it decays
+
+The ordering above is only as good as the ranking behind it, and a ranking
+describes one tree. Every function that matches and every edit that moves a
+word changes what it says; one campaign's snapshot was still being read as an
+ownership ledger hours after two of the functions in it had already matched.
+
+So stamp it where it is produced, and check it where it is consumed:
+
+```sh
+decomp-workbench ranking stamp config/ranking.json
+decomp-workbench ranking check config/ranking.json
+```
+
+`stamp` records the project's `git rev-parse HEAD` and the time, as one added
+`stamp` key; the rows are untouched, and both ranking spellings (a bare list
+or an object with `functions`) survive it. Re-stamping the same tree keeps the
+original `generated_at` -- that field says when the measurement was taken, and
+a timestamp refreshed on every run cannot say that. `check` exits 0 when the
+stamp matches HEAD and 1 otherwise.
+
+| Status | Meaning |
+|---|---|
+| `fresh` | the stamp is this tree; the ordering is a measurement of what you are looking at |
+| `stale` | the stamp names a different tree; the ordering describes a tree that no longer exists |
+| `unstamped` | no stamp, so the drift cannot be measured |
+| `unknown` | stamped, but HEAD could not be read (not a checkout), so the two cannot be compared |
+| `missing` | there is no ranking at that path |
+
+`permute-sweep` and `permute-doctor` run that check on whichever ranking they
+were given. A contradiction -- `stale`, or `unknown` -- prints a loud
+`WARNING:`; an unstamped ranking gets a quiet `note:`, because unstamped is
+where every project starts and a warning everybody sees is a warning nobody
+reads. `--require-fresh` turns any non-`fresh` verdict into a refusal, for the
+runs where searching in the wrong order is worse than not searching.
+
 
 ## What comes back
 

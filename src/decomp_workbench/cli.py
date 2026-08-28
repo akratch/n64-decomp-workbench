@@ -133,6 +133,7 @@ from .permute_cli import register_permute_commands
 from .phase_cli import register_phase_commands
 from .preflight import compile_preflight
 from .project_cli import register_project_commands
+from .ranking_cli import register_ranking_commands
 from .relocation_cli import register_relocation_command
 from .reporting import SCHEMAS, error_report, render_json, run_json_handler
 from .scheduler_cli import register_scheduler_commands
@@ -2181,6 +2182,10 @@ def build_parser() -> argparse.ArgumentParser:
     # per-object recipe: the search half of the same boundary `campaign`
     # draws, for the residuals no hand lever moves.
     register_permute_commands(commands)
+    # The freshness stamp the sweep's ordering depends on: a ranking is a
+    # measurement of one tree, and every consumer of it is entitled to know
+    # whether that tree is still the one in front of it.
+    register_ranking_commands(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.

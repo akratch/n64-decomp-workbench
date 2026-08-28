@@ -28,6 +28,19 @@ in [design notes](docs/history/design-notes.md).
   three preflight questions -- real flags, replicated chain, a base that
   compiles to a finite non-zero score -- before an hour is spent on a
   function. See [Permuter sweeps](docs/permute-sweep.md).
+- `ranking stamp` and `ranking check`: a closeness ranking now records the
+  tree hash it was measured against, so a consumer can tell a measurement
+  from a memory. A ranking decays within hours -- a function that has since
+  matched is still in it -- and one campaign's snapshot was read as an
+  ownership ledger long after it had stopped describing the tree. `stamp`
+  adds one `stamp` key (tree hash plus `generated_at`) without reshaping the
+  rows, in either ranking spelling, and re-stamping the same tree keeps the
+  original timestamp, because a field refreshed on every run cannot say how
+  old a measurement is. `permute-sweep` and `permute-doctor` check the
+  ranking they were handed: a stamp that contradicts HEAD, or one that
+  cannot be compared to it, prints a loud warning, an unstamped ranking gets
+  a quiet note, and `--require-fresh` refuses to run on anything but a match.
+  See [Permuter sweeps](docs/permute-sweep.md).
 - A `[permuter]` project-configuration table, so a project states its
   permuter inputs once instead of re-deriving them per sweep. It holds no
   codegen flags on purpose.

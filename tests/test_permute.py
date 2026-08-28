@@ -13,6 +13,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from decomp_workbench.permute_sweep import (
     search_function,
 )
 from decomp_workbench.project_config import PermuterOptions, load_project_config
+from decomp_workbench.ranking import stamp_ranking
 
 #: A dry run whose compile line is split by a backslash continuation, with
 #: the codegen flags on the second line -- the line that does not name the
@@ -693,6 +695,122 @@ class PermuteCliTests(unittest.TestCase):
             )
         self.assertEqual(status, 2)
         self.assertIn("is not in", stderr)
+
+    def test_a_stale_ranking_is_loud_but_does_not_stop_a_sweep(self) -> None:
+        """The ordering is a measurement of a tree that has since moved."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, ranking = self.write_project(root)
+            stamp_ranking(ranking, "a" * 40)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_cli.git_head", return_value="b" * 40
+            ):
+                status, stdout, stderr = self.run_cli(
+                    [
+                        "permute-sweep",
+                        str(queue),
+                        "--project",
+                        str(root),
+                        "--ranking",
+                        str(ranking),
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        self.assertIn("WARNING:", stderr)
+        self.assertIn("measurement of a different tree", stderr)
+        self.assertIn("near", stdout)
+
+    def test_require_fresh_refuses_a_stale_ranking_before_any_process(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, ranking = self.write_project(root)
+            stamp_ranking(ranking, "a" * 40)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_cli.git_head", return_value="b" * 40
+            ):
+                status, stdout, stderr = self.run_cli(
+                    [
+                        "permute-sweep",
+                        str(queue),
+                        "--project",
+                        str(root),
+                        "--ranking",
+                        str(ranking),
+                        "--require-fresh",
+                    ]
+                )
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("error:", stderr)
+
+    def test_a_fresh_ranking_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, ranking = self.write_project(root)
+            stamp_ranking(ranking, "a" * 40)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_cli.git_head", return_value="a" * 40
+            ):
+                status, _stdout, stderr = self.run_cli(
+                    [
+                        "permute-sweep",
+                        str(queue),
+                        "--project",
+                        str(root),
+                        "--ranking",
+                        str(ranking),
+                        "--require-fresh",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+
+    def test_require_fresh_without_a_ranking_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, _ranking = self.write_project(root)
+            status, _stdout, stderr = self.run_cli(
+                [
+                    "permute-sweep",
+                    str(queue),
+                    "--project",
+                    str(root),
+                    "--require-fresh",
+                    "--dry-run",
+                ]
+            )
+        self.assertEqual(status, 2)
+        self.assertIn("--require-fresh needs a ranking", stderr)
+
+    def test_the_doctor_checks_the_configured_ranking_too(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, ranking = self.write_project(root)
+            config = root / ".decomp-workbench.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8") + "ranking = 'ranking.json'\n",
+                encoding="utf-8",
+            )
+            stamp_ranking(ranking, "a" * 40)
+            with unittest.mock.patch(
+                "decomp_workbench.permute_cli.git_head", return_value="b" * 40
+            ):
+                status, _stdout, stderr = self.run_cli(
+                    [
+                        "permute-doctor",
+                        "far",
+                        "--project",
+                        str(root),
+                        "--queue",
+                        str(queue),
+                        "--require-fresh",
+                    ]
+                )
+        self.assertEqual(status, 2)
+        self.assertIn("error:", stderr)
 
     def test_doctor_without_a_queue_needs_a_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
