@@ -15,6 +15,7 @@ import sys
 from typing import Any
 
 from .staleness import (
+    DEFAULT_TOLERANCE_SECONDS,
     STALENESS_SCHEMA,
     StaleBuildError,
     StalenessReport,
@@ -136,6 +137,27 @@ def freshness_payload(report: StalenessReport) -> dict[str, Any]:
     return {"staleness": body, "staleness_schema": STALENESS_SCHEMA}
 
 
+def _tolerance(value: str) -> float:
+    """Parse `--tolerance`, refusing a negative slack window.
+
+    A negative tolerance is not a stricter check: it makes an artifact that
+    is *newer* than its input stale, so a correct build reports as stale and
+    the reader learns to ignore the verdict. That is the same false answer
+    this command exists to prevent, pointed the other way.
+    """
+
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
+    if seconds != seconds or seconds < 0:  # NaN compares false with itself
+        raise argparse.ArgumentTypeError(
+            "--tolerance is a slack window in seconds and must not be "
+            f"negative; got {value!r}"
+        )
+    return seconds
+
+
 def check_staleness_command(args: argparse.Namespace) -> int:
     if len(args.paths) < 2:
         print(
@@ -194,12 +216,13 @@ def register_staleness_command(commands: argparse._SubParsersAction[Any]) -> Non
     )
     parser.add_argument(
         "--tolerance",
-        type=float,
-        default=1.0,
+        type=_tolerance,
+        default=DEFAULT_TOLERANCE_SECONDS,
         metavar="SECONDS",
         help=(
             "how much older a derived artifact may be before it is stale "
-            "(default: 1.0, one filesystem timestamp tick)"
+            f"(default: {DEFAULT_TOLERANCE_SECONDS}, one filesystem "
+            "timestamp tick)"
         ),
     )
     parser.add_argument(

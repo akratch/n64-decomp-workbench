@@ -7,6 +7,7 @@ only input the guard reads.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from decomp_workbench.cli import main
 from decomp_workbench.staleness import (
+    DEFAULT_TOLERANCE_SECONDS,
     STALENESS_SCHEMA,
     StaleBuildError,
     chain_report,
@@ -24,6 +26,7 @@ from decomp_workbench.staleness import (
     file_sha256,
     staleness_report,
 )
+from decomp_workbench.staleness_cli import register_staleness_command
 
 DUMP = """
 00000000 <animStep>:
@@ -270,6 +273,45 @@ class CheckStalenessCommandTests(unittest.TestCase):
         flat = self.run_cli(["check-staleness", source, rom])
         grouped = self.run_cli(["object", "staleness", source, rom])
         self.assertEqual(grouped, flat)
+
+
+class ToleranceOptionTests(unittest.TestCase):
+    """`--tolerance` is a slack window: one constant, and never negative."""
+
+    def parse(self, arguments: list[str]) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        register_staleness_command(parser.add_subparsers(dest="command"))
+        return parser.parse_args(arguments)
+
+    def test_the_default_is_the_shared_constant(self) -> None:
+        """Not a second copy of 1.0.
+
+        A duplicated default drifts the moment the constant is tuned, and
+        the drift shows up as a freshness verdict the library and the
+        command disagree about.
+        """
+
+        parsed = self.parse(["check-staleness", "a.c", "a.o"])
+        self.assertEqual(parsed.tolerance, DEFAULT_TOLERANCE_SECONDS)
+
+    def test_a_negative_tolerance_is_refused(self) -> None:
+        """It would report a correctly-built chain as stale.
+
+        Slack cannot run backwards: -60 makes an artifact built 30 seconds
+        *after* its input stale, and a reader who sees a good build called
+        stale learns to ignore the verdict entirely.
+        """
+
+        for value in ("-1", "-0.5"):
+            with self.assertRaises(SystemExit) as raised:
+                with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    self.parse(["check-staleness", "a.c", "a.o", "--tolerance", value])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("must not be negative", stderr.getvalue())
+
+    def test_zero_is_allowed_because_it_is_a_real_policy(self) -> None:
+        parsed = self.parse(["check-staleness", "a.c", "a.o", "--tolerance", "0"])
+        self.assertEqual(parsed.tolerance, 0.0)
 
 
 class ComparisonFreshnessTests(unittest.TestCase):
