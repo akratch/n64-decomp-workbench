@@ -441,6 +441,42 @@ class PlaceholderCallTests(unittest.TestCase):
         self.assertFalse(finding.blocked)
         self.assertEqual(finding.reproducible, ("ordinaryCallee",))
 
+    def test_ordinary_self_recursion_the_candidate_reproduces_is_not_blocked(
+        self,
+    ) -> None:
+        """A resident recursive function is the false positive to avoid.
+
+        Its target object also spells a call with the containing symbol, so
+        the name alone cannot tell it from an unrelocated module's
+        placeholder. The candidate can: it carries the same symbol and
+        relocates against it too, so the permuter reproduces that word and
+        the score has no floor.
+        """
+
+        candidate = build_relocatable(
+            {".text": words(JAL, NOP)},
+            [SymbolSpec("myFunc", 0, 8, STT_FUNC, STB_GLOBAL, ".text")],
+            [RelocSpec(".text", 0, "myFunc", R_MIPS_26)],
+        )
+        finding = rs.placeholder_call_check(
+            parse_elf(self.target("myFunc")), parse_elf(candidate), function="myFunc"
+        )
+        self.assertFalse(finding.blocked)
+        self.assertEqual(finding.reproducible, ("myFunc",))
+        self.assertEqual(finding.self_named, ())
+
+    def test_without_a_candidate_a_self_call_names_recursion_as_the_other_read(
+        self,
+    ) -> None:
+        """The verdict stands, but it must not claim to have excluded recursion."""
+
+        finding = rs.placeholder_call_check(
+            parse_elf(self.target("myFunc")), None, function="myFunc"
+        )
+        self.assertTrue(finding.blocked)
+        self.assertIn("--candidate-object", finding.message)
+        self.assertIn("recursion", finding.message)
+
     def test_a_function_with_no_calls_at_all_is_never_blocked(self) -> None:
         obj = build_relocatable(
             {".text": words(NOP, NOP)},

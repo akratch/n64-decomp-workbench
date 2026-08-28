@@ -250,12 +250,20 @@ object:
 decomp-workbench permute-doctor overlay1DrawActive --queue queue.json --target-object build/target.o --candidate-object build/overlay1.c.o
 ```
 
-When every `R_MIPS_26` site in the target names the function itself or a
-symbol the candidate object does not carry, the doctor reports the site count,
-warns that the score cannot reach zero, and names `linked-compare`. It is a
-warning rather than a refusal: the scratch may be healthy and the operator may
-be searching it for another reason. Without `--target-object` the question is
-not answered at all, and the report says nothing rather than "fine".
+When every `R_MIPS_26` site in the target names a symbol the candidate object
+does not carry, the doctor reports the site count, warns that the score cannot
+reach zero, and names `linked-compare`. It is a warning rather than a refusal:
+the scratch may be healthy and the operator may be searching it for another
+reason. Without `--target-object` the question is not answered at all, and the
+report says nothing rather than "fine".
+
+`--candidate-object` is what makes the verdict a measurement. A site that
+names the containing function is the shape an unrelocated module's
+self-relative jump has — and it is also the shape of ordinary self-recursion,
+which the name alone cannot tell apart. A candidate that carries the symbol
+reproduces the word either way, so the candidate is checked first. Without one
+the doctor still reports the site, and says in the same breath that recursion
+is the other reading.
 
 ## Limits
 

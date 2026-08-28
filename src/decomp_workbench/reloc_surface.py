@@ -1094,6 +1094,10 @@ class PlaceholderFinding:
     self_named: tuple[str, ...] = ()
     absent_from_candidate: tuple[str, ...] = ()
     reproducible: tuple[str, ...] = ()
+    #: Whether a candidate object was supplied. Without one a self-named site
+    #: is indistinguishable from ordinary self-recursion, and the message says
+    #: so rather than asserting a floor nobody measured.
+    candidate_read: bool = False
 
     @property
     def unreproducible(self) -> tuple[str, ...]:
@@ -1108,13 +1112,19 @@ class PlaceholderFinding:
     @property
     def message(self) -> str:
         names = ", ".join(self.unreproducible[:3])
-        return (
+        text = (
             f"every R_MIPS_26 site in the target ({self.call_sites}) names a "
             f"symbol this scratch cannot reproduce ({names}); the permuter "
             "score cannot reach zero for this function however good the C is "
             "-- use `decomp-workbench linked-compare` against the linked "
             "image instead"
         )
+        if self.self_named and not self.candidate_read:
+            text += (
+                "; a self-named site also reads as ordinary self-recursion, "
+                "which `--candidate-object` tells apart"
+            )
+        return text
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1124,6 +1134,7 @@ class PlaceholderFinding:
             "absent_from_candidate": list(self.absent_from_candidate),
             "reproducible": list(self.reproducible),
             "unreproducible": list(self.unreproducible),
+            "candidate_read": self.candidate_read,
             "blocked": self.blocked,
         }
 
@@ -1150,10 +1161,16 @@ def placeholder_call_check(
 ) -> PlaceholderFinding:
     """Classify the target's call relocations by whether a scratch can name them.
 
-    A call site is unreproducible when it names the function itself -- the
-    shape an unrelocated module's self-relative jump table has, where the
-    placeholder *is* the containing symbol -- or when it names a symbol the
-    candidate object does not carry at all.
+    A call site is unreproducible when it names a symbol the candidate object
+    does not carry, or -- for want of a candidate to check against -- when it
+    names the function itself, the shape an unrelocated module's self-relative
+    jump table has, where the placeholder *is* the containing symbol.
+
+    The candidate is checked first, and that order is the whole difference
+    between this and a heuristic. An ordinary resident function that recurses
+    spells its own call with the containing symbol too, so the name alone
+    cannot tell the two apart; a candidate that carries the symbol can
+    reproduce the word, whichever shape it is.
     """
 
     window = _function_range(target, function, section)
@@ -1176,9 +1193,11 @@ def placeholder_call_check(
     absent: set[str] = set()
     reproducible: set[str] = set()
     for name in names:
-        if name == function:
+        if candidate is not None and name in candidate_names:
+            reproducible.add(name)
+        elif name == function:
             self_named.add(name)
-        elif candidate is not None and name not in candidate_names:
+        elif candidate is not None:
             absent.add(name)
         else:
             reproducible.add(name)
@@ -1188,6 +1207,7 @@ def placeholder_call_check(
         self_named=tuple(sorted(self_named)),
         absent_from_candidate=tuple(sorted(absent)),
         reproducible=tuple(sorted(reproducible)),
+        candidate_read=candidate is not None,
     )
 
 
