@@ -22,6 +22,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from elf_fixtures import (
+    R_MIPS_26,
+    STB_GLOBAL,
+    STT_FUNC,
+    RelocSpec,
+    SymbolSpec,
+    build_relocatable,
+    words,
+)
+
 from decomp_workbench.cli import main
 from decomp_workbench.permute import (
     FIDELITY_DIFFERS,
@@ -1388,6 +1398,144 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertIn("codegen flags were not recovered", report.problems[0])
         self.assertIn("NOT READY", render_doctor(report)[-1])
+
+    def test_a_target_whose_calls_are_placeholders_routes_to_linked_compare(
+        self,
+    ) -> None:
+        """The one preflight failure no amount of searching recovers from.
+
+        The target spells its call with the containing symbol itself, which is
+        the shape an unrelocated module's code has: the runtime resolves it,
+        and no scratch can reproduce it, so the score has a floor above zero
+        however good the C is. That is a fact about the oracle.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            target = Path(temporary) / "target.o"
+            target.write_bytes(
+                build_relocatable(
+                    {".text": words(0x0C000000, 0)},
+                    [SymbolSpec("f_asm", 0, 8, STT_FUNC, STB_GLOBAL, ".text")],
+                    [RelocSpec(".text", 0, "f_asm", R_MIPS_26)],
+                )
+            )
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                target_object=target,
+            )
+            rendered = "\n".join(render_doctor(report))
+        self.assertIsNotNone(report.placeholder)
+        assert report.placeholder is not None
+        self.assertTrue(report.placeholder.blocked)
+        self.assertIn("linked-compare", rendered)
+        self.assertIn("target calls    1 R_MIPS_26 site(s)", rendered)
+        # Loud, but not a refusal: the scratch itself is still healthy, and
+        # the operator may be searching it for a different reason.
+        self.assertTrue(report.ok)
+        self.assertTrue(
+            any("cannot reach zero" in warning for warning in report.warnings)
+        )
+
+    def test_an_ordinary_call_the_candidate_names_leaves_the_score_usable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            root = Path(temporary)
+            target = root / "target.o"
+            target.write_bytes(
+                build_relocatable(
+                    {".text": words(0x0C000000, 0)},
+                    [
+                        SymbolSpec("f_asm", 0, 8, STT_FUNC, STB_GLOBAL, ".text"),
+                        SymbolSpec("ordinaryCallee"),
+                    ],
+                    [RelocSpec(".text", 0, "ordinaryCallee", R_MIPS_26)],
+                )
+            )
+            candidate = root / "candidate.o"
+            candidate.write_bytes(
+                build_relocatable(
+                    {".text": words(0x0C000000, 0)},
+                    [
+                        SymbolSpec("f_asm", 0, 8, STT_FUNC, STB_GLOBAL, ".text"),
+                        SymbolSpec("ordinaryCallee"),
+                    ],
+                    [RelocSpec(".text", 0, "ordinaryCallee", R_MIPS_26)],
+                )
+            )
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                target_object=target,
+                candidate_object=candidate,
+            )
+            rendered = "\n".join(render_doctor(report))
+        assert report.placeholder is not None
+        self.assertFalse(report.placeholder.blocked)
+        self.assertNotIn("linked-compare", rendered)
+
+    def test_without_a_target_object_the_question_is_not_answered_at_all(
+        self,
+    ) -> None:
+        """An unread input is not evidence that the scratch is fine."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(plan, project.item, seconds=60, runner=project.run)
+        self.assertIsNone(report.placeholder)
+        self.assertIsNone(report.as_dict()["placeholder_calls"])
+        self.assertNotIn("target calls", "\n".join(render_doctor(report)))
+
+    def test_an_unreadable_target_object_reports_nothing_rather_than_ok(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            junk = Path(temporary) / "not-an-object.o"
+            junk.write_bytes(b"not an ELF at all")
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                target_object=junk,
+            )
+        self.assertIsNone(report.placeholder)
+
+    def test_the_doctor_json_carries_the_placeholder_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            target = Path(temporary) / "target.o"
+            target.write_bytes(
+                build_relocatable(
+                    {".text": words(0x0C000000, 0)},
+                    [SymbolSpec("f_asm", 0, 8, STT_FUNC, STB_GLOBAL, ".text")],
+                    [RelocSpec(".text", 0, "f_asm", R_MIPS_26)],
+                )
+            )
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                target_object=target,
+            )
+        payload = json.loads(json.dumps(report.as_dict()))
+        self.assertEqual(payload["placeholder_calls"]["call_sites"], 1)
+        self.assertTrue(payload["placeholder_calls"]["blocked"])
+        self.assertEqual(payload["placeholder_calls"]["self_named"], ["f_asm"])
 
 
 class PermuteCliTests(unittest.TestCase):

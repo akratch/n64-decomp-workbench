@@ -349,6 +349,8 @@ def permute_doctor_command(args: argparse.Namespace) -> int:
             item,
             seconds=args.seconds,
             check_base=not args.no_base_check,
+            target_object=args.target_object,
+            candidate_object=args.candidate_object,
         )
     except (OSError, ValueError, json.JSONDecodeError, PermuterError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -630,6 +632,24 @@ def _add_doctor_arguments(parser: argparse.ArgumentParser) -> None:
         default=120,
         metavar="N",
         help="how long the base-score check may run (default: 120)",
+    )
+    parser.add_argument(
+        "--target-object",
+        metavar="FILE",
+        help=(
+            "the assembled target object. With it, the doctor also reports "
+            "whether the target's own call relocations name symbols this "
+            "scratch can reproduce -- when they do not, the permuter score "
+            "has a floor above zero and `linked-compare` is the oracle"
+        ),
+    )
+    parser.add_argument(
+        "--candidate-object",
+        metavar="FILE",
+        help=(
+            "the candidate object, so a call to a symbol the candidate does "
+            "not carry at all is told apart from an ordinary one"
+        ),
     )
     parser.add_argument(
         "--no-base-check",

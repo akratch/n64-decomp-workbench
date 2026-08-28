@@ -26,6 +26,7 @@ from typing import Any, NamedTuple
 
 from .campaign import process_group_arguments, terminate_process_group
 from .compare import compare_objects
+from .elf import ElfFormatError, read_elf
 from .permute import (
     DOCTOR_SCHEMA,
     FIDELITY_DIFFERS,
@@ -57,6 +58,7 @@ from .permute import (
     wait_for_headroom,
 )
 from .project_config import PermuterOptions
+from .reloc_surface import PlaceholderFinding, placeholder_call_check
 
 Reporter = Callable[[str], None]
 
@@ -968,6 +970,9 @@ class DoctorReport:
     base_compiles: bool | None = None
     base_score: int | None = None
     fidelity: ScratchFidelity = field(default_factory=ScratchFidelity)
+    #: Whether the target's own call relocations name symbols this scratch
+    #: can reproduce. `None` when no target object was supplied to read.
+    placeholder: PlaceholderFinding | None = None
     warnings: tuple[str, ...] = ()
     problems: tuple[str, ...] = ()
 
@@ -989,6 +994,9 @@ class DoctorReport:
             "base_compiles": self.base_compiles,
             "base_score": self.base_score,
             "scratch_fidelity": self.fidelity.as_dict(),
+            "placeholder_calls": (
+                None if self.placeholder is None else self.placeholder.as_dict()
+            ),
             "warnings": list(self.warnings),
             "problems": list(self.problems),
             "ok": self.ok,
@@ -1001,6 +1009,8 @@ def doctor(
     *,
     seconds: int = 120,
     check_base: bool = True,
+    target_object: str | Path | None = None,
+    candidate_object: str | Path | None = None,
     runner: Runner = run_owned,
     clock: Callable[[], float] = time.monotonic,
     fidelity_checker: FidelityChecker = check_scratch_fidelity,
@@ -1012,6 +1022,13 @@ def doctor(
     non-zero score. A base score of zero means the scratch is not scoring the
     function under test at all -- a "match" it would report instantly and
     which would not rebuild.
+
+    With ``target_object`` there is a fourth question, and it is the one no
+    amount of searching recovers from: can this scratch even *name* what the
+    target calls. In a module that ships unrelocated the target spells every
+    call with a placeholder the runtime resolves, so the score has a floor
+    above zero however good the C is. That is a property of the oracle, and
+    the answer is to change oracle -- see `decomp-workbench linked-compare`.
     """
 
     obj = item.object or object_target(plan.options.object_template, item.source)
@@ -1040,6 +1057,11 @@ def doctor(
             "the search would explore whatever the fallback names, which is not "
             "necessarily the ISA the real build uses"
         )
+    finding = placeholder_finding(
+        item, target_object=target_object, candidate_object=candidate_object
+    )
+    if finding is not None and finding.blocked:
+        scratch_warnings.append(finding.message)
     report = DoctorReport(
         function=item.function,
         source=item.source,
@@ -1050,6 +1072,7 @@ def doctor(
         skipped_postprocess=recipe.skipped_postprocess,
         replicated=steps,
         fidelity=fidelity,
+        placeholder=finding,
         warnings=recipe.warnings + tuple(scratch_warnings),
     )
     if not check_base:
@@ -1082,6 +1105,31 @@ def doctor(
     )
 
 
+def placeholder_finding(
+    item: QueueItem,
+    *,
+    target_object: str | Path | None,
+    candidate_object: str | Path | None,
+) -> PlaceholderFinding | None:
+    """Read the target's call relocations, when the host supplied an object.
+
+    Returns `None` rather than a verdict when there is nothing to read: an
+    absent or unreadable object is a missing input, and reporting "not
+    blocked" for it would be an answer nobody measured.
+    """
+
+    if target_object is None:
+        return None
+    try:
+        target = read_elf(target_object)
+        candidate = None if candidate_object is None else read_elf(candidate_object)
+    except (OSError, ElfFormatError):
+        return None
+    return placeholder_call_check(
+        target, candidate, function=item.asm_symbol or item.function
+    )
+
+
 def render_doctor(report: DoctorReport) -> list[str]:
     lines = [
         f"permute-doctor {report.function}",
@@ -1108,6 +1156,17 @@ def render_doctor(report: DoctorReport) -> list[str]:
                 else ""
             )
         )
+    if report.placeholder is not None:
+        finding = report.placeholder
+        lines.append(
+            f"  target calls    {finding.call_sites} R_MIPS_26 site(s), "
+            f"{len(finding.unreproducible)} unreproducible by this scratch"
+        )
+        if finding.blocked:
+            lines.append(
+                "    oracle        the permuter score cannot reach zero here; "
+                "use `decomp-workbench linked-compare`"
+            )
     if report.base_compiles is None:
         lines.append("  base            not checked (--no-base-check)")
     else:
@@ -1140,6 +1199,7 @@ __all__ = [
     "doctor",
     "expand_permuter_pragmas",
     "import_scratch",
+    "placeholder_finding",
     "prepare_scratch",
     "prepare_target_asm",
     "render_doctor",
