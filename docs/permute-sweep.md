@@ -128,7 +128,9 @@ Two modes that reach `import.py` identically are collapsed, so a project with
 no `[preserve_macros]` imports once rather than importing twice to compare a
 scratch with itself. A scratch that differs having preserved *nothing* is not
 retried at all: whatever it differs by, a narrower preserve set is the same
-import again. And when no mode is identical, the smallest measured difference
+import again. An import log that does not say either way is retried, because
+"it did not say" rules nothing out; the recorded `preserved_macros` is `null`
+there rather than an empty list. And when no mode is identical, the smallest measured difference
 is kept — `configured` winning ties — and re-imported if it was not the one
 left on disk.
 
