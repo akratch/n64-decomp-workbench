@@ -75,9 +75,11 @@ in [design notes](docs/history/design-notes.md).
   set and not about the function. Lever 19 and the `forced-color-oracle`
   onramp were reworded the same way -- a clean forced-colour cascade is a
   stopping point for hand search, and a wall is recorded only after
-  `permute classify` reports a measured search that was flat. The schemas bump
-  to `decomp-workbench-diagnosis-v2` and `decomp-workbench-view-v2`, additively:
-  every existing key is unchanged and `routing` is the only addition.
+  `permute classify` reports a measured search that was flat. This change is
+  the additive v2 bump of both verdict schemas -- every existing key unchanged,
+  `routing` the only addition -- which the ownership entry above then carried
+  to `decomp-workbench-diagnosis-v3` and `decomp-workbench-view-v3` in the
+  same release.
 
 - A build-freshness guard on every comparison, and `check-staleness` for the
   hosts that wrap one. A comparison answers "are these two objects the same",

@@ -11,7 +11,7 @@ Schemas name the user-visible report, for example:
 
 - `decomp-workbench-comparison-v1`
 - `decomp-workbench-staleness-v1`
-- `decomp-workbench-diagnosis-v2`
+- `decomp-workbench-diagnosis-v3`
 - `decomp-workbench-campaign-status-v1`
 - `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
