@@ -66,8 +66,10 @@ from decomp_workbench.permute_classify import (
 from decomp_workbench.permute_sweep import (
     PermuterError,
     check_scratch_fidelity,
+    compile_scratch_base,
     doctor,
     expand_permuter_pragmas,
+    import_scratch,
     prepare_scratch,
     render_doctor,
     resolve_plan,
@@ -1195,6 +1197,124 @@ class ProcessOwnershipTests(unittest.TestCase):
         self.assertEqual(elapsed, 12.0)
 
 
+class BoundedPreparationTests(unittest.TestCase):
+    """Every child a sweep starts has a deadline, not just the search.
+
+    `run_owned` could always end a process group on a timeout; the scratch
+    phase never gave it one. The fidelity check adds up to two compilers per
+    import mode per function, so an unbounded child there holds the whole
+    sweep open with nothing to show for it.
+    """
+
+    def test_every_preparation_child_is_given_the_step_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary) / "project")
+            project.build_the_object()
+            plan = resolve_plan(project.root, project.options)
+            timeouts: list[float | None] = []
+
+            def runner(
+                argv: list[str], **kwargs: Any
+            ) -> subprocess.CompletedProcess[str]:
+                timeouts.append(kwargs.get("timeout"))
+                return project.run(argv, **kwargs)
+
+            with unittest.mock.patch(
+                "decomp_workbench.permute_sweep.compare_objects",
+                return_value=FakeComparison(0),
+            ):
+                prepare_scratch(plan, project.item, runner=runner)
+        self.assertTrue(timeouts)
+        # `make -n`, `import.py` and the fidelity compile: all of them, and
+        # all of them at the configured cap.
+        self.assertEqual(set(timeouts), {plan.step_timeout})
+        self.assertEqual(plan.step_timeout, 600.0)
+
+    def test_a_hung_importer_names_the_key_that_bounds_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary) / "project")
+            plan = resolve_plan(
+                project.root, replace(project.options, step_timeout_seconds=30.0)
+            )
+            out_dir = plan.output_dir / "f"
+            out_dir.mkdir(parents=True)
+
+            def runner(
+                argv: list[str], **kwargs: Any
+            ) -> subprocess.CompletedProcess[str]:
+                raise subprocess.TimeoutExpired(argv, 30.0, output="half a log\n")
+
+            with self.assertRaises(PermuterError) as raised:
+                import_scratch(
+                    plan,
+                    project.item,
+                    out_dir,
+                    out_dir / "settings.toml",
+                    out_dir / "target.s",
+                    runner=runner,
+                )
+            message = str(raised.exception)
+            self.assertIn("30s", message)
+            self.assertIn("step_timeout_seconds", message)
+            # The partial log is kept: it is the only record of where the
+            # importer stopped.
+            self.assertEqual(
+                (out_dir / "import.log").read_text(encoding="utf-8"), "half a log\n"
+            )
+
+    def test_a_hung_fidelity_compile_is_an_unknown_verdict_not_a_hang(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary) / "project")
+            project.build_the_object()
+            plan = resolve_plan(
+                project.root, replace(project.options, step_timeout_seconds=5.0)
+            )
+            out_dir = plan.output_dir / "f"
+            out_dir.mkdir(parents=True)
+            scratch = out_dir / "scratch"
+            scratch.mkdir()
+            (scratch / "base.c").write_text("int f(void) { return 0; }\n", "utf-8")
+            (scratch / "compile.sh").write_text('#!/bin/sh\ncc "$1"\n', "utf-8")
+
+            def runner(
+                argv: list[str], **kwargs: Any
+            ) -> subprocess.CompletedProcess[str]:
+                raise subprocess.TimeoutExpired(argv, 5.0)
+
+            with self.assertRaises(PermuterError) as raised:
+                compile_scratch_base(plan, scratch, out_dir, runner=runner)
+            self.assertIn("step_timeout_seconds", str(raised.exception))
+            fidelity = check_scratch_fidelity(
+                plan, project.item, scratch, out_dir, mode="configured", runner=runner
+            )
+        # A deadline is a thing nothing measured, never a difference.
+        self.assertEqual(fidelity.status, FIDELITY_UNKNOWN)
+        self.assertIn("step_timeout_seconds", fidelity.reason or "")
+
+    def test_a_make_dry_run_that_times_out_degrades_to_the_fallback(self) -> None:
+        """`make -n` is the one step whose deadline is not fatal.
+
+        Its failure mode already has an answer -- the fallback flags, with the
+        warning that says they are not the build's -- and the doctor refuses
+        the function for exactly that reason.
+        """
+
+        def runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(argv, 600.0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            recipe = recover_recipe(
+                root,
+                QueueItem(function="f", source="src/game/track.c"),
+                fallback_flags=("-O2", "-mips2"),
+                runner=runner,
+            )
+        self.assertEqual(recipe.flags, ("-O2", "-mips2"))
+        self.assertFalse(recipe.from_dry_run)
+        self.assertEqual(len(recipe.warnings), 1)
+
+
 class DoctorTests(unittest.TestCase):
     def test_a_healthy_function_is_ready(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1347,6 +1467,27 @@ class PermuteCliTests(unittest.TestCase):
         self.assertEqual(config.permuter.minutes, 7)
         self.assertEqual(config.permuter.preserve_macros, ("g[DS]P.*=void",))
         self.assertEqual(config.permuter.permuter_dir, root.resolve() / "permuter")
+
+    def test_the_step_timeout_is_configurable_and_must_be_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / ".decomp-workbench.toml"
+            config.write_text(
+                "[permuter]\nstep_timeout_seconds = 45\n", encoding="utf-8"
+            )
+            self.assertEqual(
+                load_project_config(config).permuter.step_timeout_seconds, 45.0
+            )
+            # A non-positive deadline is not "no deadline": it would expire
+            # every child instantly, which is worse than the unbounded run
+            # this key replaced.
+            for value in ("0", "-1"):
+                config.write_text(
+                    f"[permuter]\nstep_timeout_seconds = {value}\n", encoding="utf-8"
+                )
+                with self.assertRaises(ValueError) as raised:
+                    load_project_config(config)
+                self.assertIn("must be positive", str(raised.exception))
 
     def test_a_malformed_preserve_macro_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -63,6 +63,7 @@ _KEYS = {
             "threads",
             "load_threshold",
             "nice",
+            "step_timeout_seconds",
         }
     ),
 }
@@ -104,6 +105,12 @@ class PermuterOptions:
     threads: int | None = None
     load_threshold: float = 0.0
     nice: int = 15
+    #: Wall-clock cap on one scratch-preparation child -- `make -n` recovery,
+    #: `import.py`, the fidelity compile. The search window has always been
+    #: bounded; these were not, so a hung compiler held a sweep open forever
+    #: with nothing to show for it. Ten minutes is far longer than any of the
+    #: three legitimately takes and short enough to be a deadline.
+    step_timeout_seconds: float = 600.0
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -128,6 +135,7 @@ class PermuterOptions:
             "threads": self.threads,
             "load_threshold": self.load_threshold,
             "nice": self.nice,
+            "step_timeout_seconds": self.step_timeout_seconds,
         }
 
 
@@ -380,6 +388,13 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
     nice = data.get("nice", 15)
     if isinstance(nice, bool) or not isinstance(nice, int):
         raise ValueError("permuter.nice must be an integer")
+    step_timeout = data.get(
+        "step_timeout_seconds", PermuterOptions.step_timeout_seconds
+    )
+    if isinstance(step_timeout, bool) or not isinstance(step_timeout, (int, float)):
+        raise ValueError("permuter.step_timeout_seconds must be a number")
+    if step_timeout <= 0:
+        raise ValueError("permuter.step_timeout_seconds must be positive")
     skips = _string_list(data.get("skip_postprocess"), "permuter.skip_postprocess")
     for pattern in skips:
         try:
@@ -431,6 +446,7 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
         threads=threads,
         load_threshold=float(load_threshold),
         nice=nice,
+        step_timeout_seconds=float(step_timeout),
     )
 
 

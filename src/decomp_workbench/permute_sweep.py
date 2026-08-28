@@ -150,6 +150,20 @@ class SweepPlan:
         return self.options.objdump
 
     @property
+    def step_timeout(self) -> float:
+        """The wall-clock cap on one scratch-preparation child.
+
+        The search window was the only bounded thing here: `make -n`, the
+        importer and the fidelity compile each started a child with no
+        deadline, and the fidelity check adds up to two of them per import
+        mode per function. One hung compiler held a whole sweep open with
+        nothing to show for it, which is exactly the failure `run_owned`
+        exists to prevent -- it just had no timeout to enforce.
+        """
+
+        return self.options.step_timeout_seconds
+
+    @property
     def preserve_macro_modes(self) -> tuple[PreserveMacroMode, ...]:
         """The import modes this project tries, in order."""
 
@@ -299,14 +313,23 @@ def import_scratch(
     ]
     if preserve_macros is not None:
         argv += ["--preserve-macros", preserve_macros]
-    completed = runner(
-        argv,
-        cwd=str(plan.root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = runner(
+            argv,
+            cwd=str(plan.root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=plan.step_timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as expired:
+        (out_dir / log_name).write_text(expired.output or "", encoding="utf-8")
+        raise PermuterError(
+            f"{item.function}: import.py did not finish within "
+            f"{plan.step_timeout:g}s (permuter.step_timeout_seconds); "
+            f"see {out_dir / log_name}"
+        ) from None
     (out_dir / log_name).write_text(completed.stdout or "", encoding="utf-8")
     if completed.returncode != 0 or not imported.is_dir():
         raise PermuterError(
@@ -417,13 +440,21 @@ def compile_scratch_base(
         obj.unlink()
     log = out_dir / "fidelity-compile.log"
     with log.open("w", encoding="utf-8") as stream:
-        completed = runner(
-            [str(script), str(source), "-o", str(obj)],
-            cwd=str(plan.root),
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        try:
+            completed = runner(
+                [str(script), str(source), "-o", str(obj)],
+                cwd=str(plan.root),
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                timeout=plan.step_timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise PermuterError(
+                f"the scratch base did not compile within "
+                f"{plan.step_timeout:g}s (permuter.step_timeout_seconds); "
+                f"see {log}"
+            ) from None
     if completed.returncode != 0 or not obj.is_file():
         raise PermuterError(f"the scratch base did not compile; see {log}")
     return obj
@@ -635,6 +666,7 @@ def prepare_scratch(
         fallback_flags=options.fallback_flags,
         skip_postprocess=options.skip_postprocess,
         runner=runner,
+        timeout=plan.step_timeout,
     )
     target_asm = prepare_target_asm(plan.root, item, out_dir)
     modes = plan.preserve_macro_modes if plan.check_fidelity else ()

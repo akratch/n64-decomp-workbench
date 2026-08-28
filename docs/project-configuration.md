@@ -129,6 +129,7 @@ output_dir = ".decomp-workbench/permute"
 minutes = 20
 jobs = 1
 load_threshold = 9.0
+step_timeout_seconds = 600
 ```
 
 `[permuter]` is consumed only by `permute-sweep` and `permute-doctor`; see
