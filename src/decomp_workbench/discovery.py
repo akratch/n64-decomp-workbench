@@ -61,6 +61,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("relocation-aliases", "prove linked-address-equivalent spellings"),
         ("collateral", "expose whole-object changes outside an exact function"),
         ("staleness", "refuse a comparison against a build older than its inputs"),
+        ("linked-compare", "classify a built image against the target, per range"),
+        ("reloc-surface", "synthesize a module's placeholder values from the image"),
     ),
     "scratch": (
         ("fetch", "download one decomp.me export into the standard layout"),
@@ -232,6 +234,8 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "relocation-aliases"): "relocation-aliases",
     ("object", "collateral"): "object-collateral",
     ("object", "staleness"): "check-staleness",
+    ("object", "linked-compare"): "linked-compare",
+    ("object", "reloc-surface"): "reloc-surface",
     ("scratch", "fetch"): "fetch-scratch",
     ("scratch", "public-match-check"): "public-match-check",
     ("scratch", "check"): "check-scratch",
