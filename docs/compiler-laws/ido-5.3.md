@@ -1592,9 +1592,11 @@ ships for IDO 5.3 at `-O2 -mips2`.
 
 ### L65. A redundant mask still costs one ring pop — the phantom pop
 
-A mask the assembler folds away — `x & 1` into a 1-bit field, `x & 0xFF`
-into a `u8` field, `x & 0xFFFF` into a `u16` one — emits **no instruction**
-and still consumes **one pop** of the temp ring. The pop is real; only the
+A mask that folds away into the field it writes — `x & 1` into a 1-bit
+field, `x & 0xFF` into a `u8` field, `x & 0xFFFF` into a `u16` one — emits
+**no instruction** and still consumes **one pop** of the temp ring. (The
+fold is the compiler's, not the assembler's; which pass performs it was not
+read, and nothing below depends on the answer.) The pop is real; only the
 instruction is absent. So the construct is a pure one-step ring rotation
 with no positional cost, and it works in both directions: adding one
 advances the ring by one, and *removing* an existing redundant mask retards
@@ -1621,7 +1623,7 @@ inspection, and the function had been recorded as a scheduler wall before
 it.
 
 **Scope.** One pop per folded mask, measured on integer field copies. The
-same construct on a value the assembler cannot fold is an ordinary
+same construct on a value that cannot be folded away is an ordinary
 instruction and is not this lever.
 
 **Provenance:** Mickey's Speedway USA decomp (2026-08), `func_8003A520`
