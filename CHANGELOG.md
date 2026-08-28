@@ -203,7 +203,65 @@ in [design notes](docs/history/design-notes.md).
   permuter inputs once instead of re-deriving them per sweep. It holds no
   codegen flags on purpose.
 
+- `diagnose --trace PATH`, with `--trace-proc N` / `--trace-web N` to scope
+  it, so `ownership_basis=trace` is reachable from a terminal.
+  `globalcolor.pass_evidence` was the producer of the measured ownership
+  basis and nothing called it: every screen said `heuristic`, including the
+  ones an operator was reading beside an instrumented-uopt trace. The scope
+  arguments are the substance rather than a convenience -- a trace covers a
+  whole compilation and a residual is one function's, so *some* declined
+  force in the file is nearly certain and reading it as this residual's
+  would manufacture a measurement out of an unrelated decision. The footer
+  names the trace and the scope when the trace settles ownership, and says
+  the trace settled nothing when it does not, because a silent `heuristic`
+  after a `--trace` run reads as the trace having agreed when it was never
+  asked. `examples/fixtures/globalcolor-declined.log` is a synthetic trace
+  carrying both outcomes.
+
+- `[permuter] step_timeout_seconds` (default 600), one bounded policy for
+  the scratch phase. The search window was the only thing a sweep bounded:
+  the `make -n` recipe recovery, `import.py` and the fidelity compile each
+  started a child with no deadline, and the fidelity check adds up to two of
+  them per import mode per function, so a single hung compiler held a whole
+  sweep open with nothing to show for it. `run_owned` could always end a
+  process group on a timeout; it had never been given one here. A `make -n`
+  that expires degrades to the fallback flags with the warning that says so;
+  an import or fidelity compile that expires is an error for that function,
+  naming the key that bounds it, and the sweep moves on.
+
 ### Fixed
+
+- `check-staleness --tolerance` takes `DEFAULT_TOLERANCE_SECONDS` as its
+  default instead of a second hardcoded `1.0`, so tuning the constant cannot
+  move the library's freshness verdict and leave the command's behind. It
+  also refuses a negative window, which was never a stricter check: `-60`
+  calls an artifact built thirty seconds *after* its input stale, and a
+  reader who sees a good build reported stale learns to ignore the verdict
+  entirely. Zero remains legal.
+
+- `view.__all__` exports the routing vocabulary -- `ROUTING_VALUES` and the
+  four names it holds -- along with every member of the `owning_pass`,
+  `reachability` and `ownership_basis` vocabularies and `routing_for`. They
+  were public in every practical sense and missing from the one file that
+  says what the module offers, so a consumer switching on `routing` could
+  not get the names from it. A test asserts the property, not the list.
+
+- Law L66 (call-argument colour affinity) carries a `Scope` line marking it
+  a single observation. Its T1 receipt is one trace of one procedure -- one
+  call, one argument register, one web whose only consumer was that argument
+  -- and with no scope it read as general IDO 5.3 behaviour. The scope names
+  the neighbouring cases nobody measured, which are where this cost and
+  L58's forbidden mask meet.
+
+- CONTRIBUTING records the redistribution basis for **symbol-level
+  citations**, and the IDO 5.3 laws page and the permuter-sweep page state
+  it at the point of use. Both cite real function names, sizes, frame sizes
+  and register groups, and neither carried the notice CONTRIBUTING asks of a
+  worked example with binary-derived material. A measurement result from
+  which no instruction can be reconstructed is a different class from that
+  payload; saying so once means the next page does not re-litigate it, and
+  the line stays where it already was -- no instruction text, no
+  disassembly, no hexdump, in any encoding.
 
 - `compare --symbol` (and `--function`) no longer carves a function's prologue
   out of its body on an object whose code carries interior labels. The

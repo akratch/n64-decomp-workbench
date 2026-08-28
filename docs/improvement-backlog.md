@@ -535,3 +535,51 @@ Small, each verified as a real gap and deliberately left out of the review commi
 - `globalcolor.pass_evidence` is API-only: no `diagnose` flag feeds a trace, so `ownership_basis=trace` never appears on a terminal. Add `--trace PATH`.
 - L66 has no `Scope` line and generalises one T1 trace; either scope it or mark it single-observation.
 - Laws L62–L70 and `docs/permute-sweep.md` cite ROM function addresses, frame sizes and register groups (no instruction text); add the one-line redistribution basis CONTRIBUTING asks for, or state that symbol-level citations are exempt.
+
+**Status (landed).** All six, in that order:
+
+- **The scratch phase is bounded.** `[permuter] step_timeout_seconds`
+  (default 600) is one policy over the three children that had none --
+  `make -n` recovery, `import.py`, the fidelity compile -- applied through
+  the `run_owned` runner each of them already took. `run_owned` could always
+  end a process group on a deadline; it had never been handed one here. The
+  `make -n` deadline is deliberately *not* fatal: its failure already has an
+  answer (the fallback flags, plus the warning that says they are not the
+  build's, plus the doctor refusing the function for it). Zero and negative
+  are refused, because they are not "no deadline" -- they expire every child
+  instantly.
+- **`--tolerance` takes the shared constant** and refuses a negative window.
+  A negative tolerance is not a stricter check but an inverted one: it calls
+  a correctly-built artifact stale, and a reader who sees that learns to
+  ignore the verdict. Zero stays legal; it is a policy somebody can mean.
+- **`view.__all__` exports all four verdict vocabularies whole**, plus
+  `routing_for` beside `ownership_for`. Exporting `ROUTING_VALUES` alone
+  would have fixed the symptom and left the shape that caused it, so the
+  test asserts the property -- every `BASIS_*`/`OWNING_PASS_*`/
+  `REACHABILITY_*`/`ROUTING_*` value is exported -- rather than a list.
+- **`diagnose --trace PATH` reaches `ownership_basis=trace`.**
+  `--trace-proc`/`--trace-web` scope it, and the scoping is the substance:
+  a trace covers a whole compilation and a residual is one function's, so an
+  unscoped read would manufacture a measurement out of an unrelated declined
+  force -- item #5's failure in the other direction. The footer states the
+  scope when the trace settles ownership and says the trace settled nothing
+  when it does not, because silence there reads as agreement.
+  `examples/fixtures/globalcolor-declined.log` is the synthetic trace.
+- **L66 is scoped to one observation**, naming the neighbouring cases nobody
+  measured (a web feeding two calls at different argument positions, a web
+  read after the call, the affinity against a competing pin) rather than
+  demoting the tier: the instrument *was* read, so the receipt stands for
+  what it saw; only the generality was never established.
+- **The redistribution basis is recorded as an exemption**, which is the
+  honest reading: a function's name, size, frame and register group is a
+  measurement result from which no instruction can be reconstructed, not a
+  copy of any part of a binary. CONTRIBUTING says so once, both pages state
+  it at the point of use along with the fact that the objects behind their
+  receipts are not redistributable and are not here, and the line stays
+  exactly where it already was.
+
+**Deliberately out:** no CLI override for `step_timeout_seconds`. A per-run
+deadline is a property of the host's toolchain, not of one invocation, and a
+second place to set it is a second place for it to disagree with the config.
+`--trace` is not offered on `view`/`view-dumps`: the ownership verdict is
+what a trace changes, and `diagnose` is where a reader acts on it.
