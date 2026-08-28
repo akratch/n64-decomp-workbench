@@ -176,10 +176,13 @@ Each function also keeps its own directory: `recipe.txt` (the flags, their
 origin, every replicated and every skipped post-compile step), the settings
 file, the import and permuter logs, and the scratch itself.
 
-Each result row carries the fields the classifier below reads. Four of them
-are about *timing*, and they exist because nothing else in the record keeps
-it: decomp-permuter's output directories are overwritten, so once the run is
-over there is no other way to know when its best candidate arrived.
+Each result row carries what the classifier below reads, plus the timing it
+reads it from. That timing is recorded because nothing else in the record
+keeps it: decomp-permuter's output directories are overwritten, so once the
+run is over there is no other way to know when its best candidate arrived.
+When a run was extended, `best_output_mtime_fraction` and `hit_cap` describe
+the *extension's* window -- the one that says whether the search was still
+descending when it ended -- while `window_seconds` is both windows together.
 
 | Field | Meaning |
 |---|---|
@@ -188,7 +191,7 @@ over there is no other way to know when its best candidate arrived.
 | `flags_recovered` | the codegen flags came from the build, not the fallback |
 | `seconds` | wall clock actually spent on this function |
 | `window_seconds` | the cap it was given, extension included |
-| `hit_cap` | the search was stopped by the clock rather than finishing |
+| `hit_cap` | the search was stopped by the clock rather than finishing. Reported for the reader; the classifier does not use it |
 | `best_output_mtime_fraction` | where in the searched window the best candidate landed, 0.0 (first moment) to 1.0 (the last); `null` when nothing improved |
 | `extended` | the run earned a re-seeded second window |
 

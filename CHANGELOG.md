@@ -20,9 +20,13 @@ in [design notes](docs/history/design-notes.md).
   named in `recipe.txt` rather than silently dropped. `--stack-diffs` is
   always passed, since a normalized score reports a match for a spill at the
   wrong slot. The queue is ordered closest-first from a ranking with unranked
-  functions last, launches are niced and gated on the load average,
-  `--resume` continues a summary, and `--extend-minutes` re-seeds only a
-  search that was still descending when its window closed. Promotion is out
+  functions last, launches are niced and gated on the load average where the
+  host has one (a host without `getloadavg` is told the gate is inert rather
+  than reported as idle), `--resume` continues a summary and retries the rows
+  that errored, and `--extend-minutes` re-seeds only a search that was still
+  descending when its window closed. Every tool the sweep starts owns its
+  process group, so a search that runs out of time takes its `-j` workers
+  with it instead of leaving them compiling through the next function. Promotion is out
   of scope by design: a scratch score of 0 is a candidate until the project's
   authoritative build says otherwise. `permute-doctor <function>` answers the
   three preflight questions -- real flags, replicated chain, a base that
@@ -55,9 +59,11 @@ in [design notes](docs/history/design-notes.md).
   matched is still in it -- and one campaign's snapshot was read as an
   ownership ledger long after it had stopped describing the tree. `stamp`
   adds one `stamp` key (tree hash plus `generated_at`) without reshaping the
-  rows, in either ranking spelling, and re-stamping the same tree keeps the
-  original timestamp, because a field refreshed on every run cannot say how
-  old a measurement is. `permute-sweep` and `permute-doctor` check the
+  rows, and rewrites the file atomically; both ranking spellings are accepted,
+  though a bare-list ranking comes back wrapped under `functions`, because
+  JSON has nowhere to hang a key on a list. Re-stamping the same tree keeps
+  the original timestamp, because a field refreshed on every run cannot say
+  how old a measurement is. `permute-sweep` and `permute-doctor` check the
   ranking they were handed: a stamp that contradicts HEAD, or one that
   cannot be compared to it, prints a loud warning, an unstamped ranking gets
   a quiet note, and `--require-fresh` refuses to run on anything but a match.
