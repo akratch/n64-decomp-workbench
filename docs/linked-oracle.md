@@ -184,6 +184,7 @@ classified:
 | `text-exact` | nothing differs inside the range; something differs outside it — collateral, an ownership question rather than code work |
 | `text-differs N words` | N words differ inside the range: a real residual, with a number |
 | `size-differs (+N)` | the images are different lengths, so the range does not name the same bytes on both sides and no verdict about it would mean anything |
+| `size-differs (range past the image)` | the range itself ends past the shorter image, so it names bytes nobody compared. The range is wrong, not the build |
 
 The report names the first differing offset inside the range and the first
 one outside it. The image-level verdict is the worst of its ranges. Exit

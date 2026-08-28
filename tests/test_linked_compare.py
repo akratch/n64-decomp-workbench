@@ -7,6 +7,7 @@ classification and the arithmetic, not any particular game's layout.
 from __future__ import annotations
 
 import json
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -113,6 +114,55 @@ class ClassificationTests(unittest.TestCase):
         short = TARGET[:0x120]
         result = lc.compare_images(short, short + b"\x00" * 0x100, self.ranges)
         self.assertEqual(result.verdicts[0].klass, "size-differs")
+
+    def test_a_range_past_an_equal_length_image_says_that_and_not_a_delta(
+        self,
+    ) -> None:
+        """`size-differs (+0)` is a verdict nobody can act on.
+
+        Two images of the same length, a range naming bytes past their end:
+        the range is wrong, not the build, and the summary has to say which.
+        """
+
+        result = lc.compare_images(
+            TARGET, TARGET, (lc.ImageRange("beyond", len(TARGET) - 4, len(TARGET) + 8),)
+        )
+        verdict = result.verdicts[0]
+        self.assertEqual(verdict.klass, "size-differs")
+        self.assertTrue(verdict.past_image)
+        self.assertEqual(verdict.size_delta, 0)
+        self.assertIn("past the image", verdict.summary)
+        self.assertFalse(result.ok)
+
+    def test_a_range_inside_a_differently_sized_image_is_not_past_it(self) -> None:
+        result = lc.compare_images(TARGET + b"\x00" * 16, TARGET, self.ranges)
+        self.assertFalse(result.verdicts[0].past_image)
+        self.assertEqual(result.verdicts[0].summary, "size-differs (+16)")
+
+    def test_many_ranges_over_a_wholly_differing_image_stay_linear(self) -> None:
+        """The per-range scan must not walk every differing byte again.
+
+        A build that went wrong differs over megabytes and a trial names
+        hundreds of functions; the product of the two is the shape that
+        turns a report into a hang.
+        """
+
+        size = 0x40000
+        target = bytes(size)
+        build = bytes(0xFF for _ in range(size))
+        ranges = tuple(
+            lc.ImageRange(f"f{index}", index * 0x40, index * 0x40 + 0x40)
+            for index in range(400)
+        )
+        start = time.monotonic()
+        result = lc.compare_images(build, target, ranges)
+        self.assertLess(time.monotonic() - start, 5.0)
+        self.assertEqual(result.verdicts[0].in_range_words, 0x10)
+        self.assertEqual(result.verdicts[0].first_in_range, 0x0)
+        self.assertEqual(result.verdicts[1].first_in_range, 0x40)
+        self.assertEqual(result.verdicts[0].out_of_range_bytes, size - 0x40)
+        self.assertEqual(result.verdicts[0].first_out_of_range, 0x40)
+        self.assertEqual(result.verdicts[-1].first_out_of_range, 0x0)
 
     def test_the_image_verdict_is_the_worst_of_its_ranges(self) -> None:
         result = lc.compare_images(

@@ -23,7 +23,10 @@ questions per range:
     N words differ inside the range. This is a real residual with a number.
 ``size-differs``
     the two images are not the same length, so the range does not name the
-    same bytes on both sides and no verdict about it would mean anything.
+    same bytes on both sides and no verdict about it would mean anything --
+    or the range itself ends past the shorter image, which is the same
+    absence of a comparison for a different reason, and the summary says
+    which.
 
 **No build orchestration lives here.** Splicing a candidate into its source,
 running the project's build, and restoring the tree afterwards are the host's
@@ -34,6 +37,7 @@ host-side loop out.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -93,13 +97,20 @@ class RangeVerdict:
     first_in_range: int | None = None
     first_out_of_range: int | None = None
     size_delta: int = 0
+    #: Whether the range itself names bytes past the end of the shorter
+    #: image. Two images of equal length and a range beyond both of them is a
+    #: wrong range, not a wrong build, and `size-differs (+0)` says neither.
+    past_image: bool = False
 
     @property
     def summary(self) -> str:
         if self.klass == "text-differs":
             return f"text-differs {self.in_range_words} words"
         if self.klass == "size-differs":
-            return f"size-differs ({self.size_delta:+d})"
+            if not self.size_delta:
+                return "size-differs (range past the image)"
+            note = ", range past the image" if self.past_image else ""
+            return f"size-differs ({self.size_delta:+d}{note})"
         if self.klass == "text-exact":
             return f"text-exact (collateral {self.out_of_range_bytes} bytes)"
         return "exact"
@@ -117,6 +128,7 @@ class RangeVerdict:
             "first_in_range": self.first_in_range,
             "first_out_of_range": self.first_out_of_range,
             "size_delta": self.size_delta,
+            "past_image": self.past_image,
         }
 
 
@@ -285,15 +297,27 @@ def compare_images(
     size_delta = len(built) - len(target)
     comparable = min(len(built), len(target))
 
+    # `offsets` is ascending, so each range's own slice is two bisections
+    # rather than a walk. A build that went wrong differs over megabytes and
+    # a trial names hundreds of functions; scanning the whole list per range
+    # multiplies those two into a report that never finishes.
     verdicts: list[RangeVerdict] = []
     for item in wanted:
-        inside = [offset for offset in offsets if item.contains(offset)]
-        outside = [offset for offset in offsets if not item.contains(offset)]
-        if size_delta or item.end > comparable:
+        low = bisect_left(offsets, item.start)
+        high = bisect_left(offsets, item.end)
+        inside = offsets[low:high]
+        outside_count = len(offsets) - len(inside)
+        first_outside: int | None = None
+        if low > 0:
+            first_outside = offsets[0]
+        elif high < len(offsets):
+            first_outside = offsets[high]
+        past_image = item.end > comparable
+        if size_delta or past_image:
             klass = "size-differs"
         elif inside:
             klass = "text-differs"
-        elif outside:
+        elif outside_count:
             klass = "text-exact"
         else:
             klass = "exact"
@@ -305,10 +329,11 @@ def compare_images(
                 klass=klass,
                 in_range_words=len({offset & ~3 for offset in inside}),
                 in_range_bytes=len(inside),
-                out_of_range_bytes=len(outside),
+                out_of_range_bytes=outside_count,
                 first_in_range=inside[0] if inside else None,
-                first_out_of_range=outside[0] if outside else None,
+                first_out_of_range=first_outside,
                 size_delta=size_delta,
+                past_image=past_image,
             )
         )
     return LinkedComparison(
