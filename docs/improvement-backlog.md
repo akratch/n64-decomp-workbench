@@ -342,6 +342,19 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
 - **Payoff.** The single highest-EV, zero-token lever in a late-stage campaign
   becomes a one-command, hard-to-misconfigure tool.
 
+**Status (landed).** `decomp-workbench permute-sweep` is that command, and
+`permute-doctor` is #7's preflight; both are documented in
+[Permuter sweeps](permute-sweep.md) and recorded in the CHANGELOG. The
+scratch is built from the project's real recipe (flags recovered from
+`make -n` with continuations joined and the source touched first, plus the
+post-compile `objcopy` chain replicated into `compile.sh`), `--stack-diffs`
+is forced, launches are niced and load-gated, ordering is closest-first,
+`--resume` continues a summary, and the extension only fires on a search
+that was still descending. **Promotion stayed out**: proving a candidate on
+the authoritative build is host-specific, so the sweep reports and the
+project's own tooling promotes. Still open from #9: the importer's injected
+gfx-macro context.
+
 ### 11. Ranking freshness stamp
 - **Symptom.** (Promoted from the workflow note above.) A closeness ranking
   drifts within hours; Mickey's snapshot carried two already-matched functions

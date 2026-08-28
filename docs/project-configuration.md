@@ -113,7 +113,27 @@ backend = "IDO 5.3 uopt/ugen/as1"
 state_dir = ".decomp-workbench"
 cache_dir = ".decomp-workbench/cache"
 retain_sources = "leaders"
+
+[permuter]
+make = "gmake"
+permuter_dir = "tools/permuter"
+object_template = "build/{source}.o"
+compiler_marker = "tools/ido/cc"
+compiler_command = "tools/ido/cc -c -non_shared -G 0 -I include -DVERSION_us"
+assembler_command = "tools/binutils/mips64-elf-as -march=vr4300 -32 -G0"
+preserve_macros = ["g[DS]P.*=void"]
+fallback_flags = ["-O2", "-mips2", "-32"]
+ranking = "config/ranking.json"
+output_dir = ".decomp-workbench/permute"
+minutes = 20
+jobs = 1
+load_threshold = 9.0
 ```
+
+`[permuter]` is consumed only by `permute-sweep` and `permute-doctor`; see
+[Permuter sweeps](permute-sweep.md) for what each key does. It deliberately
+holds no codegen flags: those are recovered per object from the project's own
+build, because a static flag table is wrong exactly when it matters.
 
 `project next`, `compare`, and `diagnose` consume `[object]`; `project campaign`
 also consumes `[build]`, `[compiler]`, and `[campaign]`. Nothing runs a build

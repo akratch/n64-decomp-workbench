@@ -5,6 +5,33 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Added
+
+- `permute-sweep` and `permute-doctor`: a first-class driver for bounded
+  decomp-permuter searches, with the scratch fidelity a transferable result
+  needs. Every project ends up writing this batch loop, and each rewrite
+  re-introduces the same three faults. The codegen flags are recovered from
+  the project's own `make -n <object>` -- after touching the source, because
+  a dry run prints nothing for an up-to-date object, and with backslash
+  continuations joined, because make echoes a recipe whose flags commonly sit
+  on the line that does not name the compiler. Any post-compile `objcopy`
+  chain is replicated into the scratch's `compile.sh`, so the scratch object
+  is the object the real link would get; passes that cannot be replicated are
+  named in `recipe.txt` rather than silently dropped. `--stack-diffs` is
+  always passed, since a normalized score reports a match for a spill at the
+  wrong slot. The queue is ordered closest-first from a ranking with unranked
+  functions last, launches are niced and gated on the load average,
+  `--resume` continues a summary, and `--extend-minutes` re-seeds only a
+  search that was still descending when its window closed. Promotion is out
+  of scope by design: a scratch score of 0 is a candidate until the project's
+  authoritative build says otherwise. `permute-doctor <function>` answers the
+  three preflight questions -- real flags, replicated chain, a base that
+  compiles to a finite non-zero score -- before an hour is spent on a
+  function. See [Permuter sweeps](docs/permute-sweep.md).
+- A `[permuter]` project-configuration table, so a project states its
+  permuter inputs once instead of re-deriving them per sweep. It holds no
+  codegen flags on purpose.
+
 ### Fixed
 
 - `compare --symbol` (and `--function`) no longer carves a function's prologue

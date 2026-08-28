@@ -47,6 +47,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | A `next:` footer named a playbook and you want its levers now | [The `guide` command](guide-command.md) | Nothing; the guide ships with the package |
 | You are sweeping a variant family and want durable state, or you inherited a campaign directory with no manifest and need to know where it is | [Candidate campaigns](campaigns.md) | A compile-one wrapper |
 | You need the family itself — price every lever you inherited, hoist an operand into every free carrier, exchange every commutative pair — and one honest read-back | [Sweeps](sweeps.md) | The C source; a compile-one wrapper |
+| You keep re-writing the same decomp-permuter batch loop, or a search "found nothing" and you do not know whether it searched the right thing | [Permuter sweeps](permute-sweep.md) | A queue of functions; a decomp-permuter checkout |
 | You keep hand-rolling the same byte-scoring loop, or a flag sweep might be lying to you | [score and matrix](score-and-matrix.md) | A candidate object; a ROM or target object |
 | A `schedule` verdict survives `-g0` and every compiler you own, or you know line assignment owns it and need to know which line a statement wants (`--tie`) | [Line-assignment probe](line-assignment-probe.md) | A preprocessed `.i` and your compile command |
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
