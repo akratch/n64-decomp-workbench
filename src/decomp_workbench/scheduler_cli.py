@@ -16,6 +16,8 @@ from .scheduler import (
     parse_scheduler_trace,
     scheduler_report,
 )
+from .terminal import warn_to_stderr
+from .trace import read_trace_text
 
 #: What the native `as1 -R` reader can and cannot establish, printed with the
 #: report so the two gaps travel with the numbers rather than with this file.
@@ -33,7 +35,7 @@ AS1_R_PROOF = (
 def _read_scheduler_trace(
     path: str, *, from_as1_r: bool, proc: int
 ) -> tuple[list[Any], list[str]]:
-    text = Path(path).read_text(encoding="utf-8")
+    text = read_trace_text(path, warn=warn_to_stderr)
     if not from_as1_r:
         return parse_scheduler_trace(text)
     _selections, events, ignored = parse_as1_reorganize_trace(text, proc=proc)

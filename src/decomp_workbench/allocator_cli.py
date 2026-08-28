@@ -16,13 +16,15 @@ from .allocator_analysis import (
 )
 from .copytrace import copy_decision_report
 from .globalcolor import parse_globalcolor_trace
+from .terminal import warn_to_stderr
+from .trace import read_trace_text
 
 
 def copy_decisions_command(args: argparse.Namespace) -> int:
     try:
-        baseline = Path(args.trace).read_text(encoding="utf-8")
+        baseline = read_trace_text(args.trace, warn=warn_to_stderr)
         against = (
-            Path(args.against).read_text(encoding="utf-8") if args.against else None
+            read_trace_text(args.against, warn=warn_to_stderr) if args.against else None
         )
         report = copy_decision_report(
             baseline,
@@ -104,11 +106,15 @@ def copy_decisions_command(args: argparse.Namespace) -> int:
 
 def allocator_webs_command(args: argparse.Namespace) -> int:
     try:
-        target = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
+        target = parse_globalcolor_trace(
+            read_trace_text(args.trace, warn=warn_to_stderr)
+        )
         report = (
             compare_semantic_webs(
                 target,
-                parse_globalcolor_trace(Path(args.against).read_text(encoding="utf-8")),
+                parse_globalcolor_trace(
+                    read_trace_text(args.against, warn=warn_to_stderr)
+                ),
                 proc=args.proc,
             )
             if args.against
@@ -264,7 +270,9 @@ def allocator_webs_command(args: argparse.Namespace) -> int:
 
 def stack_homes_command(args: argparse.Namespace) -> int:
     try:
-        trace = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
+        trace = parse_globalcolor_trace(
+            read_trace_text(args.trace, warn=warn_to_stderr)
+        )
         report = stack_home_report(trace, proc=args.proc, offset=args.offset)
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

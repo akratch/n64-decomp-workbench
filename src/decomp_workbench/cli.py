@@ -158,6 +158,7 @@ from .staleness_cli import register_staleness_command
 from .streams_cli import register_stream_commands
 from .sweep_cli import register_sweep_commands
 from .target_audit_cli import register_target_commands
+from .terminal import warn_to_stderr
 from .toolchain import toolchain_status
 from .toolchain_cli import register_toolchain_commands
 from .trace import (
@@ -166,6 +167,7 @@ from .trace import (
     parse_integer,
     parse_register,
     parse_trace,
+    read_trace_text,
     register_name,
     replay_fifo,
     trace_summary,
@@ -1591,7 +1593,7 @@ def instrument_profiles_command(args: argparse.Namespace) -> int:
 
 def trace_summary_command(args: argparse.Namespace) -> int:
     try:
-        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+        events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -1614,7 +1616,7 @@ def trace_summary_command(args: argparse.Namespace) -> int:
 
 def trace_alias_command(args: argparse.Namespace) -> int:
     try:
-        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+        events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -1680,7 +1682,7 @@ def parse_register_list(value: str | None) -> list[int] | None:
 
 def trace_fifo_command(args: argparse.Namespace) -> int:
     try:
-        events = parse_trace(Path(args.trace).read_text(encoding="utf-8"))
+        events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
         emission_map = (
             parse_emission_map(
                 json.loads(Path(args.emission_map).read_text(encoding="utf-8"))
@@ -1824,7 +1826,9 @@ def trace_globalcolor_command(args: argparse.Namespace) -> int:
             )
             return 2
     try:
-        report = parse_globalcolor_trace(Path(args.trace).read_text(encoding="utf-8"))
+        report = parse_globalcolor_trace(
+            read_trace_text(args.trace, warn=warn_to_stderr)
+        )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

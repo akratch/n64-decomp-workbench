@@ -26,7 +26,9 @@ from .html_report import document_shell
 from .instrument_uopt import parse_force_specification
 from .objdump import discover_objdump
 from .oracle import oracle_diff, oracle_plan, run_oracle_campaign
+from .terminal import warn_to_stderr
 from .toolchain import toolchain_status
+from .trace import read_trace_text
 
 
 def _colors(value: str) -> list[int]:
@@ -50,7 +52,7 @@ def _colors(value: str) -> list[int]:
 
 
 def _load(path: str) -> Any:
-    return parse_globalcolor_trace(Path(path).read_text(encoding="utf-8"))
+    return parse_globalcolor_trace(read_trace_text(path, warn=warn_to_stderr))
 
 
 def oracle_plan_command(args: argparse.Namespace) -> int:

@@ -14,6 +14,7 @@ from typing import Any
 from .campaign import file_sha256
 from .fidelity import compare_object_fidelity
 from .scheduler import parse_scheduler_trace
+from .trace import read_trace_text
 
 TOOLCHAIN_SCHEMA = "decomp-workbench-toolchain-v1"
 MANIFEST_NAME = "workbench-toolchain.json"
@@ -81,7 +82,7 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
 
 def _scheduler_positive_control(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    events, _ = parse_scheduler_trace(source.read_text(encoding="utf-8"))
+    events, _ = parse_scheduler_trace(read_trace_text(source))
     ties = sum(event.ready > 1 for event in events)
     return {
         "path": str(source),

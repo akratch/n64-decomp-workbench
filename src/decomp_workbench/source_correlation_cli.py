@@ -10,6 +10,8 @@ from typing import Any
 
 from .globalcolor import parse_globalcolor_trace
 from .source_correlation import correlate_trace_source
+from .terminal import warn_to_stderr
+from .trace import read_trace_text
 
 
 def trace_source_command(args: argparse.Namespace) -> int:
@@ -20,7 +22,7 @@ def trace_source_command(args: argparse.Namespace) -> int:
             Path(args.listing).expanduser().resolve() if args.listing else None
         )
         report = correlate_trace_source(
-            parse_globalcolor_trace(trace_path.read_text(encoding="utf-8")),
+            parse_globalcolor_trace(read_trace_text(trace_path, warn=warn_to_stderr)),
             source_text=source_path.read_text(encoding="utf-8"),
             source_origin=str(source_path),
             listing_text=(

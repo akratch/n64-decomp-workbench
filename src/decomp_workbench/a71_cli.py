@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from .a71 import A71Record, compare_a71_traces, parse_a71_trace
+from .terminal import warn_to_stderr
+from .trace import read_trace_text
 
 
 def _color(record: A71Record) -> str:
@@ -28,9 +29,9 @@ def _record_line(marker: str, record: A71Record) -> str:
 
 def trace_a71_command(args: argparse.Namespace) -> int:
     try:
-        baseline = parse_a71_trace(Path(args.trace).read_text(encoding="utf-8"))
+        baseline = parse_a71_trace(read_trace_text(args.trace, warn=warn_to_stderr))
         candidate = (
-            parse_a71_trace(Path(args.against).read_text(encoding="utf-8"))
+            parse_a71_trace(read_trace_text(args.against, warn=warn_to_stderr))
             if args.against
             else None
         )

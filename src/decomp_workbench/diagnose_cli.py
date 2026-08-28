@@ -51,7 +51,8 @@ from .staleness_cli import (
     freshness_payload,
     guard_freshness,
 )
-from .terminal import Painter, emit_lines, resolve_color
+from .terminal import Painter, emit_lines, resolve_color, warn_to_stderr
+from .trace import read_trace_text
 from .view import PassEvidence
 from .view_cli import (
     add_view_output_arguments,
@@ -99,7 +100,7 @@ def trace_evidence(args: argparse.Namespace) -> PassEvidence | None:
     path = getattr(args, "trace", None)
     if not path:
         return None
-    text = Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
+    text = read_trace_text(Path(path).expanduser(), warn=warn_to_stderr)
     return pass_evidence(
         parse_globalcolor_trace(text),
         proc=getattr(args, "trace_proc", None),
