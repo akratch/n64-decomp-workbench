@@ -43,7 +43,7 @@ from .compare import (
     register_operands,
     relocation_field_mask,
 )
-from .field_guide import next_steps
+from .field_guide import next_steps, pass_law_steps
 from .literal_pool import (
     PoolAccess,
     PoolComparison,
@@ -55,18 +55,24 @@ from .model import Instruction
 from .schema import VIEW_METRICS_BY_KEY
 
 __all__ = [
+    "BASIS_VALUES",
     "DEFAULT_REGISTER_PROFILE",
+    "OWNING_PASS_VALUES",
+    "REACHABILITY_VALUES",
     "REGISTER_CLASS_PROFILES",
     "REGISTER_PROFILE_EVIDENCE",
     "AlignedRow",
     "Hunk",
     "Lane",
     "MechanismView",
+    "Ownership",
+    "PassEvidence",
     "Web",
     "aligned_class_counts",
     "build_view",
     "classify_pair",
     "destination_register",
+    "ownership_for",
     "schema_keys",
 ]
 
@@ -400,6 +406,7 @@ def routing_for(
     verdict: str,
     counts: Mapping[str, int],
     warnings: Sequence[str] = (),
+    reachability: str | None = None,
 ) -> str:
     """Return where this residual should be taken next.
 
@@ -417,12 +424,20 @@ def routing_for(
       be the expensive way to find what the diff already shows.
 
     An exact pair routes nowhere.
+
+    `reachability`, when the caller has computed it, adds one rule: a
+    **pass-owned** residual routes to the search like any other tie. That is
+    the whole point of naming the ownership -- "the instrument exposes no
+    handle for this" is a statement about the levers to hand, and the tool
+    that does not need a handle is the one that gets it next.
     """
 
     if warnings:
         return ROUTING_IMPORT_FIX
     if verdict in ("exact", "words-identical"):
         return ROUTING_NONE
+    if reachability == REACHABILITY_PASS_OWNED:
+        return ROUTING_PERMUTER_FIRST
     if verdict in PERMUTER_ROUTED_VERDICTS:
         return ROUTING_PERMUTER_FIRST
     if verdict.startswith("mixed("):
@@ -430,6 +445,423 @@ def routing_for(
         if primary in PERMUTER_ROUTED_CLASSES:
             return ROUTING_PERMUTER_FIRST
     return ROUTING_STRUCTURAL
+
+
+# ---------------------------------------------------------------------------
+# Ownership: which pass took the decision, and what can reach it.
+#
+# `routing` says which tool a residual goes to. It has never said *why*, and
+# the three actionably-different cases behind one register verdict -- a
+# colourable tie a lever can move, an interference-forbidden colour no
+# reweighting wins, and a decision the instrument does not expose -- demand
+# opposite responses. Distinguishing them by hand cost minutes of `CDX_FORCE`
+# probing per function, on functions where the probe was always going to
+# decline.
+#
+# So the verdict now carries two more words: the pass that owns the decision,
+# and how close a source edit can get to it.
+# ---------------------------------------------------------------------------
+
+#: The passes this workbench models, as the owner of one residual.
+OWNING_PASS_CFE = "cfe-spelling"
+OWNING_PASS_LOAD_FORM = "rodata-load-form"
+OWNING_PASS_STACK_HOME = "stack-home-assignment"
+OWNING_PASS_UOPT_COLOR = "uopt-globalcolor"
+OWNING_PASS_UGEN_RING = "ugen-temp-ring"
+OWNING_PASS_G0_SCHEDULER = "g0-scheduler"
+#: No residual to own, and no evidence to own one with. Kept apart because
+#: they are different facts: "these objects agree" is not "nobody looked".
+OWNING_PASS_NONE = "none"
+OWNING_PASS_UNKNOWN = "unknown"
+
+#: Every value the `owning_pass` field may take, for a consumer switching on it.
+OWNING_PASS_VALUES: tuple[str, ...] = (
+    OWNING_PASS_CFE,
+    OWNING_PASS_LOAD_FORM,
+    OWNING_PASS_STACK_HOME,
+    OWNING_PASS_UOPT_COLOR,
+    OWNING_PASS_UGEN_RING,
+    OWNING_PASS_G0_SCHEDULER,
+    OWNING_PASS_NONE,
+    OWNING_PASS_UNKNOWN,
+)
+
+#: How close a source edit gets to the decision the owning pass took.
+#:
+#: `pass-owned` is the one that has to be read carefully. It says the evidence
+#: exposes no handle a source edit reaches -- an interference-forbidden colour,
+#: a ring with no phase to shift, a scheduler slot-fill. It does **not** say
+#: unmatchable, and it routes to the permuter for exactly that reason: two
+#: functions whose verdicts read that way were matched by a twenty-minute
+#: search after a bespoke instrumentation build had been funded to explain why
+#: they could not be.
+REACHABILITY_SOURCE = "source-reachable"
+REACHABILITY_PERMUTER = "permuter-target"
+REACHABILITY_PASS_OWNED = "pass-owned"
+REACHABILITY_UNKNOWN = "unknown"
+
+#: Every value the `reachability` field may take.
+REACHABILITY_VALUES: tuple[str, ...] = (
+    REACHABILITY_SOURCE,
+    REACHABILITY_PERMUTER,
+    REACHABILITY_PASS_OWNED,
+    REACHABILITY_UNKNOWN,
+)
+
+#: What the answer was read off. Printed beside it, never inferred from it.
+#:
+#: A heuristic read from two disassemblies and a decision read out of a
+#: compiler trace are not the same claim, and a screen that spelled them the
+#: same way would be inviting the reader to act on a guess as though it were a
+#: measurement.
+BASIS_TRACE = "trace"
+BASIS_HEURISTIC = "heuristic"
+BASIS_NONE = "none"
+
+BASIS_VALUES: tuple[str, ...] = (BASIS_TRACE, BASIS_HEURISTIC, BASIS_NONE)
+
+#: What each reachability answer means for the next hour of work.
+REACHABILITY_ADVICE: dict[str, str] = {
+    REACHABILITY_SOURCE: (
+        "a source edit reaches this decision; the levers above are the "
+        "family, and the law under them says what the pass will do about it"
+    ),
+    REACHABILITY_PERMUTER: (
+        "an allocation, colour or schedule tie with no single named source "
+        "lever -- this is what a randomized search is for"
+    ),
+    REACHABILITY_PASS_OWNED: (
+        "no handle this evidence exposes reaches the decision -- NOT a wall: "
+        "run the search before recording one, and let permute classify say "
+        "whether it was flat"
+    ),
+    REACHABILITY_UNKNOWN: (
+        "nothing here settles which pass owns this; fix the inputs, or supply a trace"
+    ),
+}
+
+
+@dataclass(frozen=True)
+class PassEvidence:
+    """What a compiler trace already said about the decision behind a residual.
+
+    Optional by design. Everything else in this module is computed from two
+    disassemblies, and a trace is the one input that can turn a heuristic into
+    a measurement -- so it is passed in when a caller has one and its absence
+    changes the *basis*, never the shape of the answer.
+
+    The two flags are the ones an instrumented uopt already computes
+    (`globalcolor.AllocatorWebDecision`): a declined force and a
+    `regsleft=0` contest both mean the register was taken rather than
+    underpriced, which is the difference between a lever that can win and one
+    that cannot.
+    """
+
+    contested_allocation: bool = False
+    force_declined: bool = False
+    ring_pop_divergence: bool = False
+    schedule_slot_divergence: bool = False
+
+    @property
+    def decisive(self) -> bool:
+        """Whether this evidence settles anything at all."""
+
+        return any(
+            (
+                self.contested_allocation,
+                self.force_declined,
+                self.ring_pop_divergence,
+                self.schedule_slot_divergence,
+            )
+        )
+
+
+@dataclass(frozen=True)
+class Ownership:
+    """Which pass owns a residual, how close source gets, and how we know."""
+
+    owning_pass: str
+    reachability: str
+    basis: str
+    reason: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "owning_pass": self.owning_pass,
+            "reachability": self.reachability,
+            "ownership_basis": self.basis,
+        }
+
+    @property
+    def steps(self) -> tuple[str, ...]:
+        """Return the footer lines this ownership owes its reader."""
+
+        if self.basis == BASIS_NONE:
+            return ()
+        advice = REACHABILITY_ADVICE.get(self.reachability, "")
+        return (
+            f"owning pass: {self.owning_pass} ({self.basis}) -- {self.reason}",
+            f"reachability: {self.reachability} -- {advice}",
+            # The mechanism under the levers, addressed. A residual that names
+            # a pass and not its law leaves the reader to re-derive it.
+            *pass_law_steps(self.owning_pass),
+        )
+
+
+#: The passes whose residual a source edit is known to reach, with the law.
+SOURCE_REACHABLE_PASSES: frozenset[str] = frozenset(
+    {OWNING_PASS_CFE, OWNING_PASS_LOAD_FORM, OWNING_PASS_STACK_HOME}
+)
+
+#: `N(sp)` on either side of an aligned row, which is a stack home and not a
+#: constant a reader should audit as one.
+STACK_HOME_RE = re.compile(r"(-?(?:0x)?[0-9a-fA-F]+)\(\$?sp\)")
+
+#: A float constant that arrived through the literal pool.
+POOL_LOAD_OPCODES: frozenset[str] = frozenset({"lwc1", "ldc1", "l.s", "l.d"})
+
+#: A float constant materialised at the statement instead.
+STATEMENT_LOAD_OPCODES: frozenset[str] = frozenset(
+    {"lui", "ori", "li", "mtc1", "addiu", "dmtc1"}
+)
+
+
+def _opcode_of(text: str | None) -> str:
+    return text.replace("\t", " ").strip().split(" ")[0].casefold() if text else ""
+
+
+def _stack_home_rows(rows: Sequence[AlignedRow]) -> int:
+    """Return how many differing rows differ only in an `N(sp)` displacement.
+
+    A spill that moved is a *frame layout* fact, and the aligner classifies it
+    `constant` because an offset is an immediate. Counting them separately is
+    what lets a residual say `stack-home-assignment` instead of sending a
+    reader to audit immediates that were never wrong.
+    """
+
+    total = 0
+    for row in rows:
+        if row.classification != CONSTANT:
+            continue
+        target = STACK_HOME_RE.search(row.target or "")
+        candidate = STACK_HOME_RE.search(row.candidate or "")
+        if target is None or candidate is None:
+            continue
+        if target.group(1) != candidate.group(1):
+            total += 1
+    return total
+
+
+def _load_form_split(rows: Sequence[AlignedRow]) -> bool:
+    """Return whether one side pool-loads a float the other materialises.
+
+    The two forms are different constructs, not two placements of one, and
+    which one a constant takes is decided by its value -- so a residual that
+    straddles them is a *value* question and no amount of statement reordering
+    reaches it.
+    """
+
+    pooled: set[str] = set()
+    statement: set[str] = set()
+    for row in rows:
+        if not row.reported:
+            continue
+        for side, text in (("target", row.target), ("candidate", row.candidate)):
+            opcode = _opcode_of(text)
+            if opcode in POOL_LOAD_OPCODES:
+                pooled.add(side)
+            elif opcode in STATEMENT_LOAD_OPCODES:
+                statement.add(side)
+    return bool(pooled) and bool(statement) and pooled != statement
+
+
+def ownership_for(
+    verdict: str,
+    rows: Sequence[AlignedRow],
+    lanes: Sequence[Lane],
+    webs: Sequence[Web],
+    register_profile: str = DEFAULT_REGISTER_PROFILE,
+    warnings: Sequence[str] = (),
+    evidence: PassEvidence | None = None,
+) -> Ownership:
+    """Return the pass that owns this residual and how close source gets.
+
+    Two bases, and they are never conflated. When a caller supplies trace
+    evidence that settles the question -- a declined force, a `regsleft=0`
+    contest -- the answer is `trace` and says so. Otherwise it is read off the
+    residual pattern this module already computes, and is labelled
+    `heuristic`, because a pattern is consistent with the answer rather than
+    proof of it.
+
+    The heuristic, in the order it is asked:
+
+    * inputs that were not comparable settle nothing (`unknown`);
+    * an exact pair has no residual to own;
+    * a float that pool-loads on one side and materialises on the other is a
+      **load form** difference, which is a property of the constant's value;
+    * differing `N(sp)` displacements are **stack homes**, not immediates;
+    * a register residual is the ring's when the lane rotates or every target
+      register is one no colouring hands out, and the colourer's otherwise;
+    * a pure reordering is the scheduler's;
+    * anything else is a spelling the front end emitted.
+    """
+
+    if warnings:
+        return Ownership(
+            OWNING_PASS_UNKNOWN,
+            REACHABILITY_UNKNOWN,
+            BASIS_NONE,
+            "the two sides were not comparable, so nothing here is evidence "
+            "about a pass",
+        )
+    if verdict in ("exact", "words-identical"):
+        return Ownership(
+            OWNING_PASS_NONE,
+            REACHABILITY_UNKNOWN,
+            BASIS_NONE,
+            "no residual to own",
+        )
+    if evidence is not None and evidence.decisive:
+        return _ownership_from_evidence(evidence)
+
+    if verdict == "frame-layout":
+        return Ownership(
+            OWNING_PASS_STACK_HOME,
+            REACHABILITY_SOURCE,
+            BASIS_HEURISTIC,
+            "the whole residual is the prologue/epilogue frame adjustment",
+        )
+    if _load_form_split(rows):
+        return Ownership(
+            OWNING_PASS_LOAD_FORM,
+            REACHABILITY_SOURCE,
+            BASIS_HEURISTIC,
+            "one side loads a float from the pool where the other "
+            "materialises it -- a load-form difference, decided by the "
+            "constant's value",
+        )
+    homes = _stack_home_rows(rows)
+    reported = sum(1 for row in rows if row.reported)
+    if homes and homes == reported:
+        return Ownership(
+            OWNING_PASS_STACK_HOME,
+            REACHABILITY_SOURCE,
+            BASIS_HEURISTIC,
+            f"all {homes} differing rows differ only in an N(sp) "
+            "displacement, which is a frame home and not an immediate",
+        )
+
+    if verdict in ("phase-shift", "register-ring-only"):
+        rotating = any(lane.rotation for lane in lanes)
+        if rotating:
+            return Ownership(
+                OWNING_PASS_UGEN_RING,
+                REACHABILITY_SOURCE,
+                BASIS_HEURISTIC,
+                "a lane rotates by a whole number of slots, so the residual "
+                "is one ring pop and not a set of register choices",
+            )
+        return Ownership(
+            OWNING_PASS_UGEN_RING,
+            REACHABILITY_PASS_OWNED,
+            BASIS_HEURISTIC,
+            "every target register is one no colouring hands out, and no "
+            "lane rotation explains them -- a web-existence decision inside "
+            "ugen, with no phase left to shift",
+        )
+    if verdict in ("register-permutation", "allocation") or verdict.startswith(
+        "mixed("
+    ):
+        primary = _primary_class(dict(_counts_of(rows)))
+        if verdict.startswith("mixed(") and primary not in PERMUTER_ROUTED_CLASSES:
+            return Ownership(
+                OWNING_PASS_CFE,
+                REACHABILITY_SOURCE,
+                BASIS_HEURISTIC,
+                f"the dominant class is {primary}, which the front end "
+                "emitted from the source as written",
+            )
+        if primary == SCHEDULE:
+            return Ownership(
+                OWNING_PASS_G0_SCHEDULER,
+                REACHABILITY_PERMUTER,
+                BASIS_HEURISTIC,
+                "the dominant class is a pure reordering, which the "
+                "instruction scheduler chose",
+            )
+        unreachable = uncolorable_targets(webs, register_profile)
+        if webs and len(unreachable) == len(webs):
+            return Ownership(
+                OWNING_PASS_UGEN_RING,
+                REACHABILITY_PASS_OWNED,
+                BASIS_HEURISTIC,
+                "every target register is a ring temp, which no colouring "
+                "outcome reaches",
+            )
+        return Ownership(
+            OWNING_PASS_UOPT_COLOR,
+            REACHABILITY_PERMUTER,
+            BASIS_HEURISTIC,
+            "consistent register substitutions over registers the colouring "
+            "pass does hand out",
+        )
+    if verdict == "schedule":
+        return Ownership(
+            OWNING_PASS_G0_SCHEDULER,
+            REACHABILITY_PERMUTER,
+            BASIS_HEURISTIC,
+            "every differing row is a pure reordering; the instructions "
+            "themselves agree",
+        )
+    return Ownership(
+        OWNING_PASS_CFE,
+        REACHABILITY_SOURCE,
+        BASIS_HEURISTIC,
+        f"a {verdict} residual is what the front end emitted from the "
+        "source as written",
+    )
+
+
+def _ownership_from_evidence(evidence: PassEvidence) -> Ownership:
+    """Return the ownership a compiler trace settled, never a heuristic one."""
+
+    if evidence.contested_allocation or evidence.force_declined:
+        which = (
+            "regsleft=0 at the decision"
+            if evidence.contested_allocation
+            else "a forced colour was declined"
+        )
+        return Ownership(
+            OWNING_PASS_UOPT_COLOR,
+            REACHABILITY_PASS_OWNED,
+            BASIS_TRACE,
+            f"{which}: the register was taken, not underpriced, so no "
+            "reweighting lever wins it",
+        )
+    if evidence.ring_pop_divergence:
+        return Ownership(
+            OWNING_PASS_UGEN_RING,
+            REACHABILITY_SOURCE,
+            BASIS_TRACE,
+            "the trace's free-list records diverge at a pop, and a pop has a "
+            "source line",
+        )
+    return Ownership(
+        OWNING_PASS_G0_SCHEDULER,
+        REACHABILITY_PASS_OWNED,
+        BASIS_TRACE,
+        "the trace places the differing instruction in a different schedule "
+        "slot, and a ready instruction's slot is not addressable from source",
+    )
+
+
+def _counts_of(rows: Sequence[AlignedRow]) -> dict[str, int]:
+    """Return per-class row counts, so ownership can ask what dominates."""
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.classification] = counts.get(row.classification, 0) + 1
+    return counts
 
 
 @dataclass(frozen=True)
@@ -580,10 +1012,44 @@ class MechanismView:
     #: How the literal-pool accesses were resolved, and what they said.
     #: ``None`` when neither object relocates a data reference.
     pool: PoolComparison | None = None
+    #: What a compiler trace said about the decision, when the caller had one.
+    #: ``None`` is the ordinary case and downgrades the ownership answer to a
+    #: labelled heuristic rather than removing it.
+    evidence: PassEvidence | None = None
 
     @property
     def aligned_rows(self) -> int:
         return len(self.rows)
+
+    @property
+    def ownership(self) -> Ownership:
+        """Which pass owns this residual, and how close a source edit gets.
+
+        Derived, never stored, for the same reason `routing` is: two claims
+        about one residual that could disagree is one claim too many.
+        """
+
+        return ownership_for(
+            self.verdict,
+            self.rows,
+            self.lanes,
+            self.webs,
+            self.register_profile,
+            self.warnings,
+            self.evidence,
+        )
+
+    @property
+    def owning_pass(self) -> str:
+        """The pass that took the decision behind this residual."""
+
+        return self.ownership.owning_pass
+
+    @property
+    def reachability(self) -> str:
+        """How close a source edit gets to that decision."""
+
+        return self.ownership.reachability
 
     @property
     def routing(self) -> str:
@@ -594,7 +1060,12 @@ class MechanismView:
         is whichever printed last.
         """
 
-        return routing_for(self.verdict, self.counts, self.warnings)
+        return routing_for(
+            self.verdict,
+            self.counts,
+            self.warnings,
+            self.ownership.reachability,
+        )
 
     @property
     def register_first_divergence(self) -> bool:
@@ -653,6 +1124,9 @@ class MechanismView:
             # names the mechanism; nothing before this named the next tool,
             # and readers filled that gap with "unmatchable".
             "routing": self.routing,
+            # Which pass took the decision, how close source gets to it, and
+            # whether that was measured or read off the residual's shape.
+            **self.ownership.as_dict(),
             "signature": list(self.signature),
             "prefix_exact": self.prefix_exact,
             "hunks": [item.as_dict() for item in self.hunks],
@@ -1910,8 +2384,14 @@ def build_view(
     symbol: str | None = None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
     warnings: Sequence[str] = (),
+    evidence: PassEvidence | None = None,
 ) -> MechanismView:
-    """Align two instruction streams and classify the residual by mechanism."""
+    """Align two instruction streams and classify the residual by mechanism.
+
+    `evidence` is what a compiler trace already said about the decision, when
+    the caller has one. It turns the ownership answer from a labelled
+    heuristic into a measurement and changes nothing else.
+    """
 
     try:
         profile = REGISTER_CLASS_PROFILES[register_profile]
@@ -2038,6 +2518,9 @@ def build_view(
     verdict, playbook = _verdict(counts, lanes, webs, register_profile)
     if _frame_layout_only(rows, target_frame, candidate_frame):
         verdict, playbook = "frame-layout", "stack-frame-recovery"
+    ownership = ownership_for(
+        verdict, rows, lanes, webs, register_profile, warnings, evidence
+    )
     return MechanismView(
         symbol=symbol,
         target=target_name,
@@ -2063,18 +2546,25 @@ def build_view(
         webs=webs,
         guidance=(
             _guidance(verdict, counts, lanes, webs, hunks, register_profile)
+            # Before the levers: which pass took the decision they are aimed
+            # at, and whether a source edit reaches it at all. A reader who
+            # spent minutes probing a force that was always going to decline
+            # was missing exactly this line.
+            + ownership.steps
             + next_steps(playbook)
             # Last, on purpose: the levers above are what to try, and this is
             # what to do when they run out. A reader who stops at the end of
             # the footer used to stop at "no source lever".
             + (
                 PERMUTER_ROUTING_STEPS
-                if routing_for(verdict, counts, warnings) == ROUTING_PERMUTER_FIRST
+                if routing_for(verdict, counts, warnings, ownership.reachability)
+                == ROUTING_PERMUTER_FIRST
                 else ()
             )
         ),
         warnings=tuple(warnings),
         pool=pool,
+        evidence=evidence,
     )
 
 

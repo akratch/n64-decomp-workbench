@@ -191,7 +191,7 @@ class DiagnosisRoutingTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
-        self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v2")
+        self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v3")
         self.assertEqual(payload["schema"], DIAGNOSIS_SCHEMA)
         self.assertEqual(payload["routing"], ROUTING_PERMUTER_FIRST)
         self.assertEqual(payload["view"]["routing"], ROUTING_PERMUTER_FIRST)

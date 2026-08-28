@@ -165,6 +165,23 @@ def render_header(
         + "  "
         + _tokens(verdict_tokens)
     )
+    # The second half of the verdict, on its own line because it answers a
+    # different question: `verdict`/`playbook`/`routing` say what the residual
+    # is and who gets it; this says which pass decided it and how close a
+    # source edit gets. `ownership_basis` is never omitted -- a heuristic read
+    # off two disassemblies and a decision read out of a compiler trace must
+    # not print the same way.
+    ownership = view.ownership
+    lines.append(
+        "ownership: "
+        + _tokens(
+            (
+                ("owning_pass", ownership.owning_pass),
+                ("reachability", ownership.reachability),
+                ("ownership_basis", ownership.basis),
+            )
+        )
+    )
     lines.append("signature: " + " ".join(view.signature))
     if not terse:
         lines.append("  " + SIGNATURE_NOTE)

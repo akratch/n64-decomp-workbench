@@ -80,7 +80,7 @@ class DiagnosisTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertEqual(status, 0)
         self.assertEqual(stderr, "")
-        self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v2")
+        self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v3")
         self.assertEqual(payload["comparison"]["aligned_register"], 1)
         self.assertEqual(payload["view"]["register"], 1)
 

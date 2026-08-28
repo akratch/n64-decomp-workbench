@@ -312,7 +312,7 @@ class LawCrossLinkTests(unittest.TestCase):
     def cited(self) -> set[tuple[str, str]]:
         return {
             (era, law)
-            for entries in field_guide.PLAYBOOK_LAWS.values()
+            for entries in field_guide.PASS_LAWS.values()
             for era, law, _summary in entries
         }
 
@@ -321,31 +321,45 @@ class LawCrossLinkTests(unittest.TestCase):
             with self.subTest(era=era, law=law):
                 self.assertEqual(field_guide.read_law(era, law).name, law)
 
+    def test_the_table_is_keyed_on_the_passes_the_verdict_can_name(self) -> None:
+        """A law filed under a pass no verdict emits is a law nobody reads."""
+
+        from decomp_workbench.view import OWNING_PASS_VALUES
+
+        self.assertLessEqual(set(field_guide.PASS_LAWS), set(OWNING_PASS_VALUES))
+        for playbook, passes in field_guide.PLAYBOOK_PASSES.items():
+            with self.subTest(playbook=playbook):
+                self.assertIn(playbook, field_guide.PLAYBOOK_LEVERS)
+                self.assertLessEqual(set(passes), set(OWNING_PASS_VALUES))
+
     def test_the_campaign_laws_are_each_cited_somewhere(self) -> None:
-        """L69 and L70 are cited by the routing footer, not by a playbook."""
+        """L69 is cited by the routing footer; the rest by an owning pass."""
 
         from decomp_workbench.view import PERMUTER_ROUTING_STEPS
 
         routed = " ".join(PERMUTER_ROUTING_STEPS)
         cited = {law for _era, law in self.cited()}
-        for law in ("L62", "L63", "L64", "L65", "L66", "L67", "L68"):
+        for law in ("L62", "L63", "L64", "L65", "L66", "L67", "L68", "L70"):
             with self.subTest(law=law):
                 self.assertIn(law, cited)
-        for law in ("L69", "L70"):
-            with self.subTest(law=law):
-                self.assertIn(law, routed + " " + " ".join(sorted(cited)))
+        self.assertIn("L69", routed)
 
     def test_a_footer_prints_the_law_as_a_pasteable_command(self) -> None:
-        steps = field_guide.next_steps("temp-fifo-phase")
+        steps = field_guide.pass_law_steps("ugen-temp-ring")
         citation = next(step for step in steps if step.startswith("law L64:"))
         self.assertIn("decomp-workbench guide laws ido53 L64", citation)
         # Pasteable means it runs.
         status, _, error = run_cli(citation.split("decomp-workbench ")[1].split())
         self.assertEqual(status, 0, error)
 
-    def test_the_law_line_comes_last_so_the_levers_are_read_first(self) -> None:
-        steps = field_guide.next_steps("stack-frame-recovery")
-        self.assertTrue(steps[-1].startswith("law L63:"))
+    def test_a_lever_family_prints_the_law_its_pass_owns(self) -> None:
+        status, output, _ = run_cli(["guide", "stack-frame-recovery"])
+        self.assertEqual(status, 0)
+        self.assertIn("law L63:", output)
+        self.assertIn("decomp-workbench guide laws ido53 L63", output)
 
-    def test_a_playbook_with_no_law_gains_no_line(self) -> None:
-        self.assertEqual(field_guide.law_steps("post-match-cleanup"), ())
+    def test_a_family_aimed_at_no_written_down_pass_gains_no_line(self) -> None:
+        self.assertEqual(field_guide.playbook_law_steps("post-match-cleanup"), ())
+
+    def test_a_pass_with_no_law_gains_no_line(self) -> None:
+        self.assertEqual(field_guide.pass_law_steps("unknown"), ())

@@ -84,17 +84,37 @@ positional `words`; two gapped candidates are not assumed to share an aligned
 scale. `mixed_alignment` is retained as the narrower fact that both gap-free
 and gapped candidates were present.
 
-`diagnose`/`diagnose-dumps` emit `decomp-workbench-diagnosis-v2` and
-`view`/`view-dumps` emit `decomp-workbench-view-v2`. The bump is additive: both
-gained a `routing` field beside the verdict and changed nothing else, so a
-consumer that ignores it reads a v2 document exactly as it read a v1 one.
+`diagnose`/`diagnose-dumps` emit `decomp-workbench-diagnosis-v3` and
+`view`/`view-dumps` emit `decomp-workbench-view-v3`. Both bumps are additive.
+v2 gained a `routing` field beside the verdict; v3 gained `owning_pass`,
+`reachability` and `ownership_basis` beside that. Nothing was removed or
+renamed at either step, so a consumer that ignores the new fields reads a v3
+document exactly as it read a v1 one.
+
 `routing` is one of `permuter-first`, `structural`, `import-fix`, or `none` --
 which tool the residual belongs to, as opposed to which mechanism explains it.
 An allocation, colour, or schedule tie is always `permuter-first`; it is never
-reported as proven unmatchable. On a diagnosis the top-level `routing` may
-differ from `view.routing`: a relocation naming a different symbol makes the
-whole residual `import-fix` while the view still reports the mechanism it
-measured.
+reported as proven unmatchable.
+
+`owning_pass` is one of `cfe-spelling`, `rodata-load-form`,
+`stack-home-assignment`, `uopt-globalcolor`, `ugen-temp-ring`, `g0-scheduler`,
+`none` (an exact pair) or `unknown` (nothing here settles it). `reachability`
+is one of `source-reachable`, `permuter-target`, `pass-owned` or `unknown`.
+`ownership_basis` says what those two were read off and is never omitted:
+`trace` when a compiler trace settled it, `heuristic` when they were read off
+the residual's shape, `none` when there was nothing to read. A consumer that
+treats a `heuristic` answer as a measurement is making the claim the field
+exists to prevent.
+
+`pass-owned` means the evidence exposes no handle a source edit reaches. It is
+**not** a wall: a `pass-owned` residual routes `permuter-first` exactly like
+any other tie, and the measurement that may record a wall is
+`permute classify`, afterwards.
+
+On a diagnosis the top-level `routing`, `owning_pass` and `reachability` may
+differ from `view.*`: a relocation naming a different symbol makes the whole
+residual `import-fix`/`unknown`/`unknown` while the view still reports the
+mechanism it measured.
 
 Experiment-v2 and endgame additions are additive to existing report schemas:
 

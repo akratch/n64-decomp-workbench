@@ -38,8 +38,9 @@ __all__ = [
     "LAW_DOCUMENTS",
     "LAW_ERA_ALIASES",
     "LEVER_ACTIONS",
-    "PLAYBOOK_LAWS",
+    "PASS_LAWS",
     "PLAYBOOK_LEVERS",
+    "PLAYBOOK_PASSES",
     "VERDICT_PLAYBOOKS",
     "GuideSection",
     "Law",
@@ -47,12 +48,13 @@ __all__ = [
     "law_citation",
     "law_eras",
     "law_index_lines",
-    "law_steps",
     "laws",
     "next_steps",
     "normalize_era",
     "normalize_law",
     "parse_laws",
+    "pass_law_steps",
+    "playbook_law_steps",
     "read_field_guide",
     "read_law",
     "read_laws",
@@ -639,66 +641,29 @@ COARSE_ALLOCATION_LEAD_IN = (
 )
 
 
-#: The compiler law behind a lever family, keyed by playbook.
+#: The compiler law behind a residual, keyed by the pass that owns it.
 #:
 #: A lever says what to change; the law says what the compiler will do about
 #: it, and a reader who has only the lever re-derives the law the hard way --
 #: which is exactly what a whole campaign did before contributing L62-L70. So
-#: every footer that names a family also names the law that family rests on,
-#: as a command that prints it.
+#: a verdict that names an owning pass also names that pass's law, as a
+#: command that prints it.
+#:
+#: Keyed on the owning pass rather than on the playbook because that is the
+#: finer question: a stack-home residual and a wrong immediate both arrive
+#: under `playbook=constant-audit`, and only one of them is L63's.
 #:
 #: Each entry is `(era, law, one line)`. The era is part of the address on
-#: purpose: nothing measured on one IDO release may be quoted under another's
-#: name, and two of these families have laws on both pages.
-PLAYBOOK_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
-    "ast-shape": (
+#: purpose: nothing measured on one IDO release may be printed under
+#: another's name.
+PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "cfe-spelling": (
         (
             "ido53",
             "L67",
             "a comparison prints its copy-propagated variable first, so "
             "operand order is a readout of the carrier and not a lever",
         ),
-    ),
-    "constant-audit": (
-        (
-            "ido53",
-            "L62",
-            "a float scalar takes the rodata lwc1 form iff its low halfword "
-            "is non-zero, and only that form joins the invariant-load group",
-        ),
-    ),
-    "g0-schedule-probe": (
-        (
-            "ido53",
-            "L62",
-            "a schedule difference around one float constant is a load-form "
-            "difference: low halfword zero means a statement load, never an "
-            "invariant one",
-        ),
-        (
-            "ido53",
-            "L70",
-            "measure on the project path, never on an isolated cc -c: the "
-            "same source compiled 56 instructions one way and 58 the other",
-        ),
-    ),
-    "pool-position": (
-        (
-            "ido53",
-            "L66",
-            "a web feeding a call argument inherits that argument register "
-            "at cost 0, so a redundant-looking re-cache is what rides it",
-        ),
-    ),
-    "stack-frame-recovery": (
-        (
-            "ido53",
-            "L63",
-            "declared locals take descending stack homes in declaration "
-            "order, so a declaration reorder places a call-crossing spill",
-        ),
-    ),
-    "structure-buckets": (
         (
             "ido53",
             "L68",
@@ -706,7 +671,31 @@ PLAYBOOK_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "matching .text is not evidence that the mapping is right",
         ),
     ),
-    "temp-fifo-phase": (
+    "rodata-load-form": (
+        (
+            "ido53",
+            "L62",
+            "a float scalar takes the rodata lwc1 form iff its low halfword "
+            "is non-zero, and only that form joins the invariant-load group",
+        ),
+    ),
+    "stack-home-assignment": (
+        (
+            "ido53",
+            "L63",
+            "declared locals take descending stack homes in declaration "
+            "order, so a declaration reorder places a call-crossing spill",
+        ),
+    ),
+    "uopt-globalcolor": (
+        (
+            "ido53",
+            "L66",
+            "a web feeding a call argument inherits that argument register "
+            "at cost 0, so a redundant-looking re-cache is what rides it",
+        ),
+    ),
+    "ugen-temp-ring": (
         (
             "ido53",
             "L64",
@@ -720,6 +709,31 @@ PLAYBOOK_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "ring once -- the phantom pop, and it works in both directions",
         ),
     ),
+    "g0-scheduler": (
+        (
+            "ido53",
+            "L70",
+            "measure on the project path, never on an isolated cc -c: the "
+            "same source compiled 56 instructions one way and 58 the other",
+        ),
+    ),
+}
+
+#: Which pass each lever family is aimed at, so `guide` can print its law.
+#:
+#: A playbook is a set of levers and a pass is a decision, and the mapping is
+#: many-to-one on purpose: three families aim at the allocator's two halves.
+#: Only the families whose mechanism is written down appear here.
+PLAYBOOK_PASSES: dict[str, tuple[str, ...]] = {
+    "ast-shape": ("cfe-spelling",),
+    "constant-audit": ("cfe-spelling", "rodata-load-form"),
+    "g0-schedule-probe": ("g0-scheduler", "rodata-load-form"),
+    "line-assignment-probe": ("g0-scheduler",),
+    "structure-buckets": ("cfe-spelling",),
+    "temp-fifo-phase": ("ugen-temp-ring",),
+    "pool-position": ("uopt-globalcolor",),
+    "forced-color-oracle": ("uopt-globalcolor",),
+    "stack-frame-recovery": ("stack-home-assignment",),
 }
 
 
@@ -729,13 +743,24 @@ def law_citation(era: str, law: str, summary: str) -> str:
     return f"law {law}: {summary} -- decomp-workbench guide laws {era} {law}"
 
 
-def law_steps(playbook: str) -> tuple[str, ...]:
-    """Return the law citations one playbook's footer owes its reader."""
+def pass_law_steps(owning_pass: str) -> tuple[str, ...]:
+    """Return the law citations one owning pass owes its reader."""
 
     return tuple(
         law_citation(era, law, summary)
-        for era, law, summary in PLAYBOOK_LAWS.get(playbook, ())
+        for era, law, summary in PASS_LAWS.get(owning_pass, ())
     )
+
+
+def playbook_law_steps(playbook: str) -> tuple[str, ...]:
+    """Return the law citations for every pass one lever family aims at."""
+
+    seen: list[str] = []
+    for owner in PLAYBOOK_PASSES.get(playbook, ()):
+        for line in pass_law_steps(owner):
+            if line not in seen:
+                seen.append(line)
+    return tuple(seen)
 
 
 def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]:
@@ -760,7 +785,6 @@ def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]
             f"  {label}: decomp-workbench guide {name}" for name, label in families
         )
         lines.extend(AMBIGUOUS_ONRAMPS)
-        lines.extend(law_steps(playbook))
         return tuple(lines)
     levers = PLAYBOOK_LEVERS.get(playbook, ())
     if levers:
@@ -768,10 +792,6 @@ def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]
         lines.extend(f"  lever {number}: {LEVER_ACTIONS[number]}" for number in levers)
         lines.append(f"read them: decomp-workbench guide {playbook}")
     lines.extend(PLAYBOOK_ONRAMPS.get(playbook, ()))
-    # Last of the family's own lines: the levers are what to try, and this is
-    # the mechanism they rest on. A reader who never learns the law exists
-    # re-derives it, which is how L62-L70 came to be measured twice.
-    lines.extend(law_steps(playbook))
     return tuple(lines)
 
 
@@ -1212,6 +1232,10 @@ def render_topic(topic: Topic, available: dict[int, GuideSection]) -> list[str]:
             f"in playbook {playbook}: decomp-workbench guide {playbook}"
             for playbook in owners
         )
+    # Different in kind from the on-ramps above, and last for that reason:
+    # those say what to try, this says what the compiler will do about it.
+    if topic.playbook is not None:
+        footer.extend(playbook_law_steps(topic.playbook))
     if footer:
         lines.extend(("", "-" * 72, "", "NEXT"))
         lines.extend(f"  {step}" for step in footer)

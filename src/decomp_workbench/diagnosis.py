@@ -16,16 +16,22 @@ from .objdump import (
     symbol_selection_error,
 )
 from .view import (
+    BASIS_NONE,
     DEFAULT_REGISTER_PROFILE,
+    OWNING_PASS_UNKNOWN,
+    REACHABILITY_UNKNOWN,
     ROUTING_IMPORT_FIX,
     MechanismView,
+    Ownership,
+    PassEvidence,
     build_view,
 )
 
-#: v2 adds `routing` beside the verdict. Additive: every v1 key is still
-#: present and unchanged, and a consumer that ignores the new field reads a v2
-#: document exactly as it read a v1 one.
-DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v2"
+#: v2 added `routing` beside the verdict; v3 adds `owning_pass`,
+#: `reachability` and `ownership_basis` beside it. Additive at both steps:
+#: every v1 key is still present and unchanged, and a consumer that ignores
+#: the new fields reads a v3 document exactly as it read a v1 one.
+DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v3"
 
 
 @dataclass(frozen=True)
@@ -57,6 +63,7 @@ class Diagnosis:
             "schema": DIAGNOSIS_SCHEMA,
             "comparison": comparison,
             "routing": self.routing,
+            **self.ownership.as_dict(),
             "view": self.view.as_dict(report_regs=report_regs),
         }
 
@@ -71,12 +78,38 @@ class Diagnosis:
         and neither a source lever nor a search answers it.
         """
 
-        if (
-            self.comparison.relocation_symbol_mismatches
-            or self.comparison.unknown_relocations
-        ):
+        if self._import_fault:
             return ROUTING_IMPORT_FIX
         return self.view.routing
+
+    @property
+    def _import_fault(self) -> bool:
+        """Whether the two objects were not reading the same things."""
+
+        return bool(
+            self.comparison.relocation_symbol_mismatches
+            or self.comparison.unknown_relocations
+        )
+
+    @property
+    def ownership(self) -> Ownership:
+        """Which pass owns this residual, over both halves of the evidence.
+
+        The same correction `routing` makes, for the same reason: a candidate
+        reading a different symbol has no owning pass to name. Attributing it
+        to the colourer would be inventing a decision nobody took.
+        """
+
+        if self._import_fault:
+            return Ownership(
+                OWNING_PASS_UNKNOWN,
+                REACHABILITY_UNKNOWN,
+                BASIS_NONE,
+                "a relocation names a different symbol, or one nothing "
+                "understood: the candidate is not reading what the target "
+                "reads, so no pass owns this yet",
+            )
+        return self.view.ownership
 
 
 def diagnose_instructions(
@@ -91,6 +124,7 @@ def diagnose_instructions(
     target_true_instructions: int | None = None,
     candidate_true_instructions: int | None = None,
     instruction_count_verified: bool = False,
+    evidence: PassEvidence | None = None,
 ) -> Diagnosis:
     """Build both reports from two already-parsed instruction streams.
 
@@ -120,6 +154,7 @@ def diagnose_instructions(
         symbol=symbol,
         register_profile=register_profile,
         warnings=warnings,
+        evidence=evidence,
     )
     return Diagnosis(comparison=comparison, view=view)
 

@@ -6,6 +6,8 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
+from .view import PassEvidence
+
 # Color to machine register for the pinned IDO 5.3 profile. Phase one and
 # phase two share this space, so one number means one register in both.
 # Provenance, with its limits, is recorded in docs/compiler-instrumentation.md:
@@ -950,3 +952,41 @@ def parse_globalcolor_trace(text: str) -> GlobalColorTrace:
         decisions=decisions,
         unparsed_diagnostic_lines=unparsed,
     )
+
+
+def pass_evidence(
+    trace: GlobalColorTrace,
+    *,
+    proc: int | None = None,
+    web: int | None = None,
+) -> PassEvidence:
+    """Return what this trace settles about the pass that owns a residual.
+
+    The bridge between an instrumented compiler and the verdict a reader
+    acts on. `view.ownership_for` answers the ownership question from two
+    disassemblies and labels the answer a heuristic; this turns the same
+    question into a measurement wherever a globalcolor trace exists, because
+    the trace records the one fact the disassemblies cannot show -- whether
+    the register was *taken* or merely *underpriced*.
+
+    A declined force and a `regsleft=0` contest are the same finding through
+    two instruments: the colour is not available, so no reweighting lever
+    wins it, and a reader who spends the afternoon reweighting is spending it
+    on a probe that was always going to decline.
+
+    Scoped to `proc`/`web` when given, because a trace covers a whole
+    compilation and a residual is one function's.
+    """
+
+    def selected(item: ColorDecision) -> bool:
+        if proc is not None and optional_integer(item.fields.get("proc")) != proc:
+            return False
+        return web is None or optional_integer(item.fields.get("web")) == web
+
+    declined = any(
+        item.phase == "force_declined" and selected(item) for item in trace.decisions
+    )
+    contested = any(
+        item.contested_allocation for item in trace.allocator_webs(proc=proc, web=web)
+    )
+    return PassEvidence(contested_allocation=contested, force_declined=declined)

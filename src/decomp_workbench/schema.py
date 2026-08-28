@@ -620,6 +620,26 @@ VIEW_METRICS: tuple[Metric, ...] = (
         "which tool this residual belongs to: permuter-first, structural, "
         "import-fix, or none",
     ),
+    Metric(
+        "owning_pass",
+        "owning_pass",
+        "the compiler pass that took the decision behind this residual: "
+        "cfe-spelling, rodata-load-form, stack-home-assignment, "
+        "uopt-globalcolor, ugen-temp-ring, g0-scheduler, none, or unknown",
+    ),
+    Metric(
+        "reachability",
+        "reachability",
+        "how close a source edit gets to that decision: source-reachable, "
+        "permuter-target, pass-owned, or unknown",
+    ),
+    Metric(
+        "ownership_basis",
+        "ownership_basis",
+        "what the owning pass and reachability were read off: trace (a "
+        "compiler trace settled it), heuristic (the residual's shape), or "
+        "none",
+    ),
     Metric("signature", "signature", "orthogonal modifiers attached to the verdict"),
     Metric(
         "prefix_exact",

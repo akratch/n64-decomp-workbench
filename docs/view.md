@@ -34,6 +34,7 @@ decomp-workbench view-dumps \
 ```text
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32 register_profile=ido53
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase routing=permuter-first
+ownership: owning_pass=ugen-temp-ring reachability=source-reachable ownership_basis=heuristic
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
@@ -122,6 +123,32 @@ The `routing=` token beside it names the **tool**, which the playbook does not:
 | `structural` | a constant, hunk, pool slot or frame the diff already shows | the source edit the footer names |
 | `import-fix` | the two inputs were not comparable, or read different symbols | fix the scratch, context or selection first |
 | `none` | nothing to route | the project's link and ROM verification |
+
+The `ownership:` line under it answers the other half of the question — which
+pass took the decision, and how close a source edit gets to it:
+
+| `owning_pass` | the decision |
+|---|---|
+| `cfe-spelling` | what the front end emitted from the source as written |
+| `rodata-load-form` | pool-load versus statement-load of a constant, decided by its value ([law L62](compiler-laws/ido-5.3.md#l62-a-float-scalars-load-form-is-decided-by-its-value-and-the-form-decides-the-schedule)) |
+| `stack-home-assignment` | which frame offset a local or spill got ([law L63](compiler-laws/ido-5.3.md#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)) |
+| `uopt-globalcolor` | which register the colouring pass gave a web |
+| `ugen-temp-ring` | which block-local temp the ring handed out ([laws L64](compiler-laws/ido-5.3.md#l64-the-integer-temp-ring-is-seeded-t6-t7-t8-t9-t0--t5), [L65](compiler-laws/ido-5.3.md#l65-a-redundant-mask-still-costs-one-ring-pop--the-phantom-pop)) |
+| `g0-scheduler` | which slot an instruction landed in |
+| `none` / `unknown` | an exact pair; or inputs that settle nothing |
+
+| `reachability` | what it means |
+|---|---|
+| `source-reachable` | a source edit reaches this decision; the levers below are the family |
+| `permuter-target` | a tie with no single named source lever — what a search is for |
+| `pass-owned` | no handle this evidence exposes reaches it. **Not a wall** — it routes `permuter-first` like any other tie |
+| `unknown` | nothing here settles which pass owns it |
+
+`ownership_basis` is printed beside them and is never omitted. `heuristic`
+means the answer was read off the residual's shape by this command;
+`trace` means a compiler trace settled it — a declined force or a `regsleft=0`
+contest, which is the one fact two disassemblies cannot show. Read a
+`heuristic` answer as a lead, not a measurement.
 
 `permuter-first` exists because a verdict that names a mechanism and stops
 gets read as a verdict about the *function*. Two residuals whose analysis said
@@ -353,6 +380,7 @@ agent dialect and no human dialect.
 | `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation`, `pool`, `pool_layout` | aligned row counts |
 | `pool_resolution`, `pool_slots` | how literal-pool accesses were resolved, and the slot count each object references |
 | `verdict`, `playbook`, `routing`, `signature`, `prefix_exact` | diagnosis |
+| `owning_pass`, `reachability`, `ownership_basis` | which pass decided it, how close source gets, and what that was read off |
 | `hunks` | `hunk`, `class`, `rows`, `target`, `candidate`, `target_bytes`, `candidate_bytes`, `classes` |
 | `lanes` | `class`, `target`, `candidate`, `rows`, `slot`, `aligned_row`, `rotation` |
 | `webs` | `web`, `target`, `candidate`, `count`, `rows` |
