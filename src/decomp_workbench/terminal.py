@@ -72,6 +72,12 @@ class Painter:
         return self._wrap(f"1;{code}", name if text is None else text)
 
 
+def warn_to_stderr(note: str) -> None:
+    """Print one input-recovery note where it cannot corrupt `--json` stdout."""
+
+    print(f"warning: {note}", file=sys.stderr)
+
+
 def add_color_argument(parser: argparse.ArgumentParser) -> None:
     """Offer ANSI colour on any command that prints a verdict.
 

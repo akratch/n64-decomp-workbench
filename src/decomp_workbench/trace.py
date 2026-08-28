@@ -1,11 +1,24 @@
-"""Parsers and models for IDO static-recomp diagnostic traces."""
+"""Parsers and models for IDO static-recomp diagnostic traces.
+
+A diagnostic trace is line-oriented text. The *other* thing a campaign holds
+after ``capture make`` is a binary pass-boundary stream -- the Ucode uopt hands
+ugen, the Binasm ugen hands as1 -- and handing one of those to a trace command
+used to surface as a raw ``UnicodeDecodeError`` with no name for the file and
+no next step. :func:`read_trace_source` is the one reader every trace command
+goes through: it decodes text, recovers the diagnostic lines out of a stream
+that merely *contains* binary, and refuses a pass-boundary stream by name,
+pointing at the decoder that reads it and at the Tier-2 instrumentation that
+produces a textual trace instead.
+"""
 
 from __future__ import annotations
 
 import collections
 import re
-from collections.abc import Iterable
+import struct
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import TypedDict
 
 FIELD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)=([^\s]+)")
@@ -73,6 +86,225 @@ class AliasTraceSummary(TypedDict):
     right_types: dict[str, int]
     registers: dict[str, int]
     queries: list[dict[str, object]]
+
+
+#: Where a reader is sent when the bytes in hand are not a textual trace.
+INSTRUMENTATION_DOC = "docs/compiler-instrumentation.md"
+PHASE_CAPTURE_DOC = "docs/phase-capture.md"
+
+#: What each pass-boundary stream is, and which command reads it. The trace
+#: commands cannot decode either one: a stream carries records, not decisions,
+#: and the decision text only exists when the instrumented toolchain emits it.
+STREAM_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "ucode": (
+        "variable-width binary Ucode (uopt's output, ugen's positional input)",
+        "ucode window",
+    ),
+    "binasm": (
+        "fixed 16-byte binary Binasm (ugen's -o and -temp output)",
+        "binasm window",
+    ),
+}
+
+
+class BinaryTraceStreamError(ValueError):
+    """A trace command was handed bytes that hold no diagnostic text.
+
+    Carries the classification so a caller can branch on it without reparsing
+    the message: ``stream_format`` is ``ucode``, ``binasm``, or ``None`` for
+    binary this module could not frame as either.
+    """
+
+    def __init__(self, message: str, *, stream_format: str | None = None) -> None:
+        super().__init__(message)
+        self.stream_format = stream_format
+
+
+@dataclass(frozen=True)
+class TraceSource:
+    """Decoded trace text, and what had to be done to get it."""
+
+    text: str
+    encoding: str
+    undecodable_bytes: int
+    notes: tuple[str, ...] = ()
+
+    @property
+    def recovered(self) -> bool:
+        return self.undecodable_bytes > 0
+
+
+def classify_trace_bytes(data: bytes) -> str | None:
+    """Name the pass-boundary stream these bytes frame as, if either.
+
+    Delegates to the stream decoders rather than sniffing here, so the answer a
+    trace command gives matches the one ``stream``/``ucode``/``binasm`` give.
+    Anything the decoders refuse is ``None`` -- unclassified binary, which is a
+    different message with a different next step.
+    """
+
+    from .streams import detect_format
+
+    try:
+        return detect_format(data)
+    except (ValueError, IndexError, struct.error):
+        return None
+
+
+def _stream_record_count(data: bytes, stream_format: str) -> int | None:
+    from .streams import decode_stream
+
+    try:
+        _, _, records = decode_stream(data, stream_format=stream_format)
+    except (ValueError, IndexError, struct.error):
+        return None
+    return len(records)
+
+
+def _binary_stream_message(
+    data: bytes, stream_format: str, *, name: str, tags: int
+) -> str:
+    description, reader = STREAM_DESCRIPTIONS[stream_format]
+    records = _stream_record_count(data, stream_format)
+    measured = f"{records} record(s)" if records is not None else f"{len(data)} bytes"
+    recovered = (
+        ""
+        if tags == 0
+        else (
+            f" {tags} line(s) in it look like diagnostic tags, which framed "
+            "records can spell by accident; they are not read as a trace."
+        )
+    )
+    return (
+        f"{name} is a {description} pass-boundary stream, {measured}, not a "
+        f"diagnostic trace.{recovered} A stream carries records, not the "
+        f"decisions that produced them, so no trace command can decode it: "
+        f"read the records with `decomp-workbench {reader} {name}` "
+        f"({PHASE_CAPTURE_DOC}), and for a textual per-decision trace build "
+        f"the Tier-2 instrumented toolchain ({INSTRUMENTATION_DOC})."
+    )
+
+
+def _unframed_binary_message(data: bytes, *, name: str, undecodable: int) -> str:
+    return (
+        f"{name} is not UTF-8 text ({undecodable} undecodable byte(s) of "
+        f"{len(data)}) and frames as neither Ucode nor Binasm, so there is "
+        "nothing to decode either way. No CODEX/DKWB diagnostic line survived "
+        f"a lossy decode. If this is a retained pass boundary, read it with "
+        f"`decomp-workbench stream window {name}` ({PHASE_CAPTURE_DOC}); if it "
+        "should be a trace, the instrumented toolchain did not write one -- "
+        f"see {INSTRUMENTATION_DOC}."
+    )
+
+
+def _count_trace_tags(text: str) -> int:
+    return sum(bool(UGEN_TAG_RE.match(line.strip())) for line in text.splitlines())
+
+
+#: Bytes a line-oriented trace uses; everything else below 0x20 is a control
+#: byte no diagnostic writer emits.
+_TEXT_CONTROL_BYTES = frozenset(b"\t\n\r\f\v\x1b")
+
+
+def _binary_ratio(data: bytes) -> float:
+    """Fraction of bytes that no line-oriented trace would contain."""
+
+    if not data:
+        return 0.0
+    control = sum(1 for byte in data if byte < 0x20 and byte not in _TEXT_CONTROL_BYTES)
+    return control / len(data)
+
+
+#: A Binasm record's words are small integers, so a whole stream can decode as
+#: UTF-8 without raising: refusing only on ``UnicodeDecodeError`` let exactly
+#: the streams this reader exists for through as "text" with zero events. One
+#: NUL, or a tenth of the file in control bytes, is the evidence instead.
+BINARY_CONTROL_RATIO = 0.1
+
+
+def _looks_binary(data: bytes) -> bool:
+    return b"\x00" in data or _binary_ratio(data) > BINARY_CONTROL_RATIO
+
+
+def read_trace_source(
+    source: bytes | str | Path, *, name: str | None = None
+) -> TraceSource:
+    """Read one trace, naming a binary stream instead of failing on decode.
+
+    Bytes are accepted directly so a caller that already read the file, or a
+    test, does not have to touch the filesystem. ``name`` is what the error
+    message calls the input; it defaults to the path, or ``<bytes>``.
+    """
+
+    if isinstance(source, bytes):
+        data = source
+        label = name or "<bytes>"
+    else:
+        path = Path(source)
+        data = path.read_bytes()
+        label = name or str(path)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = None
+    if text is not None and not (_looks_binary(data) and _count_trace_tags(text) == 0):
+        # Decodes, and either carries diagnostic tags or holds nothing that
+        # only a binary stream contains. Other line formats -- globalcolor,
+        # a71, scheduler -- have no CODEX/DKWB tag and must pass through here.
+        return TraceSource(text=text, encoding="utf-8", undecodable_bytes=0)
+    stream_format = classify_trace_bytes(data)
+    lossy = data.decode("utf-8", errors="replace")
+    tags = _count_trace_tags(lossy)
+    if text is not None and stream_format is None:
+        # Decodable, binary-looking, and framed as neither stream. Say so and
+        # let the caller read it: refusing here would be a guess.
+        return TraceSource(
+            text=text,
+            encoding="utf-8",
+            undecodable_bytes=0,
+            notes=(
+                f"{label} decodes as text but reads as binary "
+                f"({_binary_ratio(data):.0%} control bytes) and holds no "
+                "CODEX/DKWB diagnostic line; it frames as neither Ucode nor "
+                f"Binasm. Parsed as text anyway ({PHASE_CAPTURE_DOC}).",
+            ),
+        )
+    if stream_format is not None:
+        raise BinaryTraceStreamError(
+            _binary_stream_message(data, stream_format, name=label, tags=tags),
+            stream_format=stream_format,
+        )
+    undecodable = lossy.count("\ufffd")
+    if tags == 0:
+        raise BinaryTraceStreamError(
+            _unframed_binary_message(data, name=label, undecodable=undecodable)
+        )
+    return TraceSource(
+        text=lossy,
+        encoding="utf-8/replace",
+        undecodable_bytes=undecodable,
+        notes=(
+            f"{label} is not valid UTF-8: {undecodable} byte(s) were replaced "
+            f"and {tags} diagnostic line(s) were recovered from the rest. A "
+            "mixed file is a trace with binary written into the same stream; "
+            f"records it may also hold are not decoded here ({PHASE_CAPTURE_DOC}).",
+        ),
+    )
+
+
+def read_trace_text(
+    source: bytes | str | Path,
+    *,
+    name: str | None = None,
+    warn: Callable[[str], None] | None = None,
+) -> str:
+    """Return trace text, reporting recovery notes through ``warn``."""
+
+    parsed = read_trace_source(source, name=name)
+    if warn is not None:
+        for note in parsed.notes:
+            warn(note)
+    return parsed.text
 
 
 def parse_integer(value: str) -> int | None:
