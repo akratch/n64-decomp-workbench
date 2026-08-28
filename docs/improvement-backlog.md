@@ -607,3 +607,22 @@ deadline is a property of the host's toolchain, not of one invocation, and a
 second place to set it is a second place for it to disagree with the config.
 `--trace` is not offered on `view`/`view-dumps`: the ownership verdict is
 what a trace changes, and `diagnose` is where a reader acts on it.
+
+### 14. Overlay relocation-surface synthesis (from Mickey, 2026-08-28)
+- **Symptom.** In a game whose overlays ship unrelocated, promoting a candidate
+  needs a bespoke post-compile ELF contract (add-symbol / rebind / filter /
+  trim) hand-derived per function from the target's relocation table; that
+  ritual, not the C, gated a 299 KB pool, and the permuter could never score
+  zero on those functions (placeholder call symbols vs table resolution).
+- **Finding.** Every placeholder's value is a pure function of the stored
+  addends at its sites and the TU's placement (audit 1773/1773 on Mickey;
+  `tools/reloc_surface.py` there). The linked ROM, not the scratch score, is
+  the only sound oracle for such functions.
+- **Proposed change.** A workbench `reloc-surface` helper: given an object, the
+  module's section map and the target bytes, emit the symbol values / alias
+  block / extent spec, and an `promotion-trial`-style linked comparison mode
+  that classes candidates by linked bytes (exact / text-differs N / collateral).
+  Also: `permute-doctor` should refuse (or warn) when the target's relocation
+  symbols are placeholders that the scratch cannot reproduce.
+- **Payoff.** Turns per-function integration ritual into generated data and
+  gives overlay-style code a real oracle.
