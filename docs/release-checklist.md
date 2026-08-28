@@ -11,12 +11,18 @@ workbench; compiler and game inputs have separate fidelity gates.
 
    ```sh
    decomp-workbench handoff audit . --fail-on-warning \
-     --exclude src/decomp_workbench/docs/field-guide.md
+     --exclude 'src/decomp_workbench/docs/*' \
+     --exclude 'src/decomp_workbench/docs/compiler-laws/*'
    ```
 
-   The excluded file is a tested, byte-identical package-data mirror whose
-   links belong to the canonical `docs/` copy. Then confirm each pinned
-   external provenance link, which remains a network check.
+   Everything excluded is a tested, byte-identical package-data mirror whose
+   relative links belong to the canonical `docs/` copy and resolve only from
+   there; the mirror sits one directory deeper, so a link the canonical page
+   gets right the mirror necessarily gets wrong. Excluding only
+   `field-guide.md` left the compiler-law mirrors reporting the same
+   already-known class as fresh errors. Audit the canonical pages; the
+   mirror-equality tests are what keep the two honest. Then confirm each
+   pinned external provenance link, which remains a network check.
 3. Check the source tree for ROMs, objects, compiler binaries, credentials,
    absolute user paths, and generated build products.
 4. Audit every attributed third-party example. Confirm the CV64 scratch
