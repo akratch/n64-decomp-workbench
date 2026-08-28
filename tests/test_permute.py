@@ -10,8 +10,11 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -53,6 +56,8 @@ from decomp_workbench.permute_sweep import (
     prepare_scratch,
     render_doctor,
     resolve_plan,
+    run_owned,
+    run_permuter,
     run_sweep,
     search_function,
 )
@@ -636,6 +641,78 @@ class SearchTests(unittest.TestCase):
             results = run_sweep(plan, [project.item, project.item], runner=project.run)
         self.assertEqual(len(results), 2)
         self.assertTrue(all(result.error for result in results))
+
+
+class ProcessOwnershipTests(unittest.TestCase):
+    """A search that runs out of time must not leave workers behind.
+
+    decomp-permuter is invoked with `-j`, so the process the sweep starts
+    is the parent of a pool of compiling children. Killing only the direct
+    child leaves that pool running: the reference host's runner accumulated
+    permuter workers across a sweep until the machine was unusable, and
+    every later timing in that campaign was measured under them.
+    """
+
+    def spawn(self, timeout: float) -> Path:
+        temporary = tempfile.mkdtemp()
+        marker = Path(temporary) / "child.pid"
+        script = (
+            "import pathlib, subprocess, sys, time\n"
+            "child = subprocess.Popen([sys.executable, '-c',"
+            " 'import time; time.sleep(60)'])\n"
+            f"pathlib.Path({str(marker)!r}).write_text(str(child.pid))\n"
+            "time.sleep(60)\n"
+        )
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run_owned(
+                [sys.executable, "-c", script],
+                cwd=Path.cwd(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+            )
+        return marker
+
+    @unittest.skipUnless(os.name == "posix", "process groups are POSIX here")
+    def test_a_timeout_ends_the_whole_process_group(self) -> None:
+        marker = self.spawn(timeout=3.0)
+        pid = int(marker.read_text())
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return
+            time.sleep(0.05)
+        os.kill(pid, 9)
+        self.fail(f"grandchild {pid} outlived the timeout")
+
+    def test_the_permuter_run_is_bounded_and_logged(self) -> None:
+        """The timeout is the sweep's, and the log survives it."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            out_dir = Path(temporary)
+            project = FakeProject(out_dir / "project")
+            plan = resolve_plan(project.root, project.options)
+            calls: list[float | None] = []
+
+            def runner(
+                argv: list[str], **kwargs: Any
+            ) -> subprocess.CompletedProcess[str]:
+                calls.append(kwargs.get("timeout"))
+                return project.run(argv, **kwargs)
+
+            score, elapsed = run_permuter(
+                plan,
+                out_dir / "scratch",
+                out_dir,
+                seconds=90.0,
+                runner=runner,
+                clock=iter([0.0, 12.0]).__next__,
+            )
+        self.assertEqual(calls, [90.0])
+        self.assertEqual(score, 214)
+        self.assertEqual(elapsed, 12.0)
 
 
 class DoctorTests(unittest.TestCase):

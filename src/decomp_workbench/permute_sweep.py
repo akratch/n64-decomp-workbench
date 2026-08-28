@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .campaign import process_group_arguments, terminate_process_group
 from .permute import (
     DOCTOR_SCHEMA,
     BuildRecipe,
@@ -48,6 +49,65 @@ Reporter = Callable[[str], None]
 
 class PermuterError(RuntimeError):
     """A scratch could not be prepared, or a tool is missing."""
+
+
+def run_owned(
+    argv: Sequence[str],
+    *,
+    cwd: str | Path | None = None,
+    stdout: Any = None,
+    stderr: Any = None,
+    text: bool = False,
+    timeout: float | None = None,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run one tool as the owner of its own process group.
+
+    `subprocess.run(timeout=...)` ends the process it started and nothing
+    else. decomp-permuter is launched with ``-j``, so that process is the
+    parent of a pool of compiling children: on a timeout the parent dies and
+    the pool keeps going, into the next function's window and the one after
+    that. The reference host's runner accumulated exactly those workers
+    until the machine was unusable, and every timing measured afterwards was
+    measured under them.
+
+    Signature-compatible with the `subprocess.run` calls this module makes,
+    so it is the default runner rather than a special case at one call site:
+    ``import.py`` starts a compiler too.
+    """
+
+    with subprocess.Popen(  # nosec B603 - argv-only, never through a shell
+        list(argv),
+        cwd=str(cwd) if cwd is not None else None,
+        stdout=stdout,
+        stderr=stderr,
+        text=text,
+        encoding="utf-8" if text else None,
+        errors="replace" if text else None,
+        **process_group_arguments(),
+    ) as process:
+        try:
+            captured, errors = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            terminate_process_group(process)
+            captured, errors = process.communicate()
+            raise subprocess.TimeoutExpired(
+                list(argv), timeout if timeout is not None else 0.0, output=captured
+            ) from None
+        except BaseException:
+            # An interrupt must not leak a pool of workers into the next
+            # campaign either.
+            terminate_process_group(process)
+            raise
+    completed = subprocess.CompletedProcess(
+        args=list(argv),
+        returncode=process.returncode,
+        stdout=captured,
+        stderr=errors,
+    )
+    if check:
+        completed.check_returncode()
+    return completed
 
 
 @dataclass(frozen=True)
@@ -170,7 +230,7 @@ def import_scratch(
     settings: Path,
     target_asm: Path,
     *,
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
 ) -> Path:
     """Run decomp-permuter's `import.py`, then take ownership of its output."""
 
@@ -211,7 +271,7 @@ def prepare_scratch(
     plan: SweepPlan,
     item: QueueItem,
     *,
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
 ) -> tuple[Path, Path, BuildRecipe, tuple[str, ...]]:
     """Build one function's scratch from the project's *real* recipe.
 
@@ -268,9 +328,9 @@ def run_permuter(
     scratch: Path,
     out_dir: Path,
     *,
-    minutes: int,
+    seconds: float,
     log_name: str = "permuter.log",
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[int | None, float]:
     """Run one bounded search and return its base score and elapsed seconds."""
@@ -292,7 +352,7 @@ def run_permuter(
                 cwd=str(plan.root),
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=minutes * 60,
+                timeout=seconds,
                 check=False,
             )
         except subprocess.TimeoutExpired:
@@ -317,7 +377,7 @@ def search_function(
     plan: SweepPlan,
     item: QueueItem,
     *,
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
     clock: Callable[[], float] = time.monotonic,
     now: Callable[[], float] = time.time,
     report: Reporter | None = None,
@@ -342,7 +402,12 @@ def search_function(
             report=report,
         )
         base_score, elapsed = run_permuter(
-            plan, scratch, out_dir, minutes=plan.minutes, runner=runner, clock=clock
+            plan,
+            scratch,
+            out_dir,
+            seconds=plan.minutes * 60.0,
+            runner=runner,
+            clock=clock,
         )
         result.base_score = base_score
         result.ok = True
@@ -372,7 +437,7 @@ def search_function(
                 plan,
                 scratch,
                 out_dir,
-                minutes=plan.extend_minutes,
+                seconds=plan.extend_minutes * 60.0,
                 log_name="permuter-extend.log",
                 runner=runner,
                 clock=clock,
@@ -400,7 +465,7 @@ def run_sweep(
     queue: Sequence[QueueItem],
     *,
     carried: Sequence[SweepResult] = (),
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
     report: Reporter | None = None,
     on_result: Callable[[list[SweepResult]], None] | None = None,
 ) -> list[SweepResult]:
@@ -476,7 +541,7 @@ def doctor(
     *,
     seconds: int = 120,
     check_base: bool = True,
-    runner: Runner = subprocess.run,
+    runner: Runner = run_owned,
     clock: Callable[[], float] = time.monotonic,
 ) -> DoctorReport:
     """Answer the three questions a sweep cannot recover from getting wrong.
@@ -522,7 +587,7 @@ def doctor(
         plan,
         scratch,
         out_dir,
-        minutes=max(1, seconds // 60),
+        seconds=float(seconds),
         log_name="doctor.log",
         runner=runner,
         clock=clock,
@@ -589,6 +654,7 @@ __all__ = [
     "prepare_target_asm",
     "render_doctor",
     "resolve_plan",
+    "run_owned",
     "run_permuter",
     "run_sweep",
     "search_function",
