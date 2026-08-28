@@ -450,7 +450,7 @@ def check_scratch_fidelity(
         status=FIDELITY_UNKNOWN,
         mode=mode,
         object=obj,
-        preserved_macros=preserved_macros or (),
+        preserved_macros=preserved_macros,
     )
     if not real.is_file():
         return unknown(
@@ -483,7 +483,7 @@ def check_scratch_fidelity(
         differing_words=words,
         mode=mode,
         object=obj,
-        preserved_macros=preserved_macros or (),
+        preserved_macros=preserved_macros,
     )
 
 

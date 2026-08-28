@@ -535,7 +535,7 @@ class FakeProject:
         self.commands: list[list[str]] = []
         self.preserve_macros = preserve_macros
         #: What `import.py` reports having preserved, per call.
-        self.preserved_report = "macros: gDPPipeSync, gSPEndDisplayList"
+        self.preserved_report: str | None = "macros: gDPPipeSync, gSPEndDisplayList"
         self.imports: list[str | None] = []
         (root / "src" / "game").mkdir(parents=True)
         (root / "src" / "game" / "track.c").write_text("int f(void);\n", "utf-8")
@@ -594,9 +594,14 @@ class FakeProject:
             (scratch / "compile.sh").write_text('#!/bin/sh\ncc "$1"\n', "utf-8")
             (scratch / "base.c").write_text("int f(void) { return 0; }\n", "utf-8")
             preserved = "no macros" if regex == "" else self.preserved_report
-            return subprocess.CompletedProcess(
-                argv, 0, f"Preserving {preserved}. Use --preserve-macros\n", ""
+            # `None` is an importer whose log never says: a different
+            # version, a changed message, an unreadable file.
+            log = (
+                f"Preserving {preserved}. Use --preserve-macros\n"
+                if preserved is not None
+                else "Compiler type: ido\n"
             )
+            return subprocess.CompletedProcess(argv, 0, log, "")
         if argv[0].endswith("compile.sh"):
             Path(argv[argv.index("-o") + 1]).write_bytes(b"\x7fELF")
             return subprocess.CompletedProcess(argv, 0, "", "")
@@ -692,9 +697,7 @@ class ScriptedFidelity:
     ) -> ScratchFidelity:
         self.modes.append(mode)
         answer = self.answers[min(len(self.modes) - 1, len(self.answers) - 1)]
-        return replace(
-            answer, mode=mode, preserved_macros=tuple(preserved_macros or ())
-        )
+        return replace(answer, mode=mode, preserved_macros=preserved_macros)
 
 
 class PreserveMacroModeTests(unittest.TestCase):
@@ -907,6 +910,32 @@ class PreserveMacroFallbackTests(unittest.TestCase):
         self.assertEqual(checker.modes, ["configured"])
         self.assertEqual(project.imports, [None])
         self.assertEqual(preparation.fidelity.status, FIDELITY_DIFFERS)
+
+    def test_an_import_log_that_says_nothing_still_earns_the_fallback(
+        self,
+    ) -> None:
+        """ "The log did not say" is not "nothing was preserved".
+
+        One rules preserved macros out as the cause of a differing scratch
+        and the other rules nothing out, so only the first may cancel the
+        second import. Collapsing them would make the fallback silently stop
+        working the day the importer rewords its message.
+        """
+
+        checker = ScriptedFidelity(
+            ScratchFidelity(status=FIDELITY_DIFFERS, differing_words=8),
+            ScratchFidelity(status=FIDELITY_IDENTICAL, differing_words=0),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary), preserve_macros=self.MACROS)
+            project.preserved_report = None
+            plan = resolve_plan(project.root, project.options)
+            preparation = prepare_scratch(
+                plan, project.item, runner=project.run, fidelity_checker=checker
+            )
+        self.assertEqual(checker.modes, ["configured", "none"])
+        self.assertEqual(preparation.fidelity.status, FIDELITY_IDENTICAL)
+        self.assertIsNone(preparation.fidelity.attempts[0].preserved_macros)
 
     def test_with_no_identical_mode_the_smallest_difference_is_kept(self) -> None:
         checker = ScriptedFidelity(

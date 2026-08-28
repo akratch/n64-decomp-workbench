@@ -628,7 +628,10 @@ class FidelityAttempt:
     mode: str
     status: str
     differing_words: int | None = None
-    preserved_macros: tuple[str, ...] = ()
+    #: What `import.py` said it preserved. ``None`` is "the log did not say",
+    #: which is a different answer from the empty tuple's "it preserved
+    #: nothing", and the two lead to different next moves.
+    preserved_macros: tuple[str, ...] | None = ()
     reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -636,7 +639,9 @@ class FidelityAttempt:
             "mode": self.mode,
             "status": self.status,
             "differing_words": self.differing_words,
-            "preserved_macros": list(self.preserved_macros),
+            "preserved_macros": (
+                None if self.preserved_macros is None else list(self.preserved_macros)
+            ),
             "reason": self.reason,
         }
 
@@ -659,7 +664,8 @@ class ScratchFidelity:
     mode: str | None = None
     reason: str | None = None
     object: str | None = None
-    preserved_macros: tuple[str, ...] = ()
+    #: ``None`` when the import log never said; see `FidelityAttempt`.
+    preserved_macros: tuple[str, ...] | None = ()
     attempts: tuple[FidelityAttempt, ...] = ()
 
     @property
@@ -682,7 +688,9 @@ class ScratchFidelity:
             "mode": self.mode,
             "reason": self.reason,
             "object": self.object,
-            "preserved_macros": list(self.preserved_macros),
+            "preserved_macros": (
+                None if self.preserved_macros is None else list(self.preserved_macros)
+            ),
             "attempts": [attempt.as_dict() for attempt in self.attempts],
         }
 
@@ -693,12 +701,15 @@ def macro_attributable(fidelity: ScratchFidelity) -> bool:
     Only when the importer actually preserved some. A scratch that differs
     with nothing preserved differs for another reason, and re-importing it
     with fewer macros is a second import that produces the same bytes. The
-    log not saying is treated as "maybe": the cost of one more import is a
-    minute, and the cost of not trying is a search that answers nothing.
+    log not saying (`preserved_macros is None`) is treated as "maybe": the
+    cost of one more import is a minute, and the cost of not trying is a
+    search that answers nothing.
     """
 
     if fidelity.status != FIDELITY_DIFFERS:
         return False
+    if fidelity.preserved_macros is None:
+        return True
     return bool(fidelity.preserved_macros) or not fidelity.attempts
 
 
