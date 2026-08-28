@@ -29,6 +29,14 @@ at 2057/2057 words). Like the L26–L40 block below, each carries a
 **Provenance** line naming the stage, because those stages ran in parallel and
 reused each other's internal law numbers; this page's numbers are its own.
 
+Laws L62–L70 come from the Mickey's Speedway USA decompilation (2026-08), a
+whole-ROM campaign rather than one procedure: they were measured across a
+resident cohort of exact matches, an instrumented ugen free list, and a
+permuter sweep, and several of them are levers that campaign had to re-derive
+from scratch because they were nowhere on this page. Two of them (L69, L70)
+are not compiler behaviour at all but **measurement** laws about harnesses
+that lie, filed under Measurement laws for that reason.
+
 ## Evidence tiers
 
 | Tier | Meaning |
@@ -292,6 +300,79 @@ was inside a declared array the whole time.
 (`L-ff-3`, `L-ff-4`), `birthorder` (`L-bo-3`, which spent the last 4 bytes a
 dead temp pool released — those go to the **locals** block, never to temps).
 
+### L62. A float scalar's load form is decided by its value, and the form decides the schedule
+
+A single-precision constant reaches the code in one of two forms, and which
+one it takes is a property of the **value**, not of the spelling:
+
+* if the constant's low halfword is zero it is materialised inline —
+  `lui` the high half, `mtc1` — a *statement* load, emitted where the
+  statement is;
+* otherwise it needs a full 32-bit word, so cfe files it in `.rodata` and
+  the reference becomes an `lwc1`.
+
+> Therefore only the second form joins the function's **invariant-load
+> group**: the block of `lwc1`s ugen hoists together at the top, in its own
+> order. A constant a reader thinks of as "the same scale as the others"
+> schedules with them iff its bit pattern forces the rodata form.
+
+`0.01f` is `0x3C23D70A`; its low halfword is `0xD70A`, so it takes the
+rodata form. `0.5f` is `0x3F000000`, low halfword zero, so it does not —
+and no respelling of `0.5f` moves it into the group.
+
+**Receipt — T2**, from an exact match. `func_800508D4` (512 bytes,
+`-O2 -mips2 -32 -Wo,-loopunroll,0`) is a four-scale routine whose residual
+was a pure schedule difference of four words: the candidate materialised one
+scale four instructions before the target did. The four scales are not four
+of a kind — three are int-representable and one is the TU's own `0.01f`
+literal, and only the literal's `lwc1` belongs in the invariant group. Once
+the unsigned scale was spelled as that literal, the object matched with the
+target's own `f26/f24/f22/f20` group order.
+
+**Falsifies.** The reading the campaign had been working from, that the
+divergent load was a *placement* decision a declaration reorder could move.
+Reordering the declaration produced a byte-identical object — the same
+object hash — which is what it should do, because the pass never had a
+choice to make: a statement load and an invariant load are different
+constructs, not two placements of one.
+
+**Scope.** The halfword rule is the load-form gate; the *group order* is
+ugen's and is not claimed here.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), resident anim
+cohort, `func_800508D4`.
+
+### L63. Declaration order places a call-crossing spill — reconfirmed, and usable as a lever
+
+Independent reconfirmation of
+[L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)
+on an unrelated campaign, with the operational form spelled out: declared
+locals take **descending** stack homes in **declaration order**, so moving a
+declaration earlier moves its home *higher*, and the position of a
+call-crossing local in the declaration list is what chooses which offset its
+spill lands on. The lever is: when the instruction sequence is already exact
+and only stack offsets differ, reorder semantically independent declarations
+before inventing extra state.
+
+**Receipt — T2**, four exact matches in one cohort. On `func_80055970`
+(436 bytes) declaring the second vehicle pointer **second** lands its
+call-crossing spill on the target's `sp+0x48`; on `func_80055F64` declaring
+the volatile `secondZ` before `secondY` retains the target home; on
+`func_80056274` the declaration order alone fixes two target-pointer spill
+homes; and on `frontDrawRectangles` (129 words) the screen dimensions'
+declaration order recovers the target's `0x58`/`0x54` pair. Each is a
+whole-object match through the project build, not a scratch score.
+
+**Scope, and one open question.** L53 read the homes out of the **cfe**
+intermediate and attributes the layout to cfe. This campaign's note recorded
+the same behaviour as *uopt* homing the locals, on outcome evidence only —
+it never read a pass. The operational rule is identical either way and both
+campaigns measured it; which pass writes the map is settled by L53's
+instrument, not by this reconfirmation.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), resident collision
+and front-end cohorts.
+
 ---
 
 ## uopt (the optimizer)
@@ -538,6 +619,37 @@ whether there is a candidate.
 **Provenance:** ge007 `mp_watch_menu_display` (2026-08), stage `colourterm`
 (`L-ct-1`…`L-ct-5`); generalises the ovl8 `chargeB` law
 ([L36](#l36-chargeb-exactly-a-store-placement-term)) by giving it its gate.
+
+### L67. A comparison prints its copy-propagated variable first
+
+When one operand of a comparison is a variable uopt has copy-propagated to
+its source and the other is a constant, the emitted test names the
+**variable first**, whatever order the C wrote. Writing `if (0 == *text)`
+and `if (*text == 0)` therefore produce the same word; what *does* move the
+printed order is whether the compared value is reached through a
+copy-propagated carrier or is materialised at the site.
+
+> Therefore operand order in a branch is not a spelling you choose. It is a
+> readout of which side arrived as a propagated variable — which makes it
+> evidence about the *carrier*, and useless as a lever.
+
+**Receipt — T1**, from the CDX allocator trace on `func_8004D40C`. The trace
+fixed every branch-operand order in the function at once, and the resulting
+rule — that the scan comparisons must be expression-direct on the propagated
+pointer dereference rather than routed through a cached local — took the
+residual from five words to two. A `CDX_FORCE` swap on the same base proved
+the remaining pair was one web the target splits.
+
+**Falsifies.** The habit of permuting comparison operand order as a lever.
+Every such permutation on this function produced the same object; the order
+was never a free variable, and the builds spent on it were spent on nothing.
+
+**Scope.** Constant-versus-variable comparisons. Variable-versus-variable
+order is [L1](#l1-free-order-is-cfes-operand-order)'s question, not this
+one, and is not claimed here.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), font cohort,
+`func_8004D40C`.
 
 ---
 
@@ -1059,6 +1171,39 @@ until the roles were split onto two symbols
 **Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `unrollcrack`
 (`L-uc-3`, the seeding), `wordsaudit` (`L-wa-1`, the lever).
 
+### L66. A web feeding a call argument inherits that argument's register at cost 0
+
+When a web's only consumer is a call argument, p1 charges **nothing** for
+colouring it into that argument register: the copy the call would otherwise
+need is exactly what the colouring saves, so the affinity wins the contest
+before any reweighting lever is reached. The consequence is a source shape
+that reads as wasteful and is not: **re-caching a base into the same local
+on every loop iteration** keeps that local on the argument register across
+the loop, while the value that varies stays a junior temp.
+
+> Therefore an argument register showing up as a loop-carried base is not a
+> coincidence to be permuted away. It is the affinity, and the source form
+> that reproduces it is the redundant-looking re-cache.
+
+This is the cost-side companion to
+[L58](#l58-forbidden0-is-seeded-from-hard-register-conflicts--argument-pins-steer-colours):
+L58 says an argument pin *forbids* colours to its neighbours; this says the
+same pin *offers* its own colour, free, to the web that feeds it.
+
+**Receipt — T1**, from the CDX allocator trace on `func_80038750` (296
+bytes, exact through the project build). The trace showed the destination
+local carrying the callee's `a1`-argument affinity; spelling the relocation
+loop so the table base is re-cached into that local each iteration put the
+base on `a1` and left the element on `a0` as a junior temp, and the object,
+its jump table, and its linked ROM range are exact.
+
+**Falsifies.** The reading that a loop-invariant base re-assigned inside the
+loop is redundant code to be hoisted. Hoisting it is what loses the argument
+register.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), resident menu
+cohort, `func_80038750`.
+
 ---
 
 ## as1 (the assembler's instruction scheduler)
@@ -1405,6 +1550,84 @@ directly observable, and future revisions T1).
 
 **Provenance:** proxy stage `SGQkv`, GE007 frontier campaign, 2026-08-13.
 
+### L64. The integer temp ring is seeded `t6 t7 t8 t9 t0 .. t5`
+
+[L12](#l12-the-temp-ring-is-least-recently-freed) gives the discipline —
+pop the head, free to the tail — but not the initial state, and the initial
+state is what decides every register in a procedure with no spills. The
+integer free list is re-seeded once per procedure in the order
+
+```
+t6 t7 t8 t9 t0 t1 t2 t3 t4 t5
+```
+
+so the first block-local temp of a procedure is `t6`, not `t0`, and a
+one-pop phase error rotates the whole downstream lane by that seeded order
+rather than by register number.
+
+> Therefore a lane view that reads `t6 t7 t8 t9 t6 ...` is the ring running
+> from its seed, not evidence of anything; and a candidate whose lane starts
+> at `t7` has already spent one pop before the first visible temp.
+
+**Receipt — T1**, from an instrumented ugen. Return-site hooks on the
+free-list helper (`f_get_free_reg` — the entry-side `ALLOC` hook logs the
+*request* descriptor, not the register handed back) emit the allocated
+register; the integer stream reads the seeded order directly, and the fp
+stream reads the four-wide ring of
+[L13](#l13-the-fp-ring-is-four-wide-f4-f6-f8-f10) rotating beside it.
+
+**Falsifies.** The assumption three campaign agents worked from, that the
+integer ring is seeded in register-number order from `t0`. Under it, a
+correctly-diagnosed one-pop phase error is attributed to the wrong lever,
+because the register the candidate "should" have is computed from the wrong
+seed.
+
+**Scope.** A driver startup constant for this configuration, and per
+procedure: the list is re-seeded at procedure entry and does not carry
+across, which is why levers placed in a preceding procedure are inert.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), instrumented-ugen
+free-list traces; the same seed is the register profile this workbench
+ships for IDO 5.3 at `-O2 -mips2`.
+
+### L65. A redundant mask still costs one ring pop — the phantom pop
+
+A mask the assembler folds away — `x & 1` into a 1-bit field, `x & 0xFF`
+into a `u8` field, `x & 0xFFFF` into a `u16` one — emits **no instruction**
+and still consumes **one pop** of the temp ring. The pop is real; only the
+instruction is absent. So the construct is a pure one-step ring rotation
+with no positional cost, and it works in both directions: adding one
+advances the ring by one, and *removing* an existing redundant mask retards
+it by one.
+
+> Therefore a ring phase error of exactly one step has a free lever at
+> either end, and the site to look at is the source line that consumes two
+> pops where the target's consumes one.
+
+**Receipt — T1**, both directions, on two functions. Adding a `& 1`
+redundant with a 1-bit field insert supplied the missing pop on
+`func_8003A520` and made the object, its relocations and its linked ROM
+range exact. In the other direction, free-list records carrying ugen's
+current source line located a phantom pop on `func_8001A154` — one line, a
+`& 0xFFFFU` on a `u8` field, was the only line consuming two pops — and
+removing that mask realigned the entire field-copy ring onto the target.
+
+**Falsifies.** The rule of thumb that a codegen-inert construct is
+codegen-inert. It is instruction-inert; the ring is state, and state is what
+the next allocation reads. This is also why a "no source lever" verdict on a
+ring residual is premature until the pop *lines* have been read: on
+`func_8001A154` the mask removal was found by the line provenance, not by
+inspection, and the function had been recorded as a scheduler wall before
+it.
+
+**Scope.** One pop per folded mask, measured on integer field copies. The
+same construct on a value the assembler cannot fold is an ordinary
+instruction and is not this lever.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), `func_8003A520`
+(field-guide lever 16) and `func_8001A154` (instrumented free-list line
+provenance).
+
 ---
 
 ## Measurement laws
@@ -1602,6 +1825,95 @@ know about.
 allocator/scheduler channels, from a scratch score of 6859 to
 instruction-exact.
 
+### L68. The jump table's bytes are the case mapping
+
+A compiler-owned switch table is **evidence about the source**, not just
+bytes to reproduce. Its entry order names which case value reaches which
+body, so a candidate whose `.text` already matches can still have the case
+mapping backwards — the table decides the mapping, and a wrong mapping that
+happens to emit the same instructions is a semantic error the word count
+cannot see.
+
+> Therefore read the table before believing a body: the mapping it states
+> outranks any donor's, and matching `.text` is not evidence that the
+> mapping is right.
+
+**Receipt — T2.** On `func_80038750` the TU's own five-entry language table
+gave the mapping `assetIndex = language + 1` in **descending** case order.
+The body in place at the time was an adapted donor that reversed it — and
+matched `.text` anyway, by coincidence, because the reversal happened to
+emit the same words. Taking ownership of the table (moving the `.rodata`
+carve, trimming the section) corrected the mapping and kept the object
+exact.
+
+**Falsifies.** "The words match, so the source is right." They matched, and
+it was not.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), resident menu
+cohort, `func_80038750`.
+
+### L69. A permuter that finds nothing instantly is a setup fault, not a hard function
+
+A randomized search that reports no improvement within seconds is reporting
+on **its scratch**, not on the function. The failure modes are all
+configuration: the importer's default ISA is not the project's, a per-file
+flag was dropped, the scratch skips a post-compile transform the real object
+gets, or the base does not compile at all. Every one of them produces the
+same symptom — an instant flat search — and every one of them reads as "this
+function is hard".
+
+**Receipt — T2, eight of twelve targets in one sweep.** decomp-permuter's
+importer inferred `-mips1` where the project builds `-mips2`, and the
+flag-recovery step ran the build's dry run against an **already-built**
+object, which prints nothing — so the correction silently did not happen and
+the scratch stayed on the wrong ISA. Eight of twelve targets "found nothing
+instantly" and were filed as hard. With the source touched first so the dry
+run prints, and the real per-file flags installed, those functions are
+ordinary search targets: two of them matched outright, one from its
+pre-match source in 75 seconds.
+
+Two further faults found while repairing it, both worth a preflight: the
+build echoes its recipe with a backslash continuation, so the flags sit on a
+line that does not name the compiler; and the static "flag group" tables a
+host tends to keep were wrong for a translation unit that looked default
+(it carried `-Wab,-r4300_mul`). **Only the build's own dry run is
+authoritative.**
+
+**Falsifies.** A whole column of "unwinnable" verdicts. The workbench's
+answer is `permute-doctor`, which asserts the scratch's flags against the
+project's real ones and refuses a base whose score is not finite and
+positive; run it before reading any flat search as a fact about the
+function.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), permuter campaign,
+Epoch 13–14 sweeps.
+
+### L70. An isolated `cc -c` does not schedule like the project path
+
+Compiling one function on its own does not reproduce the schedule the
+project build produces for it, even with the same flags. Instruction count
+and protective-nop placement both move. A residual measured on an isolated
+compile is therefore a residual of the harness, and a lever proven there has
+not been proven.
+
+**Receipt — T2, a direct disagreement.** The same source compiled two ways —
+isolated `cc -c`, versus the project path (its assembly post-processor plus
+`mips64-elf-as`, the path its verification uses) — produced **56 versus 58
+instructions** with different nop placement on `func_8001A154`. Nine source
+variants were then swept on the authoritative path; the two objects the
+isolated path had suggested were not among the outcomes at all.
+
+**Scope, and what it does not excuse.** The nops in question are
+*ugen-scheduled and source-dependent*, not an assembler artifact — both
+assemblers omit them — and the schedule that carries them **is** reachable
+from C on the project path, proven by a fully C-matched resident function
+that computes the same shape and whose verified object carries it. "The
+harness disagrees" is a reason to move the measurement, never a reason to
+record a toolchain wall.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), `func_8001A154`
+authoritative-path variant sweep; reachability confirmed on `func_80024D00`.
+
 ---
 
 ## Instruments these laws were read with
@@ -1665,6 +1977,14 @@ concluded from it.
 | The declaration list states the local supply; *N* locals is the ceiling at this frame size | falsified twice by [L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame) | an array whose base alone is addressed carries spendable bytes in its tail |
 | `a && b` as a value is expensive in every respelling | falsified by [L51](#l51-cfes-own--as-a-value-expansion-is-a-spelling-you-can-write) | cfe's own expansion, written out, is byte-identical at every site; the other spellings cost 264–860 rows |
 | There is always a materialised call result, so the cfe temp pool cannot be emptied | falsified by [L49](#l49-one-general-expression-temp-per-function-value-numbered) | the pool is one value-numbered symbol that re-mints; the sites are enumerable and were all removed |
+| A float scale can be scheduled into the invariant-load group by moving its declaration | corrected by [L62](#l62-a-float-scalars-load-form-is-decided-by-its-value-and-the-form-decides-the-schedule) | the group membership is the load *form*, decided by the constant's low halfword; the reorder produced a byte-identical object |
+| Comparison operand order is a spelling worth permuting | corrected by [L67](#l67-a-comparison-prints-its-copy-propagated-variable-first) | the propagated variable prints first whatever the C says; every permutation produced the same object |
+| A loop-invariant base re-assigned inside the loop is redundant code to hoist | corrected by [L66](#l66-a-web-feeding-a-call-argument-inherits-that-arguments-register-at-cost-0) | hoisting it loses the argument-register affinity that colours it for free |
+| The integer temp ring is seeded in register-number order from `t0` | corrected by [L64](#l64-the-integer-temp-ring-is-seeded-t6-t7-t8-t9-t0--t5) | instrumented free-list return records read `t6 t7 t8 t9 t0..t5` |
+| A construct that emits no instruction cannot move an allocation | corrected by [L65](#l65-a-redundant-mask-still-costs-one-ring-pop--the-phantom-pop) | a folded mask emits nothing and still pops the ring once |
+| Matching `.text` means the case mapping is right | falsified by [L68](#l68-the-jump-tables-bytes-are-the-case-mapping) | a reversed mapping matched the words by coincidence; the table said otherwise |
+| A permuter that finds nothing in seconds has found a hard function | falsified by [L69](#l69-a-permuter-that-finds-nothing-instantly-is-a-setup-fault-not-a-hard-function) | eight of twelve such verdicts were one wrong ISA flag in the scratch |
+| A lever proven on an isolated `cc -c` is proven | falsified by [L70](#l70-an-isolated-cc--c-does-not-schedule-like-the-project-path) | the same source compiled 56 instructions isolated and 58 on the project path |
 | Eight scheduler-tie rows are basin-invariant | corrected by [L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) | they were line-number-invariant; all eight fell to a whitespace-only edit |
 
 ---
