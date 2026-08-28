@@ -15,9 +15,17 @@ from .objdump import (
     selection_warnings,
     symbol_selection_error,
 )
-from .view import DEFAULT_REGISTER_PROFILE, MechanismView, build_view
+from .view import (
+    DEFAULT_REGISTER_PROFILE,
+    ROUTING_IMPORT_FIX,
+    MechanismView,
+    build_view,
+)
 
-DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v1"
+#: v2 adds `routing` beside the verdict. Additive: every v1 key is still
+#: present and unchanged, and a consumer that ignores the new field reads a v2
+#: document exactly as it read a v1 one.
+DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v2"
 
 
 @dataclass(frozen=True)
@@ -48,8 +56,27 @@ class Diagnosis:
         return {
             "schema": DIAGNOSIS_SCHEMA,
             "comparison": comparison,
+            "routing": self.routing,
             "view": self.view.as_dict(report_regs=report_regs),
         }
+
+    @property
+    def routing(self) -> str:
+        """Where this residual goes next, over both halves of the evidence.
+
+        The view routes on its own verdict. This adds the one thing the view
+        cannot see: a relocation that names a different symbol, or one nothing
+        understood, means the candidate is not reading what the target reads.
+        That is a question about the inputs -- context, headers, the scratch --
+        and neither a source lever nor a search answers it.
+        """
+
+        if (
+            self.comparison.relocation_symbol_mismatches
+            or self.comparison.unknown_relocations
+        ):
+            return ROUTING_IMPORT_FIX
+        return self.view.routing
 
 
 def diagnose_instructions(

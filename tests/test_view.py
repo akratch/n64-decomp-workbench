@@ -1217,7 +1217,7 @@ class ViewCommandTests(unittest.TestCase):
         )
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
-        self.assertEqual(payload["schema"], "decomp-workbench-view-v1")
+        self.assertEqual(payload["schema"], "decomp-workbench-view-v2")
         self.assertLessEqual(set(payload) - {"schema"}, schema_keys())
         self.assertEqual(payload["verdict"], "phase-shift")
         self.assertEqual(payload["playbook"], "temp-fifo-phase")

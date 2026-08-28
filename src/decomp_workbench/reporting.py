@@ -54,8 +54,8 @@ SCHEMAS: dict[str, str] = {
     "force-rows": "decomp-workbench-force-rows-v1",
     "force-rows-dumps": "decomp-workbench-force-rows-v1",
     "fidelity": "decomp-workbench-object-fidelity-v1",
-    "diagnose": "decomp-workbench-diagnosis-v1",
-    "diagnose-dumps": "decomp-workbench-diagnosis-v1",
+    "diagnose": "decomp-workbench-diagnosis-v2",
+    "diagnose-dumps": "decomp-workbench-diagnosis-v2",
     "install-skill": "decomp-workbench-skill-install-v1",
     "instrument-gate": "decomp-workbench-instrument-gate-v1",
     "instrument-scheduler": "decomp-workbench-scheduler-instrument-v1",
@@ -142,8 +142,8 @@ SCHEMAS: dict[str, str] = {
     "toolchain-calibrate": "decomp-workbench-toolchain-v1",
     "toolchain-status": "decomp-workbench-toolchain-v1",
     "target-audit": "decomp-workbench-target-audit-v1",
-    "view": "decomp-workbench-view-v1",
-    "view-dumps": "decomp-workbench-view-v1",
+    "view": "decomp-workbench-view-v2",
+    "view-dumps": "decomp-workbench-view-v2",
 }
 
 
