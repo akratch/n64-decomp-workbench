@@ -106,7 +106,9 @@ in [design notes](docs/history/design-notes.md).
   deliberate: modification time is evidence rather than proof, which is why
   the escape hatch exists, and equal timestamps are not staleness, because a
   guard that fires on a fast build is a guard that gets disabled (the default
-  tolerance is one second). See
+  tolerance is one second). A report only certifies what it read: a comparison
+  run without `--built-from` compared nothing, so its block says
+  `status: unknown` with `comparisons: 0` rather than `fresh`. See
   [Object comparison](docs/object-comparison.md#is-the-thing-you-compared-the-thing-you-just-built).
 - `permute-sweep` and `permute-doctor`: a first-class driver for bounded
   decomp-permuter searches, with the scratch fidelity a transferable result
