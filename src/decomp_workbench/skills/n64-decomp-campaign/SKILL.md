@@ -103,6 +103,31 @@ interpreting comparison evidence or external scores. Read
 [references/ido-late-stage-patterns.md](references/ido-late-stage-patterns.md)
 when the mismatch is caused by IDO code generation or register allocation.
 
+When a residual routes `permuter-first`, run the measured loop rather than
+concluding a wall from prose:
+
+1. `decomp-workbench ranking check RANKING` before ordering work by a closeness
+   ranking. A ranking measures one tree and decays as that tree moves;
+   `ranking stamp` records the tree it was measured on.
+2. `decomp-workbench permute-doctor FUNCTION --queue QUEUE` before searching.
+   A scratch that is not the object the build produces searches the wrong
+   thing, and reports it as a wall.
+3. `decomp-workbench permute-sweep QUEUE --minutes N --require-fresh` for the
+   bounded search itself.
+4. `decomp-workbench permute classify SUMMARY` afterwards. Only
+   `P_STUCK_DESCENDING` earns trace levers or a human; `P_STUCK_FLAT` is the
+   pool that argues for deeper instrumentation; `IMPORT_FAULT` routes back to
+   step 2 and is not a result about the function.
+5. `decomp-workbench diagnose ... --trace TRACE --trace-proc N` when a trace
+   exists. The `ownership:` line names `owning_pass`, `reachability`, and
+   `ownership_basis`; report which of `trace` or `heuristic` the basis was, and
+   never present a heuristic ownership claim as a measurement.
+
+Never report an exactness result without naming what each side was built from:
+`--built-from` on `compare`/`diagnose`, or `check-staleness` over the chain. A
+comparison against a stale object reports zero differing words for an edit that
+was never compiled.
+
 ## Run a controlled campaign
 
 1. State one causal hypothesis with `campaign note` and in the experiment

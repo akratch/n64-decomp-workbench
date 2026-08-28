@@ -63,7 +63,14 @@ If it differs, the command reports the exact path and leaves it untouched.
   capture loop.
 - project-config discovery that refuses ambiguous object guesses, executable
   `next` argv with expected signals, sealed compiler environments, and durable
-  campaign source-retention policies.
+  campaign source-retention policies;
+- the late-stage loop and its guards: `ranking check` before work is ordered by
+  a ranking, `permute-doctor` before a search, `permute-sweep` for the bounded
+  search, `permute classify` for the wall class the search *measured*, the
+  `ownership:` verdict line with `diagnose --trace` behind it, and
+  `--built-from` / `check-staleness` so no exactness claim rests on a stale
+  build. See [permuter sweeps](permute-sweep.md) and
+  [the aligned mechanism view](view.md).
 
 Use the workbench commands for actual comparison and trace analysis. The skill
 teaches an agent which command/result is appropriate; it does not replace a

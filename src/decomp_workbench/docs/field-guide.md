@@ -936,11 +936,16 @@ composition rather than forcing only the first one and declaring source search
 over.
 
 **What to do instead:** if your project has an instrumented static-recomp IDO,
-go straight to a forced-color probe rather than more variants. If it does not,
-this class is a legitimate stopping point for **hand** search — but hand search
-is not the whole search. No *hand* lever found means a permuter target: run
-`decomp-workbench permute-doctor <function>` and then a sweep before recording
-anything. Two residuals argued unmatchable from verdict prose — an
+go straight to a forced-color probe rather than more variants —
+`decomp-workbench diagnose ... --trace uopt.log --trace-proc N` will read that
+trace for you and print an `ownership:` line saying which pass owns the
+residual and whether a lever reaches it at all, with `ownership_basis=trace`
+rather than `heuristic` ([the ownership line](view.md#reading-the-screen)). If
+it does not, this class is a legitimate stopping point for **hand** search —
+but hand search is not the whole search. No *hand* lever found means a permuter
+target: run `decomp-workbench permute-doctor <function>` and then
+`decomp-workbench permute-sweep` before recording anything
+([permuter sweeps](permute-sweep.md)). Two residuals argued unmatchable from verdict prose — an
 interference-forbidden colour and a list-scheduler slot-fill with no source
 lever — were matched by a twenty-minute permuter run after a bespoke
 instrumentation build had been funded to explain why they could not be. An
@@ -1799,6 +1804,12 @@ Each of these was searched exhaustively at real cost; skip them.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
   [IDO 7.1](compiler-laws/ido-7.1.md) — what the compiler does, as opposed to
-  what to do about it. Levers 34-39 each name their law there.
+  what to do about it. Levers 34-39 each name their law there, L62-L70 are the
+  newest nine, and `decomp-workbench guide laws ido-5.3 L64` prints one law
+  instead of the page.
+- [Permuter sweeps](permute-sweep.md) — when no hand lever is left:
+  `permute-doctor` before the search, `permute-sweep` for it, `permute classify`
+  for the class it measured, and `ranking stamp`/`ranking check` so the order
+  the queue is worked in is still a measurement of this tree.
 - [Final-function campaign lessons](final-function-campaigns.md) — the longer
   reasoning behind several of these entries.
