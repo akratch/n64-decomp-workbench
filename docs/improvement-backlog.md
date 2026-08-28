@@ -305,6 +305,19 @@ undeclared one is reported `unknown` rather than `fresh`.
 - **Payoff.** Routes ties to the tool that cracks them; stops analysis from
   manufacturing false floors.
 
+**Status (landed).** `routing` is a field on the verdict -- `permuter-first`,
+`structural`, `import-fix`, `none` -- printed in the `view`/`diagnose` header
+and carried in JSON (`decomp-workbench-diagnosis-v2`,
+`decomp-workbench-view-v2`, both additive). Every allocation, colour, or
+schedule tie ends its footer with the routing sentence and the two commands
+that act on it, and lever 19 plus the `forced-color-oracle` onramp were
+reworded from "legitimate stopping point" to "legitimate stopping point for
+HAND search", with the wall recorded only after `permute classify` measures a
+flat search. **Deliberately out:** the tool does not *run* the sweep for the
+operator, and `routing` is a claim about which tool to try next, never a
+prediction that the search will succeed -- the prediction is what
+`permute classify` measures afterwards.
+
 ### 9. Permuter scratch must replicate the TU's post-compile objcopy steps
 - **Symptom.** Some TUs get a Makefile `objcopy --redefine-sym A=B` after compile
   (Mickey track.c, from the func_8000D018 TrapDanglingJump fix). The permuter's

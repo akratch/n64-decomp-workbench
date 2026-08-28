@@ -35,7 +35,9 @@ next: all visible register differences form one bijection (f0->f1): report one d
         lever 19: the callee-saved tie-break is a uopt ordering decision: force the smallest measured causal web set (often one, sometimes a staggered blocker ladder), inspect every cascade, and compare paired formation, save/totalsave, and decision-trace order; no one scalar is priority proof
       read them: decomp-workbench guide forced-color-oracle
       have an instrumented toolchain? docs/compiler-instrumentation.md, then decomp-workbench diagnose ... --emit-force-spec force.json and decomp-workbench oracle plan TRACE.log to build the two-phase grid.
-      don't have one? first inspect the residue for an actual move/copy site, or run check-scratch --view with a project object to test the strict late v0/v1 call-return occupancy shape. If either gate fires, lever 17 is one variant; lever 18 still requires a visible copy and repeated source expression. Otherwise go directly to lever 19; a clean forced-color cascade is a legitimate stopping point - record it, bundle the scratch, take the next function.
+      don't have one? first inspect the residue for an actual move/copy site, or run check-scratch --view with a project object to test the strict late v0/v1 call-return occupancy shape. If either gate fires, lever 17 is one variant; lever 18 still requires a visible copy and repeated source expression. Otherwise go directly to lever 19; a clean forced-color cascade is a legitimate stopping point for HAND search - and hand search is not the whole search: run permute-doctor and a sweep before recording a wall, then bundle the scratch and take the next function.
+      no HAND lever found -- this is a permuter target; run the sweep before concluding a wall.
+      decomp-workbench permute-doctor FUNCTION, then permute-sweep QUEUE. An allocation or schedule tie is a search problem; record it as a wall only after a measured search has been flat (permute classify).
 ```
 
 The two-branch line exists because "prefer a forced color probe on

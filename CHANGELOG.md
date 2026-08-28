@@ -7,6 +7,26 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `routing` beside every verdict, and a routing sentence on the verdicts that
+  used to read as walls. A verdict names the *mechanism*; it has never named
+  the **tool**, and readers filled that gap themselves: "interference-forbidden
+  colour" and "list-scheduler slot-fill -- no source lever" were taken as proof
+  that two functions could not be matched, a bespoke instrumentation build was
+  funded to explain why, and a twenty-minute permuter run then matched both.
+  `view`, `view-dumps`, `diagnose` and `diagnose-dumps` now print
+  `routing=permuter-first|structural|import-fix|none` in the verdict header and
+  carry it in JSON, and any allocation, colour, or schedule tie ends its footer
+  with *no HAND lever found -- this is a permuter target; run the sweep before
+  concluding a wall*, followed by the two commands that do it. `HAND` is the
+  whole correction: what the analysis established is that no lever a human
+  types into the C file reaches the residual, which is a claim about the lever
+  set and not about the function. Lever 19 and the `forced-color-oracle`
+  onramp were reworded the same way -- a clean forced-colour cascade is a
+  stopping point for hand search, and a wall is recorded only after
+  `permute classify` reports a measured search that was flat. The schemas bump
+  to `decomp-workbench-diagnosis-v2` and `decomp-workbench-view-v2`, additively:
+  every existing key is unchanged and `routing` is the only addition.
+
 - A build-freshness guard on every comparison, and `check-staleness` for the
   hosts that wrap one. A comparison answers "are these two objects the same",
   never "is this object the thing my last edit produced", and the two are

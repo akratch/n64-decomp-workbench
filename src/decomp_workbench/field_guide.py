@@ -490,9 +490,10 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "strict late v0/v1 call-return occupancy shape. If either gate fires, "
         "lever 17 is one variant; lever 18 still requires a visible copy and "
         "repeated source expression. Otherwise go directly to lever 19; a "
-        "clean forced-color cascade is a "
-        "legitimate stopping point - record it, bundle the scratch, take the "
-        "next function.",
+        "clean forced-color cascade is a legitimate stopping point for HAND "
+        "search - and hand search is not the whole search: run "
+        "permute-doctor and a sweep before recording a wall, then bundle the "
+        "scratch and take the next function.",
         "when source variants plateau, use campaign --show-basins; hundreds "
         "of spellings collapsing to a few objects is a negative result, not "
         "a reason to keep permuting declarations.",

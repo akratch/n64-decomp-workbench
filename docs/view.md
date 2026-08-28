@@ -33,7 +33,7 @@ decomp-workbench view-dumps \
 
 ```text
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32 register_profile=ido53
-verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
+verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase routing=permuter-first
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
@@ -113,6 +113,23 @@ The `playbook=` token in the verdict line is a `guide` topic. Whatever it says,
 so does the verdict itself, and so does any lever number.
 [From verdict to edit](from-verdict-to-edit.md) walks one of them to a source
 change.
+
+The `routing=` token beside it names the **tool**, which the playbook does not:
+
+| `routing` | what it means | what to run |
+|---|---|---|
+| `permuter-first` | an allocation, colour, or schedule tie | the levers, then `permute-doctor` and a sweep |
+| `structural` | a constant, hunk, pool slot or frame the diff already shows | the source edit the footer names |
+| `import-fix` | the two inputs were not comparable, or read different symbols | fix the scratch, context or selection first |
+| `none` | nothing to route | the project's link and ROM verification |
+
+`permuter-first` exists because a verdict that names a mechanism and stops
+gets read as a verdict about the *function*. Two residuals whose analysis said
+"interference-forbidden colour" and "list-scheduler slot-fill — no source
+lever" were matched by a permuter run afterwards, so the footer of every such
+verdict now ends with: *no HAND lever found -- this is a permuter target; run
+the sweep before concluding a wall.* An allocation tie is never phrased here
+as proven unmatchable, because two disassemblies cannot establish that.
 
 Two anchorings are built with `difflib.SequenceMatcher(autojunk=False)`, and
 the one that explains more of the function as identical wins:
@@ -335,7 +352,7 @@ agent dialect and no human dialect.
 | `target_frame_size`, `candidate_frame_size` | stack frame adjustments |
 | `match`, `displacement`, `structural`, `schedule`, `register`, `constant`, `commutative`, `relocation`, `pool`, `pool_layout` | aligned row counts |
 | `pool_resolution`, `pool_slots` | how literal-pool accesses were resolved, and the slot count each object references |
-| `verdict`, `playbook`, `signature`, `prefix_exact` | diagnosis |
+| `verdict`, `playbook`, `routing`, `signature`, `prefix_exact` | diagnosis |
 | `hunks` | `hunk`, `class`, `rows`, `target`, `candidate`, `target_bytes`, `candidate_bytes`, `classes` |
 | `lanes` | `class`, `target`, `candidate`, `rows`, `slot`, `aligned_row`, `rotation` |
 | `webs` | `web`, `target`, `candidate`, `count`, `rows` |

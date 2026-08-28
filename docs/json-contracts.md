@@ -11,7 +11,7 @@ Schemas name the user-visible report, for example:
 
 - `decomp-workbench-comparison-v1`
 - `decomp-workbench-staleness-v1`
-- `decomp-workbench-diagnosis-v1`
+- `decomp-workbench-diagnosis-v2`
 - `decomp-workbench-campaign-status-v1`
 - `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
@@ -83,6 +83,18 @@ alignment gaps, `alignment_ranking_unsafe=true` and the whole set is ordered on
 positional `words`; two gapped candidates are not assumed to share an aligned
 scale. `mixed_alignment` is retained as the narrower fact that both gap-free
 and gapped candidates were present.
+
+`diagnose`/`diagnose-dumps` emit `decomp-workbench-diagnosis-v2` and
+`view`/`view-dumps` emit `decomp-workbench-view-v2`. The bump is additive: both
+gained a `routing` field beside the verdict and changed nothing else, so a
+consumer that ignores it reads a v2 document exactly as it read a v1 one.
+`routing` is one of `permuter-first`, `structural`, `import-fix`, or `none` --
+which tool the residual belongs to, as opposed to which mechanism explains it.
+An allocation, colour, or schedule tie is always `permuter-first`; it is never
+reported as proven unmatchable. On a diagnosis the top-level `routing` may
+differ from `view.routing`: a relocation naming a different symbol makes the
+whole residual `import-fix` while the view still reports the mechanism it
+measured.
 
 Experiment-v2 and endgame additions are additive to existing report schemas:
 
