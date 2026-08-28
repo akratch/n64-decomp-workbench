@@ -33,6 +33,7 @@ from .comparison_render import (
 )
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
 from .force_spec import write_force_specification
+from .globalcolor import parse_globalcolor_trace, pass_evidence
 from .html_report import render_diagnosis_html
 from .loc_boundaries import (
     MISSING_LISTING_STEPS,
@@ -51,11 +52,86 @@ from .staleness_cli import (
     guard_freshness,
 )
 from .terminal import Painter, emit_lines, resolve_color
+from .view import PassEvidence
 from .view_cli import (
     add_view_output_arguments,
     add_view_render_arguments,
     render_view,
 )
+
+#: What the footer says when a trace was read and settled nothing.
+#:
+#: Silence here would be the worst of the three outcomes: the reader asked a
+#: compiler trace the ownership question, and an `ownership_basis=heuristic`
+#: with no explanation looks exactly like a run that was never given one.
+TRACE_SETTLED_NOTHING = (
+    "trace: {name} holds no declined force and no regsleft=0 contest for this "
+    "scope, so ownership stays heuristic. Widen or correct --trace-proc/"
+    "--trace-web before reading that as agreement."
+)
+
+#: What it says when the trace did settle it, so the basis has a provenance.
+TRACE_SETTLED = "trace: ownership measured from {name}{scope}."
+
+
+def _trace_scope(args: argparse.Namespace) -> str:
+    parts = [
+        f"{label}={value}"
+        for label, value in (
+            ("proc", getattr(args, "trace_proc", None)),
+            ("web", getattr(args, "trace_web", None)),
+        )
+        if value is not None
+    ]
+    return f" ({', '.join(parts)})" if parts else " (whole compilation)"
+
+
+def trace_evidence(args: argparse.Namespace) -> PassEvidence | None:
+    """Read `--trace`, scoped to the procedure and web the reader named.
+
+    Unscoped by accident is the trap: a trace covers a whole compilation and
+    a residual is one function's, so *some* declined force in the file is
+    nearly certain and reading it as this residual's would manufacture a
+    measurement. The scope is the reader's to state, and the footer prints
+    which scope was applied either way.
+    """
+
+    path = getattr(args, "trace", None)
+    if not path:
+        return None
+    text = Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
+    return pass_evidence(
+        parse_globalcolor_trace(text),
+        proc=getattr(args, "trace_proc", None),
+        web=getattr(args, "trace_web", None),
+    )
+
+
+def _trace_lines(
+    args: argparse.Namespace, evidence: PassEvidence | None
+) -> tuple[str, ...]:
+    """The one line a `--trace` run owes its reader about that trace."""
+
+    if evidence is None:
+        return ()
+    name = display_path(args.trace)
+    if evidence.decisive:
+        return (TRACE_SETTLED.format(name=name, scope=_trace_scope(args)),)
+    return (TRACE_SETTLED_NOTHING.format(name=name),)
+
+
+def _with_trace_note(
+    diagnosis: Diagnosis,
+    args: argparse.Namespace,
+    evidence: PassEvidence | None,
+) -> Diagnosis:
+    """Record in the footer which trace the ownership basis came from."""
+
+    notes = _trace_lines(args, evidence)
+    if not notes:
+        return diagnosis
+    view = dataclasses.replace(diagnosis.view, guidance=diagnosis.view.guidance + notes)
+    return dataclasses.replace(diagnosis, view=view)
 
 
 def _statement_lines(
@@ -234,13 +310,19 @@ def diagnose_command(args: argparse.Namespace) -> int:
             args, args.target, args.candidate, labels=("target", "candidate")
         )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
-        diagnosis = diagnose_objects(
-            args.target,
-            args.candidate,
-            objdump=args.objdump,
-            symbol=args.symbol,
-            section=args.section,
-            register_profile=args.register_profile,
+        evidence = trace_evidence(args)
+        diagnosis = _with_trace_note(
+            diagnose_objects(
+                args.target,
+                args.candidate,
+                objdump=args.objdump,
+                symbol=args.symbol,
+                section=args.section,
+                register_profile=args.register_profile,
+                evidence=evidence,
+            ),
+            args,
+            evidence,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -256,11 +338,17 @@ def diagnose_dumps_command(args: argparse.Namespace) -> int:
             args, args.target, args.candidate, labels=("target", "candidate")
         )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
-        diagnosis = diagnose_dumps(
-            args.target,
-            args.candidate,
-            symbol=args.symbol,
-            register_profile=args.register_profile,
+        evidence = trace_evidence(args)
+        diagnosis = _with_trace_note(
+            diagnose_dumps(
+                args.target,
+                args.candidate,
+                symbol=args.symbol,
+                register_profile=args.register_profile,
+                evidence=evidence,
+            ),
+            args,
+            evidence,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -286,6 +374,31 @@ def _add_shared_arguments(
             help="GNU-compatible MIPS objdump; auto-detected when omitted",
         )
     add_candidate_listing_argument(parser)
+    parser.add_argument(
+        "--trace",
+        metavar="PATH",
+        help=(
+            "an instrumented-uopt globalcolor trace (CSAVE/CUP/CDX). A "
+            "declined force or a regsleft=0 contest in it settles ownership "
+            "as a measurement, so the verdict reads ownership_basis=trace "
+            "instead of heuristic"
+        ),
+    )
+    parser.add_argument(
+        "--trace-proc",
+        type=int,
+        metavar="N",
+        help=(
+            "scope --trace to one procedure; a trace covers a whole "
+            "compilation and a residual is one function's"
+        ),
+    )
+    parser.add_argument(
+        "--trace-web",
+        type=int,
+        metavar="N",
+        help="scope --trace to one web within the procedure",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     add_view_render_arguments(
         parser,

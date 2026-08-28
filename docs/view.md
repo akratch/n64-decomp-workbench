@@ -150,6 +150,28 @@ means the answer was read off the residual's shape by this command;
 contest, which is the one fact two disassemblies cannot show. Read a
 `heuristic` answer as a lead, not a measurement.
 
+`diagnose --trace PATH` is how the measured basis is reached: point it at an
+instrumented-uopt globalcolor trace (`CSAVE`/`CUP`/`CDX` records) and scope it
+to the residual with `--trace-proc N` and `--trace-web N`. The scope is not
+optional politeness — a trace covers a whole compilation and a residual is one
+function's, so *some* declined force in the file is nearly certain and reading
+it as this residual's would manufacture a measurement. The footer says which
+scope was applied, and says so explicitly when the trace settled nothing:
+
+```sh
+decomp-workbench diagnose-dumps target.objdump candidate.objdump \
+  --function animStep --trace trace.log --trace-proc 1 --trace-web 7
+```
+
+```text
+ownership: owning_pass=uopt-globalcolor reachability=pass-owned ownership_basis=trace
+      trace: trace.log holds no declined force and no regsleft=0 contest for
+      this scope, so ownership stays heuristic.   ← the other outcome
+```
+
+`examples/fixtures/globalcolor-declined.log` is a synthetic trace carrying
+both cases, so the flag can be exercised without a compiler.
+
 `permuter-first` exists because a verdict that names a mechanism and stops
 gets read as a verdict about the *function*. Two residuals whose analysis said
 "interference-forbidden colour" and "list-scheduler slot-fill — no source

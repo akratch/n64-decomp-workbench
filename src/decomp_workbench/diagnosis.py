@@ -167,6 +167,7 @@ def diagnose_objects(
     symbol: str | None = None,
     section: str = ".text",
     register_profile: str = DEFAULT_REGISTER_PROFILE,
+    evidence: PassEvidence | None = None,
 ) -> Diagnosis:
     """Disassemble each object once, then build both reports in process."""
 
@@ -210,6 +211,7 @@ def diagnose_objects(
             target_true_instructions is not None
             and candidate_true_instructions is not None
         ),
+        evidence=evidence,
     )
 
 
@@ -219,6 +221,7 @@ def diagnose_dumps(
     *,
     symbol: str | None = None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
+    evidence: PassEvidence | None = None,
 ) -> Diagnosis:
     """Load each retained dump once, then build both reports."""
 
@@ -250,4 +253,5 @@ def diagnose_dumps(
             target_name=display_path(target),
             candidate_name=display_path(candidate),
         ),
+        evidence=evidence,
     )

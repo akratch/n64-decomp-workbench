@@ -301,6 +301,95 @@ class TraceOwnershipTests(unittest.TestCase):
         self.assertFalse(pass_evidence(trace, proc=2).decisive)
 
 
+#: A hand-written trace, in the repository, exercising exactly the two facts
+#: `pass_evidence` reads. Nothing about it came from a compiler or a ROM.
+TRACE_FIXTURE = str(FIXTURES / "globalcolor-declined.log")
+
+
+class TraceFlagTests(unittest.TestCase):
+    """`--trace` is what makes `ownership_basis=trace` reachable at all.
+
+    `pass_evidence` existed and was tested, and no command fed it: the
+    measured basis was a branch a terminal could never take, which is the
+    same as not having it. These tests are about the flag, not the parser.
+    """
+
+    def diagnose(self, *extra: str) -> tuple[int, str, str]:
+        return run_cli(
+            [
+                "diagnose-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--function",
+                "animStep",
+                "--terse",
+                *extra,
+            ]
+        )
+
+    def test_without_a_trace_the_same_residual_is_a_heuristic(self) -> None:
+        status, stdout, stderr = self.diagnose()
+        self.assertEqual(status, 0, stderr)
+        self.assertIn(f"ownership_basis={BASIS_HEURISTIC}", stdout)
+
+    def test_a_scoped_trace_turns_the_verdict_into_a_measurement(self) -> None:
+        status, stdout, stderr = self.diagnose(
+            "--trace", TRACE_FIXTURE, "--trace-proc", "1", "--trace-web", "7"
+        )
+        self.assertEqual(status, 0, stderr)
+        self.assertIn(f"ownership_basis={BASIS_TRACE}", stdout)
+        self.assertIn(f"owning_pass={OWNING_PASS_UOPT_COLOR}", stdout)
+        self.assertIn(f"reachability={REACHABILITY_PASS_OWNED}", stdout)
+        # The basis names the file it came from: a measurement with no
+        # provenance is not reproducible.
+        self.assertIn("globalcolor-declined.log", stdout)
+        self.assertIn("proc=1, web=7", stdout)
+
+    def test_a_trace_scoped_elsewhere_settles_nothing_and_says_so(self) -> None:
+        """Silence here would read exactly like a run given no trace.
+
+        The reader asked the trace this question. `heuristic` with no
+        explanation invites reading the trace as having *agreed* with the
+        heuristic, which it did not: it was never asked about this residual.
+        """
+
+        status, stdout, stderr = self.diagnose(
+            "--trace", TRACE_FIXTURE, "--trace-proc", "2"
+        )
+        self.assertEqual(status, 0, stderr)
+        self.assertIn(f"ownership_basis={BASIS_HEURISTIC}", stdout)
+        self.assertIn("holds no declined force", stdout)
+        self.assertIn("--trace-proc", stdout)
+
+    def test_the_measured_basis_reaches_json_too(self) -> None:
+        status, stdout, stderr = run_cli(
+            [
+                "diagnose-dumps",
+                PHASE_TARGET,
+                PHASE_CANDIDATE,
+                "--function",
+                "animStep",
+                "--json",
+                "--trace",
+                TRACE_FIXTURE,
+                "--trace-proc",
+                "1",
+                "--trace-web",
+                "7",
+            ]
+        )
+        self.assertEqual(status, 0, stderr)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["ownership_basis"], BASIS_TRACE)
+        self.assertEqual(payload["owning_pass"], OWNING_PASS_UOPT_COLOR)
+        self.assertIn("globalcolor-declined.log", " ".join(payload["view"]["next"]))
+
+    def test_a_missing_trace_is_a_usage_error_not_a_silent_heuristic(self) -> None:
+        status, _, stderr = self.diagnose("--trace", str(FIXTURES / "absent.trace"))
+        self.assertEqual(status, 2)
+        self.assertIn("absent.trace", stderr)
+
+
 class RoutingTests(unittest.TestCase):
     """`pass-owned` is a statement about the levers, never about the function."""
 
