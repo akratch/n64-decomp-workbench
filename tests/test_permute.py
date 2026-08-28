@@ -141,6 +141,37 @@ class RecipeParsingTests(unittest.TestCase):
         steps = retarget_objcopy((f"objcopy --redefine-sym A=B {OBJECT}",), OBJECT)
         self.assertEqual(steps, ('objcopy --redefine-sym A=B "$OUTPUT"',))
 
+    def test_every_mention_of_the_object_is_retargeted(self) -> None:
+        """`objcopy in.o out.o` names the object twice, and means both."""
+
+        steps = retarget_objcopy((f"objcopy --weaken {OBJECT} {OBJECT}",), OBJECT)
+        self.assertEqual(steps, ('objcopy --weaken "$OUTPUT" "$OUTPUT"',))
+
+    def test_a_path_that_merely_starts_with_the_object_is_left_alone(self) -> None:
+        """A sibling file is not the object, however alike the paths look.
+
+        `--redefine-syms=<object>.syms` is the ordinary spelling of a
+        redefine list, and a substring rewrite turns it into
+        `"$OUTPUT".syms`: a path that does not exist, so every candidate
+        fails to compile and the function reads as hard rather than as a
+        broken scratch.
+        """
+
+        steps = retarget_objcopy(
+            (f"objcopy --redefine-syms={OBJECT}.syms {OBJECT}",), OBJECT
+        )
+        self.assertEqual(steps, (f'objcopy --redefine-syms={OBJECT}.syms "$OUTPUT"',))
+
+    def test_the_dot_slash_spelling_is_the_same_object(self) -> None:
+        """`make` echoes whatever the rule wrote, including a `./` prefix."""
+
+        steps = retarget_objcopy((f"objcopy --weaken-symbol C ./{OBJECT}",), OBJECT)
+        self.assertEqual(steps, ('objcopy --weaken-symbol C "$OUTPUT"',))
+
+    def test_another_object_under_a_similar_path_is_not_retargeted(self) -> None:
+        steps = retarget_objcopy((f"objcopy --weaken vendor/{OBJECT}",), OBJECT)
+        self.assertEqual(steps, (f"objcopy --weaken vendor/{OBJECT}",))
+
     def test_the_recipe_report_names_the_fallback_as_a_fallback(self) -> None:
         recipe = parse_dry_run("", obj=OBJECT)
         report = recipe_report(recipe, ())

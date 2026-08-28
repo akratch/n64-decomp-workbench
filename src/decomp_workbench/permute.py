@@ -270,23 +270,29 @@ def parse_dry_run(
     """
 
     skips = tuple(re.compile(pattern) for pattern in skip_postprocess)
+    mention = object_mention_re(obj)
     flags: tuple[str, ...] = ()
     objcopy_steps: list[str] = []
     skipped: list[str] = []
     for line in join_continuations(text).splitlines():
-        if obj not in line:
+        if not mention.search(line):
             continue
         is_compile = compiler in line if compiler else False
         if "objcopy" in line and not is_compile:
             for segment in (part.strip() for part in line.split("&&")):
                 if not segment:
                     continue
-                if any(skip.search(segment) for skip in skips):
+                # A segment that does not name the object cannot be
+                # retargeted, and replicating it verbatim would point the
+                # scratch's compile.sh at the project's *real* build tree.
+                if (
+                    any(skip.search(segment) for skip in skips)
+                    or "objcopy" not in segment
+                    or not mention.search(segment)
+                ):
                     skipped.append(segment)
-                elif "objcopy" in segment:
-                    objcopy_steps.append(segment)
                 else:
-                    skipped.append(segment)
+                    objcopy_steps.append(segment)
             continue
         if flags:
             continue
@@ -378,12 +384,42 @@ def recover_recipe(
     return recipe
 
 
+#: Characters that continue a path token. A mention of the object bounded by
+#: one of these on either side is part of a *different* path.
+_PATH_CHARACTER = r"[^\s\"'=;:&|<>()]"
+
+
+def object_mention_re(obj: str) -> re.Pattern[str]:
+    """Match the whole-token mentions of one object path, and only those.
+
+    Two spellings of "not this object" defeat a substring rewrite, and both
+    occur in real recipes. `--redefine-syms=<object>.syms` is the ordinary
+    spelling of a redefine list, and rewriting the prefix inside it produces
+    a path that does not exist; `vendor/<object>` is a different object
+    whose path merely ends with this one. A leading `./` is folded in
+    because make echoes whatever the rule wrote, and `./build/x.o` is the
+    same file as `build/x.o`.
+    """
+
+    return re.compile(
+        rf"(?<!{_PATH_CHARACTER})(?:\./)*{re.escape(obj)}(?!{_PATH_CHARACTER})"
+    )
+
+
 def retarget_objcopy(
     steps: Sequence[str], obj: str, output: str = '"$OUTPUT"'
 ) -> tuple[str, ...]:
-    """Point the recovered post-compile chain at the scratch's own object."""
+    """Point the recovered post-compile chain at the scratch's own object.
 
-    return tuple(step.replace(obj, output) for step in steps)
+    Every whole-token mention is retargeted, because a step that names the
+    object twice (`objcopy in.o out.o`) means the scratch's object both
+    times. Nothing else on the line is touched: a step rewritten into a path
+    that does not exist fails every candidate compile, and a sweep reads
+    that as a hard function rather than as a broken scratch.
+    """
+
+    pattern = object_mention_re(obj)
+    return tuple(pattern.sub(lambda _match: output, step) for step in steps)
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +778,7 @@ __all__ = [
     "join_continuations",
     "load_queue",
     "load_ranking",
+    "object_mention_re",
     "object_target",
     "order_queue",
     "output_fraction",
