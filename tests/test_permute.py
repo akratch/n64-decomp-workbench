@@ -573,7 +573,7 @@ class ScratchPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             project = FakeProject(Path(temporary))
             plan = resolve_plan(project.root, project.options)
-            out_dir, scratch, recipe, steps = prepare_scratch(
+            out_dir, scratch, recipe, steps, _fidelity = prepare_scratch(
                 plan, project.item, runner=project.run
             )
             settings = (out_dir / "permuter_settings.toml").read_text("utf-8")

@@ -12,31 +12,45 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import re
 import shutil
 import subprocess  # nosec B404 - argv-only, never through a shell
 import sys
 import time
+from base64 import b64decode
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from .campaign import process_group_arguments, terminate_process_group
+from .compare import compare_objects
 from .permute import (
     DOCTOR_SCHEMA,
+    FIDELITY_DIFFERS,
+    FIDELITY_IDENTICAL,
+    FIDELITY_UNKNOWN,
     BuildRecipe,
+    FidelityAttempt,
+    PreserveMacroMode,
     QueueItem,
     Runner,
+    ScratchFidelity,
     SweepResult,
     append_compile_steps,
     best_output,
+    fidelity_warning,
+    macro_attributable,
     object_target,
     output_fraction,
     parse_base_score,
+    parse_preserved_macros,
     permuter_argv,
     recipe_report,
     recover_recipe,
     render_settings,
+    resolve_preserve_macro_modes,
     retarget_labels,
     retarget_objcopy,
     should_extend,
@@ -123,6 +137,25 @@ class SweepPlan:
     jobs: int
     load_threshold: float
     extra: tuple[str, ...] = ()
+    #: Compile the scratch base and compare it with the project's own object
+    #: for the same translation unit before spending a window searching it.
+    check_fidelity: bool = True
+    #: Refuse a function whose scratch is not that object, rather than
+    #: warning about it. For the runs where a non-transferable score is worse
+    #: than no score.
+    require_fidelity: bool = False
+
+    @property
+    def objdump(self) -> str | None:
+        return self.options.objdump
+
+    @property
+    def preserve_macro_modes(self) -> tuple[PreserveMacroMode, ...]:
+        """The import modes this project tries, in order."""
+
+        return resolve_preserve_macro_modes(
+            self.options.preserve_macros, self.options.preserve_macro_modes
+        )
 
     @property
     def python(self) -> str:
@@ -155,6 +188,9 @@ def resolve_plan(
     make: str | None = None,
     extra: Sequence[str] = (),
     cpu_count: int = 4,
+    objdump: str | None = None,
+    check_fidelity: bool = True,
+    require_fidelity: bool = False,
 ) -> SweepPlan:
     """Apply command-line overrides over the project's configured defaults."""
 
@@ -162,6 +198,8 @@ def resolve_plan(
         options = replace(options, permuter_dir=Path(permuter_dir).expanduser())
     if make is not None:
         options = replace(options, make=make)
+    if objdump is not None:
+        options = replace(options, objdump=objdump)
     resolved_jobs = jobs or options.jobs
     resolved_threads = threads or options.threads
     if resolved_threads is None:
@@ -186,6 +224,8 @@ def resolve_plan(
             options.load_threshold if load_threshold is None else load_threshold
         ),
         extra=tuple(extra),
+        check_fidelity=check_fidelity,
+        require_fidelity=require_fidelity,
     )
 
 
@@ -230,9 +270,18 @@ def import_scratch(
     settings: Path,
     target_asm: Path,
     *,
+    preserve_macros: str | None = None,
+    log_name: str = "import.log",
     runner: Runner = run_owned,
 ) -> Path:
-    """Run decomp-permuter's `import.py`, then take ownership of its output."""
+    """Run decomp-permuter's `import.py`, then take ownership of its output.
+
+    ``preserve_macros`` is `import.py`'s own ``--preserve-macros`` regex, and
+    the empty string is meaningful there: it means "preserve nothing", so the
+    translation unit's real header macros expand into the scratch the way the
+    build expands them. ``None`` passes the option at all, leaving the
+    settings file's ``[preserve_macros]`` table in charge.
+    """
 
     source = Path(item.source)
     if not source.is_absolute():
@@ -240,25 +289,28 @@ def import_scratch(
     imported = plan.root / "nonmatchings" / item.function
     if imported.exists():
         shutil.rmtree(imported)
+    argv = [
+        plan.python,
+        str(plan.tool("import.py")),
+        str(source),
+        str(target_asm),
+        "--settings",
+        str(settings),
+    ]
+    if preserve_macros is not None:
+        argv += ["--preserve-macros", preserve_macros]
     completed = runner(
-        [
-            plan.python,
-            str(plan.tool("import.py")),
-            str(source),
-            str(target_asm),
-            "--settings",
-            str(settings),
-        ],
+        argv,
         cwd=str(plan.root),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         check=False,
     )
-    (out_dir / "import.log").write_text(completed.stdout or "", encoding="utf-8")
+    (out_dir / log_name).write_text(completed.stdout or "", encoding="utf-8")
     if completed.returncode != 0 or not imported.is_dir():
         raise PermuterError(
-            f"{item.function}: import.py failed; see {out_dir / 'import.log'}"
+            f"{item.function}: import.py failed; see {out_dir / log_name}"
         )
     scratch = out_dir / "scratch"
     if scratch.exists():
@@ -267,16 +319,286 @@ def import_scratch(
     return scratch
 
 
+# ---------------------------------------------------------------------------
+# Scratch fidelity
+# ---------------------------------------------------------------------------
+
+
+def expand_permuter_pragmas(source: str) -> str:
+    """Turn an imported `base.c` into the source the permuter compiles.
+
+    `import.py` writes `base.c` with its bookkeeping still in it: a
+    `latedefine` block holding the macro definitions it hid from the
+    preprocessor, and base64 lines standing in for text it could not let
+    through. decomp-permuter expands those every time it compiles a
+    candidate. The fidelity check has to compile the *same* source the search
+    will compile, so it expands them the same way rather than compiling
+    `base.c` as written -- which would leave the fake `void gDPPipeSync();`
+    declarations in place and quietly compile function calls where the real
+    build has an inlined display-list write.
+    """
+
+    if "#pragma" not in source:
+        return source
+    prefix = "#pragma _permuter "
+    out: list[str] = []
+    same_line = 0
+    ignore = 0
+    for raw in source.split("\n"):
+        line = raw
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            line = ""
+            directive = stripped[len(prefix) :]
+            if directive == "sameline start":
+                same_line += 1
+            elif directive == "sameline end":
+                same_line -= 1
+            elif directive == "latedefine start":
+                ignore += 1
+            elif directive == "latedefine end":
+                ignore -= 1
+            elif directive.startswith("define "):
+                line = "#" + directive
+            elif directive.startswith("b64literal "):
+                line = b64decode(directive.split(" ", 1)[1]).decode("utf-8")
+        elif ignore > 0:
+            # The fake declarations inside the latedefine block exist only so
+            # the permuter's C parser accepts the file. They must not reach a
+            # compiler.
+            line = ""
+        if not same_line:
+            line += "\n"
+        elif line and out and not out[-1].endswith("\n"):
+            line = " " + line.lstrip()
+        out.append(line)
+    return "".join(out).rstrip() + "\n"
+
+
+def compile_scratch_base(
+    plan: SweepPlan,
+    scratch: Path,
+    out_dir: Path,
+    *,
+    runner: Runner = run_owned,
+) -> Path:
+    """Compile the scratch's unmodified base through its own `compile.sh`.
+
+    Through `compile.sh` specifically, because that is the script the search
+    will use: it carries the recovered codegen flags and the replicated
+    post-compile chain, and an object built any other way would prove
+    something about a build nobody runs.
+    """
+
+    base = scratch / "base.c"
+    if not base.is_file():
+        raise PermuterError(f"the scratch has no base.c at {base}")
+    script = scratch / "compile.sh"
+    if not script.is_file():
+        raise PermuterError(f"the scratch has no compile.sh at {script}")
+    source = out_dir / "fidelity-base.c"
+    source.write_text(
+        expand_permuter_pragmas(base.read_text(encoding="utf-8", errors="replace")),
+        encoding="utf-8",
+    )
+    obj = out_dir / "fidelity-base.o"
+    if obj.exists():
+        obj.unlink()
+    log = out_dir / "fidelity-compile.log"
+    with log.open("w", encoding="utf-8") as stream:
+        completed = runner(
+            [str(script), str(source), "-o", str(obj)],
+            cwd=str(plan.root),
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    if completed.returncode != 0 or not obj.is_file():
+        raise PermuterError(f"the scratch base did not compile; see {log}")
+    return obj
+
+
+def check_scratch_fidelity(
+    plan: SweepPlan,
+    item: QueueItem,
+    scratch: Path,
+    out_dir: Path,
+    *,
+    mode: str,
+    preserved_macros: tuple[str, ...] | None = None,
+    runner: Runner = run_owned,
+) -> ScratchFidelity:
+    """Is this scratch's object the object the real build produces?
+
+    The comparison is the function's own words in the two objects, through
+    the same object oracle every other comparison here uses. It is
+    deliberately not a whole-section byte compare: the scratch holds one
+    pruned function and the project object holds the whole translation unit,
+    so their `.data` and `.rodata` sections differ for reasons that have
+    nothing to do with codegen. What does carry across is the function's
+    instruction words and the relocations they name -- which is exactly where
+    a macro that expands differently shows up, as a different frame, a
+    different schedule, or a different symbol being read.
+    """
+
+    obj = item.object or object_target(plan.options.object_template, item.source)
+    real = Path(obj)
+    if not real.is_absolute():
+        real = plan.root / real
+    unknown = partial(
+        ScratchFidelity,
+        status=FIDELITY_UNKNOWN,
+        mode=mode,
+        object=obj,
+        preserved_macros=preserved_macros or (),
+    )
+    if not real.is_file():
+        return unknown(
+            reason=(
+                f"the project's object {obj} is not built, so there is nothing "
+                "to compare the scratch against; build it first"
+            )
+        )
+    try:
+        candidate = compile_scratch_base(plan, scratch, out_dir, runner=runner)
+    except (PermuterError, OSError) as error:
+        return unknown(reason=str(error))
+    try:
+        comparison = compare_objects(
+            real, candidate, objdump=plan.objdump, symbol=item.function
+        )
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return unknown(reason=f"could not compare the two objects: {error}")
+    if comparison.error:
+        return unknown(reason=comparison.error)
+    words = comparison.word_mismatches or abs(comparison.instruction_delta)
+    if comparison.exact and not words:
+        status = FIDELITY_IDENTICAL
+        words = 0
+    else:
+        status = FIDELITY_DIFFERS
+        words = words or comparison.raw_word_mismatches
+    return ScratchFidelity(
+        status=status,
+        differing_words=words,
+        mode=mode,
+        object=obj,
+        preserved_macros=preserved_macros or (),
+    )
+
+
+FidelityChecker = Callable[..., ScratchFidelity]
+
+
+class ScratchPreparation(NamedTuple):
+    """One prepared scratch: where it is, how it was built, and whether it
+    reproduces the object the project's own build produces."""
+
+    out_dir: Path
+    scratch: Path
+    recipe: BuildRecipe
+    steps: tuple[str, ...]
+    fidelity: ScratchFidelity = field(default_factory=ScratchFidelity)
+
+
+@dataclass(frozen=True)
+class _ModeOutcome:
+    """What one import mode produced, and how good an answer it is.
+
+    ``rank`` orders the modes when none of them is identical: a measured
+    difference beats an unmeasurable one, a smaller difference beats a larger
+    one, and the configured mode wins a tie because it is the one the project
+    asked for and the only one that lets the permuter reach inside a macro.
+    """
+
+    mode: PreserveMacroMode
+    fidelity: ScratchFidelity
+    scratch: Path
+    steps: tuple[str, ...]
+
+    @property
+    def rank(self) -> tuple[int, int]:
+        order = {FIDELITY_IDENTICAL: 0, FIDELITY_DIFFERS: 1}.get(
+            self.fidelity.status, 2
+        )
+        return (order, self.fidelity.differing_words or 0)
+
+
+def _import_one_mode(
+    plan: SweepPlan,
+    item: QueueItem,
+    out_dir: Path,
+    recipe: BuildRecipe,
+    mode: PreserveMacroMode,
+    target_asm: Path,
+    *,
+    single: bool,
+    runner: Runner,
+) -> tuple[Path, tuple[str, ...], tuple[str, ...] | None]:
+    """Import one mode into the scratch, and replicate the recipe onto it."""
+
+    options = plan.options
+    log_name = "import.log" if single else f"import-{_mode_slug(mode.name)}.log"
+    settings = out_dir / (
+        "permuter_settings.toml"
+        if single
+        else f"permuter_settings-{_mode_slug(mode.name)}.toml"
+    )
+    settings.write_text(
+        render_settings(
+            compiler_command=options.compiler_command or "",
+            assembler_command=options.assembler_command or "",
+            flags=recipe.flags,
+            compiler_type=options.compiler_type,
+            preserve_macros=mode.macros,
+            decompme_compiler=options.decompme_compiler,
+        ),
+        encoding="utf-8",
+    )
+    scratch = import_scratch(
+        plan,
+        item,
+        out_dir,
+        settings,
+        target_asm,
+        preserve_macros=mode.regex,
+        log_name=log_name,
+        runner=runner,
+    )
+    obj = item.object or object_target(options.object_template, item.source)
+    steps = retarget_objcopy(recipe.objcopy_steps, obj)
+    append_compile_steps(scratch / "compile.sh", steps)
+    (out_dir / "recipe.txt").write_text(
+        recipe_report(recipe, steps) + f"import mode: {mode.name}\n", encoding="utf-8"
+    )
+    preserved = parse_preserved_macros(
+        (out_dir / log_name).read_text(encoding="utf-8", errors="replace")
+    )
+    return scratch, steps, preserved
+
+
+def _mode_slug(name: str) -> str:
+    """A mode name that is safe as a filename component."""
+
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name) or "mode"
+
+
 def prepare_scratch(
     plan: SweepPlan,
     item: QueueItem,
     *,
     runner: Runner = run_owned,
-) -> tuple[Path, Path, BuildRecipe, tuple[str, ...]]:
+    fidelity_checker: FidelityChecker = check_scratch_fidelity,
+) -> ScratchPreparation:
     """Build one function's scratch from the project's *real* recipe.
 
-    Returns the output directory, the scratch, the recovered recipe, and the
-    post-compile steps that were replicated into `compile.sh`.
+    When the scratch that recipe produces is not the object the build
+    produces, and the difference could be the importer's injected macro
+    stubs, the import is retried with narrower -- finally empty -- preserved
+    macro sets, and the first mode whose object is identical wins. Giving up
+    preserved macros costs the permuter the ability to permute *inside* those
+    macro calls; searching an object the build never emits costs the whole
+    window.
     """
 
     options = plan.options
@@ -297,25 +619,76 @@ def prepare_scratch(
         skip_postprocess=options.skip_postprocess,
         runner=runner,
     )
-    settings = out_dir / "permuter_settings.toml"
-    settings.write_text(
-        render_settings(
-            compiler_command=options.compiler_command,
-            assembler_command=options.assembler_command or "",
-            flags=recipe.flags,
-            compiler_type=options.compiler_type,
-            preserve_macros=options.preserve_macros,
-            decompme_compiler=options.decompme_compiler,
-        ),
-        encoding="utf-8",
-    )
     target_asm = prepare_target_asm(plan.root, item, out_dir)
-    scratch = import_scratch(plan, item, out_dir, settings, target_asm, runner=runner)
-    obj = item.object or object_target(options.object_template, item.source)
-    steps = retarget_objcopy(recipe.objcopy_steps, obj)
-    append_compile_steps(scratch / "compile.sh", steps)
-    (out_dir / "recipe.txt").write_text(recipe_report(recipe, steps), encoding="utf-8")
-    return out_dir, scratch, recipe, steps
+    modes = plan.preserve_macro_modes if plan.check_fidelity else ()
+    if not modes:
+        scratch, steps, _preserved = _import_one_mode(
+            plan,
+            item,
+            out_dir,
+            recipe,
+            PreserveMacroMode("configured", tuple(options.preserve_macros), None),
+            target_asm,
+            single=True,
+            runner=runner,
+        )
+        return ScratchPreparation(out_dir, scratch, recipe, steps)
+
+    single = len(modes) == 1
+    attempts: list[FidelityAttempt] = []
+    outcomes: list[_ModeOutcome] = []
+    for mode in modes:
+        scratch, steps, preserved = _import_one_mode(
+            plan, item, out_dir, recipe, mode, target_asm, single=single, runner=runner
+        )
+        fidelity = fidelity_checker(
+            plan,
+            item,
+            scratch,
+            out_dir,
+            mode=mode.name,
+            preserved_macros=preserved,
+            runner=runner,
+        )
+        outcomes.append(_ModeOutcome(mode, fidelity, scratch, steps))
+        attempts.append(
+            FidelityAttempt(
+                mode=mode.name,
+                status=fidelity.status,
+                differing_words=fidelity.differing_words,
+                preserved_macros=fidelity.preserved_macros,
+                reason=fidelity.reason,
+            )
+        )
+        if fidelity.status == FIDELITY_IDENTICAL:
+            break
+        if not macro_attributable(replace(fidelity, attempts=tuple(attempts))):
+            # Nothing was preserved, so a narrower preserve set is the same
+            # import again. Whatever this scratch differs by, it is not the
+            # macro stubs, and a second window spent importing proves that
+            # twice.
+            break
+    chosen = min(enumerate(outcomes), key=lambda pair: (pair[1].rank, pair[0]))[1]
+    if chosen is not outcomes[-1]:
+        # The mode being kept is not the one left on disk by the last import.
+        scratch, steps, _preserved = _import_one_mode(
+            plan,
+            item,
+            out_dir,
+            recipe,
+            chosen.mode,
+            target_asm,
+            single=single,
+            runner=runner,
+        )
+        chosen = _ModeOutcome(chosen.mode, chosen.fidelity, scratch, steps)
+    return ScratchPreparation(
+        out_dir,
+        chosen.scratch,
+        recipe,
+        chosen.steps,
+        replace(chosen.fidelity, attempts=tuple(attempts)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -381,21 +754,40 @@ def search_function(
     clock: Callable[[], float] = time.monotonic,
     now: Callable[[], float] = time.time,
     report: Reporter | None = None,
+    fidelity_checker: FidelityChecker = check_scratch_fidelity,
 ) -> SweepResult:
     """Prepare, search and record one function. Never raises into the batch."""
 
     result = SweepResult(function=item.function, source=item.source)
     started = clock()
     try:
-        out_dir, scratch, recipe, steps = prepare_scratch(plan, item, runner=runner)
+        out_dir, scratch, recipe, steps, fidelity = prepare_scratch(
+            plan, item, runner=runner, fidelity_checker=fidelity_checker
+        )
         result.flags = " ".join(recipe.flags) or None
         result.flags_recovered = recipe.from_dry_run
         result.replicated_objcopy = len(steps)
         result.skipped_postprocess = len(recipe.skipped_postprocess)
         result.warnings = list(recipe.warnings)
-        for warning in recipe.warnings:
+        result.scratch_fidelity = fidelity.status
+        result.scratch_fidelity_words = fidelity.differing_words
+        result.scratch_fidelity_mode = fidelity.mode
+        result.scratch_fidelity_reason = fidelity.reason
+        scratch_warning = fidelity_warning(fidelity, item.function)
+        if scratch_warning is not None:
+            result.warnings.append(scratch_warning)
+        for warning in result.warnings:
             if report is not None:
                 report(f"WARNING [{item.function}] {warning}")
+        if plan.require_fidelity and fidelity.status != FIDELITY_IDENTICAL:
+            # --require-fidelity is for the runs where a score about the wrong
+            # object is worse than no score at all. Refusing here spends the
+            # import and nothing else.
+            raise PermuterError(
+                f"--require-fidelity: the scratch for {item.function} is "
+                f"{fidelity.summary} against the project's own object"
+                + (f" ({fidelity.reason})" if fidelity.reason else "")
+            )
         wait_for_headroom(
             plan.load_threshold,
             label=f"before permuting {item.function}",
@@ -468,19 +860,35 @@ def run_sweep(
     runner: Runner = run_owned,
     report: Reporter | None = None,
     on_result: Callable[[list[SweepResult]], None] | None = None,
+    fidelity_checker: FidelityChecker = check_scratch_fidelity,
 ) -> list[SweepResult]:
     """Search every queued function, recording after each one completes."""
 
     results: list[SweepResult] = list(carried)
     if plan.jobs == 1:
         for item in queue:
-            results.append(search_function(plan, item, runner=runner, report=report))
+            results.append(
+                search_function(
+                    plan,
+                    item,
+                    runner=runner,
+                    report=report,
+                    fidelity_checker=fidelity_checker,
+                )
+            )
             if on_result is not None:
                 on_result(results)
         return results
     with concurrent.futures.ThreadPoolExecutor(max_workers=plan.jobs) as pool:
         futures = [
-            pool.submit(search_function, plan, item, runner=runner, report=report)
+            pool.submit(
+                search_function,
+                plan,
+                item,
+                runner=runner,
+                report=report,
+                fidelity_checker=fidelity_checker,
+            )
             for item in queue
         ]
         for future in concurrent.futures.as_completed(futures):
@@ -509,6 +917,7 @@ class DoctorReport:
     replicated: tuple[str, ...] = ()
     base_compiles: bool | None = None
     base_score: int | None = None
+    fidelity: ScratchFidelity = field(default_factory=ScratchFidelity)
     warnings: tuple[str, ...] = ()
     problems: tuple[str, ...] = ()
 
@@ -529,6 +938,7 @@ class DoctorReport:
             "skipped_postprocess": list(self.skipped_postprocess),
             "base_compiles": self.base_compiles,
             "base_score": self.base_score,
+            "scratch_fidelity": self.fidelity.as_dict(),
             "warnings": list(self.warnings),
             "problems": list(self.problems),
             "ok": self.ok,
@@ -543,6 +953,7 @@ def doctor(
     check_base: bool = True,
     runner: Runner = run_owned,
     clock: Callable[[], float] = time.monotonic,
+    fidelity_checker: FidelityChecker = check_scratch_fidelity,
 ) -> DoctorReport:
     """Answer the three questions a sweep cannot recover from getting wrong.
 
@@ -556,7 +967,9 @@ def doctor(
     obj = item.object or object_target(plan.options.object_template, item.source)
     problems: list[str] = []
     try:
-        out_dir, scratch, recipe, steps = prepare_scratch(plan, item, runner=runner)
+        out_dir, scratch, recipe, steps, fidelity = prepare_scratch(
+            plan, item, runner=runner, fidelity_checker=fidelity_checker
+        )
     except (PermuterError, OSError, ValueError, subprocess.SubprocessError) as error:
         return DoctorReport(
             function=item.function,
@@ -564,6 +977,13 @@ def doctor(
             object=obj,
             problems=(str(error),),
         )
+    scratch_warnings: list[str] = []
+    scratch_note = fidelity_warning(fidelity, item.function)
+    if scratch_note is not None:
+        if plan.require_fidelity:
+            problems.append(scratch_note)
+        else:
+            scratch_warnings.append(scratch_note)
     if not recipe.from_dry_run:
         problems.append(
             f"codegen flags were not recovered from `{plan.options.make} -n {obj}`; "
@@ -579,7 +999,8 @@ def doctor(
         objcopy_steps=recipe.objcopy_steps,
         skipped_postprocess=recipe.skipped_postprocess,
         replicated=steps,
-        warnings=recipe.warnings,
+        fidelity=fidelity,
+        warnings=recipe.warnings + tuple(scratch_warnings),
     )
     if not check_base:
         return replace(report, problems=tuple(problems))
@@ -622,6 +1043,21 @@ def render_doctor(report: DoctorReport) -> list[str]:
     lines.append(f"  objcopy steps    {len(report.objcopy_steps)}")
     lines.extend(f"    replicated     {step}" for step in report.replicated)
     lines.extend(f"    skipped        {step}" for step in report.skipped_postprocess)
+    lines.append(
+        f"  scratch object  {report.fidelity.summary}"
+        + (f" [{report.fidelity.mode}]" if report.fidelity.mode else "")
+    )
+    if report.fidelity.reason:
+        lines.append(f"    why           {report.fidelity.reason}")
+    for attempt in report.fidelity.attempts:
+        lines.append(
+            f"    mode          {attempt.mode}: {attempt.status}"
+            + (
+                f" ({attempt.differing_words} word(s))"
+                if attempt.differing_words
+                else ""
+            )
+        )
     if report.base_compiles is None:
         lines.append("  base            not checked (--no-base-check)")
     else:
@@ -647,8 +1083,12 @@ def write_summary(
 __all__ = [
     "DoctorReport",
     "PermuterError",
+    "ScratchPreparation",
     "SweepPlan",
+    "check_scratch_fidelity",
+    "compile_scratch_base",
     "doctor",
+    "expand_permuter_pragmas",
     "import_scratch",
     "prepare_scratch",
     "prepare_target_asm",
