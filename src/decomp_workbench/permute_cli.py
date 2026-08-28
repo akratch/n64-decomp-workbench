@@ -100,8 +100,15 @@ def _plan(args: argparse.Namespace, extra: list[str]) -> Any:
 
 
 def _forwarded(args: argparse.Namespace) -> list[str]:
-    extra = list(getattr(args, "permuter_args", []) or [])
-    return extra[1:] if extra and extra[0] == "--" else extra
+    """Arguments to hand decomp-permuter verbatim.
+
+    Deliberately not `argparse.REMAINDER`: a trailing remainder after a
+    positional swallows the command's own options, so `permute-sweep
+    queue.json --project x` silently forwarded `--project x` to the
+    permuter and looked for a config in the current directory instead.
+    """
+
+    return list(getattr(args, "permuter_args", []) or [])
 
 
 def permute_sweep_command(args: argparse.Namespace) -> int:
@@ -371,9 +378,16 @@ def _add_sweep_arguments(parser: argparse.ArgumentParser) -> None:
         help="print the ordered queue and stop",
     )
     parser.add_argument(
-        "permuter_args",
-        nargs=argparse.REMAINDER,
-        help="extra arguments forwarded to permuter.py, after --",
+        "--permuter-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        dest="permuter_args",
+        help=(
+            "one extra argument forwarded verbatim to permuter.py "
+            "(repeatable). --stack-diffs is always passed and never needs "
+            "repeating here"
+        ),
     )
     parser.set_defaults(handler=permute_sweep_command, report_command="permute-sweep")
 
