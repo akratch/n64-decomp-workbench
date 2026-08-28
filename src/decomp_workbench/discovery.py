@@ -189,6 +189,10 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "target": (
         ("audit", "verify a target object's ELF scope and literal-pool extent"),
     ),
+    "permute": (
+        ("sweep", "drive decomp-permuter over a queue with a faithful scratch"),
+        ("doctor", "preflight one function's scratch before searching it"),
+    ),
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),
         ("diff", "compare compiler decisions by semantic web provenance"),
@@ -397,6 +401,8 @@ def command_map_payload() -> dict[str, Any]:
         }
         explicit_output = {
             ("campaign", "export"),
+            ("permute", "doctor"),
+            ("permute", "sweep"),
             ("capture", "make"),
             ("experiment", "compose"),
             ("instrument", "alias"),
@@ -423,6 +429,8 @@ def command_map_payload() -> dict[str, Any]:
         }
         external_process = group == "object" or (group, command) in {
             ("campaign", "finish"),
+            ("permute", "doctor"),
+            ("permute", "sweep"),
             ("campaign", "resume"),
             ("campaign", "run"),
             ("instrument", "fidelity"),

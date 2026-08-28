@@ -181,8 +181,7 @@ def _inject_result_hook(source: str, name: str, event: str) -> tuple[str, int]:
         indent = match.group("indent")
         value = match.group("value")
         return (
-            f'{indent}dkwb_freelist("{event}", {value}, mem);\n'
-            f"{indent}return {value};"
+            f'{indent}dkwb_freelist("{event}", {value}, mem);\n{indent}return {value};'
         )
 
     body = RETURN_VALUE_RE.sub(replace, body)

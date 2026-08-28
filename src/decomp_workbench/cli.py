@@ -129,6 +129,7 @@ from .oracle_cli import register_oracle_commands
 from .pass_adapter_cli import register_pass_adapter_command
 from .pass_replay import ListingEdit, replay_as1
 from .pass_replay_cli import register_replay_ugen_command
+from .permute_cli import register_permute_commands
 from .phase_cli import register_phase_commands
 from .preflight import compile_preflight
 from .project_cli import register_project_commands
@@ -2176,6 +2177,10 @@ def build_parser() -> argparse.ArgumentParser:
     # Replay one edited stream through the stock phases with the captured
     # argv, so a boundary hypothesis is proven before any C is hunted for it.
     register_replay_ugen_command(commands)
+    # Bounded decomp-permuter searches whose scratch reproduces the real
+    # per-object recipe: the search half of the same boundary `campaign`
+    # draws, for the residuals no hand lever moves.
+    register_permute_commands(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.
