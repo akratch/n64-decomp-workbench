@@ -111,6 +111,7 @@ from .instrument_profiles import (
 )
 from .instrument_uopt import instrument_uopt_globalcolor
 from .line_probe_cli import register_line_probe_command
+from .linked_oracle_cli import register_linked_oracle_commands
 from .matrix_cli import register_matrix_command
 from .model import Comparison, CompileResult, display_path
 from .next_cli import register_next_command
@@ -2205,6 +2206,9 @@ def build_parser() -> argparse.ArgumentParser:
     register_staleness_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)
+    # The linked-image oracle: the only sound one for code in a module
+    # that ships unrelocated, plus the generated surface that links it.
+    register_linked_oracle_commands(commands)
     register_fidelity_command(commands)
     # The identity gate, recorded: an instrumented pass whose traces are
     # evidence has to have reproduced the stock object first.
