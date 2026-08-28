@@ -149,6 +149,10 @@ class StalenessReport:
     artifacts: tuple[Artifact, ...]
     violations: tuple[Violation, ...]
     tolerance_seconds: float = DEFAULT_TOLERANCE_SECONDS
+    #: How many (input, derived) pairs were actually compared. Zero means
+    #: nobody declared a chain -- two objects and no `--built-from` -- and a
+    #: report with nothing to compare has nothing to certify.
+    comparisons: int = 0
 
     @property
     def missing(self) -> tuple[Artifact, ...]:
@@ -160,8 +164,9 @@ class StalenessReport:
             return "stale"
         if self.missing:
             return "missing"
-        if len(self.artifacts) < 2:
-            # One artifact has nothing to be older than. Saying `fresh` here
+        if not self.comparisons:
+            # Nothing was compared: one artifact alone, or two the caller
+            # never said were derived from anything. Saying `fresh` here
             # would turn "nobody declared a chain" into a positive claim that
             # the build is current, which is exactly the claim that was wrong.
             return "unknown"
@@ -189,10 +194,10 @@ class StalenessReport:
                 f"freshness unproven: {names} does not exist, so the build "
                 "chain could not be checked"
             )
-        if len(self.artifacts) < 2:
+        if not self.comparisons:
             return (
-                "freshness unproven: name the inputs this artifact was built "
-                "from (--built-from) to have it checked"
+                "freshness unproven: name the inputs these artifacts were "
+                "built from (--built-from) to have them checked"
             )
         return "every artifact is at least as new as the inputs before it"
 
@@ -223,10 +228,38 @@ class StalenessReport:
             "stale": self.stale,
             "fresh": self.fresh,
             "tolerance_seconds": self.tolerance_seconds,
+            # How many input/derived pairs were read. Zero is why a report
+            # with no declared inputs says `unknown` and not `fresh`.
+            "comparisons": self.comparisons,
             "artifacts": [item.as_dict() for item in self.artifacts],
             "violations": [item.as_dict() for item in self.violations],
             "message": self.message,
         }
+
+
+def _evaluate(
+    artifacts: Sequence[Artifact],
+    pairs: Iterable[tuple[int, int]],
+    tolerance_seconds: float,
+) -> tuple[tuple[Violation, ...], int]:
+    """Compare the named (input, derived) pairs, and say how many were real.
+
+    A pair either side of which has no modification time was not compared,
+    and is not counted: a report only certifies what it actually read.
+    """
+
+    violations: list[Violation] = []
+    compared = 0
+    for input_index, derived_index in pairs:
+        earlier = artifacts[input_index]
+        derived = artifacts[derived_index]
+        if earlier.mtime is None or derived.mtime is None:
+            continue
+        compared += 1
+        gap = earlier.mtime - derived.mtime
+        if gap > tolerance_seconds:
+            violations.append(Violation(input=earlier, derived=derived, seconds=gap))
+    return tuple(violations), compared
 
 
 def _label_for(index: int, total: int, given: str | None) -> str:
@@ -252,6 +285,25 @@ def artifact_for(path: str | Path, *, label: str, hashes: bool = False) -> Artif
         mtime=stat.st_mtime,
         size=stat.st_size,
         sha256=file_sha256(resolved) if hashes else None,
+    )
+
+
+def _artifacts(
+    paths: Sequence[str | Path],
+    *,
+    labels: Sequence[str] | None,
+    hashes: bool,
+) -> tuple[Artifact, ...]:
+    """Stat every path in one chain, naming each row."""
+
+    total = len(paths)
+    return tuple(
+        artifact_for(
+            path,
+            label=_label_for(index, total, labels[index] if labels else None),
+            hashes=hashes,
+        )
+        for index, path in enumerate(paths)
     )
 
 
@@ -281,31 +333,18 @@ def staleness_report(
             f"staleness_report got {len(paths)} path(s) and "
             f"{len(labels)} label(s); they must correspond"
         )
-    total = len(paths)
-    artifacts = tuple(
-        artifact_for(
-            path,
-            label=_label_for(index, total, labels[index] if labels else None),
-            hashes=hashes,
-        )
-        for index, path in enumerate(paths)
+    artifacts = _artifacts(paths, labels=labels, hashes=hashes)
+    total = len(artifacts)
+    violations, compared = _evaluate(
+        artifacts,
+        ((earlier, later) for later in range(total) for earlier in range(later)),
+        tolerance_seconds,
     )
-    violations: list[Violation] = []
-    for index, derived in enumerate(artifacts):
-        if derived.mtime is None:
-            continue
-        for earlier in artifacts[:index]:
-            if earlier.mtime is None:
-                continue
-            gap = earlier.mtime - derived.mtime
-            if gap > tolerance_seconds:
-                violations.append(
-                    Violation(input=earlier, derived=derived, seconds=gap)
-                )
     return StalenessReport(
         artifacts=artifacts,
-        violations=tuple(violations),
+        violations=violations,
         tolerance_seconds=tolerance_seconds,
+        comparisons=compared,
     )
 
 
@@ -356,17 +395,25 @@ def chain_report(
     ordered = [*inputs, *derived_paths]
     if labels is not None and len(labels) != len(ordered):
         raise ValueError("chain_report labels must match inputs plus derived")
-    report = staleness_report(*ordered, labels=labels, hashes=hashes)
-    # Drop any violation *between* two derived artifacts: they are siblings,
-    # and a candidate older than the target says nothing at all.
-    sibling_labels = {artifact.label for artifact in report.artifacts[len(inputs) :]}
-    kept = tuple(
-        item for item in report.violations if item.input.label not in sibling_labels
+    artifacts = _artifacts(ordered, labels=labels, hashes=hashes)
+    # Only input -> derived pairs are compared, by position. Two derived
+    # artifacts are siblings, and a candidate older than the target says
+    # nothing at all; two *inputs* are a set and not a chain, so a header
+    # edited after a source is not a stale anything.
+    violations, compared = _evaluate(
+        artifacts,
+        (
+            (earlier, later)
+            for earlier in range(len(inputs))
+            for later in range(len(inputs), len(ordered))
+        ),
+        DEFAULT_TOLERANCE_SECONDS,
     )
     return StalenessReport(
-        artifacts=report.artifacts,
-        violations=kept,
-        tolerance_seconds=report.tolerance_seconds,
+        artifacts=artifacts,
+        violations=violations,
+        tolerance_seconds=DEFAULT_TOLERANCE_SECONDS,
+        comparisons=compared,
     )
 
 

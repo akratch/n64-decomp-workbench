@@ -71,7 +71,9 @@ verdict=instruction-exact aligned_total=   0 words=   0 ...
 ```
 
 That is the default, and it is the whole guard when nothing else is declared:
-the timestamps are there for a reader to notice. To have them *checked*, name
+the timestamps are there for a reader to notice. Nothing was *checked*, so the
+`--json` block says `status: unknown` with `comparisons: 0`; it never reports
+`fresh` for a chain nobody declared. To have them *checked*, name
 the inputs the compared artifacts were built from:
 
 ```sh

@@ -150,6 +150,39 @@ class StalenessReportTests(unittest.TestCase):
         self.assertFalse(report.stale)
         self.assertEqual(report.artifacts[0].label, "source")
 
+    def test_a_comparison_with_no_declared_inputs_proves_nothing(self) -> None:
+        """Two objects and no `--built-from` is nobody looking, not a fresh build.
+
+        This is the default shape of every `compare`, so a positive claim
+        here would put "fresh" on every comparison ever run without the flag
+        -- which is precisely the false positive this module exists to stop.
+        """
+
+        target = write(self.root / "target.o", "t", age=0)
+        candidate = write(self.root / "candidate.o", "c", age=10)
+        report = chain_report((target, candidate), (), labels=("target", "candidate"))
+        self.assertEqual(report.status, "unknown")
+        self.assertFalse(report.fresh)
+        self.assertFalse(report.stale)
+        self.assertIn("--built-from", report.message)
+
+    def test_two_declared_inputs_are_not_compared_against_each_other(self) -> None:
+        """`--built-from a.c --built-from b.h` names a set, not a chain.
+
+        A header edited after a source is an ordinary state of a source
+        tree; refusing the comparison for it would be a refusal about
+        nothing.
+        """
+
+        source = write(self.root / "track.c", "int a;\n", age=900)
+        header = write(self.root / "track.h", "int b;\n", age=0)
+        obj = write(self.root / "track.o", "o", age=1000)
+        report = chain_report(
+            (obj,), (source, header), labels=("source1", "source2", "built")
+        )
+        self.assertFalse(report.stale)
+        self.assertEqual(report.status, "fresh")
+
     def test_enforce_refuses_by_default_and_warns_under_allow_stale(self) -> None:
         rom = write(self.root / "game.z64", "rom", age=0)
         source = write(self.root / "track.c", "int a;\n", age=600)

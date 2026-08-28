@@ -42,7 +42,10 @@ document; the document's own top-level `schema` is unchanged. `compare`,
 `staleness_schema` (`decomp-workbench-staleness-v1`) the same way: what was
 compared, when each artifact was built, and any input newer than the build
 that was compared against it. `check-staleness` emits that document on its
-own, with the schema at the top level. Switch on
+own, with the schema at the top level. Its `status` is `fresh` only when at
+least one input/derived pair was actually read: a comparison run without
+`--built-from` compared nothing, so it reports `unknown` with `comparisons: 0`
+rather than certifying a build nobody checked. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 
