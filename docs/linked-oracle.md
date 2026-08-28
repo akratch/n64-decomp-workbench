@@ -32,7 +32,7 @@ offset its relocation names:
 
 | relocation | required symbol value |
 |---|---|
-| `R_MIPS_26` | `synthetic_vma \| (stored_imm26 << 2)` |
+| `R_MIPS_26` | `(synthetic_vma & 0xF0000000) \| (stored_imm26 << 2)` |
 | `R_MIPS_HI16` + `R_MIPS_LO16` | `(stored_hi << 16) + sext16(stored_lo)` |
 | `R_MIPS_32` | the stored word |
 

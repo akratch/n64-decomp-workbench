@@ -483,3 +483,72 @@ class PlaceholderCallTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AddendArithmeticTests(unittest.TestCase):
+    """The synthesized value, replayed through the linker's own formulas.
+
+    A value is right when relinking with it reproduces the shipped word. That
+    is a property, not an example, so these replay the o32 REL formulas the
+    linker applies -- including the ``+ 0x8000`` the HI16 half of a pair
+    carries -- over the sign-extension boundary rather than asserting one
+    hand-computed number.
+    """
+
+    @staticmethod
+    def link_hi_lo(value: int, hi_addend: int, lo_addend: int) -> tuple[int, int]:
+        """What `ld` stores at a HI16/LO16 pair for ``value``.
+
+        The MIPS pairing convention: the LO16 field is signed, so the HI16
+        field carries the borrow the sign extension will apply, which is what
+        the ``+ 0x8000`` before the shift computes.
+        """
+
+        final = (value + (hi_addend << 16) + rs.sext16(lo_addend)) & 0xFFFFFFFF
+        return ((final + 0x8000) >> 16) & 0xFFFF, final & 0xFFFF
+
+    @staticmethod
+    def link_jump(value: int, addend: int) -> int:
+        """What `ld` stores in an `R_MIPS_26` field for an external symbol."""
+
+        return ((value + (addend << 2)) >> 2) & 0x03FFFFFF
+
+    def test_a_hi_lo_value_relinks_to_the_shipped_words(self) -> None:
+        for stored_lo in (0x0000, 0x0001, 0x7FFF, 0x8000, 0x8020, 0xFFFF):
+            for object_lo in (0x0000, 0x0010, 0x7FFF, 0x8000, 0xFFF0):
+                with self.subTest(stored_lo=stored_lo, object_lo=object_lo):
+                    surface = surface_for(
+                        object_bytes=candidate_object(low_addend=object_lo),
+                        image=shipped_image(lo=stored_lo),
+                    )
+                    value = surface.value_map()["gBase"]
+                    self.assertEqual(
+                        self.link_hi_lo(value, 0x0000, object_lo),
+                        (0x0002, stored_lo),
+                    )
+
+    def test_a_call_value_relinks_to_the_shipped_immediate(self) -> None:
+        for stored in (0x000000, 0x000123, 0x1FFFFFF, 0x3FFFFFF):
+            with self.subTest(stored=stored):
+                surface = surface_for(image=shipped_image(jal_immediate=stored))
+                value = surface.value_map()["callee"]
+                self.assertEqual(self.link_jump(value, 0x0), stored)
+
+    def test_a_synthetic_vma_below_the_jump_region_does_not_reach_the_field(
+        self,
+    ) -> None:
+        """A `jal` field is 28 bits; the rest of the VMA is the region nibble.
+
+        A module map whose `synthetic_vma` carries anything below bit 28 --
+        a real load address like `0x80100000` rather than a round synthetic
+        one -- must not have those bits bled into the immediate. The
+        hardware takes `(PC & 0xF0000000) | (imm << 2)`, so only the top
+        nibble of the VMA belongs in the value.
+        """
+
+        surface = surface_for(
+            synthetic_vma="0x80100000", image=shipped_image(jal_immediate=0x123)
+        )
+        value = surface.value_map()["callee"]
+        self.assertEqual(value, 0x80000000 | (0x123 << 2))
+        self.assertEqual(self.link_jump(value, 0x0), 0x123)

@@ -22,7 +22,7 @@ relocation names:
 ===================================  =========================================
 relocation                           required symbol value
 ===================================  =========================================
-``R_MIPS_26``                        ``synthetic_vma | (stored_imm26 << 2)``
+``R_MIPS_26``                        ``(vma & 0xF0000000) | (stored_imm26 << 2)``
 ``R_MIPS_HI16`` + ``R_MIPS_LO16``    ``(stored_hi << 16) + sext16(stored_lo)``
 ``R_MIPS_32``                        ``stored_word``
 ===================================  =========================================
@@ -558,7 +558,11 @@ def _required_value(high: Site | None, low: Site | None, vma: int) -> int | None
     else:
         assert anchor.stored is not None and anchor.object_addend is not None
         if anchor.type == R_MIPS_26:
-            target = vma | (anchor.stored << 2)
+            # A `jal` field is 28 bits and the hardware supplies the rest
+            # from `PC & 0xF0000000`, so only the VMA's top nibble belongs
+            # in the value. OR-ing the whole VMA bleeds a real load address'
+            # lower bits into the immediate and relinks to a different word.
+            target = (vma & 0xF0000000) | (anchor.stored << 2)
             have = anchor.object_addend << 2
         elif anchor.type == R_MIPS_32:
             target, have = anchor.stored, anchor.object_addend
