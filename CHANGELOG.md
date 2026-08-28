@@ -256,12 +256,15 @@ in [design notes](docs/history/design-notes.md).
   carrying both outcomes.
 
 - `[permuter] step_timeout_seconds` (default 600), one bounded policy for
-  the scratch phase. The search window was the only thing a sweep bounded:
-  the `make -n` recipe recovery, `import.py` and the fidelity compile each
-  started a child with no deadline, and the fidelity check adds up to two of
-  them per import mode per function, so a single hung compiler held a whole
-  sweep open with nothing to show for it. `run_owned` could always end a
-  process group on a timeout; it had never been given one here. A `make -n`
+  the scratch phase. The search window and the `make -n` recipe recovery were
+  the only bounded things a sweep had, and the recovery's bound was a private
+  120-second default nothing could reach: `import.py` and the fidelity compile
+  each started a child with no deadline at all, and the fidelity check adds up
+  to two of them per import mode per function, so a single hung compiler held
+  a whole sweep open with nothing to show for it. `run_owned` could always end
+  a process group on a timeout; it had never been given one here. The key now
+  sets all three, which also raises the recipe recovery's deadline from 120
+  seconds to the same configured value. A `make -n`
   that expires degrades to the fallback flags with the warning that says so;
   an import or fidelity compile that expires is an error for that function,
   naming the key that bounds it, and the sweep moves on.

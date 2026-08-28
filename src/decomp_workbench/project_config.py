@@ -107,9 +107,12 @@ class PermuterOptions:
     nice: int = 15
     #: Wall-clock cap on one scratch-preparation child -- `make -n` recovery,
     #: `import.py`, the fidelity compile. The search window has always been
-    #: bounded; these were not, so a hung compiler held a sweep open forever
-    #: with nothing to show for it. Ten minutes is far longer than any of the
-    #: three legitimately takes and short enough to be a deadline.
+    #: bounded, and the recipe recovery carried a private 120-second default;
+    #: the other two had no deadline at all, so a hung compiler held a sweep
+    #: open forever with nothing to show for it. Ten minutes is far longer
+    #: than any of the three legitimately takes and short enough to be a
+    #: deadline, and it replaces that private default so one key bounds the
+    #: whole phase.
     step_timeout_seconds: float = 600.0
 
     def as_dict(self) -> dict[str, object]:

@@ -62,9 +62,11 @@ step_timeout_seconds = 600
 `step_timeout_seconds` bounds each of the scratch-preparation children —
 the `make -n` recipe recovery, `import.py`, and the fidelity compile — the
 way `minutes` bounds the search itself. Only the search window used to be
-bounded, and the fidelity check adds up to two unbounded compilers per import
-mode per function, so one hung child held a whole sweep open with nothing to
-show for it. The default is 600 seconds; a `make -n` that runs out of time
+bounded from here -- the recipe recovery had a private 120-second default and
+the other two had no deadline at all -- and the fidelity check adds up to two
+unbounded compilers per import mode per function, so one hung child held a
+whole sweep open with nothing to show for it. The default is 600 seconds, and
+it replaces that private default; a `make -n` that runs out of time
 degrades to the fallback flags with a warning, while an import or fidelity
 compile that does is an error for that function and the sweep moves on.
 

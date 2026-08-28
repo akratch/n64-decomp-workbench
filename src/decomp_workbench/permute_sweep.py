@@ -153,12 +153,13 @@ class SweepPlan:
     def step_timeout(self) -> float:
         """The wall-clock cap on one scratch-preparation child.
 
-        The search window was the only bounded thing here: `make -n`, the
-        importer and the fidelity compile each started a child with no
-        deadline, and the fidelity check adds up to two of them per import
-        mode per function. One hung compiler held a whole sweep open with
-        nothing to show for it, which is exactly the failure `run_owned`
-        exists to prevent -- it just had no timeout to enforce.
+        The search window was the only bounded thing a caller could reach:
+        `make -n` recovery had a private 120-second default, the importer and
+        the fidelity compile had no deadline at all, and the fidelity check
+        adds up to two of them per import mode per function. One hung compiler
+        held a whole sweep open with nothing to show for it, which is exactly
+        the failure `run_owned` exists to prevent -- it just had no timeout to
+        enforce. This one key now bounds all three.
         """
 
         return self.options.step_timeout_seconds
