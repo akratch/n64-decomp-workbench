@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
+import shlex
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from phase_streams import binasm_record, binasm_stream, ucode_stream
 
-from decomp_workbench.cli import main
+from decomp_workbench.cli import build_parser, main
+from decomp_workbench.discovery import rewrite_group_alias
 from decomp_workbench.trace import (
     BinaryTraceStreamError,
     classify_trace_bytes,
@@ -67,7 +70,7 @@ class ReadTraceSourceTests(unittest.TestCase):
         self.assertIn("before-7-ctmoA0r9Qp", message)
         self.assertIn("Ucode", message)
         self.assertIn("record(s)", message)
-        self.assertIn("ucode window", message)
+        self.assertIn("ucode window before-7-ctmoA0r9Qp --at 0", message)
         self.assertIn("docs/compiler-instrumentation.md", message)
 
     def test_refuses_binasm_by_name(self) -> None:
@@ -77,7 +80,7 @@ class ReadTraceSourceTests(unittest.TestCase):
         self.assertEqual(caught.exception.stream_format, "binasm")
         self.assertIn("after-9-ctmc2PdRlS", message)
         self.assertIn("16-byte", message)
-        self.assertIn("binasm window", message)
+        self.assertIn("binasm window after-9-ctmc2PdRlS --at 0", message)
         self.assertIn("docs/compiler-instrumentation.md", message)
 
     def test_refuses_a_stream_that_decodes_as_utf8(self) -> None:
@@ -115,8 +118,52 @@ class ReadTraceSourceTests(unittest.TestCase):
         self.assertIsNone(caught.exception.stream_format)
         self.assertIn("mystery.bin", message)
         self.assertIn("neither Ucode nor Binasm", message)
-        self.assertIn("stream window", message)
+        # Every command a refusal names has to be one that runs: `--at` is a
+        # required argument of the window readers, and there is no
+        # `stream window` command to send anyone to.
+        self.assertIn("binasm window mystery.bin --at 0 --format binasm", message)
         self.assertIn("docs/compiler-instrumentation.md", message)
+
+
+class RefusalCommandsRunTests(unittest.TestCase):
+    """Every `decomp-workbench ...` a refusal prints has to parse.
+
+    A refusal exists to give a reader their next command, and the two ways
+    that fails silently are naming a command that does not exist and omitting
+    a required argument. `stream window` was the first and the window
+    readers' `--at` was the second, so the message is checked against the
+    real parser rather than against a reviewer's memory of the CLI.
+    """
+
+    def _quoted_commands(self, message: str) -> list[list[str]]:
+        found = [
+            shlex.split(text)
+            for text in re.findall(r"`decomp-workbench ([^`]+)`", message)
+        ]
+        self.assertTrue(found, message)
+        return found
+
+    def _assert_parses(self, message: str) -> None:
+        parser = build_parser()
+        for argv in self._quoted_commands(message):
+            with self.subTest(argv=argv):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    parser.parse_args(rewrite_group_alias(argv))
+
+    def test_a_stream_refusal_names_a_command_that_runs(self) -> None:
+        for stream, name in (
+            (ucode_stream(), "before-7-ctmoA0r9Qp"),
+            (binasm_stream(), "after-9-ctmc2PdRlS"),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(BinaryTraceStreamError) as caught:
+                    read_trace_source(stream, name=name)
+                self._assert_parses(str(caught.exception))
+
+    def test_an_unframed_refusal_names_a_command_that_runs(self) -> None:
+        with self.assertRaises(BinaryTraceStreamError) as caught:
+            read_trace_source(bytes(range(0xC0, 0xFF)) * 3, name="mystery.bin")
+        self._assert_parses(str(caught.exception))
 
 
 class TraceCommandTests(unittest.TestCase):

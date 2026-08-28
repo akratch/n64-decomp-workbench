@@ -179,7 +179,7 @@ def _binary_stream_message(
         f"{name} is a {description} pass-boundary stream, {measured}, not a "
         f"diagnostic trace.{recovered} A stream carries records, not the "
         f"decisions that produced them, so no trace command can decode it: "
-        f"read the records with `decomp-workbench {reader} {name}` "
+        f"read the records with `decomp-workbench {reader} {name} --at 0` "
         f"({PHASE_CAPTURE_DOC}), and for a textual per-decision trace build "
         f"the Tier-2 instrumented toolchain ({INSTRUMENTATION_DOC})."
     )
@@ -190,10 +190,12 @@ def _unframed_binary_message(data: bytes, *, name: str, undecodable: int) -> str
         f"{name} is not UTF-8 text ({undecodable} undecodable byte(s) of "
         f"{len(data)}) and frames as neither Ucode nor Binasm, so there is "
         "nothing to decode either way. No CODEX/DKWB diagnostic line survived "
-        f"a lossy decode. If this is a retained pass boundary, read it with "
-        f"`decomp-workbench stream window {name}` ({PHASE_CAPTURE_DOC}); if it "
-        "should be a trace, the instrumented toolchain did not write one -- "
-        f"see {INSTRUMENTATION_DOC}."
+        f"a lossy decode. If this is a retained pass boundary, name the "
+        f"framing yourself -- `decomp-workbench binasm window {name} --at 0 "
+        f"--format binasm`, or `--format ucode` -- and read what the decoder "
+        f"makes of it ({PHASE_CAPTURE_DOC}); if it should be a trace, the "
+        f"instrumented toolchain did not write one -- see "
+        f"{INSTRUMENTATION_DOC}."
     )
 
 

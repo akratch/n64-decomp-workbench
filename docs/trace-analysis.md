@@ -35,8 +35,8 @@ error: after-9-ctmc2PdRlS is a fixed 16-byte binary Binasm (ugen's -o and
 -temp output) pass-boundary stream, 812 record(s), not a diagnostic trace. A
 stream carries records, not the decisions that produced them, so no trace
 command can decode it: read the records with `decomp-workbench binasm window
-after-9-ctmc2PdRlS` (docs/phase-capture.md), and for a textual per-decision
-trace build the Tier-2 instrumented toolchain
+after-9-ctmc2PdRlS --at 0` (docs/phase-capture.md), and for a textual
+per-decision trace build the Tier-2 instrumented toolchain
 (docs/compiler-instrumentation.md).
 ```
 
@@ -47,8 +47,9 @@ stream decoders, so a trace command and `stream diff` never disagree about what
 a file is. A file that merely *contains* binary is different, and is not
 refused: its diagnostic lines are recovered, the undecodable bytes are counted,
 and a `warning:` on stderr says how many of each. Binary that frames as neither
-stream and carries no diagnostic line is refused too, pointing at
-`stream window` rather than guessing.
+stream and carries no diagnostic line is refused too: it names no framing of
+its own, so the refusal asks for one -- `binasm window ... --at 0 --format
+binasm`, or `--format ucode` -- rather than guessing on the reader's behalf.
 
 ## Inspect alias-state decisions
 
