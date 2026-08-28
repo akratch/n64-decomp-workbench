@@ -7,6 +7,21 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- A discoverability pass over the late-stage commands. `permute-sweep`,
+  `permute-doctor`, `permute classify`, `ranking stamp`/`check`,
+  `check-staleness` and `--built-from`, `diagnose --trace`, the `ownership:`
+  verdict line and laws L62-L70 each had a documented home and no route to it:
+  a reader who did not already know the name would not meet one on the README,
+  in `START_HERE`, in the documentation index, in the `commands` map, in the
+  field guide, or in the agent skill. Each of those now names them where a
+  reader is already looking, with one line and the canonical link. README gains
+  a **late-stage campaign loop** section -- rank, preflight, sweep, classify,
+  route, verify -- with the two guards spelled out, because the expensive
+  mistakes at this stage are all measurements of the wrong thing: a ranking
+  stamped against a tree that no longer exists, and a comparison against a
+  build older than the edit. The `commands` footer carries the same order in
+  one line, and the packaged agent skill runs it as steps rather than as prose.
+
 - Trace commands name a binary pass-boundary stream instead of failing on
   decode. `capture make` leaves the Ucode uopt hands ugen and the Binasm ugen
   hands as1 on disk beside the textual traces, under the compiler's own
