@@ -162,6 +162,9 @@ def _plan(args: argparse.Namespace, extra: list[str]) -> Any:
         make=args.make,
         extra=extra,
         cpu_count=os.cpu_count() or 4,
+        objdump=getattr(args, "objdump", None),
+        check_fidelity=not getattr(args, "no_fidelity", False),
+        require_fidelity=getattr(args, "require_fidelity", False),
     )
 
 
@@ -396,6 +399,30 @@ def _add_shared_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--objdump",
+        metavar="EXE",
+        help=(
+            "objdump used to compare the scratch object with the project's "
+            "own object (default: object.objdump)"
+        ),
+    )
+    parser.add_argument(
+        "--no-fidelity",
+        action="store_true",
+        help=(
+            "skip the scratch-fidelity check: do not compile the base and "
+            "compare it with the project's object for this translation unit"
+        ),
+    )
+    parser.add_argument(
+        "--require-fidelity",
+        action="store_true",
+        help=(
+            "refuse a function whose scratch object is not the object the "
+            "build produces; without it a difference is only a warning"
+        ),
+    )
     parser.add_argument(
         "--require-fresh",
         action="store_true",
