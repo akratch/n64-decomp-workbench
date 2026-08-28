@@ -556,6 +556,14 @@ def render_command_map(*, group: str | None = None) -> list[str]:
             # reader just came from.
             "Common diagnosis: decomp-workbench diagnose target.o candidate.o",
             "Next lever: decomp-workbench guide <playbook|verdict|lever>",
+            # A backlog of functions is a loop rather than a command, and the
+            # groups above list its steps a screen apart. One line names the
+            # order and its two guards, which is what a reader scanning this
+            # map for "what do I run after the sweep" is looking for.
+            "Late-stage loop: ranking check -> permute doctor -> permute sweep",
+            "                 -> permute classify -> diagnose --trace"
+            " -> compare --built-from",
+            "                 (docs/permute-sweep.md)",
         )
     )
     return lines
