@@ -937,8 +937,18 @@ over.
 
 **What to do instead:** if your project has an instrumented static-recomp IDO,
 go straight to a forced-color probe rather than more variants. If it does not,
-this class is a legitimate stopping point — record it, bundle the scratch, and
-move to the next function.
+this class is a legitimate stopping point for **hand** search — but hand search
+is not the whole search. No *hand* lever found means a permuter target: run
+`decomp-workbench permute-doctor <function>` and then a sweep before recording
+anything. Two residuals argued unmatchable from verdict prose — an
+interference-forbidden colour and a list-scheduler slot-fill with no source
+lever — were matched by a twenty-minute permuter run after a bespoke
+instrumentation build had been funded to explain why they could not be. An
+allocation tie is never *proven* unmatchable by two disassemblies; it is
+unmatchable **by hand**, which is a claim about the lever set, not about the
+function. Record a wall only after a measured search has been flat
+(`decomp-workbench permute classify`). Then bundle the scratch and move to the
+next function.
 
 **One trap, because it cost a campaign a full round:** the instrumented pass
 has *two disjoint web namespaces*, `p1` (callee-saved) and `p2` (caller-saved).

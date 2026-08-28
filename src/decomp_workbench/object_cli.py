@@ -52,6 +52,12 @@ from .regions import (
     render_region_report,
 )
 from .schema import COMPARISON_CENSUS_KEYS
+from .staleness_cli import (
+    add_freshness_arguments,
+    freshness_display,
+    freshness_payload,
+    guard_freshness,
+)
 from .terminal import Painter, add_color_argument, resolve_color
 from .watch_rows import (
     WatchRow,
@@ -168,6 +174,9 @@ def _emit_comparison(
     candidate_instructions: list[Instruction] | None = None,
 ) -> int:
     accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
+    freshness, freshness_warnings = freshness_display(
+        args, args.target, args.candidate, labels=("target", "candidate")
+    )
     try:
         census = evaluate_census(predicates, comparison.as_dict())
         regions = _region_report(comparison, args, candidate_instructions)
@@ -184,12 +193,20 @@ def _emit_comparison(
             cross_rom=args.cross_rom,
             census=census,
         )
+        payload.update(freshness_payload(freshness))
         if regions is not None:
             payload["by_region"] = regions.as_dict()
         payload.update(watch_payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
+        for line in freshness_warnings:
+            print(line)
+        # What was compared, and when each side was built. A comparison
+        # states its own provenance because "0 differing words" against a
+        # build that predates the edit is indistinguishable from a match.
+        for line in freshness.provenance_lines():
+            print(f"compared: {line}")
         for line in warning_lines(comparison.warnings):
             print(line)
         for line in alignment_caution_lines(comparison):
@@ -229,6 +246,9 @@ def _emit_comparison(
 def compare_command(args: argparse.Namespace) -> int:
     candidate_instructions: list[Instruction] | None = None
     try:
+        guard_freshness(
+            args, args.target, args.candidate, labels=("target", "candidate")
+        )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         comparison = compare_objects(
             args.target,
@@ -260,6 +280,9 @@ def compare_command(args: argparse.Namespace) -> int:
 
 def compare_dumps_command(args: argparse.Namespace) -> int:
     try:
+        guard_freshness(
+            args, args.target, args.candidate, labels=("target", "candidate")
+        )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
@@ -436,6 +459,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    add_freshness_arguments(compare)
     add_watch_rows_argument(compare)
     _add_by_region_arguments(compare)
     add_census_argument(compare)
@@ -463,6 +487,7 @@ def register_object_commands(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    add_freshness_arguments(dumps)
     add_watch_rows_argument(dumps)
     _add_by_region_arguments(dumps)
     add_census_argument(dumps)

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -332,6 +332,102 @@ RESIDUAL_CLASSES: tuple[str, ...] = (
 )
 
 
+#: Where a residual should be taken next, as one machine-readable word.
+#:
+#: A verdict names the *mechanism*. It has never named the **tool**, and the
+#: gap cost a campaign about a million tokens: "interference-forbidden colour"
+#: and "list-scheduler slot-fill -- no source lever" were read as proof that a
+#: function could not be matched, bespoke instrumentation was funded to explain
+#: why, and then a twenty-minute permuter run matched two of those functions
+#: anyway. An allocation or schedule tie is exactly what a randomized search is
+#: for, and no analysis of two disassemblies can rule one out.
+ROUTING_PERMUTER_FIRST = "permuter-first"
+ROUTING_STRUCTURAL = "structural"
+ROUTING_IMPORT_FIX = "import-fix"
+ROUTING_NONE = "none"
+
+#: Every value the `routing` field may take, for a consumer switching on it.
+ROUTING_VALUES: tuple[str, ...] = (
+    ROUTING_PERMUTER_FIRST,
+    ROUTING_STRUCTURAL,
+    ROUTING_IMPORT_FIX,
+    ROUTING_NONE,
+)
+
+#: The sentence every no-hand-lever verdict owes the reader.
+#:
+#: "HAND" is capitalized because that is the whole correction: the analysis
+#: found no lever *a human types into the C file*, which is a fact about the
+#: search space a source edit can reach, not a fact about the function.
+PERMUTER_ROUTING_SENTENCE = (
+    "no HAND lever found -- this is a permuter target; run the sweep before "
+    "concluding a wall."
+)
+
+#: The command that sentence names, so the reader does not have to look it up.
+PERMUTER_ROUTING_STEPS: tuple[str, ...] = (
+    PERMUTER_ROUTING_SENTENCE,
+    "decomp-workbench permute-doctor FUNCTION, then permute-sweep QUEUE. An "
+    "allocation or schedule tie is a search problem; record it as a wall only "
+    "after a measured search has been flat (permute classify).",
+)
+
+#: Verdicts whose residual is an allocation, colour, or schedule tie.
+#:
+#: These are the ones whose guidance can otherwise read as a wall. `constant`,
+#: `structure` and the pool verdicts are not here: those name a difference a
+#: reader can act on directly, and sending them to a randomized search first
+#: would be the opposite error.
+PERMUTER_ROUTED_VERDICTS: frozenset[str] = frozenset(
+    {
+        "allocation",
+        "phase-shift",
+        "register-permutation",
+        "register-ring-only",
+        "schedule",
+    }
+)
+
+#: Residual classes that route to a search when they dominate a mixed verdict.
+PERMUTER_ROUTED_CLASSES: frozenset[str] = frozenset({REGISTER, SCHEDULE})
+
+
+def routing_for(
+    verdict: str,
+    counts: Mapping[str, int],
+    warnings: Sequence[str] = (),
+) -> str:
+    """Return where this residual should be taken next.
+
+    Three answers, in the order they are asked:
+
+    * `import-fix` -- the two inputs were not comparable in the first place
+      (a selection warning: a different symbol, a missing section). Nothing
+      downstream of that is evidence about the source, so neither a lever nor
+      a search is the next move.
+    * `permuter-first` -- an allocation, colour, or schedule tie. A search is
+      cheap and has matched functions whose hand analysis said they could not
+      be.
+    * `structural` -- a constant, a structural hunk, a pool slot, a frame:
+      differences a reader acts on directly, where a randomized search would
+      be the expensive way to find what the diff already shows.
+
+    An exact pair routes nowhere.
+    """
+
+    if warnings:
+        return ROUTING_IMPORT_FIX
+    if verdict in ("exact", "words-identical"):
+        return ROUTING_NONE
+    if verdict in PERMUTER_ROUTED_VERDICTS:
+        return ROUTING_PERMUTER_FIRST
+    if verdict.startswith("mixed("):
+        primary = _primary_class(dict(counts))
+        if primary in PERMUTER_ROUTED_CLASSES:
+            return ROUTING_PERMUTER_FIRST
+    return ROUTING_STRUCTURAL
+
+
 @dataclass(frozen=True)
 class AlignedRow:
     """One row of the LCS alignment, with its operand-level classification."""
@@ -486,6 +582,17 @@ class MechanismView:
         return len(self.rows)
 
     @property
+    def routing(self) -> str:
+        """Where this residual goes next: a search, a source edit, or the import.
+
+        Derived, never stored: a verdict and its routing that could disagree
+        would be two claims about one residual, and the one a reader acts on
+        is whichever printed last.
+        """
+
+        return routing_for(self.verdict, self.counts, self.warnings)
+
+    @property
     def register_first_divergence(self) -> bool:
         """Whether the first divergence is a register-class divergence.
 
@@ -538,6 +645,10 @@ class MechanismView:
             "candidate_frame_size": self.candidate_frame_size,
             "verdict": self.verdict,
             "playbook": self.playbook,
+            # Which tool this residual belongs to, as one word. The verdict
+            # names the mechanism; nothing before this named the next tool,
+            # and readers filled that gap with "unmatchable".
+            "routing": self.routing,
             "signature": list(self.signature),
             "prefix_exact": self.prefix_exact,
             "hunks": [item.as_dict() for item in self.hunks],
@@ -1949,6 +2060,14 @@ def build_view(
         guidance=(
             _guidance(verdict, counts, lanes, webs, hunks, register_profile)
             + next_steps(playbook)
+            # Last, on purpose: the levers above are what to try, and this is
+            # what to do when they run out. A reader who stops at the end of
+            # the footer used to stop at "no source lever".
+            + (
+                PERMUTER_ROUTING_STEPS
+                if routing_for(verdict, counts, warnings) == ROUTING_PERMUTER_FIRST
+                else ()
+            )
         ),
         warnings=tuple(warnings),
         pool=pool,

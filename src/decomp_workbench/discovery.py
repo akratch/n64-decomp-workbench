@@ -60,6 +60,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("rank", "triage prebuilt candidate objects"),
         ("relocation-aliases", "prove linked-address-equivalent spellings"),
         ("collateral", "expose whole-object changes outside an exact function"),
+        ("staleness", "refuse a comparison against a build older than its inputs"),
     ),
     "scratch": (
         ("fetch", "download one decomp.me export into the standard layout"),
@@ -230,6 +231,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "rank"): "rank",
     ("object", "relocation-aliases"): "relocation-aliases",
     ("object", "collateral"): "object-collateral",
+    ("object", "staleness"): "check-staleness",
     ("scratch", "fetch"): "fetch-scratch",
     ("scratch", "public-match-check"): "public-match-check",
     ("scratch", "check"): "check-scratch",

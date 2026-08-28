@@ -614,6 +614,12 @@ VIEW_METRICS: tuple[Metric, ...] = (
     ),
     Metric("verdict", "verdict", "cheapest mechanism that explains the residual"),
     Metric("playbook", "playbook", "named lever family for the verdict"),
+    Metric(
+        "routing",
+        "routing",
+        "which tool this residual belongs to: permuter-first, structural, "
+        "import-fix, or none",
+    ),
     Metric("signature", "signature", "orthogonal modifiers attached to the verdict"),
     Metric(
         "prefix_exact",

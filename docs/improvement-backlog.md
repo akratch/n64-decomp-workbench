@@ -28,6 +28,21 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
 - **Payoff.** Eliminates the single most dangerous failure mode — a *false
   match* — which wastes downstream verify cycles and can pollute a branch.
 
+**Status (landed).** Every comparison command states what it compared and when
+each side was built, ahead of the verdict; `--built-from PATH` (repeatable)
+names the inputs and makes the check enforceable; a compared artifact older
+than one of its inputs is refused before anything is disassembled;
+`--allow-stale` downgrades the refusal to a warning it never suppresses; and
+`--json` carries the report as a namespaced `staleness` block.
+`decomp-workbench check-staleness` and `staleness.staleness_report(...)` are
+the host-facing halves, chain-aware (every earlier path is an input to every
+later one) and able to record content hashes as well as times.
+**Deliberately out:** the workbench does not discover the chain. Only the
+project knows which sources produce which object and which objects produce the
+ROM, and a guessed chain that silently checks the wrong thing would recreate
+the false positive one layer down -- so the chain is declared, and an
+undeclared one is reported `unknown` rather than `fresh`.
+
 ---
 
 ## P1 — Coverage (invisible residual classes)
@@ -289,6 +304,19 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
   proven-unmatchable.
 - **Payoff.** Routes ties to the tool that cracks them; stops analysis from
   manufacturing false floors.
+
+**Status (landed).** `routing` is a field on the verdict -- `permuter-first`,
+`structural`, `import-fix`, `none` -- printed in the `view`/`diagnose` header
+and carried in JSON (`decomp-workbench-diagnosis-v2`,
+`decomp-workbench-view-v2`, both additive). Every allocation, colour, or
+schedule tie ends its footer with the routing sentence and the two commands
+that act on it, and lever 19 plus the `forced-color-oracle` onramp were
+reworded from "legitimate stopping point" to "legitimate stopping point for
+HAND search", with the wall recorded only after `permute classify` measures a
+flat search. **Deliberately out:** the tool does not *run* the sweep for the
+operator, and `routing` is a claim about which tool to try next, never a
+prediction that the search will succeed -- the prediction is what
+`permute classify` measures afterwards.
 
 ### 9. Permuter scratch must replicate the TU's post-compile objcopy steps
 - **Symptom.** Some TUs get a Makefile `objcopy --redefine-sym A=B` after compile

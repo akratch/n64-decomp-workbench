@@ -10,7 +10,8 @@ mode, so a caller never has to guess whether stdout is parseable.
 Schemas name the user-visible report, for example:
 
 - `decomp-workbench-comparison-v1`
-- `decomp-workbench-diagnosis-v1`
+- `decomp-workbench-staleness-v1`
+- `decomp-workbench-diagnosis-v2`
 - `decomp-workbench-campaign-status-v1`
 - `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
@@ -36,7 +37,12 @@ Optional blocks merged into a report keep their keys namespaced and name
 themselves under a prefixed key, never `schema`. `--watch-rows` adds
 `watch_rows`, `watch_signature`, the tallies, and `watch_schema`
 (`decomp-workbench-watch-rows-v1`) to a `compare`, `rank`, or `sweep build`
-document; the document's own top-level `schema` is unchanged. Switch on
+document; the document's own top-level `schema` is unchanged. `compare`,
+`compare-dumps`, `diagnose` and `diagnose-dumps` add `staleness` and
+`staleness_schema` (`decomp-workbench-staleness-v1`) the same way: what was
+compared, when each artifact was built, and any input newer than the build
+that was compared against it. `check-staleness` emits that document on its
+own, with the schema at the top level. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 
@@ -77,6 +83,18 @@ alignment gaps, `alignment_ranking_unsafe=true` and the whole set is ordered on
 positional `words`; two gapped candidates are not assumed to share an aligned
 scale. `mixed_alignment` is retained as the narrower fact that both gap-free
 and gapped candidates were present.
+
+`diagnose`/`diagnose-dumps` emit `decomp-workbench-diagnosis-v2` and
+`view`/`view-dumps` emit `decomp-workbench-view-v2`. The bump is additive: both
+gained a `routing` field beside the verdict and changed nothing else, so a
+consumer that ignores it reads a v2 document exactly as it read a v1 one.
+`routing` is one of `permuter-first`, `structural`, `import-fix`, or `none` --
+which tool the residual belongs to, as opposed to which mechanism explains it.
+An allocation, colour, or schedule tie is always `permuter-first`; it is never
+reported as proven unmatchable. On a diagnosis the top-level `routing` may
+differ from `view.routing`: a relocation naming a different symbol makes the
+whole residual `import-fix` while the view still reports the mechanism it
+measured.
 
 Experiment-v2 and endgame additions are additive to existing report schemas:
 

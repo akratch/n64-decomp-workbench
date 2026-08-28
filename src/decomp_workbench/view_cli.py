@@ -154,6 +154,10 @@ def render_header(
             verdict_tokens.append((optional, counts[optional]))
     verdict_tokens.append(("hunks", len(view.hunks)))
     verdict_tokens.append(("playbook", view.playbook))
+    # The tool this residual belongs to, beside the lever family it belongs
+    # to. Without it the screen names a mechanism and leaves the reader to
+    # infer the next move, and the inference that kept being made was "wall".
+    verdict_tokens.append(("routing", view.routing))
     lines.append(
         brush.bold("verdict:")
         + " "

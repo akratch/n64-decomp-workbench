@@ -79,7 +79,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             diagnose["invocation"], ["decomp-workbench", "object", "diagnose"]
         )
-        self.assertEqual(diagnose["report_schema"], "decomp-workbench-diagnosis-v1")
+        self.assertEqual(diagnose["report_schema"], "decomp-workbench-diagnosis-v2")
         self.assertFalse(diagnose["safety"]["network"])
         self.assertEqual(
             payload["automation"]["failure_schema"], "decomp-workbench-error-v1"

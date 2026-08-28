@@ -156,18 +156,35 @@ If it moved but did not close, read the new verdict — it is a new question, an
 it gets its own lever. If it did **not** move, you have spent one variant to
 learn that this block is not where the queue drifted; try the block before it.
 
-**And there is a legitimate place to stop.** If you reach `verdict:
+**And there is a legitimate place to stop typing.** If you reach `verdict:
 register-permutation` — every difference forming one clean bijection over
 callee-saved registers — the footer will tell you so, and lever 19 explains
-why source search is genuinely over there:
+why *hand* source search is over there:
 
 ```sh
 decomp-workbench guide 19
 ```
 
-Without an instrumented toolchain, that class is a stopping point, not a
-failure. Record it, bundle the scratch with `bundle-scratch`, and take the next
-function. A campaign that stops honestly on three functions and matches thirty
+Read the `routing=` token beside the playbook before you record anything. On an
+allocation, colour, or schedule tie it says `permuter-first`, and the footer
+ends with the sentence that goes with it:
+
+```text
+next: no HAND lever found -- this is a permuter target; run the sweep before concluding a wall.
+```
+
+That is not a formality. Two functions whose verdicts read "interference-forbidden
+colour" and "list-scheduler slot-fill — no source lever" were matched by a
+twenty-minute permuter run, after a bespoke instrumentation build had been
+funded to explain why they could not be. Nothing measured from two
+disassemblies can prove an allocation tie unmatchable; it can only say that
+*this* lever set does not reach it.
+
+So the stopping point has one more step in it: run
+`decomp-workbench permute-doctor <function>` and then a sweep, and let
+`permute classify` say whether the search was still descending or flat. If it
+is flat, record it, bundle the scratch with `bundle-scratch`, and take the next
+function — now with a measurement behind the claim. A campaign that stops honestly on three functions and matches thirty
 is a good campaign.
 
 ## See also
