@@ -244,6 +244,38 @@ undeclared one is reported `unknown` rather than `fresh`.
 - **Payoff.** Turns minutes of manual `CDX_FORCE` probing per function into one
   line of guidance — the single biggest operator-time saver observed.
 
+**Status (landed).** Every verdict carries `owning_pass` and `reachability`
+beside `routing`, printed on an `ownership:` line under the verdict and carried
+in JSON (`decomp-workbench-diagnosis-v3`, `decomp-workbench-view-v3`, both
+additive). `owning_pass` is one of the passes this workbench already models --
+`cfe-spelling`, `rodata-load-form`, `stack-home-assignment`,
+`uopt-globalcolor`, `ugen-temp-ring`, `g0-scheduler` -- plus `none` for an
+exact pair and `unknown` for inputs that settle nothing. `reachability` is
+`source-reachable`, `permuter-target`, `pass-owned` or `unknown`, and a
+`pass-owned` residual routes `permuter-first` exactly like any other tie: the
+verdict says no handle *this evidence* exposes reaches the decision, which is
+never a claim about the function (item #8). Each ownership footer ends at the
+law for its pass, so `func_80012574`'s class of residual now points at the
+mechanism instead of at a `CDX_FORCE` probe that must decline.
+
+**A third field carries the honesty:** `ownership_basis` is `trace` when a
+compiler trace settled it, `heuristic` when the answer was read off the
+residual's shape, `none` when there was nothing to read -- never omitted, and
+never inferred from the other two. `globalcolor.pass_evidence` is the
+producer of the measured half, built from the two facts an instrumented uopt
+already computes (a declined force, a `regsleft=0` contest), which are exactly
+what separates a *taken* register from an *underpriced* one.
+
+**Deliberately out:** the heuristic does not attempt to distinguish a
+colourable tie from an interference-forbidden one without a trace. Two
+disassemblies cannot see a forbidden mask, and a guess dressed as that
+distinction would send a reader to give up on a residual a lever reaches --
+the exact failure this item was filed against, in the other direction. Without
+a trace those residuals are `permuter-target`, which is the honest answer and
+the cheap one.
+
+---
+
 ### 6. Contribute campaign-verified IDO 5.3 laws to the field guide
 - **Symptom.** Several load-bearing levers were re-derived from scratch during
   the campaign though they are general IDO-5.3 behavior.
@@ -264,6 +296,50 @@ undeclared one is reported `unknown` rather than `fresh`.
     can move).
 - **Payoff.** Directly serves "as clear evidence and guidance as possible" —
   future operators (and agents) get the lever without re-deriving it.
+
+**Status (landed).** Nine laws, L62-L70 on
+[the IDO 5.3 page](compiler-laws/ido-5.3.md), each with its receipt, evidence
+tier and provenance, and eight new rows in that page's "claims a reader will
+find in older notes and should not believe" table. The five levers this item
+listed all landed, three of them differently from the sketch above:
+
+- the **temp-ring seed** is L64 and the **phantom pop** is L65, split because
+  they are a startup constant and a construct and the second is usable without
+  the first;
+- the **declaration-order stack ladder** is L63, filed as a *reconfirmation*
+  of L53 rather than as a new law, because L53 already had it from a read of
+  the cfe intermediate -- what this campaign added is the operational form and
+  four whole-object matches. The two campaigns disagree on which pass writes
+  the map; the law says so and leaves L53's instrument to settle it;
+- the **float-invariant load form** is L62, sharpened: the gate is the
+  constant's low halfword, not "int-representable";
+- the **call-argument colour affinity** is L66, filed as the cost-side
+  companion to L58;
+- the **colourability gate** did *not* become a law. It is already L55 plus
+  L57's `available0` argmin, and re-stating it under a new number would have
+  put two numbers on one fact. It landed as machinery instead: `CDX_FORCE`
+  declined and `regsleft=0` are what `globalcolor.pass_evidence` reads, and
+  what makes an ownership verdict `pass-owned` on the `trace` basis (item #5).
+
+Three laws the item did not ask for came out of the same campaign and are on
+the page because leaving them off would have been arbitrary: L67 (a comparison
+prints its copy-propagated variable first), L68 (the jump table's bytes are
+the case mapping), and the two false-floor lessons as **measurement** laws --
+L69 (a permuter that finds nothing instantly is a setup fault) and L70 (an
+isolated `cc -c` does not schedule like the project path).
+
+**And the laws are addressed, not just written.** `guide laws ERA LAW` prints
+one law; `PASS_LAWS` keys them on the owning pass a verdict names, so a
+residual's footer ends at its own law as a pasteable command; and
+`PLAYBOOK_PASSES` gives `guide <family>` the same citation. The cross-link is
+keyed on the pass rather than on the playbook because that is the finer
+question -- a stack-home residual and a wrong immediate both arrive under
+`playbook=constant-audit`, and only one of them is L63's.
+
+**Deliberately out:** nothing measured on Mickey's pinned 5.3 was added to the
+7.1 page, and no law was written from a campaign note alone. Two candidate
+levers from the same notes are not here because their receipts are outcome
+evidence about one function with no controlled comparison behind them.
 
 ---
 

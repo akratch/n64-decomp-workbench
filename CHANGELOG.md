@@ -7,6 +7,58 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- `owning_pass` and `reachability` beside the verdict, so a residual names the
+  compiler decision behind it and not only its shape. `routing` said which
+  *tool* a residual belongs to; it still did not say **why**, and the three
+  actionably-different cases hiding behind one register verdict -- a colourable
+  tie a lever moves, a colour that is *forbidden* rather than underpriced, and
+  a decision the instrument does not expose -- demand opposite responses. They
+  were being separated by hand, one `CDX_FORCE` probe per function, on
+  functions where the probe was always going to decline. `view`,
+  `view-dumps`, `diagnose` and `diagnose-dumps` now print an `ownership:` line
+  under the verdict carrying
+  `owning_pass=cfe-spelling|rodata-load-form|stack-home-assignment|uopt-globalcolor|ugen-temp-ring|g0-scheduler|none|unknown`,
+  `reachability=source-reachable|permuter-target|pass-owned|unknown`, and
+  `ownership_basis=trace|heuristic|none`. The basis is never omitted: an
+  answer read off two disassemblies and an answer read out of a compiler trace
+  are different claims, and a screen that spelled them the same way would be
+  inviting a reader to act on a guess as though it were a measurement.
+  `globalcolor.pass_evidence` is the bridge that supplies the measured half --
+  a declined force or a `regsleft=0` contest, the one fact two disassemblies
+  cannot show. A `pass-owned` residual routes `permuter-first` like any other
+  tie, because "no handle this evidence exposes" is a statement about the
+  levers to hand and never about the function. Each ownership footer ends at
+  the law for its pass. The schemas bump to `decomp-workbench-diagnosis-v3`
+  and `decomp-workbench-view-v3`, additively: nothing was removed or renamed,
+  and the three fields are the only additions.
+
+- Nine campaign-verified IDO 5.3 laws (L62-L70), from a whole-ROM
+  decompilation rather than one procedure, several of which that campaign had
+  to re-derive from scratch because they were nowhere on the page. L62 a float
+  scalar's load form is decided by its value (rodata `lwc1` iff the low
+  halfword is non-zero) and only that form joins the invariant-load group;
+  L63 declaration order places a call-crossing spill, reconfirming L53 with
+  the lever spelled out; L64 the integer temp ring is seeded
+  `t6 t7 t8 t9 t0..t5`; L65 a folded redundant mask emits no instruction and
+  still pops the ring once -- the phantom pop, usable in both directions;
+  L66 a web feeding a call argument inherits that argument register at cost 0;
+  L67 a comparison prints its copy-propagated variable first, so operand order
+  is a readout and not a lever; L68 a jump table's bytes are the case mapping,
+  and matching `.text` is not evidence the mapping is right. L69 and L70 are
+  measurement laws about harnesses that lie: a permuter that finds nothing
+  instantly is a setup fault (eight of twelve such verdicts were one wrong ISA
+  flag in the scratch), and an isolated `cc -c` does not schedule like the
+  project path (56 instructions against 58 on the same source).
+
+- `decomp-workbench guide laws ERA LAW` prints one law instead of the whole
+  page. Footers had been citing individual laws for a release before the
+  command could answer one, so a reader who pasted the citation got the
+  document and had to find the law by hand. `L64`, `64` and `law 64` are one
+  address; an unrecognised number names the range that era carries rather than
+  printing everything. Every lever family whose mechanism is written down now
+  ends its `guide` output with that command, and every verdict that names an
+  owning pass ends its footer with it, so a residual points at its law.
+
 - `routing` beside every verdict, and a routing sentence on the verdicts that
   used to read as walls. A verdict names the *mechanism*; it has never named
   the **tool**, and readers filled that gap themselves: "interference-forbidden

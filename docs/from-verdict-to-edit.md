@@ -28,6 +28,7 @@ decomp-workbench diagnose-dumps \
 
 ```text
 verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
+ownership: owning_pass=ugen-temp-ring reachability=source-reachable ownership_basis=heuristic
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 ```
@@ -51,6 +52,23 @@ merely became the first instruction to show it.
 
 **`webs:`** — four consistent substitutions, `t7->t8`, `t8->t9`, `t9->t6`,
 `t6->t7`. Follow them round: that is one rotation, not four decisions.
+
+**`ownership:`** — the pass that took the decision, and how close a source edit
+gets to it. `owning_pass=ugen-temp-ring` says this is the block-local
+allocator's queue rather than the colouring pass, and
+`reachability=source-reachable` says a lever reaches it — so the twenty minutes
+below are worth spending. Had it read `pass-owned`, the footer would have sent
+you to a search instead of to a source edit, and `ownership_basis=heuristic`
+would still have told you that answer was read off the residual's shape rather
+than measured. The footer for this verdict ends at
+[law L64](compiler-laws/ido-5.3.md#l64-the-integer-temp-ring-is-seeded-t6-t7-t8-t9-t0--t5)
+and [L65](compiler-laws/ido-5.3.md#l65-a-redundant-mask-still-costs-one-ring-pop--the-phantom-pop),
+which are the mechanism these levers rest on: the ring's seed order, and the
+fact that a folded mask emits nothing and still pops it.
+
+```sh
+decomp-workbench guide laws ido53 L65
+```
 
 The lane view says it in one picture:
 
