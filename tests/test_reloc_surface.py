@@ -231,6 +231,33 @@ class SynthesisTests(unittest.TestCase):
         )
         self.assertIn("callee", surface.value_map())
 
+    def test_a_map_written_on_windows_matches_a_posix_object_path(self) -> None:
+        """A basename is a basename under either separator.
+
+        The map is written once by the host and the objects are named by the
+        build; the two need not agree on separators, and matching only on
+        `/` silently placed nothing and emitted an empty surface.
+        """
+
+        module = rs.parse_module_map(
+            module_document(
+                text_placement=[
+                    {
+                        "object": "build\\overlay\\tu.c.o",
+                        "section": ".text",
+                        "offset": hex(TU_OFFSET),
+                        "size": 16,
+                    }
+                ]
+            )
+        )
+        surface = rs.synthesize(
+            [("build/overlay/tu.c.o", parse_elf(candidate_object()))],
+            module,
+            shipped_image(),
+        )
+        self.assertIn("callee", surface.value_map())
+
     def test_an_r_mips_32_site_takes_the_stored_word(self) -> None:
         obj = build_relocatable(
             {".text": words(NOP), ".data": words(0x00000004)},

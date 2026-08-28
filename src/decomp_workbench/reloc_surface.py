@@ -190,13 +190,19 @@ class ModuleMap:
         return None
 
     def placements_for(self, object_name: str) -> tuple[Placement, ...]:
-        """Return the placements matching ``object_name`` by path or basename."""
+        """Return the placements matching ``object_name`` by path or basename.
 
-        base = object_name.rsplit("/", 1)[-1]
+        Either separator, because the map is written once by the host and the
+        objects are named by the build; nothing makes the two agree on which
+        slash they use, and matching only on ``/`` places nothing at all on a
+        Windows host and emits an empty surface for it.
+        """
+
+        base = _basename(object_name)
         return tuple(
             item
             for item in self.placements
-            if item.object == object_name or item.object.rsplit("/", 1)[-1] == base
+            if item.object == object_name or _basename(item.object) == base
         )
 
     def image_offset(self, module_offset: int) -> int:
@@ -213,6 +219,12 @@ class ModuleMap:
             "table_sites": len(self.table_sites),
             "alias_template": self.alias_template,
         }
+
+
+def _basename(path: str) -> str:
+    """The last component of ``path`` under either separator."""
+
+    return path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def _integer(value: Any, *, where: str) -> int:
