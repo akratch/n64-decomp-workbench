@@ -241,3 +241,111 @@ class GuideLawsCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SingleLawLookupTests(unittest.TestCase):
+    """`guide laws ERA LAW`: the address a verdict footer prints.
+
+    Footers cited individual laws (`decomp-workbench guide laws ido71 L2`) for
+    a release before the command could answer one, so a reader who pasted the
+    citation got the whole page and had to find the law by hand.
+    """
+
+    def test_a_law_is_addressable_by_its_number(self) -> None:
+        law = field_guide.read_law("ido53", "L64")
+        self.assertEqual(law.name, "L64")
+        self.assertIn("t6 t7 t8 t9 t0", law.title + " ".join(law.lines))
+        self.assertIn("ugen", law.section)
+
+    def test_every_spelling_of_a_citation_reaches_the_law(self) -> None:
+        for spelling in ("L64", "l64", "64", "law 64", " L64 "):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(field_guide.read_law("ido53", spelling).name, "L64")
+
+    def test_an_unknown_law_names_the_range_that_exists(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            field_guide.read_law("ido53", "L999")
+        self.assertIn("L1-L", str(caught.exception))
+
+    def test_the_parse_covers_every_law_on_every_shipped_page(self) -> None:
+        for era in LAW_DOCUMENTS:
+            with self.subTest(era=era):
+                parsed = field_guide.laws(era)
+                headings = LAW_HEADING_RE.findall(read_laws(era))
+                self.assertEqual(sorted(parsed), sorted(name for name, _ in headings))
+                for name, law in parsed.items():
+                    self.assertTrue(law.lines[0].startswith(f"### {name}."), name)
+                    self.assertTrue(law.section, f"{era} {name} has no pass heading")
+
+    def test_the_command_prints_one_law_and_its_address(self) -> None:
+        status, output, error = run_cli(["guide", "laws", "ido53", "L65"])
+        self.assertEqual(status, 0)
+        self.assertEqual(error, "")
+        self.assertIn("COMPILER LAWS  IDO 5.3  L65", output)
+        self.assertIn("phantom pop", output)
+        self.assertIn("docs/compiler-laws/ido-5.3.md", output)
+        # The whole page is one command away, and it is not this one.
+        self.assertNotIn("### L64.", output)
+        self.assertIn("decomp-workbench guide laws ido53", output)
+
+    def test_an_unknown_law_fails_loudly_instead_of_printing_the_page(
+        self,
+    ) -> None:
+        status, output, error = run_cli(["guide", "laws", "ido53", "L999"])
+        self.assertEqual(status, 2)
+        self.assertNotIn("### L1.", output)
+        self.assertIn("L999", error)
+
+    def test_a_third_argument_without_laws_is_refused(self) -> None:
+        status, _, error = run_cli(["guide", "pool-position", "ido53", "L66"])
+        self.assertEqual(status, 2)
+        self.assertIn("laws", error)
+
+
+class LawCrossLinkTests(unittest.TestCase):
+    """Every campaign-verified law must be reachable from a residual's footer.
+
+    A law nobody is routed to is a law the next campaign re-derives, which is
+    exactly how these nine came to be measured twice.
+    """
+
+    def cited(self) -> set[tuple[str, str]]:
+        return {
+            (era, law)
+            for entries in field_guide.PLAYBOOK_LAWS.values()
+            for era, law, _summary in entries
+        }
+
+    def test_every_cited_law_exists_on_the_page_it_names(self) -> None:
+        for era, law in sorted(self.cited()):
+            with self.subTest(era=era, law=law):
+                self.assertEqual(field_guide.read_law(era, law).name, law)
+
+    def test_the_campaign_laws_are_each_cited_somewhere(self) -> None:
+        """L69 and L70 are cited by the routing footer, not by a playbook."""
+
+        from decomp_workbench.view import PERMUTER_ROUTING_STEPS
+
+        routed = " ".join(PERMUTER_ROUTING_STEPS)
+        cited = {law for _era, law in self.cited()}
+        for law in ("L62", "L63", "L64", "L65", "L66", "L67", "L68"):
+            with self.subTest(law=law):
+                self.assertIn(law, cited)
+        for law in ("L69", "L70"):
+            with self.subTest(law=law):
+                self.assertIn(law, routed + " " + " ".join(sorted(cited)))
+
+    def test_a_footer_prints_the_law_as_a_pasteable_command(self) -> None:
+        steps = field_guide.next_steps("temp-fifo-phase")
+        citation = next(step for step in steps if step.startswith("law L64:"))
+        self.assertIn("decomp-workbench guide laws ido53 L64", citation)
+        # Pasteable means it runs.
+        status, _, error = run_cli(citation.split("decomp-workbench ")[1].split())
+        self.assertEqual(status, 0, error)
+
+    def test_the_law_line_comes_last_so_the_levers_are_read_first(self) -> None:
+        steps = field_guide.next_steps("stack-frame-recovery")
+        self.assertTrue(steps[-1].startswith("law L63:"))
+
+    def test_a_playbook_with_no_law_gains_no_line(self) -> None:
+        self.assertEqual(field_guide.law_steps("post-match-cleanup"), ())

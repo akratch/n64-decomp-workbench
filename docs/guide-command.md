@@ -62,6 +62,32 @@ exactness names printed by `compare` (`allocation-mismatch`,
 
 `--width` and `--pager` behave exactly as they do on `view` and `diagnose`.
 
+## Laws, and the one a footer cited
+
+`guide laws` is the other half of the command, and it answers a different
+question: not what to change, but what the compiler will do about it.
+
+```sh
+decomp-workbench guide laws            # the eras that ship
+decomp-workbench guide laws ido53      # the whole IDO 5.3 page
+decomp-workbench guide laws ido53 L64  # one law
+```
+
+The third argument is the address a `next:` footer prints. Every lever family
+whose mechanism is written down ends its footer with a line like
+
+```text
+law L64: the integer ring is seeded t6 t7 t8 t9 t0..t5, so a one-pop phase
+error rotates by that order and not by register number --
+decomp-workbench guide laws ido53 L64
+```
+
+so a residual points at its law and the reader pastes the citation rather than
+translating it. `64` and `law 64` reach the same page as `L64`; an unrecognised
+number says which range that era carries instead of printing the whole
+document. The era is part of the address on purpose — nothing measured on one
+IDO release may be quoted under another's name.
+
 ## Where the text comes from
 
 The guide travels inside the installed package, so `guide` works with no
@@ -91,3 +117,5 @@ exits non-zero.
 - [Compiler instrumentation](compiler-instrumentation.md) — the "have an
   instrumented toolchain?" branch.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
+- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
+  [IDO 7.1](compiler-laws/ido-7.1.md) — the pages `guide laws` prints.

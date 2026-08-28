@@ -370,6 +370,10 @@ PERMUTER_ROUTING_STEPS: tuple[str, ...] = (
     "decomp-workbench permute-doctor FUNCTION, then permute-sweep QUEUE. An "
     "allocation or schedule tie is a search problem; record it as a wall only "
     "after a measured search has been flat (permute classify).",
+    # The doctor exists because of this law; naming it here is what stops a
+    # flat search from being read as a fact about the function.
+    "law L69: a permuter that finds nothing instantly is a setup fault, not a "
+    "hard function -- decomp-workbench guide laws ido53 L69",
 )
 
 #: Verdicts whose residual is an allocation, colour, or schedule tie.

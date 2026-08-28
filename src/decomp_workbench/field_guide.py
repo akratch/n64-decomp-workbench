@@ -38,16 +38,25 @@ __all__ = [
     "LAW_DOCUMENTS",
     "LAW_ERA_ALIASES",
     "LEVER_ACTIONS",
+    "PLAYBOOK_LAWS",
     "PLAYBOOK_LEVERS",
     "VERDICT_PLAYBOOKS",
     "GuideSection",
+    "Law",
     "Topic",
+    "law_citation",
     "law_eras",
     "law_index_lines",
+    "law_steps",
+    "laws",
     "next_steps",
     "normalize_era",
+    "normalize_law",
+    "parse_laws",
     "read_field_guide",
+    "read_law",
     "read_laws",
+    "render_law",
     "render_topic",
     "resolve_topic",
     "sections",
@@ -630,6 +639,105 @@ COARSE_ALLOCATION_LEAD_IN = (
 )
 
 
+#: The compiler law behind a lever family, keyed by playbook.
+#:
+#: A lever says what to change; the law says what the compiler will do about
+#: it, and a reader who has only the lever re-derives the law the hard way --
+#: which is exactly what a whole campaign did before contributing L62-L70. So
+#: every footer that names a family also names the law that family rests on,
+#: as a command that prints it.
+#:
+#: Each entry is `(era, law, one line)`. The era is part of the address on
+#: purpose: nothing measured on one IDO release may be quoted under another's
+#: name, and two of these families have laws on both pages.
+PLAYBOOK_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "ast-shape": (
+        (
+            "ido53",
+            "L67",
+            "a comparison prints its copy-propagated variable first, so "
+            "operand order is a readout of the carrier and not a lever",
+        ),
+    ),
+    "constant-audit": (
+        (
+            "ido53",
+            "L62",
+            "a float scalar takes the rodata lwc1 form iff its low halfword "
+            "is non-zero, and only that form joins the invariant-load group",
+        ),
+    ),
+    "g0-schedule-probe": (
+        (
+            "ido53",
+            "L62",
+            "a schedule difference around one float constant is a load-form "
+            "difference: low halfword zero means a statement load, never an "
+            "invariant one",
+        ),
+        (
+            "ido53",
+            "L70",
+            "measure on the project path, never on an isolated cc -c: the "
+            "same source compiled 56 instructions one way and 58 the other",
+        ),
+    ),
+    "pool-position": (
+        (
+            "ido53",
+            "L66",
+            "a web feeding a call argument inherits that argument register "
+            "at cost 0, so a redundant-looking re-cache is what rides it",
+        ),
+    ),
+    "stack-frame-recovery": (
+        (
+            "ido53",
+            "L63",
+            "declared locals take descending stack homes in declaration "
+            "order, so a declaration reorder places a call-crossing spill",
+        ),
+    ),
+    "structure-buckets": (
+        (
+            "ido53",
+            "L68",
+            "a compiler-owned jump table's bytes are the case mapping; "
+            "matching .text is not evidence that the mapping is right",
+        ),
+    ),
+    "temp-fifo-phase": (
+        (
+            "ido53",
+            "L64",
+            "the integer ring is seeded t6 t7 t8 t9 t0..t5, so a one-pop "
+            "phase error rotates by that order and not by register number",
+        ),
+        (
+            "ido53",
+            "L65",
+            "a folded redundant mask emits no instruction and still pops the "
+            "ring once -- the phantom pop, and it works in both directions",
+        ),
+    ),
+}
+
+
+def law_citation(era: str, law: str, summary: str) -> str:
+    """Return one footer line pointing a residual at the law under it."""
+
+    return f"law {law}: {summary} -- decomp-workbench guide laws {era} {law}"
+
+
+def law_steps(playbook: str) -> tuple[str, ...]:
+    """Return the law citations one playbook's footer owes its reader."""
+
+    return tuple(
+        law_citation(era, law, summary)
+        for era, law, summary in PLAYBOOK_LAWS.get(playbook, ())
+    )
+
+
 def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]:
     """Return the on-ramp lines appended to one verdict's guidance.
 
@@ -652,6 +760,7 @@ def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]
             f"  {label}: decomp-workbench guide {name}" for name, label in families
         )
         lines.extend(AMBIGUOUS_ONRAMPS)
+        lines.extend(law_steps(playbook))
         return tuple(lines)
     levers = PLAYBOOK_LEVERS.get(playbook, ())
     if levers:
@@ -659,6 +768,10 @@ def next_steps(playbook: str, *, lead_in: Sequence[str] = ()) -> tuple[str, ...]
         lines.extend(f"  lever {number}: {LEVER_ACTIONS[number]}" for number in levers)
         lines.append(f"read them: decomp-workbench guide {playbook}")
     lines.extend(PLAYBOOK_ONRAMPS.get(playbook, ()))
+    # Last of the family's own lines: the levers are what to try, and this is
+    # the mechanism they rest on. A reader who never learns the law exists
+    # re-derives it, which is how L62-L70 came to be measured twice.
+    lines.extend(law_steps(playbook))
     return tuple(lines)
 
 
@@ -743,6 +856,125 @@ def read_laws(era: str) -> str:
         ) from error
 
 
+#: Every `### Ln. Title` law heading, and the `## Pass` heading above it.
+LAW_HEADING_RE = re.compile(r"^###\s+(L\d+)\.\s+(.+?)\s*$")
+
+
+@dataclass(frozen=True)
+class Law:
+    """One numbered law, with the pass heading it sits under."""
+
+    name: str
+    title: str
+    section: str
+    lines: tuple[str, ...]
+
+
+def normalize_law(law: str) -> str:
+    """Return the canonical `Ln` spelling for one of its spellings.
+
+    A reader types what the footer printed (`L64`), what a note said
+    (`law 64`), or just the number. All three name one law, and refusing two
+    of them would make the citation in a footer a thing you have to translate
+    before you can paste it.
+    """
+
+    token = law.strip().casefold().removeprefix("law").strip()
+    token = token.removeprefix("l")
+    return f"L{token}" if token.isdigit() else law.strip()
+
+
+def parse_laws(text: str) -> dict[str, Law]:
+    """Split a laws document into its `### Ln. Title` sections.
+
+    Keyed on the number, like the field guide's levers, because the number is
+    the address every footer and cross-reference cites; heading text is free
+    to be edited.
+    """
+
+    found: dict[str, Law] = {}
+    section = ""
+    name: str | None = None
+    title = ""
+    body: list[str] = []
+
+    def flush() -> None:
+        if name is None:
+            return
+        kept = list(body)
+        while kept and kept[-1].strip() in {"", "---"}:
+            kept.pop()
+        found[name] = Law(name=name, title=title, section=section, lines=tuple(kept))
+
+    for line in text.splitlines():
+        heading = LAW_HEADING_RE.match(line)
+        if heading is not None:
+            flush()
+            name, title = heading.group(1), heading.group(2)
+            body = [line]
+            continue
+        family = FAMILY_RE.match(line)
+        if family is not None:
+            flush()
+            name, body = None, []
+            section = family.group(1)
+            continue
+        if name is not None:
+            body.append(line)
+    flush()
+    return found
+
+
+def laws(era: str) -> dict[str, Law]:
+    """Return one era's parsed laws, keyed by `Ln`."""
+
+    return parse_laws(read_laws(era))
+
+
+def read_law(era: str, law: str) -> Law:
+    """Return one law of one era.
+
+    An unknown number names the range that exists rather than printing the
+    whole page: a reader who mistyped a citation wants to know the citation
+    was wrong, not to scroll a document looking for it.
+    """
+
+    available = laws(era)
+    name = normalize_law(law)
+    found = available.get(name)
+    if found is None:
+        numbers = sorted(int(item[1:]) for item in available)
+        span = f"L{numbers[0]}-L{numbers[-1]}" if numbers else "none"
+        raise ValueError(
+            f"unknown law {law!r} for era {normalize_era(era)}; "
+            f"that page carries {span}"
+        )
+    return found
+
+
+def render_law(era: str, law: Law) -> list[str]:
+    """Return the printable form of one law, with its address and its page."""
+
+    document, label = LAW_DOCUMENTS[normalize_era(era)]
+    lines = [
+        f"COMPILER LAWS  {label}  {law.name}",
+        f"source: {document}" + (f"  [{law.section}]" if law.section else ""),
+        "",
+    ]
+    lines.extend(law.lines)
+    lines.extend(
+        (
+            "",
+            "-" * 72,
+            "",
+            "NEXT",
+            f"  the whole page: decomp-workbench guide laws {normalize_era(era)}",
+            "  what to change about it: decomp-workbench guide",
+        )
+    )
+    return lines
+
+
 def law_index_lines() -> list[str]:
     """Return the listing printed by `guide laws` with no era."""
 
@@ -758,6 +990,7 @@ def law_index_lines() -> list[str]:
         (
             "",
             "Example: decomp-workbench guide laws ido53",
+            "One law: decomp-workbench guide laws ido53 L64",
             "Levers, as opposed to mechanism: decomp-workbench guide",
         )
     )

@@ -25,6 +25,7 @@ from decomp_workbench.diagnosis import DIAGNOSIS_SCHEMA, diagnose_dumps
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.view import (
     PERMUTER_ROUTING_SENTENCE,
+    PERMUTER_ROUTING_STEPS,
     ROUTING_IMPORT_FIX,
     ROUTING_NONE,
     ROUTING_PERMUTER_FIRST,
@@ -126,8 +127,11 @@ class RoutedGuidanceTests(unittest.TestCase):
         self.assertEqual(view.routing, ROUTING_PERMUTER_FIRST)
         self.assertIn(PERMUTER_ROUTING_SENTENCE, view.guidance)
         self.assertIn("permute-doctor", " ".join(view.guidance))
-        # Last, because the levers above it are what to try first.
-        self.assertEqual(view.guidance[-2], PERMUTER_ROUTING_SENTENCE)
+        # Last, because the levers above it are what to try first: the whole
+        # routing block is the tail of the footer, in order.
+        self.assertEqual(
+            view.guidance[-len(PERMUTER_ROUTING_STEPS) :], PERMUTER_ROUTING_STEPS
+        )
 
     def test_the_sentence_corrects_the_scope_of_the_claim(self) -> None:
         """`HAND` is the whole correction, so it is not decoration."""
