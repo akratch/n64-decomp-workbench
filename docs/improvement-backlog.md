@@ -526,3 +526,12 @@ and an improvement whose timing was never recorded is classed descending, since
 being wrong towards `P_STUCK_FLAT` is what funds a build for a function nobody
 measured. The `P`/`P!`/`F`/`S`/`W` letters stay a host convention; this command
 supplies the measurement they are supposed to encode.
+
+### 13. Review follow-ups (2026-08-28, second review pass)
+Small, each verified as a real gap and deliberately left out of the review commits:
+- `compile_scratch_base` (and `import_scratch`, `make -n` recovery) have no timeout; the fidelity check adds up to two unbounded children per function. Give the scratch phase one bounded `run_owned` policy.
+- `staleness_cli --tolerance` hardcodes `1.0` instead of `DEFAULT_TOLERANCE_SECONDS` and accepts negatives.
+- `view.__all__` lacks `ROUTING_VALUES` / `ROUTING_*` while the other value lists are exported.
+- `globalcolor.pass_evidence` is API-only: no `diagnose` flag feeds a trace, so `ownership_basis=trace` never appears on a terminal. Add `--trace PATH`.
+- L66 has no `Scope` line and generalises one T1 trace; either scope it or mark it single-observation.
+- Laws L62–L70 and `docs/permute-sweep.md` cite ROM function addresses, frame sizes and register groups (no instruction text); add the one-line redistribution basis CONTRIBUTING asks for, or state that symbol-level citations are exempt.
