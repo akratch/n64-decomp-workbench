@@ -73,7 +73,13 @@ R_MIPS_LO16 = 6
 SUPPORTED_TYPES = frozenset({R_MIPS_32, R_MIPS_26, R_MIPS_HI16, R_MIPS_LO16})
 
 STB_GLOBAL = 1
+STB_WEAK = 2
 STT_FUNC = 2
+
+#: The bindings a definition in another object of the module can satisfy a
+#: reference with. A `STB_LOCAL` definition resolves nothing outside its own
+#: object, so it is not one.
+LINKABLE_BINDINGS = frozenset({STB_GLOBAL, STB_WEAK})
 
 #: `NAME = 0x1234;` or `NAME = other_name;` -- the two line shapes a linker
 #: symbol block has, and the two this module both writes and reads back.
@@ -584,6 +590,11 @@ def module_defined_names(
     another module's function, a resident function, or this module's own data
     that the runtime places separately -- must carry the stored addend instead
     of whatever address this build happens to give it.
+
+    Only a *linkable* definition counts. A `STB_LOCAL` symbol resolves nothing
+    outside the object that defines it, so a static in a sibling object is not
+    the module's definition of that name: dropping the value line for it would
+    leave the link with an undefined reference and no reason for it.
     """
 
     wanted = set(sections)
@@ -591,7 +602,9 @@ def module_defined_names(
     for _name, elf in objects:
         indices = {section.index for section in elf.sections if section.name in wanted}
         for symbol in elf.symbols:
-            if symbol.name and symbol.shndx in indices:
+            if not symbol.name or symbol.shndx not in indices:
+                continue
+            if symbol.bind in LINKABLE_BINDINGS:
                 out.add(symbol.name)
     return out
 

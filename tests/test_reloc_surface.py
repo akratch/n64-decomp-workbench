@@ -17,6 +17,7 @@ from elf_fixtures import (
     R_MIPS_HI16,
     R_MIPS_LO16,
     STB_GLOBAL,
+    STB_LOCAL,
     STT_FUNC,
     RelocSpec,
     SymbolSpec,
@@ -197,6 +198,38 @@ class SynthesisTests(unittest.TestCase):
         )
         self.assertNotIn("callee", surface.value_map())
         self.assertIn("gBase", surface.value_map())
+
+    def test_a_static_in_another_object_does_not_satisfy_the_reference(
+        self,
+    ) -> None:
+        """Only a linkable definition makes an assignment unnecessary.
+
+        A `STB_LOCAL` symbol resolves nothing outside its own object, so
+        treating one as the module's definition drops the value line and
+        leaves the link with an undefined reference and no reason for it.
+        """
+
+        module = rs.parse_module_map(
+            module_document(
+                text_placement=[
+                    {"object": "tu.c.o", "section": ".text", "offset": hex(TU_OFFSET)},
+                    {"object": "other.c.o", "section": ".text", "offset": "0x100"},
+                ]
+            )
+        )
+        other = build_relocatable(
+            {".text": words(NOP)},
+            [SymbolSpec("callee", 0, 4, STT_FUNC, STB_LOCAL, ".text")],
+        )
+        surface = rs.synthesize(
+            [
+                ("tu.c.o", parse_elf(candidate_object())),
+                ("other.c.o", parse_elf(other)),
+            ],
+            module,
+            shipped_image(),
+        )
+        self.assertIn("callee", surface.value_map())
 
     def test_an_r_mips_32_site_takes_the_stored_word(self) -> None:
         obj = build_relocatable(
