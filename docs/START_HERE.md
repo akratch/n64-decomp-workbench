@@ -411,6 +411,22 @@ outcomes:
 Record every attempt. The word count *and* the verdict, per variant. Half the
 value of a campaign is knowing which families are dead.
 
+One guard on "compare again": the comparison reads the object on disk, not the
+edit you just made. Name what it was built from and it will refuse rather than
+report a match you did not earn:
+
+```sh
+decomp-workbench compare target.o candidate.o --function animStep \
+  --built-from src/game/track.c
+```
+
+The same `--built-from` works on `compare-dumps`, `diagnose` and
+`diagnose-dumps`, `--allow-stale` downgrades the refusal to a warning, and
+`decomp-workbench check-staleness src/game/track.c build/track.o build/game.z64`
+checks a whole build chain without running a comparison at all. A silent
+`words=0` off a stale build is the one failure here that turns silence into a
+*wrong* answer.
+
 ---
 
 ## Minute 9 — sweep with `campaign` when one variant is not enough
@@ -506,6 +522,13 @@ red-herring output that exposed a mechanism class nobody had thought of
 (return-type coalescing). Budget it that way: run it in the background if you
 like the lottery ticket, but never let it replace a directed variant.
 
+When you do run it, run it on a scratch that is the object your build produces:
+`decomp-workbench permute-doctor <function>` answers that before an hour is
+spent, `permute-sweep` drives a bounded search over a queue, and `permute
+classify` reads the wall class off the measurement instead of off the prose
+afterwards. Eight of twelve "found nothing instantly" verdicts in one campaign
+were a setup fault, not a wall. See [permuter sweeps](permute-sweep.md).
+
 There is also an [Agent Skill](agent-skill.md) (`install-skill codex` or
 `install-skill claude`) if you *want* to hand the loop to an agent. It runs the
 same commands you would. It is a convenience, not a requirement, and it does
@@ -537,6 +560,16 @@ about pointers). `trace-webs` aligns decisions by semantic provenance,
 and a calibrated [`oracle`](oracle.md) can test one bounded allocator cause.
 Start at [Trace analysis](trace-analysis.md); building the producer is
 [Compiler instrumentation](compiler-instrumentation.md).
+
+You do not have to read the trace yourself to get the one thing it settles.
+`decomp-workbench diagnose ... --trace uopt.log --trace-proc N` reads it for
+you and prints an `ownership:` line under the verdict: `owning_pass` names the
+pass that owns the residual, `reachability` says whether a lever this evidence
+exposes reaches it, and `ownership_basis` says whether that answer was
+*measured* from the trace or read off the shape of the diff. Scope it to the
+procedure -- a trace covers a whole compilation, and reading a neighbouring
+function's declined force as this one's manufactures a measurement. The fields
+are documented in [the aligned mechanism view](view.md).
 
 A trace tells you *what the compiler decided*. It does not tell you what C to
 write. The field guide does that.
@@ -598,6 +631,9 @@ pair was finished.
 
 | Read this if... | Document |
 |---|---|
+| you are searching a queue of functions with the permuter, or a search "found nothing" | [Permuter sweeps](permute-sweep.md) |
+| a `words=0` might be a comparison against a build older than the edit | [Is the thing you compared the thing you just built?](object-comparison.md#is-the-thing-you-compared-the-thing-you-just-built) |
+| you want what the compiler *does*, laws L1-L70 with their evidence | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) |
 | you have a lever family and need the actual C | [Field guide](field-guide.md) |
 | you have a pile of near-matches to work through | [Backlog walkthrough](walkthrough-30-near-matches.md) |
 | you want every `view` option and the JSON schema | [Aligned mechanism view](view.md) |

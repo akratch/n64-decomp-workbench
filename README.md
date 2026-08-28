@@ -190,6 +190,19 @@ As the work deepens, one command family per stage of a real campaign:
   hardcoded pointer that passed the project's own retail verifier was
   convicted by `shift rehearse`, by name. See [shiftability][shiftability]
   and [the shiftability campaign][shiftability-campaign].
+- `permute sweep`, `permute doctor`, `permute classify` — a bounded
+  decomp-permuter search whose scratch reproduces the project's real per-object
+  recipe, a preflight that says so before the search burns an hour, and a
+  wall class read off the measurement rather than off verdict prose. See
+  [permuter sweeps][permute-sweep].
+- `ranking stamp`, `ranking check` — a closeness ranking measures one tree and
+  decays the moment that tree moves. Stamp it where it is produced, check it
+  where work is ordered by it. See [the ranking decays][ranking-decays].
+- `check-staleness`, and `--built-from` on `compare`, `compare-dumps`,
+  `diagnose` and `diagnose-dumps` — a comparison against a build older than its
+  own source reads as a *match*, which is the expensive way to be wrong. Name
+  the inputs and the comparison refuses. See [is the thing you compared the
+  thing you just built?][staleness].
 - `handoff audit` — before publishing a proof repository, check that every
   local dependency actually travels. See
   [public handoff audits][public-handoffs].
@@ -213,6 +226,57 @@ suppresses evidence. [The field guide](docs/field-guide.md) turns each of these
 rows into the C that moves it, `decomp-workbench guide <playbook|verdict|lever>`
 prints the relevant part of it in the terminal, and [from verdict to
 edit](docs/from-verdict-to-edit.md) walks one case end to end.
+
+## The late-stage campaign loop
+
+The section above is one function. A backlog of them, late in a project, is a
+loop — and every step of it carries a guard, because the expensive mistakes at
+this stage are all measurements of the wrong thing:
+
+```sh
+# 1. rank — is the order still a measurement of this tree?
+decomp-workbench ranking check config/ranking.json
+# 2. preflight — is the scratch the object the build actually produces?
+decomp-workbench permute-doctor func_80012574 --queue queue.json
+# 3. sweep — bounded search, refused outright against a stale ranking
+decomp-workbench permute-sweep queue.json --minutes 20 \
+  --ranking config/ranking.json --require-fresh
+# 4. classify — what the search measured, not what the prose says
+decomp-workbench permute classify out/summary.json
+# 5. route — who owns what is left, and is a lever even reachable?
+decomp-workbench diagnose target.o candidate.o --function func_80012574 \
+  --trace uopt.log --trace-proc 1
+# 6. verify — against a build newer than the source it came from
+decomp-workbench compare target.o candidate.o --function func_80012574 \
+  --built-from src/game/track.c
+```
+
+Step 4 is the routing decision: `MATCHED` verifies and promotes,
+`P_STUCK_DESCENDING` is the only class that earns trace levers or a human,
+`P_STUCK_FLAT` is the pool from which the case for deeper instrumentation is
+argued, and `IMPORT_FAULT` is not a result about the function at all — it
+routes back to step 2.
+
+Step 5 prints an `ownership:` line under the verdict —
+`owning_pass=... reachability=... ownership_basis=...` — which says which
+compiler pass owns the residual and whether any lever this evidence exposes
+reaches it. `--trace` is what turns `ownership_basis` from `heuristic` into
+`trace`: a declined force or a `regsleft=0` contest is the one fact two
+disassemblies cannot show. Scope it with `--trace-proc`/`--trace-web`; a trace
+covers a whole compilation, and reading some other function's declined force as
+this one's manufactures a measurement.
+
+The two guards are not optional decoration. A ranking that stamps a different
+commit orders work by a tree that no longer exists, and a comparison against a
+stale object reports `words=0` for a source edit that was never compiled. Both
+have happened; both are one flag away from impossible.
+
+The mechanisms behind the levers are written down as
+[compiler laws][compiler-laws]: L62-L70 are the most recent nine, from a
+whole-ROM campaign — the float load form that decides a schedule (L62), the
+temp ring's seed order (L64), the phantom pop (L65), and two measurement laws
+about harnesses that lie (L69, L70). `decomp-workbench guide laws ido-5.3 L64`
+prints one.
 
 ## Command reference
 
@@ -298,4 +362,8 @@ CC0-1.0. Third-party tools and user-supplied inputs keep their own terms.
 [shiftability-campaign]: docs/shiftability-campaign.md
 [public-handoffs]: docs/public-handoffs.md
 [ido-support]: docs/ido-support.md
+[permute-sweep]: docs/permute-sweep.md
+[ranking-decays]: docs/permute-sweep.md#the-ranking-is-a-measurement-and-it-decays
+[staleness]: docs/object-comparison.md#is-the-thing-you-compared-the-thing-you-just-built
+[compiler-laws]: docs/compiler-laws/ido-5.3.md
 [contributing]: CONTRIBUTING.md
