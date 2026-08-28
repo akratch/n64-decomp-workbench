@@ -7,6 +7,28 @@ in [design notes](docs/history/design-notes.md).
 
 ### Added
 
+- Trace commands name a binary pass-boundary stream instead of failing on
+  decode. `capture make` leaves the Ucode uopt hands ugen and the Binasm ugen
+  hands as1 on disk beside the textual traces, under the compiler's own
+  temporary-file names, so nothing about a name says which is which; feeding
+  one to `trace-summary` produced a raw `UnicodeDecodeError`, and feeding one
+  whose record words happen to be small integers produced something worse -- a
+  clean decode and *zero events*. `trace.read_trace_source` is now the single
+  reader behind `trace-summary`, `trace-fifo`, `trace-alias`, `trace-a71`,
+  `trace-scheduler`, `trace-source`, `copy-decisions`, the `allocator-*`
+  commands, `oracle` and `diagnose --trace`. A stream is refused by name, with
+  its record count, the decoder that reads it (`ucode window` / `binasm
+  window`), and the Tier-2 instrumentation that produces a textual trace
+  instead. Framing decides it, delegated to `streams.detect_format`, so a
+  trace command and `stream diff` cannot disagree about what a file is; a NUL
+  or a tenth of the file in control bytes, with no diagnostic line anywhere,
+  is what separates a stream from text that merely decodes. A file that only
+  *contains* binary is recovered rather than refused: its diagnostic lines are
+  parsed, its replaced bytes counted, and a `warning:` on stderr states both.
+  The trace commands still decode no records -- a stream carries records, not
+  the decisions that produced them, and printing a record window under a trace
+  command would blur the Tier-1/Tier-2 boundary this was meant to clarify.
+
 - `owning_pass` and `reachability` beside the verdict, so a residual names the
   compiler decision behind it and not only its shape. `routing` said which
   *tool* a residual belongs to; it still did not say **why**, and the three

@@ -24,6 +24,32 @@ The parser retains known `CODEX-*` and `DKWB-*` tags and counts actions,
 registers, and source lines. Unknown diagnostic tags remain visible rather than
 being silently discarded.
 
+## When the file is a stream, not a trace
+
+`capture make` leaves the binary pass boundaries on disk beside the textual
+traces, under the compiler's own temporary-file names, so nothing in a name
+says which is which. Every trace command reads through one reader that says so:
+
+```text
+error: after-9-ctmc2PdRlS is a fixed 16-byte binary Binasm (ugen's -o and
+-temp output) pass-boundary stream, 812 record(s), not a diagnostic trace. A
+stream carries records, not the decisions that produced them, so no trace
+command can decode it: read the records with `decomp-workbench binasm window
+after-9-ctmc2PdRlS` (docs/phase-capture.md), and for a textual per-decision
+trace build the Tier-2 instrumented toolchain
+(docs/compiler-instrumentation.md).
+```
+
+The framing decides this, not the decode: a Binasm record's words are small
+integers, so a whole stream can decode as UTF-8 and report zero events, which
+is the more expensive of the two failures. Classification is delegated to the
+stream decoders, so a trace command and `stream diff` never disagree about what
+a file is. A file that merely *contains* binary is different, and is not
+refused: its diagnostic lines are recovered, the undecodable bytes are counted,
+and a `warning:` on stderr says how many of each. Binary that frames as neither
+stream and carries no diagnostic line is refused too, pointing at
+`stream window` rather than guessing.
+
 ## Inspect alias-state decisions
 
 ```sh

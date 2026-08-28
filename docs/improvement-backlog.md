@@ -224,6 +224,30 @@ undeclared one is reported `unknown` rather than `fresh`.
 - **Payoff.** Removes a confusing hard failure and clarifies the Tier-1/Tier-2
   boundary at the point of use.
 
+**Status (landed).** `trace.read_trace_source` is the one reader every trace
+command goes through -- `trace-summary`, `trace-fifo`, `trace-alias`,
+`trace-a71`, `trace-scheduler`, `trace-source`, `allocator-*`, `copy-decisions`,
+`oracle` and `diagnose --trace`. A pass-boundary stream is refused **by name**,
+with its record count, the decoder that reads it (`ucode window` /
+`binasm window`), and the Tier-2 instrumentation that produces a textual trace
+instead. Classification is delegated to `streams.detect_format`, so a trace
+command and `stream diff` cannot disagree about what a file is.
+
+**The decode was never the test.** A Binasm record's words are small integers,
+so such a stream decodes as UTF-8 without raising and reported *zero events* --
+a quieter and more expensive failure than the `UnicodeDecodeError` this item
+was filed against. One NUL, or a tenth of the file in control bytes, plus the
+absence of any diagnostic line, is the evidence used instead.
+
+**Deliberately out:** the trace commands do not decode stream records. A stream
+carries records, not the decisions that produced them, and the decision text
+only exists when the instrumented toolchain writes it -- printing a record
+window under a trace command would blur exactly the Tier-1/Tier-2 boundary this
+item asked to clarify. What *is* decoded is a file that merely contains binary:
+its diagnostic lines are recovered, the replaced bytes counted, and a `warning:`
+on stderr states both, because the other line formats sharing this reader
+(globalcolor, a71, scheduler) carry no tag and must never be gated on one.
+
 ---
 
 ## P2 — Guidance & evidence clarity
