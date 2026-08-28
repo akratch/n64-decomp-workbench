@@ -70,6 +70,20 @@ redistribution basis. Attribution or a public upstream repository alone is not
 enough. If that basis cannot be recorded, commit a reproducible recipe and
 synthetic metadata instead of the payload.
 
+**Symbol-level citations are not that payload, and are exempt.** A compiler
+law or a worked page may name the function a measurement came from, its
+address-derived symbol (`func_8001A154`), its size in bytes or instructions,
+its frame size, which architectural registers a group landed on, and the
+verdict that was measured — without a redistribution basis. None of that is a
+copy of any part of a binary: it is the *result* of a measurement, the same
+class of fact as a benchmark number, and a reader cannot reconstruct a
+single instruction from it. The line is the payload, and it is the same line
+the rest of this file draws: **no instruction text, no disassembly, no
+hexdump, no extracted data, in any encoding**. A page that needs one of those
+to make its point needs the notice and the basis, or a synthetic fixture
+instead — and this repository's fixtures are synthetic for that reason. Cite
+the measurement; never paste the bytes.
+
 ## Licensing
 
 By contributing original material here, you agree to dedicate it under

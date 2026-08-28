@@ -17,6 +17,14 @@ from the build itself, the post-compile chain is replicated into the scratch,
 `--stack-diffs` is always passed, and the scratch object is measured against
 the object the project's own build produces before a window is spent on it.
 
+The Mickey function names, sizes and frame numbers used as examples below are
+symbol-level citations — measurement results, not binary content. No
+instruction text, disassembly or extracted data appears here or anywhere else
+in this repository, which is the exemption
+[CONTRIBUTING](../CONTRIBUTING.md) records; the objects themselves are not
+redistributable and are not committed. Every fixture the tests run on is
+synthetic.
+
 ## What it does not do
 
 It does not promote. A scratch score of 0 is a *candidate*: proving it means

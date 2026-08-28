@@ -37,6 +37,18 @@ from scratch because they were nowhere on this page. Two of them (L69, L70)
 are not compiler behaviour at all but **measurement** laws about harnesses
 that lie, filed under Measurement laws for that reason.
 
+## What a receipt may cite
+
+Every receipt on this page is a **symbol-level citation**: the function a
+measurement came from, its address-derived name, its size, its frame, the
+registers a group landed on, and the object hash that closed it. Nothing on
+this page is a copy of any part of a binary — no instruction text, no
+disassembly, no extracted data — and the objects behind these receipts are
+not redistributable and are not in this repository. That is the exemption
+[CONTRIBUTING](../../CONTRIBUTING.md) records for symbol-level citations, and
+it is why these laws need no separate redistribution basis. Reproducing one
+means rebuilding it from the project that owns the binary.
+
 ## Evidence tiers
 
 | Tier | Meaning |
