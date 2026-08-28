@@ -1,6 +1,6 @@
 # Product status
 
-As of 0.6.0, 2026-08-17.
+As of 0.7.0, 2026-08-28.
 
 This is the current-state companion to the dated records in
 [docs/history](history/). Those documents preserve why features were
@@ -14,6 +14,9 @@ are tracked in the [Workbench quality checklist](workbench-quality-checklist.md)
 | Job | Supported path |
 |---|---|
 | Explain one mismatch | `doctor` → `diagnose` → field-guide lever → rebuild |
+| Route one residual to the tool that owns it | `diagnose --trace` → the `routing` and `ownership` verdict lines → permuter sweep, field-guide lever, or import fix |
+| Work a backlog of near-matches | `ranking check` → `permute doctor` → `permute sweep --require-fresh` → `permute classify` → project-truth verification |
+| Trust that a comparison measured the current build | `--built-from` on `compare`/`compare-dumps`/`diagnose`/`diagnose-dumps`, or `check-staleness` over a whole build chain |
 | Check a 99.xx% decomp.me result | `doctor ZIP` → `check-scratch --view` → optional site-faithful compile/project truth differential |
 | Publish a proof repository | `handoff audit` → resolve missing/untracked dependencies → fresh-clone review |
 | Work a candidate family | v1/v2 `experiment validate` → control preflight → `campaign` → status/note/resume/export |
@@ -30,8 +33,9 @@ are tracked in the [Workbench quality checklist](workbench-quality-checklist.md)
 
 Flat command names remain compatible. `decomp-workbench commands` presents the
 same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
-`cache`, `project`, `trace`, `instrument`, `pass`, `toolchain`, `shift`, `oracle`,
-`experiment`).
+`cache`, `project`, `trace`, `instrument`, `pass`, `capture`, `ucode`,
+`binasm`, `stream`, `probe`, `sweep`, `toolchain`, `shift`, `target`,
+`permute`, `ranking`, `oracle`, `experiment`).
 
 ## Intentional boundaries
 
@@ -49,6 +53,15 @@ same surface as task groups (`object`, `scratch`, `handoff`, `campaign`,
   attach precomputed ROM hashes.
 - No forced compiler result presented as a match. Oracle output always routes
   back to source and stock-project verification.
+- No promotion from a permuter score. `permute sweep` runs a bounded search in
+  a scratch it first proves is the object the project's own build produces; a
+  score of 0 is a candidate until the authoritative build agrees. `permute
+  classify` names the wall class the search *measured*, and never argues one
+  from verdict prose.
+- No exactness claim over an unstated build. A comparison answers "are these
+  the same", not "is this what my last edit produced"; `--built-from` is what
+  makes the second question answerable, and modification time is treated as
+  evidence with an escape hatch rather than as proof.
 - No silent cleanup or overwrite. Evidence is append-only or exclusive;
   cache pruning is recoverable.
 - No emulator or behavioral oracle for shifted images. `shift rehearse`

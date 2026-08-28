@@ -1,6 +1,6 @@
 # Roadmap to 1.0
 
-As of 0.6.0, 2026-08-17. Each item carries the campaign evidence that earned
+As of 0.7.0, 2026-08-28. Each item carries the campaign evidence that earned
 its place; nothing here is speculative. The dated design discussions behind
 the older items are preserved in
 [the 2026-07/08 tooling roadmap](history/tooling-roadmap.md).
@@ -64,7 +64,11 @@ the older items are preserved in
 8. **Permuter integration hardening.** Of eleven permuter "improvements" in
    one session, two were real: add a frame-mismatch hard reject, opcode-aware
    scoring, and a `permuter-export` shim so its candidates enter a campaign
-   ledger instead of a terminal scroll.
+   ledger instead of a terminal scroll. 0.7.0 shipped the surrounding driver
+   — `permute sweep`/`doctor`/`classify`, scratch fidelity against the
+   project's own object, and stamped rankings — which closes the "did it
+   search the right thing" half. The three items above are about the search
+   itself and the ledger it lands in, and remain open.
 9. **A falsified-hypothesis dossier schema.** Roughly 150 of the frontier
    campaign's 215 commits closed candidate routes, but only as prose in a
    5,000-line handoff; ~13,000 permuter iterations partly re-walked closed

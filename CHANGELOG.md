@@ -3,120 +3,122 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
-## Unreleased
+## 0.7.0 - 2026-08-28
 
-### Added
+### Permuter sweeps and scratch fidelity
 
-- A discoverability pass over the late-stage commands. `permute-sweep`,
-  `permute-doctor`, `permute classify`, `ranking stamp`/`check`,
-  `check-staleness` and `--built-from`, `diagnose --trace`, the `ownership:`
-  verdict line and laws L62-L70 each had a documented home and no route to it:
-  a reader who did not already know the name would not meet one on the README,
-  in `START_HERE`, in the documentation index, in the `commands` map, in the
-  field guide, or in the agent skill. Each of those now names them where a
-  reader is already looking, with one line and the canonical link. README gains
-  a **late-stage campaign loop** section -- rank, preflight, sweep, classify,
-  route, verify -- with the two guards spelled out, because the expensive
-  mistakes at this stage are all measurements of the wrong thing: a ranking
-  stamped against a tree that no longer exists, and a comparison against a
-  build older than the edit. The `commands` footer carries the same order in
-  one line, and the packaged agent skill runs it as steps rather than as prose.
+- `permute-sweep` and `permute-doctor`: a first-class driver for bounded
+  decomp-permuter searches, with the scratch fidelity a transferable result
+  needs. Every project ends up writing this batch loop, and each rewrite
+  re-introduces the same three faults. The codegen flags are recovered from
+  the project's own `make -n <object>` -- after touching the source, because
+  a dry run prints nothing for an up-to-date object, and with backslash
+  continuations joined, because make echoes a recipe whose flags commonly sit
+  on the line that does not name the compiler. Any post-compile `objcopy`
+  chain is replicated into the scratch's `compile.sh`, so the scratch object
+  is the object the real link would get; passes that cannot be replicated are
+  named in `recipe.txt` rather than silently dropped. `--stack-diffs` is
+  always passed, since a normalized score reports a match for a spill at the
+  wrong slot. The queue is ordered closest-first from a ranking with unranked
+  functions last, launches are niced and gated on the load average where the
+  host has one (a host without `getloadavg` is told the gate is inert rather
+  than reported as idle), `--resume` continues a summary and retries the rows
+  that errored, and `--extend-minutes` re-seeds only a search that was still
+  descending when its window closed. Every tool the sweep starts owns its
+  process group, so a search that runs out of time takes its `-j` workers
+  with it instead of leaving them compiling through the next function. Promotion is out
+  of scope by design: a scratch score of 0 is a candidate until the project's
+  authoritative build says otherwise. `permute-doctor <function>` answers the
+  three preflight questions -- real flags, replicated chain, a base that
+  compiles to a finite non-zero score -- before an hour is spent on a
+  function. See [Permuter sweeps](docs/permute-sweep.md).
 
-- Trace commands name a binary pass-boundary stream instead of failing on
-  decode. `capture make` leaves the Ucode uopt hands ugen and the Binasm ugen
-  hands as1 on disk beside the textual traces, under the compiler's own
-  temporary-file names, so nothing about a name says which is which; feeding
-  one to `trace-summary` produced a raw `UnicodeDecodeError`, and feeding one
-  whose record words happen to be small integers produced something worse -- a
-  clean decode and *zero events*. `trace.read_trace_source` is now the single
-  reader behind `trace-summary`, `trace-fifo`, `trace-alias`, `trace-a71`,
-  `trace-scheduler`, `trace-source`, `copy-decisions`, the `allocator-*`
-  commands, `oracle` and `diagnose --trace`. A stream is refused by name, with
-  its record count, the decoder that reads it (`ucode window` / `binasm
-  window`), and the Tier-2 instrumentation that produces a textual trace
-  instead. Framing decides it, delegated to `streams.detect_format`, so a
-  trace command and `stream diff` cannot disagree about what a file is; a NUL
-  or a tenth of the file in control bytes, with no diagnostic line anywhere,
-  is what separates a stream from text that merely decodes. A file that only
-  *contains* binary is recovered rather than refused: its diagnostic lines are
-  parsed, its replaced bytes counted, and a `warning:` on stderr states both.
-  The trace commands still decode no records -- a stream carries records, not
-  the decisions that produced them, and printing a record window under a trace
-  command would blur the Tier-1/Tier-2 boundary this was meant to clarify.
+- `permute-sweep` and `permute-doctor` now measure the scratch object against
+  the object the project's own build produces, and repair it when they can.
+  decomp-permuter's importer does not hand a translation unit to the compiler:
+  it preprocesses it, and for every macro named in `[preserve_macros]` injects
+  a stub definition of its own through `#pragma _permuter latedefine`, which is
+  what lets the permuter permute inside a macro call. Where the stub expands to
+  something the real header macro does not -- the N64 `gDP*`/`gSP*` display-list
+  macros are the standard case -- the scratch compiles a different function, and
+  every score measured on it describes code the build never emits (Mickey's
+  `particles.c func_80041CE4`: a -136 frame in the scratch against -128 in the
+  build). After each import the scratch's own base is compiled through the
+  scratch's own `compile.sh` -- the one carrying the recovered flags and the
+  replicated `objcopy` chain -- and compared with the project's object through
+  the same object oracle `compare` uses, reported as `scratch_fidelity:
+  identical | differs(N words) | unknown | unchecked` in the doctor, in the
+  sweep's table, and in each summary row. The comparison is the function's own
+  words rather than whole sections, because a scratch holds one pruned function
+  where the project object holds a translation unit. A difference is a loud
+  warning; `--require-fidelity` makes it a refusal, having spent the import and
+  nothing else, and `--no-fidelity` skips the check. When the scratch differs
+  and the importer did preserve macros, the import is retried through
+  `[permuter] preserve_macro_modes` (default `["configured", "none"]`, and any
+  other entry is a narrowing regex) and the first mode whose object is identical
+  wins -- `none` giving up the ability to permute inside those macro calls,
+  which is the right price for searching the object the build actually has.
+  Modes that reach `import.py` identically collapse, a scratch that preserved
+  nothing is not retried, and with no identical mode the smallest measured
+  difference is kept. See [Permuter sweeps](docs/permute-sweep.md).
 
-- `owning_pass` and `reachability` beside the verdict, so a residual names the
-  compiler decision behind it and not only its shape. `routing` said which
-  *tool* a residual belongs to; it still did not say **why**, and the three
-  actionably-different cases hiding behind one register verdict -- a colourable
-  tie a lever moves, a colour that is *forbidden* rather than underpriced, and
-  a decision the instrument does not expose -- demand opposite responses. They
-  were being separated by hand, one `CDX_FORCE` probe per function, on
-  functions where the probe was always going to decline. `view`,
-  `view-dumps`, `diagnose` and `diagnose-dumps` now print an `ownership:` line
-  under the verdict carrying
-  `owning_pass=cfe-spelling|rodata-load-form|stack-home-assignment|uopt-globalcolor|ugen-temp-ring|g0-scheduler|none|unknown`,
-  `reachability=source-reachable|permuter-target|pass-owned|unknown`, and
-  `ownership_basis=trace|heuristic|none`. The basis is never omitted: an
-  answer read off two disassemblies and an answer read out of a compiler trace
-  are different claims, and a screen that spelled them the same way would be
-  inviting a reader to act on a guess as though it were a measurement.
-  `globalcolor.pass_evidence` is the bridge that supplies the measured half --
-  a declined force or a `regsleft=0` contest, the one fact two disassemblies
-  cannot show. A `pass-owned` residual routes `permuter-first` like any other
-  tie, because "no handle this evidence exposes" is a statement about the
-  levers to hand and never about the function. Each ownership footer ends at
-  the law for its pass. The schemas bump to `decomp-workbench-diagnosis-v3`
-  and `decomp-workbench-view-v3`, additively: nothing was removed or renamed,
-  and the three fields are the only additions.
+- `permute classify` (`permute-classify`): a sweep's `summary.json` now
+  assigns each function a measured wall class instead of a hand-written one.
+  Wall classes were argued from verdict prose, and the class that says
+  "nothing will move this" has repeatedly been wrong -- expensively, because
+  it is the class that routes a function away from a cheap search and towards
+  a bespoke instrumentation build. `MATCHED` is `best == 0`;
+  `P_STUCK_DESCENDING` improved on the base and either earned its extension
+  or landed its best candidate in the final third of the window, and is the
+  only class that routes to trace levers or a human; `P_STUCK_FLAT` never
+  improved, or improved only in its opening minutes, and is the pool from
+  which the case for deeper instrumentation is argued; `IMPORT_FAULT` never
+  scored a base at all and routes to fixing the scratch, because a function
+  nobody searched is not evidence of a wall. The report is a pasteable
+  markdown table, or JSON under
+  `decomp-workbench-permute-classify-v1`. To carry that, each sweep result
+  now records `best_output_mtime_fraction` (where in the searched window the
+  best candidate landed), `window_seconds` and `hit_cap` -- decomp-permuter
+  overwrites its output directories, so nothing else keeps that timing. A
+  summary written without the fraction is classed as descending rather than
+  flat: absent evidence is not evidence of a plateau. See
+  [Permuter sweeps](docs/permute-sweep.md).
 
-- Nine campaign-verified IDO 5.3 laws (L62-L70), from a whole-ROM
-  decompilation rather than one procedure, several of which that campaign had
-  to re-derive from scratch because they were nowhere on the page. L62 a float
-  scalar's load form is decided by its value (rodata `lwc1` iff the low
-  halfword is non-zero) and only that form joins the invariant-load group;
-  L63 declaration order places a call-crossing spill, reconfirming L53 with
-  the lever spelled out; L64 the integer temp ring is seeded
-  `t6 t7 t8 t9 t0..t5`; L65 a folded redundant mask emits no instruction and
-  still pops the ring once -- the phantom pop, usable in both directions;
-  L66 a web feeding a call argument inherits that argument register at cost 0;
-  L67 a comparison prints its copy-propagated variable first, so operand order
-  is a readout and not a lever; L68 a jump table's bytes are the case mapping,
-  and matching `.text` is not evidence the mapping is right. L69 and L70 are
-  measurement laws about harnesses that lie: a permuter that finds nothing
-  instantly is a setup fault (eight of twelve such verdicts were one wrong ISA
-  flag in the scratch), and an isolated `cc -c` does not schedule like the
-  project path (56 instructions against 58 on the same source).
+- `ranking stamp` and `ranking check`: a closeness ranking now records the
+  tree hash it was measured against, so a consumer can tell a measurement
+  from a memory. A ranking decays within hours -- a function that has since
+  matched is still in it -- and one campaign's snapshot was read as an
+  ownership ledger long after it had stopped describing the tree. `stamp`
+  adds one `stamp` key (tree hash plus `generated_at`) without reshaping the
+  rows, and rewrites the file atomically; both ranking spellings are accepted,
+  though a bare-list ranking comes back wrapped under `functions`, because
+  JSON has nowhere to hang a key on a list. Re-stamping the same tree keeps
+  the original timestamp, because a field refreshed on every run cannot say
+  how old a measurement is. `permute-sweep` and `permute-doctor` check the
+  ranking they were handed: a stamp that contradicts HEAD, or one that
+  cannot be compared to it, prints a loud warning, an unstamped ranking gets
+  a quiet note, and `--require-fresh` refuses to run on anything but a match.
+  See [Permuter sweeps](docs/permute-sweep.md).
 
-- `decomp-workbench guide laws ERA LAW` prints one law instead of the whole
-  page. Footers had been citing individual laws for a release before the
-  command could answer one, so a reader who pasted the citation got the
-  document and had to find the law by hand. `L64`, `64` and `law 64` are one
-  address; an unrecognised number names the range that era carries rather than
-  printing everything. Every lever family whose mechanism is written down now
-  ends its `guide` output with that command, and every verdict that names an
-  owning pass ends its footer with it, so a residual points at its law.
+- A `[permuter]` project-configuration table, so a project states its
+  permuter inputs once instead of re-deriving them per sweep. It holds no
+  codegen flags on purpose.
 
-- `routing` beside every verdict, and a routing sentence on the verdicts that
-  used to read as walls. A verdict names the *mechanism*; it has never named
-  the **tool**, and readers filled that gap themselves: "interference-forbidden
-  colour" and "list-scheduler slot-fill -- no source lever" were taken as proof
-  that two functions could not be matched, a bespoke instrumentation build was
-  funded to explain why, and a twenty-minute permuter run then matched both.
-  `view`, `view-dumps`, `diagnose` and `diagnose-dumps` now print
-  `routing=permuter-first|structural|import-fix|none` in the verdict header and
-  carry it in JSON, and any allocation, colour, or schedule tie ends its footer
-  with *no HAND lever found -- this is a permuter target; run the sweep before
-  concluding a wall*, followed by the two commands that do it. `HAND` is the
-  whole correction: what the analysis established is that no lever a human
-  types into the C file reaches the residual, which is a claim about the lever
-  set and not about the function. Lever 19 and the `forced-color-oracle`
-  onramp were reworded the same way -- a clean forced-colour cascade is a
-  stopping point for hand search, and a wall is recorded only after
-  `permute classify` reports a measured search that was flat. This change is
-  the additive v2 bump of both verdict schemas -- every existing key unchanged,
-  `routing` the only addition -- which the ownership entry above then carried
-  to `decomp-workbench-diagnosis-v3` and `decomp-workbench-view-v3` in the
-  same release.
+- `[permuter] step_timeout_seconds` (default 600), one bounded policy for
+  the scratch phase. The search window and the `make -n` recipe recovery were
+  the only bounded things a sweep had, and the recovery's bound was a private
+  120-second default nothing could reach: `import.py` and the fidelity compile
+  each started a child with no deadline at all, and the fidelity check adds up
+  to two of them per import mode per function, so a single hung compiler held
+  a whole sweep open with nothing to show for it. `run_owned` could always end
+  a process group on a timeout; it had never been given one here. The key now
+  sets all three, which also raises the recipe recovery's deadline from 120
+  seconds to the same configured value. A `make -n`
+  that expires degrades to the fallback flags with the warning that says so;
+  an import or fidelity compile that expires is an error for that function,
+  naming the key that bounds it, and the sweep moves on.
+
+### Build staleness
 
 - A build-freshness guard on every comparison, and `check-staleness` for the
   hosts that wrap one. A comparison answers "are these two objects the same",
@@ -147,98 +149,63 @@ in [design notes](docs/history/design-notes.md).
   run without `--built-from` compared nothing, so its block says
   `status: unknown` with `comparisons: 0` rather than `fresh`. See
   [Object comparison](docs/object-comparison.md#is-the-thing-you-compared-the-thing-you-just-built).
-- `permute-sweep` and `permute-doctor`: a first-class driver for bounded
-  decomp-permuter searches, with the scratch fidelity a transferable result
-  needs. Every project ends up writing this batch loop, and each rewrite
-  re-introduces the same three faults. The codegen flags are recovered from
-  the project's own `make -n <object>` -- after touching the source, because
-  a dry run prints nothing for an up-to-date object, and with backslash
-  continuations joined, because make echoes a recipe whose flags commonly sit
-  on the line that does not name the compiler. Any post-compile `objcopy`
-  chain is replicated into the scratch's `compile.sh`, so the scratch object
-  is the object the real link would get; passes that cannot be replicated are
-  named in `recipe.txt` rather than silently dropped. `--stack-diffs` is
-  always passed, since a normalized score reports a match for a spill at the
-  wrong slot. The queue is ordered closest-first from a ranking with unranked
-  functions last, launches are niced and gated on the load average where the
-  host has one (a host without `getloadavg` is told the gate is inert rather
-  than reported as idle), `--resume` continues a summary and retries the rows
-  that errored, and `--extend-minutes` re-seeds only a search that was still
-  descending when its window closed. Every tool the sweep starts owns its
-  process group, so a search that runs out of time takes its `-j` workers
-  with it instead of leaving them compiling through the next function. Promotion is out
-  of scope by design: a scratch score of 0 is a candidate until the project's
-  authoritative build says otherwise. `permute-doctor <function>` answers the
-  three preflight questions -- real flags, replicated chain, a base that
-  compiles to a finite non-zero score -- before an hour is spent on a
-  function. See [Permuter sweeps](docs/permute-sweep.md).
-- `permute-sweep` and `permute-doctor` now measure the scratch object against
-  the object the project's own build produces, and repair it when they can.
-  decomp-permuter's importer does not hand a translation unit to the compiler:
-  it preprocesses it, and for every macro named in `[preserve_macros]` injects
-  a stub definition of its own through `#pragma _permuter latedefine`, which is
-  what lets the permuter permute inside a macro call. Where the stub expands to
-  something the real header macro does not -- the N64 `gDP*`/`gSP*` display-list
-  macros are the standard case -- the scratch compiles a different function, and
-  every score measured on it describes code the build never emits (Mickey's
-  `particles.c func_80041CE4`: a -136 frame in the scratch against -128 in the
-  build). After each import the scratch's own base is compiled through the
-  scratch's own `compile.sh` -- the one carrying the recovered flags and the
-  replicated `objcopy` chain -- and compared with the project's object through
-  the same object oracle `compare` uses, reported as `scratch_fidelity:
-  identical | differs(N words) | unknown | unchecked` in the doctor, in the
-  sweep's table, and in each summary row. The comparison is the function's own
-  words rather than whole sections, because a scratch holds one pruned function
-  where the project object holds a translation unit. A difference is a loud
-  warning; `--require-fidelity` makes it a refusal, having spent the import and
-  nothing else, and `--no-fidelity` skips the check. When the scratch differs
-  and the importer did preserve macros, the import is retried through
-  `[permuter] preserve_macro_modes` (default `["configured", "none"]`, and any
-  other entry is a narrowing regex) and the first mode whose object is identical
-  wins -- `none` giving up the ability to permute inside those macro calls,
-  which is the right price for searching the object the build actually has.
-  Modes that reach `import.py` identically collapse, a scratch that preserved
-  nothing is not retried, and with no identical mode the smallest measured
-  difference is kept. See [Permuter sweeps](docs/permute-sweep.md).
-- `permute classify` (`permute-classify`): a sweep's `summary.json` now
-  assigns each function a measured wall class instead of a hand-written one.
-  Wall classes were argued from verdict prose, and the class that says
-  "nothing will move this" has repeatedly been wrong -- expensively, because
-  it is the class that routes a function away from a cheap search and towards
-  a bespoke instrumentation build. `MATCHED` is `best == 0`;
-  `P_STUCK_DESCENDING` improved on the base and either earned its extension
-  or landed its best candidate in the final third of the window, and is the
-  only class that routes to trace levers or a human; `P_STUCK_FLAT` never
-  improved, or improved only in its opening minutes, and is the pool from
-  which the case for deeper instrumentation is argued; `IMPORT_FAULT` never
-  scored a base at all and routes to fixing the scratch, because a function
-  nobody searched is not evidence of a wall. The report is a pasteable
-  markdown table, or JSON under
-  `decomp-workbench-permute-classify-v1`. To carry that, each sweep result
-  now records `best_output_mtime_fraction` (where in the searched window the
-  best candidate landed), `window_seconds` and `hit_cap` -- decomp-permuter
-  overwrites its output directories, so nothing else keeps that timing. A
-  summary written without the fraction is classed as descending rather than
-  flat: absent evidence is not evidence of a plateau. See
-  [Permuter sweeps](docs/permute-sweep.md).
-- `ranking stamp` and `ranking check`: a closeness ranking now records the
-  tree hash it was measured against, so a consumer can tell a measurement
-  from a memory. A ranking decays within hours -- a function that has since
-  matched is still in it -- and one campaign's snapshot was read as an
-  ownership ledger long after it had stopped describing the tree. `stamp`
-  adds one `stamp` key (tree hash plus `generated_at`) without reshaping the
-  rows, and rewrites the file atomically; both ranking spellings are accepted,
-  though a bare-list ranking comes back wrapped under `functions`, because
-  JSON has nowhere to hang a key on a list. Re-stamping the same tree keeps
-  the original timestamp, because a field refreshed on every run cannot say
-  how old a measurement is. `permute-sweep` and `permute-doctor` check the
-  ranking they were handed: a stamp that contradicts HEAD, or one that
-  cannot be compared to it, prints a loud warning, an unstamped ranking gets
-  a quiet note, and `--require-fresh` refuses to run on anything but a match.
-  See [Permuter sweeps](docs/permute-sweep.md).
-- A `[permuter]` project-configuration table, so a project states its
-  permuter inputs once instead of re-deriving them per sweep. It holds no
-  codegen flags on purpose.
+
+- `check-staleness --tolerance` takes `DEFAULT_TOLERANCE_SECONDS` as its
+  default instead of a second hardcoded `1.0`, so tuning the constant cannot
+  move the library's freshness verdict and leave the command's behind. It
+  also refuses a negative window, which was never a stricter check: `-60`
+  calls an artifact built thirty seconds *after* its input stale, and a
+  reader who sees a good build reported stale learns to ignore the verdict
+  entirely. Zero remains legal.
+
+### Verdict routing and ownership
+
+- `routing` beside every verdict, and a routing sentence on the verdicts that
+  used to read as walls. A verdict names the *mechanism*; it has never named
+  the **tool**, and readers filled that gap themselves: "interference-forbidden
+  colour" and "list-scheduler slot-fill -- no source lever" were taken as proof
+  that two functions could not be matched, a bespoke instrumentation build was
+  funded to explain why, and a twenty-minute permuter run then matched both.
+  `view`, `view-dumps`, `diagnose` and `diagnose-dumps` now print
+  `routing=permuter-first|structural|import-fix|none` in the verdict header and
+  carry it in JSON, and any allocation, colour, or schedule tie ends its footer
+  with *no HAND lever found -- this is a permuter target; run the sweep before
+  concluding a wall*, followed by the two commands that do it. `HAND` is the
+  whole correction: what the analysis established is that no lever a human
+  types into the C file reaches the residual, which is a claim about the lever
+  set and not about the function. Lever 19 and the `forced-color-oracle`
+  onramp were reworded the same way -- a clean forced-colour cascade is a
+  stopping point for hand search, and a wall is recorded only after
+  `permute classify` reports a measured search that was flat. This change is
+  the additive v2 bump of both verdict schemas -- every existing key unchanged,
+  `routing` the only addition -- which the ownership entry above then carried
+  to `decomp-workbench-diagnosis-v3` and `decomp-workbench-view-v3` in the
+  same release.
+
+- `owning_pass` and `reachability` beside the verdict, so a residual names the
+  compiler decision behind it and not only its shape. `routing` said which
+  *tool* a residual belongs to; it still did not say **why**, and the three
+  actionably-different cases hiding behind one register verdict -- a colourable
+  tie a lever moves, a colour that is *forbidden* rather than underpriced, and
+  a decision the instrument does not expose -- demand opposite responses. They
+  were being separated by hand, one `CDX_FORCE` probe per function, on
+  functions where the probe was always going to decline. `view`,
+  `view-dumps`, `diagnose` and `diagnose-dumps` now print an `ownership:` line
+  under the verdict carrying
+  `owning_pass=cfe-spelling|rodata-load-form|stack-home-assignment|uopt-globalcolor|ugen-temp-ring|g0-scheduler|none|unknown`,
+  `reachability=source-reachable|permuter-target|pass-owned|unknown`, and
+  `ownership_basis=trace|heuristic|none`. The basis is never omitted: an
+  answer read off two disassemblies and an answer read out of a compiler trace
+  are different claims, and a screen that spelled them the same way would be
+  inviting a reader to act on a guess as though it were a measurement.
+  `globalcolor.pass_evidence` is the bridge that supplies the measured half --
+  a declined force or a `regsleft=0` contest, the one fact two disassemblies
+  cannot show. A `pass-owned` residual routes `permuter-first` like any other
+  tie, because "no handle this evidence exposes" is a statement about the
+  levers to hand and never about the function. Each ownership footer ends at
+  the law for its pass. The schemas bump to `decomp-workbench-diagnosis-v3`
+  and `decomp-workbench-view-v3`, additively: nothing was removed or renamed,
+  and the three fields are the only additions.
 
 - `diagnose --trace PATH`, with `--trace-proc N` / `--trace-web N` to scope
   it, so `ownership_basis=trace` is reachable from a terminal.
@@ -255,29 +222,13 @@ in [design notes](docs/history/design-notes.md).
   asked. `examples/fixtures/globalcolor-declined.log` is a synthetic trace
   carrying both outcomes.
 
-- `[permuter] step_timeout_seconds` (default 600), one bounded policy for
-  the scratch phase. The search window and the `make -n` recipe recovery were
-  the only bounded things a sweep had, and the recovery's bound was a private
-  120-second default nothing could reach: `import.py` and the fidelity compile
-  each started a child with no deadline at all, and the fidelity check adds up
-  to two of them per import mode per function, so a single hung compiler held
-  a whole sweep open with nothing to show for it. `run_owned` could always end
-  a process group on a timeout; it had never been given one here. The key now
-  sets all three, which also raises the recipe recovery's deadline from 120
-  seconds to the same configured value. A `make -n`
-  that expires degrades to the fallback flags with the warning that says so;
-  an import or fidelity compile that expires is an error for that function,
-  naming the key that bounds it, and the sweep moves on.
-
-### Fixed
-
-- `check-staleness --tolerance` takes `DEFAULT_TOLERANCE_SECONDS` as its
-  default instead of a second hardcoded `1.0`, so tuning the constant cannot
-  move the library's freshness verdict and leave the command's behind. It
-  also refuses a negative window, which was never a stricter check: `-60`
-  calls an artifact built thirty seconds *after* its input stale, and a
-  reader who sees a good build reported stale learns to ignore the verdict
-  entirely. Zero remains legal.
+- Layout-aware verdicts: on `structure-mismatch` and `schedule-mismatch` --
+  the two verdicts a block permutation lands on -- `compare` now runs the
+  shift-tolerant aligner itself and reports the edit script, the moved-block
+  count and rows, and `rows_away` beside `words`, in text and under `layout`
+  in `--json`. One campaign candidate whose real edit script was a single
+  relocated 29-row block reported 1,791 differing words and was ranked below
+  strictly worse candidates. Documented as Trap 8 in `docs/metric-traps.md`.
 
 - `view.__all__` exports the routing vocabulary -- `ROUTING_VALUES` and the
   four names it holds -- along with every member of the `owning_pass`,
@@ -286,134 +237,35 @@ in [design notes](docs/history/design-notes.md).
   says what the module offers, so a consumer switching on `routing` could
   not get the names from it. A test asserts the property, not the list.
 
-- Law L66 (call-argument colour affinity) carries a `Scope` line marking it
-  a single observation. Its T1 receipt is one trace of one procedure -- one
-  call, one argument register, one web whose only consumer was that argument
-  -- and with no scope it read as general IDO 5.3 behaviour. The scope names
-  the neighbouring cases nobody measured, which are where this cost and
-  L58's forbidden mask meet.
+### Compiler laws and the `guide`
 
-- CONTRIBUTING records the redistribution basis for **symbol-level
-  citations**, and the IDO 5.3 laws page and the permuter-sweep page state
-  it at the point of use. Both cite real function names, sizes, frame sizes
-  and register groups, and neither carried the notice CONTRIBUTING asks of a
-  worked example with binary-derived material. A measurement result from
-  which no instruction can be reconstructed is a different class from that
-  payload; saying so once means the next page does not re-litigate it, and
-  the line stays where it already was -- no instruction text, no
-  disassembly, no hexdump, in any encoding.
+- Nine campaign-verified IDO 5.3 laws (L62-L70), from a whole-ROM
+  decompilation rather than one procedure, several of which that campaign had
+  to re-derive from scratch because they were nowhere on the page. L62 a float
+  scalar's load form is decided by its value (rodata `lwc1` iff the low
+  halfword is non-zero) and only that form joins the invariant-load group;
+  L63 declaration order places a call-crossing spill, reconfirming L53 with
+  the lever spelled out; L64 the integer temp ring is seeded
+  `t6 t7 t8 t9 t0..t5`; L65 a folded redundant mask emits no instruction and
+  still pops the ring once -- the phantom pop, usable in both directions;
+  L66 a web feeding a call argument inherits that argument register at cost 0;
+  L67 a comparison prints its copy-propagated variable first, so operand order
+  is a readout and not a lever; L68 a jump table's bytes are the case mapping,
+  and matching `.text` is not evidence the mapping is right. L69 and L70 are
+  measurement laws about harnesses that lie: a permuter that finds nothing
+  instantly is a setup fault (eight of twelve such verdicts were one wrong ISA
+  flag in the scratch), and an isolated `cc -c` does not schedule like the
+  project path (56 instructions against 58 on the same source).
 
-- `compare --symbol` (and `--function`) no longer carves a function's prologue
-  out of its body on an object whose code carries interior labels. The
-  selector ended the selection at the first `<label>:` header after the named
-  symbol, and a ROM-extracted target object has a symbol for every jump-table
-  destination *inside* one function: one campaign's probe reported
-  `words=1799 opcodes=1798 gaps=1798` for two objects that differed by a
-  single word. The extent now comes from the object's own symbol table --
-  `st_size`, else the next `STT_FUNC`, else the section end -- and the parser
-  selects by address rather than by label. `compare-dumps`, which has no
-  object to read, keeps the selection open across any label a conditional
-  branch *inside the selection so far* reaches. See `docs/known-defects.md`.
-- That text-only rule is now scoped to the function being selected. Read over
-  the whole dump, it let a function whose entry is its own loop head vouch for
-  itself, so selecting the function before it ran on through that function's
-  body and every function after it that did the same.
-- `symbol_extent` no longer swallows the next function in a handwritten-
-  assembly object. Only `STT_FUNC` could terminate a size-0 symbol, and a
-  hand-written `.s` file has no `STT_FUNC` at all -- every entry is a bare
-  `.globl` label, `STT_NOTYPE` and sizeless -- so the first function's extent
-  ran to the end of the section. The next externally bound symbol terminates
-  it too; a *local* untyped label (a jump-table destination) still never does.
-- `sweep build` gives every candidate its own object, cache entry, and row.
-  Outputs were keyed on the bare file stem, so same-named sources from two
-  input directories raced to compile one object and both rows scored whichever
-  compile finished last; a colliding stem now carries a short path digest, and
-  the wave reports the collision. The build fingerprint also carries the
-  compiler's own identity, as `campaign`'s cache key always has: swapping the
-  toolchain behind an unchanged path used to serve every stale object as
-  `cached`. Existing `.sweep-build.json` sidecars rebuild once.
-- `sweep build` no longer drops a `sweep.json` variant whose `.c` file is
-  missing. It now gets a `failed` row saying the source does not exist, which
-  is the module's own invariant: a candidate that vanishes from the table
-  reads as a candidate that was never tried.
-- `ucode patch` refuses an edit placed between a Binasm float literal and its
-  own ASCII payload records. That boundary frames like a record boundary and
-  is not one -- the literal declares how many bytes follow it -- so an
-  insertion there was read as the literal's digits and silently vanished while
-  the decode-back check passed, because any 16-byte multiple decodes as
-  Binasm. The check now compares record framing on both sides of the edit
-  (`result.framing_preserved`, `result.framing_error`), which also catches a
-  spec that turns its own neighbours into a literal's payload.
-- Stream format detection no longer reads a zero-padded Ucode stream as
-  Binasm. Every all-zero 16-byte window decodes as an `empty` Binasm record,
-  and counting those as recognized let a tail of padding clear the 75% gate.
-- `target audit` no longer forges the literal-pool truncation defect on a
-  healthy object. Every `.rodata` word relocating into `.text` counted as a
-  jump-table word, so a `const` array of function pointers ending `.rodata`
-  produced the same zero-bytes-left-over coincidence the defect is read from.
-  The defect now additionally requires the relocated run to be dense,
-  ascending, and to start the section; the same coincidence without that shape
-  is a `warning` (`rodata-ends-at-text-relocated-words`) naming which half did
-  not hold. A relocation offset past `.rodata`'s own end is reported as
-  `rodata-relocation-out-of-range` instead of making the byte count negative.
-- `pass binasm` only calls a record `calibrated` in the form a probe
-  established. A family is matched on the high half of its opcode word, and a
-  record whose low half was nonzero -- a variant nobody has observed -- was
-  reported as calibrated evidence *with those bits deleted from the output*.
-  They are now rendered as `flags=0x....` and the record reads `inferred`; an
-  instruction record whose opcode is not one of the as0-probed set, and a
-  `.set` mode number no probe named, stop counting as calibrated too.
-- `--watch-rows` no longer renames the report it is merged into. The block
-  carried a top-level `schema`, so `compare --json --watch-rows` announced
-  itself as a watch-row set rather than a comparison and `rank` stamped the
-  same id onto every `results[]` entry. The sub-document's identity is now
-  `watch_schema`, and every key the block contributes is namespaced.
-- Internal: `sweep build` and `target audit` joined the discovery surface;
-  five copies of the streaming file digest and a second, divergent nice-prefix
-  helper import `campaign`'s; `replay_ugen`'s two copies of the pass
-  launch/capture/blame block became one helper; the unreferenced
-  `signature_table` and `watch_header` are gone; the aligner's verdict set is
-  built from named constants and the two docstrings that still said
-  "structure-mismatch only" are corrected; and each hand-rolled ELF
-  reader/writer now names `decomp_workbench.elf` as its intended home.
-- `pass ucode --json` declares its report schema, which the suite's
-  schema-coverage check required.
-- The documentation-output checker no longer attributes a `text` transcript to
-  a runnable command that did not immediately precede it, which made a correct
-  page fail because an intervening example was written against `target.o`.
+- `decomp-workbench guide laws ERA LAW` prints one law instead of the whole
+  page. Footers had been citing individual laws for a release before the
+  command could answer one, so a reader who pasted the citation got the
+  document and had to find the law by hand. `L64`, `64` and `law 64` are one
+  address; an unrecognised number names the range that era carries rather than
+  printing everything. Every lever family whose mechanism is written down now
+  ends its `guide` output with that command, and every verdict that names an
+  owning pass ends its footer with it, so a residual points at its law.
 
-### Added
-
-- `instrument-ugen` now stamps the register each temp allocator **returned**,
-  not only the request it was handed, exposing both temp-ring pop sequences.
-  `f_get_free_reg` (integer) and `f_get_free_fp_reg` (fp) take a class/hint
-  descriptor in `a0` (a recorded trace showed values such as 96, 176, and 208
-  that no object uses as that register) and return the chosen register in `v0`;
-  the old hooks logged `a0`, so a study of "which register does the n-th temp
-  get" -- the exact question a temp ring poses -- read the request, not the
-  result. `f_get_free_reg` was not hooked at all, and `f_alloc_reg` (`ALLOC`)
-  never fires, so the integer temp ring was invisible. Return-site hooks now
-  emit distinct `ALLOC_GP_RESULT` / `ALLOC_FP_RESULT` records carrying `v0`,
-  and the entry `ALLOC_GP` / `ALLOC_FP` records are kept so a request that
-  resolves to an already-live register (a phantom pop) is visible as such.
-  Validated on Mickey `func_80012574`: the integer stream reads back as
-  `t6 t7` and the fp stream is the `$f4 $f6 $f8 $f10` ring rotating in dequeue
-  order (`36 38 40 42`, ugen's `32 + n` fp numbering), confirming
-  `FP_LOCAL_RING` from the pop side.
-- `instrument-ugen` stamps ugen's current source line (`line=`, the value
-  `f_warning` prints as `line %d`) on every free-list record, so a temp-ring
-  pop ties to the source construct that consumed it. Two pops sharing one line
-  is a phantom pop -- e.g. a redundant `entry->blue & 0xFFFFU` on a `u8` field
-  allocates a temp that is then folded away, advancing the ring one phase; the
-  line that gains or loses a pop is the exact statement to edit. Confirmed on
-  Mickey `func_8001A154`, where line provenance located the phantom pop
-  (removing the mask realigns the whole field-copy ring to the target).
-- `trace` decodes ugen's unified register space: a free-list `reg` of `32`-`63`
-  now names an fp register (`36` -> `$f4`), while integer results stay their
-  conventional names (`14` -> `t6`) and a value at or above `64` stays numeric
-  so an `ALLOC_*` request descriptor is never misread as a register. Every
-  `ALLOC_*` event normalizes to the `allocate` action (previously any `ALLOC_*`
-  beyond bare `ALLOC` fell through to the raw tag name).
 - `docs/compiler-laws/ido-7.1.md`: the IDO 7.1 law book, 19 laws from the
   SSB64 `func_ovl0_800CEF4C` campaign (one word to `exact=true`). `as1`'s
   `peep_reg` copy propagation and `update_ctnt`'s six-gate cross-block carry
@@ -433,34 +285,155 @@ in [design notes](docs/history/design-notes.md).
   closed the same day by directed probes -- a `cc -K` cfe-output capture
   and a nine-variant reaching-definition grid -- and their receipts are
   inline; no clause on the page is provisional.
+
 - `guide laws ido71` serves that page, and the era token now accepts the
   document and prose spellings (`ido-7.1`, `IDO 7.1`, `7.1`) as well.
+
 - Field-guide levers 34-39 and two playbooks (`copy-propagation-barrier`,
   `dispatch-layout`): the conditional branch-to-next barrier, goto-pair parity
   steering, opposing-arm ballast, Duff-nesting for switch body layout, the
   `x ? x : x` selector temp, and the IDO 7.1 read-count dial as arithmetic.
   Eight IDO 7.1 families joined the dead-families table.
+
+- Law L66 (call-argument colour affinity) carries a `Scope` line marking it
+  a single observation. Its T1 receipt is one trace of one procedure -- one
+  call, one argument register, one web whose only consumer was that argument
+  -- and with no scope it read as general IDO 5.3 behaviour. The scope names
+  the neighbouring cases nobody measured, which are where this cost and
+  L58's forbidden mask meet.
+
+### Traces, streams and phase capture
+
+- Trace commands name a binary pass-boundary stream instead of failing on
+  decode. `capture make` leaves the Ucode uopt hands ugen and the Binasm ugen
+  hands as1 on disk beside the textual traces, under the compiler's own
+  temporary-file names, so nothing about a name says which is which; feeding
+  one to `trace-summary` produced a raw `UnicodeDecodeError`, and feeding one
+  whose record words happen to be small integers produced something worse -- a
+  clean decode and *zero events*. `trace.read_trace_source` is now the single
+  reader behind `trace-summary`, `trace-fifo`, `trace-alias`, `trace-a71`,
+  `trace-scheduler`, `trace-source`, `copy-decisions`, the `allocator-*`
+  commands, `oracle` and `diagnose --trace`. A stream is refused by name, with
+  its record count, the decoder that reads it (`ucode window` / `binasm
+  window`), and the Tier-2 instrumentation that produces a textual trace
+  instead. Framing decides it, delegated to `streams.detect_format`, so a
+  trace command and `stream diff` cannot disagree about what a file is; a NUL
+  or a tenth of the file in control bytes, with no diagnostic line anywhere,
+  is what separates a stream from text that merely decodes. A file that only
+  *contains* binary is recovered rather than refused: its diagnostic lines are
+  parsed, its replaced bytes counted, and a `warning:` on stderr states both.
+  The trace commands still decode no records -- a stream carries records, not
+  the decisions that produced them, and printing a record window under a trace
+  command would blur the Tier-1/Tier-2 boundary this was meant to clarify.
+
 - `capture make <ido-root> <dest>` generates an arg-preserving wrapper
   toolchain around any IDO root: one POSIX shell wrapper, phase-named symlinks
   for ugen/as0/as1, the untouched binaries kept as `<phase>.real`, and a
   self-alias so a version-directory compiler root keeps working.
+
 - `capture runs <dest>` lists collected runs with phase, exit status, argv
   roles, and retained stream sizes; the run layout matches the ad hoc original
   so previously collected captures still read.
+
 - `pass replay-ugen <ucode>` replays a retained or patched Ucode stream through
   stock ugen and as1 with a capture run's exact argv shape -- including the
   symbol table ugen mutates in place -- and verifies the object against the
   capture's own; `--require-identical` makes that fidelity gate an exit status.
+
 - `ucode patch` performs record-framed insertion, replacement and deletion with
   `--fresh-label` allocation above every label the stream uses, and refuses to
   write a stream the decoder cannot read back.
+
 - `ucode window` / `binasm window` print the decoded records around a byte
   offset or `#record-index`, detecting the stream format from record framing.
+
 - `stream diff` aligns two Ucode or Binasm streams by decoded record and
   reports the first divergence plus a shift-tolerant side-by-side edit script.
+
 - `docs/phase-capture.md`: the whole journey -- capture, decode, window, diff,
   patch, replay -- with the cef4c conditional-branch barrier as the worked
   example and a claim table per rung.
+
+- `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
+  including the selector expression, XJP range/default/case labels, and dense
+  case-target table.
+
+- `pass binasm` statically inspects one fixed-record ugen-to-as1 boundary,
+  summarizes IDO 7.1 `-peepdbg` copy rewrites, and turns exact barrier-probe
+  cells into source-search families without overstating upstream survival.
+
+- `trace a71` parses and diffs the compact IDO 7.1 final-color stream,
+  decoding priorities and masks while warning that web IDs are run-local and
+  the producer's historical `refs`/`defs` fields are invalid.
+
+- `instrument-ugen` now stamps the register each temp allocator **returned**,
+  not only the request it was handed, exposing both temp-ring pop sequences.
+  `f_get_free_reg` (integer) and `f_get_free_fp_reg` (fp) take a class/hint
+  descriptor in `a0` (a recorded trace showed values such as 96, 176, and 208
+  that no object uses as that register) and return the chosen register in `v0`;
+  the old hooks logged `a0`, so a study of "which register does the n-th temp
+  get" -- the exact question a temp ring poses -- read the request, not the
+  result. `f_get_free_reg` was not hooked at all, and `f_alloc_reg` (`ALLOC`)
+  never fires, so the integer temp ring was invisible. Return-site hooks now
+  emit distinct `ALLOC_GP_RESULT` / `ALLOC_FP_RESULT` records carrying `v0`,
+  and the entry `ALLOC_GP` / `ALLOC_FP` records are kept so a request that
+  resolves to an already-live register (a phantom pop) is visible as such.
+  Validated on Mickey `func_80012574`: the integer stream reads back as
+  `t6 t7` and the fp stream is the `$f4 $f6 $f8 $f10` ring rotating in dequeue
+  order (`36 38 40 42`, ugen's `32 + n` fp numbering), confirming
+  `FP_LOCAL_RING` from the pop side.
+
+- `instrument-ugen` stamps ugen's current source line (`line=`, the value
+  `f_warning` prints as `line %d`) on every free-list record, so a temp-ring
+  pop ties to the source construct that consumed it. Two pops sharing one line
+  is a phantom pop -- e.g. a redundant `entry->blue & 0xFFFFU` on a `u8` field
+  allocates a temp that is then folded away, advancing the ring one phase; the
+  line that gains or loses a pop is the exact statement to edit. Confirmed on
+  Mickey `func_8001A154`, where line provenance located the phantom pop
+  (removing the mask realigns the whole field-copy ring to the target).
+
+- `trace` decodes ugen's unified register space: a free-list `reg` of `32`-`63`
+  now names an fp register (`36` -> `$f4`), while integer results stay their
+  conventional names (`14` -> `t6`) and a value at or above `64` stays numeric
+  so an `ALLOC_*` request descriptor is never misread as a register. Every
+  `ALLOC_*` event normalizes to the `allocate` action (previously any `ALLOC_*`
+  beyond bare `ALLOC` fell through to the raw tag name).
+
+- `parse_binasm` and `parse_ucode` accept bytes or a path, so a patched stream
+  held in memory and a retained capture file use one entry point.
+
+- The Binasm decoder names five record families it used to leave unknown --
+  positive-index label definitions, jump-table entries, section switches,
+  procedure and stream-header records -- and frames a float literal's ASCII
+  digits as payload instead of word-decoding them into invented families. Each
+  record now carries `evidence`: `calibrated`, `inferred`, or `none`.
+
+- `ucode patch` refuses an edit placed between a Binasm float literal and its
+  own ASCII payload records. That boundary frames like a record boundary and
+  is not one -- the literal declares how many bytes follow it -- so an
+  insertion there was read as the literal's digits and silently vanished while
+  the decode-back check passed, because any 16-byte multiple decodes as
+  Binasm. The check now compares record framing on both sides of the edit
+  (`result.framing_preserved`, `result.framing_error`), which also catches a
+  spec that turns its own neighbours into a literal's payload.
+
+- Stream format detection no longer reads a zero-padded Ucode stream as
+  Binasm. Every all-zero 16-byte window decodes as an `empty` Binasm record,
+  and counting those as recognized let a tail of padding clear the 75% gate.
+
+- `pass binasm` only calls a record `calibrated` in the form a probe
+  established. A family is matched on the high half of its opcode word, and a
+  record whose low half was nonzero -- a variant nobody has observed -- was
+  reported as calibrated evidence *with those bits deleted from the output*.
+  They are now rendered as `flags=0x....` and the record reads `inferred`; an
+  instruction record whose opcode is not one of the as0-probed set, and a
+  `.set` mode number no probe named, stop counting as calibrated too.
+
+- `pass ucode --json` declares its report schema, which the suite's
+  schema-coverage check required.
+
+### Comparison, sweeps and audits
+
 - `compare --watch-rows` scores a chosen set of positional rows as
   healed/broken columns -- `r49=49,cx2=1620,...`, or `@probes.json` for a
   named set -- and reports the signature in text and as `watch_rows` /
@@ -469,6 +442,7 @@ in [design notes](docs/history/design-notes.md).
   signature over discriminating rows was the fitness function that converged
   one endgame after `opcodes` conflated schedule with allocation and `words`
   over-charged a permutation.
+
 - `sweep build` compiles a wave of candidate sources and scores it into one
   table: bounded pool (`--jobs 4`), `nice -n 10`, a skip for any object whose
   source *and* compile command are unchanged, the standard metric columns, the
@@ -476,38 +450,7 @@ in [design notes](docs/history/design-notes.md).
   rows-away | watch | name`, every order breaking ties on the label). Takes
   files, directories, or a generated sweep directory. The productized form of
   a scorer three campaign sessions rewrote by hand.
-- Layout-aware verdicts: on `structure-mismatch` and `schedule-mismatch` --
-  the two verdicts a block permutation lands on -- `compare` now runs the
-  shift-tolerant aligner itself and reports the edit script, the moved-block
-  count and rows, and `rows_away` beside `words`, in text and under `layout`
-  in `--json`. One campaign candidate whose real edit script was a single
-  relocated 29-row block reported 1,791 differing words and was ranked below
-  strictly worse candidates. Documented as Trap 8 in `docs/metric-traps.md`.
-- `pass ucode` statically decodes retained IDO binary Ucode switch dispatches,
-  including the selector expression, XJP range/default/case labels, and dense
-  case-target table.
-- `pass binasm` statically inspects one fixed-record ugen-to-as1 boundary,
-  summarizes IDO 7.1 `-peepdbg` copy rewrites, and turns exact barrier-probe
-  cells into source-search families without overstating upstream survival.
-- `trace a71` parses and diffs the compact IDO 7.1 final-color stream,
-  decoding priorities and masks while warning that web IDs are run-local and
-  the producer's historical `refs`/`defs` fields are invalid.
-- Agent skill: `references/evidence-ladder.md` v2 adds byte-pattern search,
-  phase-capture decode/diff, and Ucode patch-and-replay as evidence rungs,
-  plus "prove at the boundary, then hunt C" doctrine.
-- Agent skill: new `references/late-stage-doctrine.md` — mechanism
-  composition (prove levers in isolation, compose late), saturation-scope
-  hygiene (negatives are basin-local; re-open dials after equilibrium
-  shifts), per-site heal-signature fitness over scalar metrics, and target
-  trust (audit target section scope at campaign registration).
-- Agent skill: `references/campaign-hygiene.md` documents the fan-out
-  pattern — asserted-unique-anchor generators, waved sweeps with interim
-  standings, mid-flight steering, and byte-search verification of agent
-  claims.
-- `docs/final-function-campaigns.md`: the cef4c case study, from the
-  99.91% hosted frontier through allocator reverse-engineering, the
-  one-word `as1` wall, the conditional-fjp barrier proof, mechanism
-  composition to `words=0`, and the target-scope fix.
+
 - `target audit TARGET.o [--rom --rom-offset --va] [--json]` verifies a
   campaign/scratch target object's scope before anyone spends time matching
   against it: ELF sanity (relocation entry counts against `sh_entsize`,
@@ -520,15 +463,119 @@ in [design notes](docs/history/design-notes.md).
   reader (`decomp_workbench.elf`: sections, symbols, relocations) backs it.
   See `docs/target-audit.md`.
 
-### Changed
+- `compare --symbol` (and `--function`) no longer carves a function's prologue
+  out of its body on an object whose code carries interior labels. The
+  selector ended the selection at the first `<label>:` header after the named
+  symbol, and a ROM-extracted target object has a symbol for every jump-table
+  destination *inside* one function: one campaign's probe reported
+  `words=1799 opcodes=1798 gaps=1798` for two objects that differed by a
+  single word. The extent now comes from the object's own symbol table --
+  `st_size`, else the next `STT_FUNC`, else the section end -- and the parser
+  selects by address rather than by label. `compare-dumps`, which has no
+  object to read, keeps the selection open across any label a conditional
+  branch *inside the selection so far* reaches. See `docs/known-defects.md`.
 
-- `parse_binasm` and `parse_ucode` accept bytes or a path, so a patched stream
-  held in memory and a retained capture file use one entry point.
-- The Binasm decoder names five record families it used to leave unknown --
-  positive-index label definitions, jump-table entries, section switches,
-  procedure and stream-header records -- and frames a float literal's ASCII
-  digits as payload instead of word-decoding them into invented families. Each
-  record now carries `evidence`: `calibrated`, `inferred`, or `none`.
+- That text-only rule is now scoped to the function being selected. Read over
+  the whole dump, it let a function whose entry is its own loop head vouch for
+  itself, so selecting the function before it ran on through that function's
+  body and every function after it that did the same.
+
+- `symbol_extent` no longer swallows the next function in a handwritten-
+  assembly object. Only `STT_FUNC` could terminate a size-0 symbol, and a
+  hand-written `.s` file has no `STT_FUNC` at all -- every entry is a bare
+  `.globl` label, `STT_NOTYPE` and sizeless -- so the first function's extent
+  ran to the end of the section. The next externally bound symbol terminates
+  it too; a *local* untyped label (a jump-table destination) still never does.
+
+- `sweep build` gives every candidate its own object, cache entry, and row.
+  Outputs were keyed on the bare file stem, so same-named sources from two
+  input directories raced to compile one object and both rows scored whichever
+  compile finished last; a colliding stem now carries a short path digest, and
+  the wave reports the collision. The build fingerprint also carries the
+  compiler's own identity, as `campaign`'s cache key always has: swapping the
+  toolchain behind an unchanged path used to serve every stale object as
+  `cached`. Existing `.sweep-build.json` sidecars rebuild once.
+
+- `sweep build` no longer drops a `sweep.json` variant whose `.c` file is
+  missing. It now gets a `failed` row saying the source does not exist, which
+  is the module's own invariant: a candidate that vanishes from the table
+  reads as a candidate that was never tried.
+
+- `target audit` no longer forges the literal-pool truncation defect on a
+  healthy object. Every `.rodata` word relocating into `.text` counted as a
+  jump-table word, so a `const` array of function pointers ending `.rodata`
+  produced the same zero-bytes-left-over coincidence the defect is read from.
+  The defect now additionally requires the relocated run to be dense,
+  ascending, and to start the section; the same coincidence without that shape
+  is a `warning` (`rodata-ends-at-text-relocated-words`) naming which half did
+  not hold. A relocation offset past `.rodata`'s own end is reported as
+  `rodata-relocation-out-of-range` instead of making the byte count negative.
+
+- `--watch-rows` no longer renames the report it is merged into. The block
+  carried a top-level `schema`, so `compare --json --watch-rows` announced
+  itself as a watch-row set rather than a comparison and `rank` stamped the
+  same id onto every `results[]` entry. The sub-document's identity is now
+  `watch_schema`, and every key the block contributes is namespaced.
+
+- Internal: `sweep build` and `target audit` joined the discovery surface;
+  five copies of the streaming file digest and a second, divergent nice-prefix
+  helper import `campaign`'s; `replay_ugen`'s two copies of the pass
+  launch/capture/blame block became one helper; the unreferenced
+  `signature_table` and `watch_header` are gone; the aligner's verdict set is
+  built from named constants and the two docstrings that still said
+  "structure-mismatch only" are corrected; and each hand-rolled ELF
+  reader/writer now names `decomp_workbench.elf` as its intended home.
+
+### Documentation, provenance and the agent skill
+
+- A discoverability pass over the late-stage commands. `permute-sweep`,
+  `permute-doctor`, `permute classify`, `ranking stamp`/`check`,
+  `check-staleness` and `--built-from`, `diagnose --trace`, the `ownership:`
+  verdict line and laws L62-L70 each had a documented home and no route to it:
+  a reader who did not already know the name would not meet one on the README,
+  in `START_HERE`, in the documentation index, in the `commands` map, in the
+  field guide, or in the agent skill. Each of those now names them where a
+  reader is already looking, with one line and the canonical link. README gains
+  a **late-stage campaign loop** section -- rank, preflight, sweep, classify,
+  route, verify -- with the two guards spelled out, because the expensive
+  mistakes at this stage are all measurements of the wrong thing: a ranking
+  stamped against a tree that no longer exists, and a comparison against a
+  build older than the edit. The `commands` footer carries the same order in
+  one line, and the packaged agent skill runs it as steps rather than as prose.
+
+- Agent skill: `references/evidence-ladder.md` v2 adds byte-pattern search,
+  phase-capture decode/diff, and Ucode patch-and-replay as evidence rungs,
+  plus "prove at the boundary, then hunt C" doctrine.
+
+- Agent skill: new `references/late-stage-doctrine.md` — mechanism
+  composition (prove levers in isolation, compose late), saturation-scope
+  hygiene (negatives are basin-local; re-open dials after equilibrium
+  shifts), per-site heal-signature fitness over scalar metrics, and target
+  trust (audit target section scope at campaign registration).
+
+- Agent skill: `references/campaign-hygiene.md` documents the fan-out
+  pattern — asserted-unique-anchor generators, waved sweeps with interim
+  standings, mid-flight steering, and byte-search verification of agent
+  claims.
+
+- `docs/final-function-campaigns.md`: the cef4c case study, from the
+  99.91% hosted frontier through allocator reverse-engineering, the
+  one-word `as1` wall, the conditional-fjp barrier proof, mechanism
+  composition to `words=0`, and the target-scope fix.
+
+- CONTRIBUTING records the redistribution basis for **symbol-level
+  citations**, and the IDO 5.3 laws page and the permuter-sweep page state
+  it at the point of use. Both cite real function names, sizes, frame sizes
+  and register groups, and neither carried the notice CONTRIBUTING asks of a
+  worked example with binary-derived material. A measurement result from
+  which no instruction can be reconstructed is a different class from that
+  payload; saying so once means the next page does not re-litigate it, and
+  the line stays where it already was -- no instruction text, no
+  disassembly, no hexdump, in any encoding.
+
+- The documentation-output checker no longer attributes a `text` transcript to
+  a runnable command that did not immediately precede it, which made a correct
+  page fail because an intervening example was written against `target.o`.
 
 ## 0.6.0 - 2026-08-17
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "n64-decomp-workbench"
-version = "0.6.0"
+version = "0.7.0"
 description = "Diagnose late-stage MIPS decompilation mismatches"
 readme = "README.md"
 requires-python = ">=3.10"

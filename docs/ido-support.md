@@ -1,6 +1,6 @@
 # IDO version support
 
-As of 0.6.0, 2026-08-17.
+As of 0.7.0, 2026-08-28.
 
 The workbench separates compiler-neutral adapters from generated-source
 instrumentation profiles. “Supports IDO 7.1” therefore does not mean every
