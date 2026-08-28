@@ -1938,6 +1938,56 @@ record a toolchain wall.
 **Provenance:** Mickey's Speedway USA decomp (2026-08), `func_8001A154`
 authoritative-path variant sweep; reachability confirmed on `func_80024D00`.
 
+### L71. The linked image is the only oracle for unrelocated-module code
+
+A module that ships **unrelocated** carries its own relocation table and is
+patched by the game's runtime linker after it loads. What the image stores
+at each site is the record's stored addend, not an address, so the target's
+calls name placeholders no compiled object can reproduce. Every
+object-level oracle — the permuter's score, `words`, a relocation-aware
+comparison — therefore has a floor above zero on such a function, and the
+floor is a property of the oracle, not of the C. The linked image is the
+only sound oracle, and it is a sound one: if the built image equals the
+target over the function's bytes, the function is right whatever any score
+says.
+
+**Receipt — T1, 279 candidates and a 1773/1773 replay.** In Mickey's
+Speedway USA every overlay function's promotion needed a hand-derived
+linker value per referenced placeholder, and the permuter could never score
+zero on any of them. Two measurements settle both halves. First, the values
+are not judgement calls: each is a pure function of the stored addends at
+the sites the module's own table names, and replaying the procedure over
+every overlay object that project's link consumes reproduced **1773 of 1773**
+hand-written values with zero refusals, plus 979 of 982 untracked values
+agreeing with the linked ELF's own symbols (the three exceptions are lone
+`R_MIPS_LO16` sites, which observe only the low half — the emitted word is
+identical either way). Second, with those values generated rather than
+hand-written, the measurable candidate pool went from **110 of 279 to 150 of
+279**, and every newly-linking candidate produced **zero out-of-range
+differing bytes**: an in-range word count where there had been a link error.
+
+**Falsifies.** "This function is hard" for a whole class of functions whose
+only problem was that nothing was scoring them. It also falsifies the
+inverse mistake — reading a nonzero permuter score on such a function as
+residual codegen — since the same candidate can be image-exact.
+
+**Scope.** The law is about the *oracle*, not about difficulty: a
+`text-differs N words` verdict from the image is an ordinary residual and
+every other law on this page still applies to it. The addend is only
+readable where the candidate's schedule already agrees at the placeholder's
+own sites; where two sites disagree the synthesis refuses rather than
+inventing a value, which is a stated precondition and not a wall.
+
+**The workbench's answer** is `decomp-workbench reloc-surface` (the values,
+generated, audited against whatever block a project already hand-wrote) and
+`decomp-workbench linked-compare` (the image, classified per function range
+as exact / text-exact / text-differs N words / size-differs), with
+`permute-doctor --target-object` routing between them. See
+`docs/linked-oracle.md`.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-08), overlay promotion
+campaign, `lane/reloc-synth` and `lane/reloc-synth2`.
+
 ---
 
 ## Instruments these laws were read with
@@ -2010,6 +2060,7 @@ concluded from it.
 | A permuter that finds nothing in seconds has found a hard function | falsified by [L69](#l69-a-permuter-that-finds-nothing-instantly-is-a-setup-fault-not-a-hard-function) | eight of twelve such verdicts were one wrong ISA flag in the scratch |
 | A lever proven on an isolated `cc -c` is proven | falsified by [L70](#l70-an-isolated-cc--c-does-not-schedule-like-the-project-path) | the same source compiled 56 instructions isolated and 58 on the project path |
 | Eight scheduler-tie rows are basin-invariant | corrected by [L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) | they were line-number-invariant; all eight fell to a whitespace-only edit |
+| A candidate that cannot score zero against its target object has residual codegen | falsified by [L71](#l71-the-linked-image-is-the-only-oracle-for-unrelocated-module-code) | the module ships unrelocated, so the score has a floor no source change closes; the same candidates were image-exact |
 
 ---
 

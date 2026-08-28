@@ -637,6 +637,18 @@ question, not proof that the function's C needs a fake expression. The
 workbench calls such a case `relocation-layout-mismatch`; verify the linked
 object or final ROM before changing source.
 
+### When the object comparison cannot be right at all
+
+There is a case where no object-level verdict is available, however the
+spellings are read. A module that ships **unrelocated** carries its own
+relocation table and is patched by the game's runtime linker after it loads,
+so the target's calls name placeholders that have no address in any build and
+the candidate cannot reproduce them. `words` has a floor above zero that no
+source change closes. The linked image is the only sound oracle there:
+[The linked image as an oracle](linked-oracle.md) covers `reloc-surface`,
+which supplies each placeholder's value from the shipped addends, and
+`linked-compare`, which classifies the resulting image per function range.
+
 ## Compare retained text
 
 `compare-dumps` accepts GNU objdump text directly:

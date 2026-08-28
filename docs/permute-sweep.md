@@ -337,6 +337,25 @@ is not scoring the function under test at all — it would report an instant
 differing scratch is a warning here rather than a refusal, unless
 `--require-fidelity` is passed.
 
+### When no scratch score can be right
+
+`--target-object build/target.o` adds a fifth question, and it is the one no
+amount of searching recovers from: can this scratch even *name* what the
+target calls. In a module that ships unrelocated the target spells every call
+with a placeholder the game's runtime linker resolves, so identical
+instructions still score as mismatches and the score has a floor above zero
+however good the C is. The symptom — a search that finds nothing — is
+indistinguishable from a badly configured scratch, so the doctor reports the
+site count and names the oracle that does apply:
+
+```sh
+decomp-workbench permute-doctor overlay1DrawActive --queue queue.json --target-object build/target.o --candidate-object build/overlay1.c.o
+```
+
+Add `--candidate-object` so a call to a symbol the candidate does not carry
+at all is told apart from an ordinary one. Read
+[The linked image as an oracle](linked-oracle.md) for what to do about it.
+
 ## Reading a sweep's results as evidence
 
 A near-match the permuter cannot move in a full window, with the base score

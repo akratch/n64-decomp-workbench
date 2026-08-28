@@ -3,6 +3,59 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
+## Unreleased
+
+### The linked image as an oracle
+
+- `reloc-surface`, `linked-compare`, and a `permute-doctor` that routes
+  between them. A game whose code modules ship **unrelocated** patches every
+  relocation site from the module's own table after the module loads, so what
+  the image stores at a site is the record's stored addend, not an address.
+  A translation unit cannot express that: it emits an ordinary reference to a
+  placeholder symbol that has no address in this build, and every project's
+  answer is a linker assignment giving that placeholder the shipped addend as
+  its value -- hand-derived, per function, from the target's relocation table.
+  That ritual, not the C, is what gates such a project's candidate pool, and
+  while it is unresolved the permuter can never score zero on those functions
+  either: the target names symbols the scratch cannot.
+
+  `reloc-surface` generates the values instead. For a candidate whose schedule
+  already agrees at the site, each is a pure function of the stored addends --
+  `synthetic_vma | (imm26 << 2)` for a call, `(hi << 16) + sext16(lo)` for a
+  pair, the word itself for an `R_MIPS_32` -- less the addend the object's own
+  instruction carries, which is what lets one base symbol serve many field
+  references. Inputs are the module's objects, a section map the host writes
+  once (`decomp-workbench-module-map-v1`: module image range, section ranges,
+  per-object text placement, synthetic VMA, and optionally the shipped
+  relocation table), and the target image; outputs are a linker symbol block,
+  an alias block, and `--audit` against whatever block a project already
+  hand-wrote. It refuses rather than guesses: two sites demanding different
+  values are a schedule divergence *at the site*, reported with both values
+  and every conflicting site, because a link that succeeds on an invented
+  addend is quietly wrong.
+
+  `linked-compare` is the oracle that then applies. Given the image the host
+  built, the target image, and each function's image range (`--range
+  NAME:START:END`, or a `decomp-workbench-image-ranges-v1` file), it classifies
+  every range `exact` / `text-exact` (the range agrees; collateral outside it)
+  / `text-differs N words` / `size-differs (+N)`, with the first differing
+  offset inside and outside each range. No build orchestration: only the
+  project knows how it builds, and the host-side loop is written out in the
+  documentation rather than guessed at here.
+
+  `permute-doctor --target-object` closes the loop by telling this case apart
+  from L69's badly-configured scratch, which has the same symptom -- a search
+  that finds nothing. When every `R_MIPS_26` site in the target names the
+  function itself or a symbol the candidate object does not carry, it warns
+  that the score cannot reach zero and names `linked-compare`.
+
+  The measurements behind all of it are Mickey's Speedway USA's: 1773/1773
+  hand-written values reproduced with zero refusals, and a measurable
+  candidate pool that moved from 110/279 to 150/279 once the surface was
+  generated rather than hand-written. Recorded as **L71** on the IDO 5.3 laws
+  page: the linked image is the only oracle for unrelocated-module code. See
+  [The linked image as an oracle](docs/linked-oracle.md). Closes backlog #14.
+
 ## 0.7.0 - 2026-08-28
 
 ### Permuter sweeps and scratch fidelity

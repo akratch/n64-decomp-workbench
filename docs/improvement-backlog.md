@@ -626,3 +626,30 @@ what a trace changes, and `diagnose` is where a reader acts on it.
   symbols are placeholders that the scratch cannot reproduce.
 - **Payoff.** Turns per-function integration ritual into generated data and
   gives overlay-style code a real oracle.
+
+**Status (landed).** Three commands, generalized away from any one game.
+`reloc-surface` reads a module's objects, a section map the host writes once
+(`decomp-workbench-module-map-v1`: module image range, section ranges,
+per-object text placement, synthetic VMA, an optional shipped relocation table
+for corroboration, an optional alias template) and the target image, and emits
+the linker symbol block and alias block. Two sites demanding different values
+are refused as `schedule-divergence-at-site` with both values and every
+conflicting site; `--audit` replays an existing hand-written block and scores
+it `agree` / `disagree` / `untracked` / `unreproduced`. `linked-compare`
+classifies a built image against the target per function range -- `exact`,
+`text-exact`, `text-differs N words`, `size-differs (+N)` -- from `--range
+NAME:START:END` or a `decomp-workbench-image-ranges-v1` file.
+`permute-doctor --target-object` warns when every `R_MIPS_26` site in the
+target names the function itself or a symbol the candidate lacks, and routes
+to `linked-compare` instead of the score. Recorded as **L71** on the IDO 5.3
+laws page; documented in [The linked image as an oracle](linked-oracle.md).
+
+**Deliberately out:** no build orchestration. Splicing a candidate, running
+the project's make, regenerating the surface between the compile and the link,
+and restoring the tree are the host's, because only the project knows how it
+builds -- a guessed loop would be wrong in the way that costs a day. The
+host-side loop is written out in the documentation, with the originating
+project's tools as the worked example, and the workbench measures the bytes it
+is handed. Also out: the workbench does not decode a module's relocation
+table. Its format is per-game, and a wrong decode would silently corroborate
+the wrong sites; the table is an input, and a run without one says so.
