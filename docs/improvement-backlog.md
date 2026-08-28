@@ -28,6 +28,21 @@ Priorities: **P0** correctness (the tool gives a wrong answer), **P1** coverage
 - **Payoff.** Eliminates the single most dangerous failure mode — a *false
   match* — which wastes downstream verify cycles and can pollute a branch.
 
+**Status (landed).** Every comparison command states what it compared and when
+each side was built, ahead of the verdict; `--built-from PATH` (repeatable)
+names the inputs and makes the check enforceable; a compared artifact older
+than one of its inputs is refused before anything is disassembled;
+`--allow-stale` downgrades the refusal to a warning it never suppresses; and
+`--json` carries the report as a namespaced `staleness` block.
+`decomp-workbench check-staleness` and `staleness.staleness_report(...)` are
+the host-facing halves, chain-aware (every earlier path is an input to every
+later one) and able to record content hashes as well as times.
+**Deliberately out:** the workbench does not discover the chain. Only the
+project knows which sources produce which object and which objects produce the
+ROM, and a guessed chain that silently checks the wrong thing would recreate
+the false positive one layer down -- so the chain is declared, and an
+undeclared one is reported `unknown` rather than `fresh`.
+
 ---
 
 ## P1 — Coverage (invisible residual classes)

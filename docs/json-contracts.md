@@ -10,6 +10,7 @@ mode, so a caller never has to guess whether stdout is parseable.
 Schemas name the user-visible report, for example:
 
 - `decomp-workbench-comparison-v1`
+- `decomp-workbench-staleness-v1`
 - `decomp-workbench-diagnosis-v1`
 - `decomp-workbench-campaign-status-v1`
 - `decomp-workbench-campaign-finish-v1`
@@ -36,7 +37,12 @@ Optional blocks merged into a report keep their keys namespaced and name
 themselves under a prefixed key, never `schema`. `--watch-rows` adds
 `watch_rows`, `watch_signature`, the tallies, and `watch_schema`
 (`decomp-workbench-watch-rows-v1`) to a `compare`, `rank`, or `sweep build`
-document; the document's own top-level `schema` is unchanged. Switch on
+document; the document's own top-level `schema` is unchanged. `compare`,
+`compare-dumps`, `diagnose` and `diagnose-dumps` add `staleness` and
+`staleness_schema` (`decomp-workbench-staleness-v1`) the same way: what was
+compared, when each artifact was built, and any input newer than the build
+that was compared against it. `check-staleness` emits that document on its
+own, with the schema at the top level. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 

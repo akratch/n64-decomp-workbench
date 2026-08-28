@@ -44,6 +44,12 @@ from .loc_boundaries import (
 )
 from .model import display_path
 from .schema import COMPARISON_CENSUS_KEYS
+from .staleness_cli import (
+    add_freshness_arguments,
+    freshness_display,
+    freshness_payload,
+    guard_freshness,
+)
 from .terminal import Painter, emit_lines, resolve_color
 from .view_cli import (
     add_view_output_arguments,
@@ -136,6 +142,9 @@ def _emit(
         return 2
 
     accepted, _ = comparison_acceptance(comparison, cross_rom=args.cross_rom)
+    freshness, freshness_warnings = freshness_display(
+        args, args.target, args.candidate, labels=("target", "candidate")
+    )
     if args.json:
         payload = diagnosis.as_dict(
             report_regs=args.report_regs,
@@ -145,12 +154,17 @@ def _emit(
             nested = payload["comparison"]
             if isinstance(nested, dict):
                 nested["census"] = [item.as_dict() for item in census]
+        payload.update(freshness_payload(freshness))
         if listing_report is not None:
             payload["loc_boundaries"] = listing_report.as_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         painter = Painter(resolve_color(args.color))
         lines = [
+            *freshness_warnings,
+            # Provenance ahead of the verdict: a reader who meets it after
+            # the numbers has already believed the numbers.
+            *(f"compared: {line}" for line in freshness.provenance_lines()),
             *warning_lines(comparison.warnings),
             painter.bold("COMPARISON"),
             *alignment_caution_lines(comparison),
@@ -216,6 +230,9 @@ def diagnose_command(args: argparse.Namespace) -> int:
     """Diagnose two object files after disassembling each exactly once."""
 
     try:
+        guard_freshness(
+            args, args.target, args.candidate, labels=("target", "candidate")
+        )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         diagnosis = diagnose_objects(
             args.target,
@@ -235,6 +252,9 @@ def diagnose_dumps_command(args: argparse.Namespace) -> int:
     """Diagnose two retained GNU objdump text files."""
 
     try:
+        guard_freshness(
+            args, args.target, args.candidate, labels=("target", "candidate")
+        )
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         diagnosis = diagnose_dumps(
             args.target,
@@ -295,6 +315,7 @@ def _add_shared_arguments(
         action="store_true",
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
+    add_freshness_arguments(parser)
     add_census_argument(parser)
 
 

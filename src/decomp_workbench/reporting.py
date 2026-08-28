@@ -37,6 +37,7 @@ SCHEMAS: dict[str, str] = {
     "cache-restore": "decomp-workbench-cache-restore-v1",
     "cache-status": "decomp-workbench-cache-status-v1",
     "check-scratch": "decomp-workbench-scratch-check-v1",
+    "check-staleness": "decomp-workbench-staleness-v1",
     "compare": "decomp-workbench-comparison-v1",
     "compare-dumps": "decomp-workbench-comparison-v1",
     "compile-rank": "decomp-workbench-compile-rank-v1",

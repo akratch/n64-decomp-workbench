@@ -54,6 +54,90 @@ This prevents a common late-stage failure mode: continuing to mutate source
 solely because a UI or raw comparison reports a nonzero number after the object
 oracle has already proved the instructions exact.
 
+## Is the thing you compared the thing you just built?
+
+A comparison answers "are these two objects the same". It does not answer "is
+this object the thing my last edit produced" — and on screen the two are
+indistinguishable. An operator confirming a match at ROM level got a silent
+**0 differing words** from a `build/` image that had never been relinked after
+the source edit. The false match survived several verify cycles.
+
+So every comparison states its own provenance before the verdict:
+
+```text
+compared: target     build/target.o     built 2026-08-28T09:41:02Z
+compared: candidate  build/track.o      built 2026-08-28T09:39:07Z
+verdict=instruction-exact aligned_total=   0 words=   0 ...
+```
+
+That is the default, and it is the whole guard when nothing else is declared:
+the timestamps are there for a reader to notice. To have them *checked*, name
+the inputs the compared artifacts were built from:
+
+```sh
+decomp-workbench compare target.o build/track.o \
+  --symbol func_8001A154 \
+  --built-from src/track.c
+```
+
+Every named input must be older than every compared artifact. If one is not,
+the command refuses before it disassembles anything:
+
+```text
+error: candidate build/track.o was built 12m BEFORE source src/track.c was last
+written (2026-08-28T09:27:11Z < 2026-08-28T09:39:07Z). A comparison against a
+build older than its inputs measures the previous edit: rebuild, or pass
+--allow-stale to say you meant this one
+```
+
+The refusal is the default because the failure it guards is a *false
+positive*: a stale comparison does not look wrong, it looks like a match.
+`--allow-stale` downgrades it to a warning printed above the verdict, for the
+cases where a retained reference build is genuinely the intended input. The
+same two options are on `compare`, `compare-dumps`, `diagnose`, and
+`diagnose-dumps`, and `--json` carries the whole report as a namespaced
+`staleness` block (`staleness_schema`), leaving the host document's own
+`schema` alone.
+
+### Checking a chain without running a comparison
+
+A host wrapper that rebuilds a ROM and then compares can ask the same question
+directly, in build order, earliest input first:
+
+```sh
+decomp-workbench check-staleness \
+  src/track.c build/track.o build/game.elf build/game.z64 --sha256
+```
+
+Exit status is 0 when every artifact is at least as new as the inputs before
+it and 1 otherwise, including when a path is missing — an unproven chain is not
+a fresh one. Every *earlier* path is an input to every later one, not just to
+the next: a ROM relinked after its object but before the source was recompiled
+is stale against the source even though it is newer than the object it holds.
+`--sha256` records a content hash per artifact so a wrapper that keeps the
+report can tell a rebuild that changed something from a rebuild that changed
+nothing.
+
+In Python, the same report is one call:
+
+```python
+from decomp_workbench.staleness import staleness_report
+
+report = staleness_report("src/track.c", "build/track.o", "build/game.z64")
+if report.stale:
+    raise SystemExit(report.message)
+```
+
+### What this cannot tell you
+
+Modification time is evidence, not proof. A build that preserves timestamps, a
+restored archive, or a moved clock can make a current artifact look stale, and
+`touch` makes a stale one look current. Equal timestamps are deliberately not
+staleness — a fast build genuinely writes an object in the same filesystem tick
+as the source — so the default tolerance is one second and `--tolerance 0`
+tightens it. The guard removes the *silent* case; the project's own build
+system remains the thing that knows what is out of date.
+
 ## No verdict may suppress a diff site
 
 The verdict chooses emphasis and the next action. It never filters evidence.
