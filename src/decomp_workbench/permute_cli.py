@@ -208,6 +208,12 @@ def permute_sweep_command(args: argparse.Namespace) -> int:
         print(f"--resume: skipping {before - len(ordered)} already-run function(s)")
     if args.limit is not None:
         ordered = ordered[: args.limit]
+    if carried:
+        # A carried row for a function this run searches again is the older
+        # measurement of it. Keeping both would put one function in the
+        # summary twice, and every total would count it twice.
+        rerunning = {item.function for item in ordered}
+        carried = [row for row in carried if row.function not in rerunning]
     if unranked and ranking:
         print(f"note: {unranked} queued function(s) are unranked; they run last")
     if args.list or args.dry_run or not ordered:
@@ -477,7 +483,11 @@ def _add_sweep_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="skip functions already recorded in the output directory's summary",
+        help=(
+            "skip the functions a previous run in this output directory "
+            "searched; a row that errored is retried, because nothing was "
+            "measured about it"
+        ),
     )
     parser.add_argument(
         "--dry-run",

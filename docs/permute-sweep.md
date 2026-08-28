@@ -102,7 +102,7 @@ and a sweep that spends its first hours on unmeasured functions reports
 | `--jobs N` / `--threads N` | concurrent functions, and permuter threads each |
 | `--load-threshold X` | wait for the one-minute load average to drop below `X` before each launch |
 | `--extend-minutes N` | re-seed once from the best candidate, but only when the run hit its cap with its best result in the final third of the window |
-| `--resume` | skip functions already recorded in the output directory's summary |
+| `--resume` | skip the functions a previous run in this output directory actually searched; a row that errored is retried, because nothing was measured about it |
 | `--limit N`, `--function NAME` | narrow the queue |
 | `--list`, `--dry-run` | print the ordered queue and the resolved limits, and stop |
 | `--permuter-arg ARG` | forward one argument to `permuter.py` (repeatable) |

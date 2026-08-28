@@ -438,6 +438,42 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual(carried[0].best_score, 4)
             self.assertEqual(completed_functions(summary.parent / "nope.json"), set())
 
+    def test_a_function_whose_scratch_failed_is_not_counted_as_done(self) -> None:
+        """`--resume` must not skip a function nothing was learned about.
+
+        An IMPORT_FAULT row routes to fixing the scratch. Fixing it and
+        resuming, only for the sweep to skip the very function that was
+        repaired, is the trap: the run reports "queue exhausted" without
+        ever searching it.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            summary = Path(temporary) / "summary.json"
+            summary.write_text(
+                json.dumps(
+                    sweep_payload(
+                        [
+                            SweepResult(
+                                function="done", source="a.c", ok=True, best_score=4
+                            ),
+                            SweepResult(
+                                function="broken",
+                                source="b.c",
+                                ok=False,
+                                error="import.py failed",
+                            ),
+                        ],
+                        final=True,
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(completed_functions(summary), {"done"})
+            self.assertEqual(
+                [result.function for result in earlier_results(summary)],
+                ["done", "broken"],
+            )
+
     def test_the_table_reports_a_fallback_search_as_a_fallback(self) -> None:
         rows = render_table(
             [
@@ -969,6 +1005,43 @@ class PermuteCliTests(unittest.TestCase):
                 )
         self.assertEqual(status, 2)
         self.assertIn("error:", stderr)
+
+    def test_resume_carries_the_done_rows_and_retries_the_broken_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue, _ranking = self.write_project(root)
+            out = root / "out"
+            out.mkdir()
+            (out / "summary.json").write_text(
+                json.dumps(
+                    sweep_payload(
+                        [
+                            SweepResult(function="near", source="a.c", ok=True),
+                            SweepResult(
+                                function="far", source="b.c", error="import.py failed"
+                            ),
+                        ],
+                        final=True,
+                    )
+                ),
+                encoding="utf-8",
+            )
+            status, stdout, _stderr = self.run_cli(
+                [
+                    "permute-sweep",
+                    str(queue),
+                    "--project",
+                    str(root),
+                    "--output-dir",
+                    str(out),
+                    "--resume",
+                    "--dry-run",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("skipping 1", stdout)
+        self.assertIn("far", stdout)
+        self.assertNotIn("near", stdout.split("queued function(s):")[1])
 
     def test_doctor_without_a_queue_needs_a_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

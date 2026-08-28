@@ -692,7 +692,14 @@ def sweep_payload(results: Sequence[SweepResult], *, final: bool) -> dict[str, A
 
 
 def completed_functions(summary: str | Path) -> set[str]:
-    """Names already recorded in a summary, for ``--resume``."""
+    """Names a previous sweep actually searched, for ``--resume``.
+
+    A row that errored is not one of them. Nothing was measured about that
+    function -- the scratch failed to import or to compile -- and its whole
+    routing is "fix the scratch and search it". Skipping it on the next run
+    is how a repaired scratch never gets searched and the sweep reports a
+    queue it exhausted without ever reaching.
+    """
 
     path = Path(summary)
     if not path.is_file():
@@ -702,7 +709,10 @@ def completed_functions(summary: str | Path) -> set[str]:
     return {
         str(row["function"])
         for row in rows
-        if isinstance(row, dict) and isinstance(row.get("function"), str)
+        if isinstance(row, dict)
+        and isinstance(row.get("function"), str)
+        and row.get("ok")
+        and not row.get("error")
     }
 
 
