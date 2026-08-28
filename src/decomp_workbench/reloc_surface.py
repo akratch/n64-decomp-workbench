@@ -657,8 +657,12 @@ def collect_sites(
                     _noted(site, f"unsupported relocation {r_mips_name(reloc.type)}")
                 )
                 continue
-            owner = module.section(placement.section.lstrip("."))
-            owner = owner or module.section(placement.section)
+            # A map may name its sections `.text` or `text`; both spellings
+            # occur in real project configuration and neither is worth
+            # refusing a whole module over.
+            owner = module.section(placement.section) or module.section(
+                placement.section.lstrip(".")
+            )
             if owner is not None and not owner.contains(module_offset, 4):
                 sites.append(_noted(site, "outside the module section"))
                 continue

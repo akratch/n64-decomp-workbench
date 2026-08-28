@@ -36,6 +36,7 @@ from .reloc_surface import (
     synthesize,
     tracked_values,
 )
+from .terminal import warn_to_stderr
 
 _SURFACE_DESCRIPTION = (
     "Synthesize the linker values a module's placeholder symbols must carry, "
@@ -121,7 +122,7 @@ def reloc_surface_command(args: argparse.Namespace) -> int:
                     f"{site.symbol}{' ' + site.note if site.note else ''} */"
                 )
     for warning in surface.warnings:
-        print(f"warning: {warning}", file=sys.stderr)
+        warn_to_stderr(warning)
     if args.out:
         Path(args.out).expanduser().write_text(
             "\n".join(render_linker_block(surface)) + "\n", encoding="utf-8"
