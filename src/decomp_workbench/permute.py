@@ -57,6 +57,12 @@ LABEL_RE = re.compile(r"^\s*(?:glabel|endlabel|jlabel|dlabel)\s+(\S+)", re.MULTI
 #: What the permuter prints once it has scored the unmodified base.
 BASE_SCORE_RE = re.compile(r"base score = (\d+)")
 
+#: What `import.py` prints about the macros it decided to preserve. It is the
+#: only record of that decision the scratch keeps, and it is what says whether
+#: a scratch that differs from the real object could differ *because of*
+#: preserved macros.
+PRESERVED_MACROS_RE = re.compile(r"^Preserving (?:macros: (.*?)|(no macros))\.", re.M)
+
 #: Ranking rank for a function the ranking file does not mention: last.
 UNRANKED = 10**9
 
@@ -512,6 +518,215 @@ def append_compile_steps(compile_script: Path, steps: Sequence[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Scratch fidelity, and the preserved-macro modes that repair it
+# ---------------------------------------------------------------------------
+
+#: The scratch object carries the same words as the real one for this
+#: function. A score of 0 found here is a score of 0 in the build.
+FIDELITY_IDENTICAL = "identical"
+#: The scratch compiles the function to something the real build never emits,
+#: so every score it reports is a score about a different object.
+FIDELITY_DIFFERS = "differs"
+#: The comparison could not be made -- the project object is not built, no
+#: objdump was configured, the base did not compile. Not a verdict.
+FIDELITY_UNKNOWN = "unknown"
+#: The check was switched off.
+FIDELITY_UNCHECKED = "unchecked"
+
+#: Name of the mode that keeps the project's configured `[preserve_macros]`.
+CONFIGURED_MACROS = "configured"
+#: Name of the mode that preserves nothing, so the translation unit's *real*
+#: header macros expand into the scratch exactly as they do in the build.
+NO_MACROS = "none"
+
+#: The modes tried, in order, when the configured scratch does not reproduce
+#: the real object. The configured set comes first because it is what the
+#: project asked for and it is the only mode that lets the permuter permute
+#: *inside* a macro call; `none` is the mode that gives up that reach in
+#: exchange for the real expansions.
+DEFAULT_PRESERVE_MACRO_MODES = (CONFIGURED_MACROS, NO_MACROS)
+
+
+@dataclass(frozen=True)
+class PreserveMacroMode:
+    """One way to import a translation unit, as far as macros are concerned.
+
+    ``macros`` is what goes into the settings file's ``[preserve_macros]``
+    table; ``regex`` is what is passed to `import.py --preserve-macros`, where
+    ``""`` means "preserve nothing" and ``None`` means "do not pass the
+    option, the settings file decides".
+    """
+
+    name: str
+    macros: tuple[str, ...] = ()
+    regex: str | None = None
+
+    @property
+    def key(self) -> tuple[tuple[str, ...], str | None]:
+        """What actually reaches `import.py`, for deduplication."""
+
+        return (self.macros, self.regex)
+
+
+def resolve_preserve_macro_modes(
+    configured: Sequence[str],
+    modes: Sequence[str] = DEFAULT_PRESERVE_MACRO_MODES,
+) -> tuple[PreserveMacroMode, ...]:
+    """Turn configured mode names into the imports they stand for.
+
+    ``configured`` and ``none`` are the two named modes; anything else is a
+    narrowing regex, handed to `import.py --preserve-macros` with the
+    project's type table still in place, so a project can keep the one macro
+    it needs preserved and let the rest expand for real.
+
+    Modes that reach `import.py` identically are collapsed: with no
+    ``[preserve_macros]`` configured, ``configured`` and ``none`` are the same
+    import, and importing it twice to compare it with itself is a minute spent
+    proving nothing.
+    """
+
+    resolved: list[PreserveMacroMode] = []
+    seen: set[tuple[tuple[str, ...], str | None]] = set()
+    for name in modes or DEFAULT_PRESERVE_MACRO_MODES:
+        if name == CONFIGURED_MACROS:
+            # With nothing configured, "keep the configured set" and "keep
+            # nothing" are the same import, and the key below collapses them.
+            macros = tuple(configured)
+            mode = PreserveMacroMode(name, macros, None if macros else "")
+        elif name == NO_MACROS:
+            mode = PreserveMacroMode(name, (), "")
+        else:
+            mode = PreserveMacroMode(name, tuple(configured), name)
+        if mode.key in seen:
+            continue
+        seen.add(mode.key)
+        resolved.append(mode)
+    return tuple(resolved)
+
+
+def parse_preserved_macros(log: str) -> tuple[str, ...] | None:
+    """The macros `import.py` says it preserved, or None if it never said.
+
+    An empty tuple and ``None`` are different answers: the first is "the
+    importer preserved nothing", which rules preserved macros out as the cause
+    of a differing scratch, and the second is "the log does not say", which
+    rules nothing out.
+    """
+
+    match = PRESERVED_MACROS_RE.search(log)
+    if match is None:
+        return None
+    if match.group(2) is not None:
+        return ()
+    return tuple(part.strip() for part in match.group(1).split(",") if part.strip())
+
+
+@dataclass(frozen=True)
+class FidelityAttempt:
+    """One import mode, and what its object turned out to be."""
+
+    mode: str
+    status: str
+    differing_words: int | None = None
+    preserved_macros: tuple[str, ...] = ()
+    reason: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "status": self.status,
+            "differing_words": self.differing_words,
+            "preserved_macros": list(self.preserved_macros),
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class ScratchFidelity:
+    """Whether the scratch object is the object the real build produces.
+
+    This is the fourth fidelity fault, and the quietest: the flags can be
+    right, the post-compile chain replicated, `--stack-diffs` forced, and the
+    scratch still compile a *different function*, because `import.py` replaces
+    the translation unit's macros with stub definitions of its own. Where a
+    project's real macros expand to more than the stub does -- N64 display
+    lists are the standard case -- the scratch's frame, its schedule and its
+    score all describe code the build never emits.
+    """
+
+    status: str = FIDELITY_UNCHECKED
+    differing_words: int | None = None
+    mode: str | None = None
+    reason: str | None = None
+    object: str | None = None
+    preserved_macros: tuple[str, ...] = ()
+    attempts: tuple[FidelityAttempt, ...] = ()
+
+    @property
+    def identical(self) -> bool:
+        return self.status == FIDELITY_IDENTICAL
+
+    @property
+    def summary(self) -> str:
+        """The one token a report prints: `differs(4 words)`, or the status."""
+
+        if self.status == FIDELITY_DIFFERS and self.differing_words is not None:
+            plural = "" if self.differing_words == 1 else "s"
+            return f"differs({self.differing_words} word{plural})"
+        return self.status
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "differing_words": self.differing_words,
+            "mode": self.mode,
+            "reason": self.reason,
+            "object": self.object,
+            "preserved_macros": list(self.preserved_macros),
+            "attempts": [attempt.as_dict() for attempt in self.attempts],
+        }
+
+
+def macro_attributable(fidelity: ScratchFidelity) -> bool:
+    """Could preserved macros explain this difference?
+
+    Only when the importer actually preserved some. A scratch that differs
+    with nothing preserved differs for another reason, and re-importing it
+    with fewer macros is a second import that produces the same bytes. The
+    log not saying is treated as "maybe": the cost of one more import is a
+    minute, and the cost of not trying is a search that answers nothing.
+    """
+
+    if fidelity.status != FIDELITY_DIFFERS:
+        return False
+    return bool(fidelity.preserved_macros) or not fidelity.attempts
+
+
+def fidelity_warning(fidelity: ScratchFidelity, function: str) -> str | None:
+    """The loud line a differing scratch owes the operator.
+
+    Not a refusal: a project may know why its scratch differs and want the
+    search anyway. But nothing else in the run will say that the score column
+    is measuring a different object, and a quiet note there is a note nobody
+    reads.
+    """
+
+    if fidelity.status == FIDELITY_DIFFERS:
+        where = f" for {fidelity.object}" if fidelity.object else ""
+        return (
+            f"the scratch object for {function} is not the object the build "
+            f"produces{where}: {fidelity.summary}. A score of 0 here does not "
+            "have to transfer. Tried import mode(s): "
+            + (", ".join(attempt.mode for attempt in fidelity.attempts) or "none")
+        )
+    if fidelity.status == FIDELITY_UNKNOWN:
+        return f"scratch fidelity for {function} could not be measured" + (
+            f": {fidelity.reason}" if fidelity.reason else ""
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Run policy
 # ---------------------------------------------------------------------------
 
@@ -691,6 +906,14 @@ class SweepResult:
     flags_recovered: bool = False
     replicated_objcopy: int = 0
     skipped_postprocess: int = 0
+    #: Whether this scratch's object is the object the real build produces for
+    #: this translation unit: `identical`, `differs`, `unknown`, `unchecked`.
+    #: The column that says whether the score beside it means anything.
+    scratch_fidelity: str = FIDELITY_UNCHECKED
+    scratch_fidelity_words: int | None = None
+    #: Which preserved-macro import mode the searched scratch was built with.
+    scratch_fidelity_mode: str | None = None
+    scratch_fidelity_reason: str | None = None
     output_dir: str | None = None
     #: Where in the searched window the best candidate landed, 0.0 (first
     #: moment) to 1.0 (the last). This is the field that separates a search
@@ -723,6 +946,9 @@ def sweep_payload(results: Sequence[SweepResult], *, final: bool) -> dict[str, A
             "errored": sum(1 for result in results if result.error),
             "fallback_flags": sum(
                 1 for result in results if result.ok and not result.flags_recovered
+            ),
+            "scratch_differs": sum(
+                1 for result in results if result.scratch_fidelity == FIDELITY_DIFFERS
             ),
         },
     }
@@ -769,10 +995,21 @@ def earlier_results(summary: str | Path) -> list[SweepResult]:
     return carried
 
 
+def _fidelity_cell(result: SweepResult) -> str:
+    """The table's fidelity token, with the differing word count folded in."""
+
+    if (
+        result.scratch_fidelity == FIDELITY_DIFFERS
+        and result.scratch_fidelity_words is not None
+    ):
+        return f"DIFFERS/{result.scratch_fidelity_words}"
+    return result.scratch_fidelity
+
+
 def render_table(results: Sequence[SweepResult]) -> list[str]:
     header = (
         f"{'function':<32} {'base':>6} {'best':>6}  "
-        f"{'zero':<5} {'ext':<4} {'flags':<9} {'time':>7}"
+        f"{'zero':<5} {'ext':<4} {'flags':<9} {'scratch':<12} {'time':>7}"
     )
     lines = [header]
     for result in results:
@@ -782,6 +1019,7 @@ def render_table(results: Sequence[SweepResult]) -> list[str]:
             f"{'yes' if result.zero_found else 'no':<5} "
             f"{'yes' if result.extended else 'no':<4} "
             f"{'real' if result.flags_recovered else 'FALLBACK':<9} "
+            f"{_fidelity_cell(result):<12} "
             f"{result.seconds:>6.0f}s"
         )
     if results:
@@ -791,11 +1029,15 @@ def render_table(results: Sequence[SweepResult]) -> list[str]:
         fallback = sum(
             1 for result in results if result.ok and not result.flags_recovered
         )
+        differs = sum(
+            1 for result in results if result.scratch_fidelity == FIDELITY_DIFFERS
+        )
         lines.extend(
             (
                 "",
                 f"{total} run, {zero} reached score 0, {errored} errored, "
-                f"{fallback} searched with fallback flags",
+                f"{fallback} searched with fallback flags, "
+                f"{differs} on a scratch that is not the real object",
             )
         )
     return lines
@@ -812,33 +1054,47 @@ def render_queue(items: Iterable[QueueItem]) -> list[str]:
 
 __all__ = [
     "CODEGEN_FLAG_RE",
+    "CONFIGURED_MACROS",
+    "DEFAULT_PRESERVE_MACRO_MODES",
     "DEFAULT_SKIP_POSTPROCESS",
     "DOCTOR_SCHEMA",
+    "FIDELITY_DIFFERS",
+    "FIDELITY_IDENTICAL",
+    "FIDELITY_UNCHECKED",
+    "FIDELITY_UNKNOWN",
+    "NO_MACROS",
     "SWEEP_SCHEMA",
     "BuildRecipe",
+    "FidelityAttempt",
+    "PreserveMacroMode",
     "QueueItem",
+    "ScratchFidelity",
     "SweepResult",
     "append_compile_steps",
     "best_output",
     "completed_functions",
     "earlier_results",
+    "fidelity_warning",
     "join_continuations",
     "load_average",
     "load_gate_note",
     "load_queue",
     "load_ranking",
+    "macro_attributable",
     "object_mention_re",
     "object_target",
     "order_queue",
     "output_fraction",
     "parse_base_score",
     "parse_dry_run",
+    "parse_preserved_macros",
     "permuter_argv",
     "recipe_report",
     "recover_recipe",
     "render_queue",
     "render_settings",
     "render_table",
+    "resolve_preserve_macro_modes",
     "retarget_labels",
     "retarget_objcopy",
     "should_extend",

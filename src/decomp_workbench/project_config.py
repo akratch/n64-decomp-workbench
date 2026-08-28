@@ -13,9 +13,15 @@ import json
 import re
 import shlex
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+
+from .permute import (
+    CONFIGURED_MACROS,
+    DEFAULT_PRESERVE_MACRO_MODES,
+    NO_MACROS,
+)
 
 tomllib: Any = importlib.import_module(
     "tomllib" if sys.version_info >= (3, 11) else "tomli"
@@ -45,7 +51,9 @@ _KEYS = {
             "assembler_command",
             "compiler_type",
             "preserve_macros",
+            "preserve_macro_modes",
             "decompme_compiler",
+            "objdump",
             "output_dir",
             "ranking",
             "fallback_flags",
@@ -80,7 +88,13 @@ class PermuterOptions:
     assembler_command: str | None = None
     compiler_type: str = "ido"
     preserve_macros: tuple[str, ...] = ()
+    #: Import modes tried, in order, when the scratch object turns out not to
+    #: be the object the real build produces. See `permute.ScratchFidelity`.
+    preserve_macro_modes: tuple[str, ...] = DEFAULT_PRESERVE_MACRO_MODES
     decompme_compiler: str | None = None
+    #: The objdump the scratch-fidelity comparison disassembles with. Defaults
+    #: to `object.objdump`, because it is the same target and the same tool.
+    objdump: str | None = None
     output_dir: Path | None = None
     ranking: Path | None = None
     fallback_flags: tuple[str, ...] = ()
@@ -102,7 +116,9 @@ class PermuterOptions:
             "assembler_command": self.assembler_command,
             "compiler_type": self.compiler_type,
             "preserve_macros": list(self.preserve_macros),
+            "preserve_macro_modes": list(self.preserve_macro_modes),
             "decompme_compiler": self.decompme_compiler,
+            "objdump": self.objdump,
             "output_dir": str(self.output_dir) if self.output_dir else None,
             "ranking": str(self.ranking) if self.ranking else None,
             "fallback_flags": list(self.fallback_flags),
@@ -338,6 +354,21 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
     macros = _string_list(data.get("preserve_macros"), "permuter.preserve_macros")
     if any("=" not in entry for entry in macros):
         raise ValueError("permuter.preserve_macros entries must use PATTERN=TYPE")
+    modes = _string_list(
+        data.get("preserve_macro_modes"), "permuter.preserve_macro_modes"
+    )
+    for entry in modes:
+        if entry in (CONFIGURED_MACROS, NO_MACROS):
+            continue
+        try:
+            re.compile(entry)
+        except re.error as error:
+            raise ValueError(
+                f"permuter.preserve_macro_modes entry {entry!r} is neither "
+                f"{CONFIGURED_MACROS!r}, {NO_MACROS!r}, nor a valid narrowing "
+                f"regular expression: {error}"
+            ) from None
+    modes = modes or DEFAULT_PRESERVE_MACRO_MODES
     threads = data.get("threads")
     if threads is not None:
         threads = _positive_integer(threads, "permuter.threads", 1)
@@ -384,9 +415,11 @@ def _permuter_options(root: Path, data: dict[str, Any]) -> PermuterOptions:
         )
         or defaults.compiler_type,
         preserve_macros=macros,
+        preserve_macro_modes=modes,
         decompme_compiler=_optional_string(
             data.get("decompme_compiler"), "permuter.decompme_compiler"
         ),
+        objdump=_executable(root, data.get("objdump")),
         output_dir=_path(root, data.get("output_dir"), "permuter.output_dir"),
         ranking=_path(root, data.get("ranking"), "permuter.ranking"),
         fallback_flags=_string_list(
@@ -488,7 +521,13 @@ def load_project_config(path: str | Path) -> ProjectConfig:
             "campaign.cache_dir",
         ),
         retain_sources=str(retain),
-        permuter=permuter,
+        permuter=(
+            permuter
+            if permuter.objdump
+            else replace(
+                permuter, objdump=_executable(root, object_config.get("objdump"))
+            )
+        ),
     )
 
 
