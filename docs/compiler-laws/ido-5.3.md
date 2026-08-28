@@ -1201,6 +1201,16 @@ its jump table, and its linked ROM range are exact.
 loop is redundant code to be hoisted. Hoisting it is what loses the argument
 register.
 
+**Scope — one observation, not swept.** The instrument was read, so the
+receipt is T1 for the trace it came from; the *generality* is not. One
+procedure, one call, one argument register was measured, and the cost-0
+affinity is stated here for the case where a web's **only** consumer is that
+call argument. What is untested: a web feeding two calls with different
+argument positions, a web read after the call as well, and whether the
+affinity survives against a competing pin — all three are cases where L58's
+forbidden mask and this cost meet, and which of them wins was never measured.
+Treat the re-cache lever as a lead outside the single-consumer shape.
+
 **Provenance:** Mickey's Speedway USA decomp (2026-08), resident menu
 cohort, `func_80038750`.
 
