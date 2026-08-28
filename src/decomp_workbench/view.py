@@ -659,6 +659,12 @@ def _load_form_split(rows: Sequence[AlignedRow]) -> bool:
     which one a constant takes is decided by its value -- so a residual that
     straddles them is a *value* question and no amount of statement reordering
     reaches it.
+
+    The sides must be **disjoint**: one side pool-loads and the other does
+    not, and vice versa. A side that does both is not straddling anything,
+    and reading one as a load-form difference sends the reader to audit a
+    constant that was never wrong -- while hiding the pass that did decide
+    the residual.
     """
 
     pooled: set[str] = set()
@@ -672,7 +678,7 @@ def _load_form_split(rows: Sequence[AlignedRow]) -> bool:
                 pooled.add(side)
             elif opcode in STATEMENT_LOAD_OPCODES:
                 statement.add(side)
-    return bool(pooled) and bool(statement) and pooled != statement
+    return bool(pooled) and bool(statement) and pooled.isdisjoint(statement)
 
 
 def ownership_for(

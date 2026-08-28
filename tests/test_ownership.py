@@ -173,6 +173,24 @@ class HeuristicOwnershipTests(unittest.TestCase):
         self.assertEqual(view.owning_pass, OWNING_PASS_LOAD_FORM)
         self.assertEqual(view.reachability, REACHABILITY_SOURCE)
 
+    def test_a_pool_load_on_both_sides_is_not_a_load_form_difference(
+        self,
+    ) -> None:
+        """One side must pool-load where the other materialises.
+
+        Both sides loading from the pool, beside any row that happens to
+        mention an `addiu`, is a register or schedule residual and not a
+        question about a constant's value -- and answering it
+        `rodata-load-form` sends the reader to audit a constant that was
+        never wrong, and hides the pass that did decide it.
+        """
+
+        view = view_of(
+            ["lwc1 f4,0(s0)", "addiu t0,t1,8"],
+            ["lwc1 f6,0(s0)", "lw t2,0(sp)"],
+        )
+        self.assertNotEqual(view.owning_pass, OWNING_PASS_LOAD_FORM)
+
     def test_an_ordinary_constant_is_a_front_end_spelling(self) -> None:
         view = view_of(["li v0,33"], ["li v0,49"])
         self.assertEqual(view.owning_pass, OWNING_PASS_CFE)
