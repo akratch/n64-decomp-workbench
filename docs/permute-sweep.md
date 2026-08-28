@@ -128,11 +128,18 @@ decomp-workbench ranking check config/ranking.json
 ```
 
 `stamp` records the project's `git rev-parse HEAD` and the time, as one added
-`stamp` key; the rows are untouched, and both ranking spellings (a bare list
-or an object with `functions`) survive it. Re-stamping the same tree keeps the
-original `generated_at` -- that field says when the measurement was taken, and
-a timestamp refreshed on every run cannot say that. `check` exits 0 when the
-stamp matches HEAD and 1 otherwise.
+`stamp` key, and rewrites the file atomically. The rows are untouched, and both
+ranking spellings are accepted -- but a ranking written as a bare list comes
+back wrapped as `{"functions": [...], "stamp": {...}}`, because JSON has
+nowhere to hang a key on a list. Every reader here takes both spellings; a
+project script that re-reads its own ranking as `payload[0]` does not.
+Re-stamping the same tree keeps the original `generated_at` -- that field says
+when the measurement was taken, and a timestamp refreshed on every run cannot
+say that. `check` exits 0 when the stamp matches HEAD and 1 otherwise.
+
+The stamp compares commits, so a ranking measured against a *dirty* worktree
+reads as `fresh` until the edits are committed. `fresh` means "the same commit",
+not "nothing has changed since".
 
 | Status | Meaning |
 |---|---|

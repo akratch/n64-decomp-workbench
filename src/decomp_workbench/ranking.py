@@ -16,8 +16,11 @@ only the project's git.
 
 from __future__ import annotations
 
+import contextlib
 import json
-import subprocess  # nosec B404 - argv-only, never through a shell
+import os
+import subprocess
+import tempfile  # nosec B404 - argv-only, never through a shell
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -143,6 +146,21 @@ def read_stamp(path: Path | str) -> RankingStamp | None:
     )
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace one file's contents, or leave the old contents in place."""
+
+    directory = path.parent
+    handle, temporary = tempfile.mkstemp(dir=str(directory), suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
+
+
 def stamp_ranking(
     path: Path | str,
     tree_hash: str,
@@ -156,6 +174,13 @@ def stamp_ranking(
     was taken, and refreshing it on every sweep would turn the one field
     that says how old this ordering is into a field that always says "just
     now".
+
+    The rewrite is atomic. This is derived state written over an input that
+    costs a whole build to regenerate, so the file on disk is either the
+    ranking it was or the ranking plus its stamp, never a truncated one.
+    A ranking in the bare-list spelling is wrapped under ``functions``:
+    JSON has nowhere to hang a key on a list, and the wrapping is the
+    spelling every reader here already accepts.
     """
 
     target = Path(path).expanduser()
@@ -167,7 +192,7 @@ def stamp_ranking(
         return StampResult(path=target, stamp=existing, changed=False)
     stamp = RankingStamp(tree_hash=tree_hash, generated_at=_timestamp(now()))
     document[STAMP_KEY] = stamp.as_dict()
-    target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _write_atomic(target, json.dumps(document, indent=2) + "\n")
     return StampResult(path=target, stamp=stamp, changed=True)
 
 

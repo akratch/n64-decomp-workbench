@@ -12,6 +12,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,43 @@ class StampTests(unittest.TestCase):
         self.assertEqual(document["stamp"]["tree_hash"], HEAD)
         self.assertEqual(document["stamp"]["generated_at"], "2026-08-28T12:00:00Z")
         self.assertEqual(document["stamp"]["schema"], RANKING_STAMP_SCHEMA)
+
+    def test_a_bare_list_is_wrapped_because_a_list_cannot_hold_a_key(
+        self,
+    ) -> None:
+        """The rows survive; the document around them gains an object.
+
+        JSON has nowhere to put a key on a list, so the list spelling is
+        wrapped under `functions` -- the other spelling every reader here
+        already accepts. Worth stating: a project script that re-reads its
+        own ranking with `payload[0]` sees the change.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_ranking(Path(temporary), ROWS)
+            stamp_ranking(path, HEAD, now=moment)
+            document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(document["functions"], ROWS)
+
+    def test_a_failed_write_leaves_the_ranking_it_had(self) -> None:
+        """A ranking costs a build to regenerate; never truncate one.
+
+        The stamp is derived state written over an input, and principle 14
+        asks for that update to be atomic: the file is either the ranking
+        it was or the ranking plus its stamp, never a half-written one.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_ranking(root, {"functions": ROWS, "producer": "objdiff"})
+            before = path.read_text(encoding="utf-8")
+            with unittest.mock.patch(
+                "decomp_workbench.ranking.os.replace", side_effect=OSError("full")
+            ):
+                with self.assertRaises(OSError):
+                    stamp_ranking(path, HEAD, now=moment)
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
+            self.assertEqual([item.name for item in root.iterdir()], ["ranking.json"])
 
     def test_the_object_spelling_keeps_its_other_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
