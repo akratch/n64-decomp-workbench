@@ -822,6 +822,27 @@ def solve(
     return values, sorted(conflicts, key=lambda item: item.symbol)
 
 
+def unpaired_hi16(sites: Sequence[Site]) -> tuple[str, ...]:
+    """Symbols whose value rests on an ``R_MIPS_HI16`` with no ``R_MIPS_LO16``.
+
+    The HI16 field a linker writes is ``((V + 0x8000) >> 16) & 0xFFFF``: the
+    borrow it carries is the sign of the LO16 half, and a HI16 with no LO16
+    site cannot observe it. Every value in a 64 KiB window writes the same
+    word, so the one this module picks is right *for the link* and
+    non-canonical as a number. That is ambiguity to expose, not to hide.
+    """
+
+    by_object: dict[tuple[str, str], list[Site]] = defaultdict(list)
+    for site in sites:
+        by_object[(site.object, site.section)].append(site)
+    out: set[str] = set()
+    for group in by_object.values():
+        for high, low in _pairs(group):
+            if low is None and high is not None and high.type == R_MIPS_HI16:
+                out.add(high.symbol)
+    return tuple(sorted(out))
+
+
 def object_aliases(
     elf: ElfObject, module: ModuleMap, *, object_name: str
 ) -> list[Alias]:
@@ -905,6 +926,18 @@ def synthesize(
             + str(len(shadowed))
             + " value line(s) an alias already defines: "
             + ", ".join(shadowed)
+        )
+    orphans = [
+        name
+        for name in unpaired_hi16(all_sites)
+        if name in {item.name for item in values}
+    ]
+    if orphans:
+        warnings.append(
+            "value(s) resting on an R_MIPS_HI16 with no R_MIPS_LO16 site, "
+            "whose low half is unobserved: any value in the same 64 KiB "
+            "window writes the same word, so these are right for the link "
+            "and non-canonical as numbers: " + ", ".join(orphans)
         )
     if not module.table_sites:
         warnings.append(
@@ -1253,4 +1286,5 @@ __all__ = [
     "stored_field",
     "synthesize",
     "tracked_values",
+    "unpaired_hi16",
 ]

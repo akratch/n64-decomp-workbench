@@ -389,6 +389,54 @@ class RefusalTests(unittest.TestCase):
         )
 
 
+class LoneHi16Tests(unittest.TestCase):
+    """A HI16 with no LO16 cannot observe the borrow its pair would carry."""
+
+    @staticmethod
+    def orphan_object() -> bytes:
+        return build_relocatable(
+            {".text": words(LUI, NOP)},
+            [
+                SymbolSpec("myFunc", 0, 8, STT_FUNC, STB_GLOBAL, ".text"),
+                SymbolSpec("gBase"),
+            ],
+            [RelocSpec(".text", 0, "gBase", R_MIPS_HI16)],
+        )
+
+    def surface(self) -> rs.RelocSurface:
+        image = bytearray(0x4000)
+        image[MODULE_START + TU_OFFSET : MODULE_START + TU_OFFSET + 8] = words(
+            LUI | 0x0002, NOP
+        )
+        return surface_for(
+            object_bytes=self.orphan_object(),
+            image=bytes(image),
+            relocation_sites=[{"offset": TU_OFFSET + 0, "type": "R_MIPS_HI16"}],
+        )
+
+    def test_the_value_is_produced_but_the_run_says_it_is_a_guess(self) -> None:
+        """The low half is unobserved, so the value may be 0x10000 out.
+
+        A HI16 field is written as `((V + 0x8000) >> 16) & 0xFFFF`: the
+        borrow depends on the sign of the LO16 half, and with no LO16 site
+        the synthesis cannot see it. Both 0x20000 and anything in
+        0x18000..0x1FFFF write the same word, and the run has to say so
+        rather than let a linker script carry a silent guess.
+        """
+
+        surface = self.surface()
+        self.assertEqual(surface.value_map()["gBase"], 0x0002 << 16)
+        self.assertTrue(
+            any("gBase" in item and "LO16" in item for item in surface.warnings),
+            surface.warnings,
+        )
+
+    def test_a_paired_hi16_is_not_warned_about(self) -> None:
+        self.assertFalse(
+            any("unpaired" in item for item in surface_for().warnings),
+        )
+
+
 class AuditTests(unittest.TestCase):
     def test_a_hand_written_block_that_agrees_scores_clean(self) -> None:
         surface = surface_for()

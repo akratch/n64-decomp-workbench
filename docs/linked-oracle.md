@@ -275,6 +275,11 @@ is the other reading.
 * **A lone `R_MIPS_LO16` determines only the low half** of its symbol's value.
   The emitted instruction word is identical either way, so the link is right
   and the symbol value is non-canonical.
+* **A lone `R_MIPS_HI16` determines only the high half**, and cannot observe
+  the borrow its missing `R_MIPS_LO16` would have carried: the field a linker
+  writes is `((V + 0x8000) >> 16) & 0xFFFF`, so every value in the same 64 KiB
+  window writes the same word. The link is right and the number is
+  non-canonical, and the run names the symbols it applies to in a warning.
 * **Without a shipped relocation table there is no corroboration.** Every site
   is trusted, so a literal the runtime does not patch cannot be told apart
   from an addend. The run warns.
