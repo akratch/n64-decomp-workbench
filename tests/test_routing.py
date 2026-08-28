@@ -20,6 +20,7 @@ from pathlib import Path
 
 from mips_asm import assemble
 
+from decomp_workbench import view
 from decomp_workbench.cli import main
 from decomp_workbench.diagnosis import DIAGNOSIS_SCHEMA, diagnose_dumps
 from decomp_workbench.objdump import parse_disassembly
@@ -56,6 +57,41 @@ def view_of(target: list[str], candidate: list[str]) -> MechanismView:
         candidate_name="candidate.objdump",
         symbol=SYMBOL,
     )
+
+
+class ExportedVocabularyTests(unittest.TestCase):
+    """A verdict field nobody can import is a verdict field nobody can use."""
+
+    def test_every_verdict_vocabulary_is_exported_whole(self) -> None:
+        """All four families, every member, and the two classifiers.
+
+        `routing` shipped with `ROUTING_VALUES` and its four names missing
+        from `__all__` while `owning_pass`, `reachability` and
+        `ownership_basis` had theirs -- so the file that says what this
+        module offers said the routing verdict was not part of it. Half an
+        exported vocabulary is the failure this asserts against, whichever
+        family it happens to next.
+        """
+
+        exported = set(view.__all__)
+        prefixes = ("BASIS_", "OWNING_PASS_", "REACHABILITY_", "ROUTING_")
+        # The verdict values themselves: a string, or the tuple listing
+        # them. The advice/law lookup tables keyed on them are internal.
+        vocabulary = {
+            name
+            for name in dir(view)
+            if name.startswith(prefixes)
+            and isinstance(getattr(view, name), (str, tuple))
+        }
+        self.assertTrue(vocabulary)
+        self.assertEqual(vocabulary - exported, set())
+        self.assertLessEqual({"routing_for", "ownership_for"}, exported)
+
+    def test_a_star_import_carries_the_routing_verdict(self) -> None:
+        namespace: dict[str, object] = {}
+        exec("from decomp_workbench.view import *", namespace)  # nosec B102
+        self.assertEqual(namespace["ROUTING_PERMUTER_FIRST"], ROUTING_PERMUTER_FIRST)
+        self.assertEqual(namespace["ROUTING_VALUES"], ROUTING_VALUES)
 
 
 class RoutingVocabularyTests(unittest.TestCase):

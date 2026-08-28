@@ -54,13 +54,42 @@ from .literal_pool import (
 from .model import Instruction
 from .schema import VIEW_METRICS_BY_KEY
 
+#: The four verdict vocabularies are exported whole -- every member beside
+#: its `*_VALUES` list, and the function that decides it. Exporting only some
+#: of a vocabulary is what `routing` had: `ROUTING_VALUES` and the four names
+#: it holds were public in every practical sense (this package's own modules
+#: and its tests import them) and absent from `__all__`, so the one file that
+#: is supposed to say what the module offers said the routing verdict did not
+#: exist. A reader switching on `routing` cannot do it from the list alone.
 __all__ = [
+    "BASIS_HEURISTIC",
+    "BASIS_NONE",
+    "BASIS_TRACE",
     "BASIS_VALUES",
     "DEFAULT_REGISTER_PROFILE",
+    "OWNING_PASS_CFE",
+    "OWNING_PASS_G0_SCHEDULER",
+    "OWNING_PASS_LOAD_FORM",
+    "OWNING_PASS_NONE",
+    "OWNING_PASS_STACK_HOME",
+    "OWNING_PASS_UGEN_RING",
+    "OWNING_PASS_UNKNOWN",
+    "OWNING_PASS_UOPT_COLOR",
     "OWNING_PASS_VALUES",
+    "PERMUTER_ROUTING_SENTENCE",
+    "PERMUTER_ROUTING_STEPS",
+    "REACHABILITY_PASS_OWNED",
+    "REACHABILITY_PERMUTER",
+    "REACHABILITY_SOURCE",
+    "REACHABILITY_UNKNOWN",
     "REACHABILITY_VALUES",
     "REGISTER_CLASS_PROFILES",
     "REGISTER_PROFILE_EVIDENCE",
+    "ROUTING_IMPORT_FIX",
+    "ROUTING_NONE",
+    "ROUTING_PERMUTER_FIRST",
+    "ROUTING_STRUCTURAL",
+    "ROUTING_VALUES",
     "AlignedRow",
     "Hunk",
     "Lane",
@@ -73,6 +102,7 @@ __all__ = [
     "classify_pair",
     "destination_register",
     "ownership_for",
+    "routing_for",
     "schema_keys",
 ]
 
