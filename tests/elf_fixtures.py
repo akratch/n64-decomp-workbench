@@ -10,6 +10,8 @@ keep honest.
 from __future__ import annotations
 
 import struct
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 ELF_HEADER_SIZE = 52
 SECTION_HEADER_SIZE = 40
@@ -239,3 +241,232 @@ def build_object(
         ),
     ]
     return elf_header + text + bytes(symtab) + strtab + shstrtab + b"".join(headers)
+
+
+SHT_REL = 9
+SHN_UNDEF = 0
+
+# Repeated at module scope so `build_relocatable` can name them; the older
+# builders above keep their own function-local copies.
+SHT_PROGBITS = 1
+SHT_SYMTAB = 2
+SHT_STRTAB = 3
+
+R_MIPS_32 = 2
+R_MIPS_26 = 4
+R_MIPS_HI16 = 5
+R_MIPS_LO16 = 6
+
+
+@dataclass(frozen=True)
+class SymbolSpec:
+    """One `.symtab` entry for `build_relocatable`.
+
+    ``section`` is the section the symbol is defined in, or ``None`` for the
+    `SHN_UNDEF` shape a placeholder extern has -- the shape the whole
+    relocation-surface synthesis exists to give a value to.
+    """
+
+    name: str
+    value: int = 0
+    size: int = 0
+    kind: int = STT_NOTYPE
+    binding: int = STB_GLOBAL
+    section: str | None = None
+
+
+@dataclass(frozen=True)
+class RelocSpec:
+    """One `Elf32_Rel` entry, naming its symbol by name rather than index."""
+
+    section: str
+    offset: int
+    symbol: str
+    type: int
+
+
+def build_relocatable(
+    sections: dict[str, bytes],
+    symbols: Sequence[SymbolSpec] = (),
+    relocations: Sequence[RelocSpec] = (),
+) -> bytes:
+    """Return an ELF32 big-endian object with a symtab and `.rel.*` sections.
+
+    `build_object` above writes one code section whose every symbol is
+    defined in it; this writes as many sections as the caller names, symbols
+    that may be undefined, and real relocation sections linked back to the
+    section they apply to. That combination is what a relocation reader has
+    to be tested against: an undefined symbol reached from two `.text` sites
+    is the exact shape a placeholder extern has in a real object.
+    """
+
+    content = list(sections.items())
+    section_index = {name: 1 + position for position, name in enumerate(sections)}
+    symtab_index = 1 + len(content)
+    strtab_index = symtab_index + 1
+    rel_sections = [
+        name for name in sections if any(item.section == name for item in relocations)
+    ]
+
+    ordered = sorted(symbols, key=lambda item: item.binding != STB_LOCAL)
+    first_global = sum(1 for item in ordered if item.binding == STB_LOCAL) + 1
+    symbol_index = {item.name: 1 + position for position, item in enumerate(ordered)}
+
+    strtab = bytearray(b"\x00")
+    name_offsets: dict[str, int] = {}
+    for item in ordered:
+        if item.name not in name_offsets:
+            name_offsets[item.name] = len(strtab)
+            strtab.extend(item.name.encode("ascii") + b"\x00")
+
+    symtab = bytearray(struct.pack(">IIIBBH", 0, 0, 0, 0, 0, 0))
+    for item in ordered:
+        symtab.extend(
+            struct.pack(
+                ">IIIBBH",
+                name_offsets[item.name],
+                item.value,
+                item.size,
+                (item.binding << 4) | item.kind,
+                0,
+                SHN_UNDEF if item.section is None else section_index[item.section],
+            )
+        )
+
+    rel_bodies: dict[str, bytearray] = {name: bytearray() for name in rel_sections}
+    for entry in relocations:
+        rel_bodies[entry.section].extend(
+            struct.pack(
+                ">II", entry.offset, (symbol_index[entry.symbol] << 8) | entry.type
+            )
+        )
+
+    names = [
+        "",
+        *sections,
+        ".symtab",
+        ".strtab",
+        *[f".rel{name}" for name in rel_sections],
+        ".shstrtab",
+    ]
+    shstrtab = bytearray(b"\x00")
+    shstr_offsets: dict[str, int] = {"": 0}
+    for name in names[1:]:
+        if name in shstr_offsets:
+            continue
+        shstr_offsets[name] = len(shstrtab)
+        shstrtab.extend(name.encode("ascii") + b"\x00")
+
+    bodies: list[bytes] = []
+    offsets: list[int] = []
+    cursor = ELF_HEADER_SIZE
+    for _name, blob in content:
+        offsets.append(cursor)
+        bodies.append(blob)
+        cursor += len(blob)
+    symtab_offset = cursor
+    cursor += len(symtab)
+    strtab_offset = cursor
+    cursor += len(strtab)
+    rel_offsets: dict[str, int] = {}
+    for name in rel_sections:
+        rel_offsets[name] = cursor
+        cursor += len(rel_bodies[name])
+    shstrtab_offset = cursor
+    cursor += len(shstrtab)
+    shoff = cursor
+
+    header_count = len(names)
+    elf_header = struct.pack(
+        ">16sHHIIIIIHHHHHH",
+        b"\x7fELF\x01\x02\x01" + b"\x00" * 9,
+        1,
+        8,
+        1,
+        0,
+        0,
+        shoff,
+        0,
+        ELF_HEADER_SIZE,
+        0,
+        0,
+        SECTION_HEADER_SIZE,
+        header_count,
+        header_count - 1,
+    )
+
+    def header(
+        name_off: int,
+        sh_type: int,
+        sh_offset: int,
+        sh_size: int,
+        *,
+        flags: int = 0,
+        link: int = 0,
+        info: int = 0,
+        entsize: int = 0,
+    ) -> bytes:
+        return struct.pack(
+            ">10I",
+            name_off,
+            sh_type,
+            flags,
+            0,
+            sh_offset,
+            sh_size,
+            link,
+            info,
+            4,
+            entsize,
+        )
+
+    headers = [struct.pack(">10I", *([0] * 10))]
+    for position, (name, blob) in enumerate(content):
+        headers.append(
+            header(
+                shstr_offsets[name],
+                SHT_PROGBITS,
+                offsets[position],
+                len(blob),
+                flags=0x6,
+            )
+        )
+    headers.append(
+        header(
+            shstr_offsets[".symtab"],
+            SHT_SYMTAB,
+            symtab_offset,
+            len(symtab),
+            link=strtab_index,
+            info=first_global,
+            entsize=16,
+        )
+    )
+    headers.append(
+        header(shstr_offsets[".strtab"], SHT_STRTAB, strtab_offset, len(strtab))
+    )
+    for name in rel_sections:
+        headers.append(
+            header(
+                shstr_offsets[f".rel{name}"],
+                SHT_REL,
+                rel_offsets[name],
+                len(rel_bodies[name]),
+                link=symtab_index,
+                info=section_index[name],
+                entsize=8,
+            )
+        )
+    headers.append(
+        header(shstr_offsets[".shstrtab"], SHT_STRTAB, shstrtab_offset, len(shstrtab))
+    )
+
+    return (
+        elf_header
+        + b"".join(bodies)
+        + bytes(symtab)
+        + bytes(strtab)
+        + b"".join(bytes(rel_bodies[name]) for name in rel_sections)
+        + bytes(shstrtab)
+        + b"".join(headers)
+    )
