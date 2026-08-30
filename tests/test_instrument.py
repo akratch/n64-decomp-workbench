@@ -23,6 +23,9 @@ static void helper(void) {
 # f_get_free_reg is the integer temp allocator, f_get_free_fp_reg the fp one.
 FP_ALLOC_SOURCE = """\
 #include "header.h"
+static void f_init_regs(uint8_t *mem, uint32_t sp) {
+(void)mem;
+}
 static uint32_t f_get_free_reg(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
 uint32_t v0 = 0, s0 = 0;
 s0 = a0;
@@ -76,6 +79,9 @@ class InstrumentTests(unittest.TestCase):
         # Both the integer (f_get_free_reg) and fp (f_get_free_fp_reg)
         # allocators get a return-site result hook.
         self.assertEqual(result.result_hooks, 2)
+        self.assertEqual(result.procedure_hooks, 1)
+        self.assertIn("dkwb_proc_begin();", result.source)
+        self.assertIn("proc=%d reg=%u", result.source)
         for event in ("ALLOC_GP", "ALLOC_FP"):
             # The entry hook still stamps the request descriptor (a0)...
             self.assertIn(f'dkwb_freelist("{event}", a0, mem);', result.source)
@@ -92,6 +98,13 @@ class InstrumentTests(unittest.TestCase):
         result = instrument_ugen(SOURCE)
         self.assertEqual(result.result_hooks, 0)
         self.assertNotIn("ALLOC_FP_RESULT", result.source)
+
+    def test_procedure_hook_can_be_disabled_without_guessing_an_alternative(
+        self,
+    ) -> None:
+        result = instrument_ugen(FP_ALLOC_SOURCE, procedure_function=None)
+        self.assertEqual(result.procedure_hooks, 0)
+        self.assertNotIn("dkwb_proc_begin();", result.source)
 
 
 if __name__ == "__main__":

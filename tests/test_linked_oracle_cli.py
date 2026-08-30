@@ -23,6 +23,7 @@ from test_reloc_surface import (
 from decomp_workbench.cli import main
 from decomp_workbench.linked_compare import LINKED_COMPARE_SCHEMA
 from decomp_workbench.reloc_surface import MODULE_MAP_SCHEMA, SURFACE_SCHEMA
+from decomp_workbench.relocation_identity import IDENTITY_PROVIDER_SCHEMA
 
 
 def run_cli(arguments: list[str]) -> tuple[int, str, str]:
@@ -84,6 +85,46 @@ class RelocSurfaceCommandTests(unittest.TestCase):
         _status, output, _ = run_cli(self.arguments("--json", "--sites"))
         payload = json.loads(output)
         self.assertEqual(len(payload["sites"]), 3)
+
+    def test_identity_provider_is_joined_and_hash_bound(self) -> None:
+        _status, output, _ = run_cli(self.arguments("--json", "--sites"))
+        sites = json.loads(output)["sites"]
+        provider = self.root / "identities.json"
+        provider.write_text(
+            json.dumps(
+                {
+                    "schema": IDENTITY_PROVIDER_SCHEMA,
+                    "entries": [
+                        {
+                            "object": site["object"],
+                            "section": site["section"],
+                            "object_offset": site["object_offset"],
+                            "type": site["type"],
+                            "symbol": site["symbol"],
+                            "status": "resolved",
+                            "identity": {
+                                "namespace": "test-module-offset",
+                                "module": "overlay1",
+                                "section": ".text",
+                                "offset": site["module_offset"],
+                                "addend": 0,
+                            },
+                            "evidence": "test fixture ownership",
+                        }
+                        for site in sites
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        status, output, stderr = run_cli(
+            self.arguments("--identity-provider", str(provider), "--json")
+        )
+        self.assertEqual((status, stderr), (0, ""))
+        payload = json.loads(output)
+        self.assertTrue(payload["identities"]["complete"])
+        roles = {artifact["role"] for artifact in payload["evidence"]["artifacts"]}
+        self.assertIn("identity-provider", roles)
 
     def test_out_writes_the_block_a_link_can_include(self) -> None:
         destination = self.root / "generated.ld"

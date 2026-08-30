@@ -40,6 +40,11 @@ class SchedulerEvent:
     ready: int
     chosen: str
     tie: str
+    emitted_slot: int | None = None
+    source_file: str | None = None
+    source_statement: int | None = None
+    reason: str | None = None
+    ready_ids: tuple[str, ...] = ()
 
     @property
     def key(self) -> tuple[int, int, int]:
@@ -98,6 +103,19 @@ def parse_scheduler_trace(text: str) -> tuple[list[SchedulerEvent], list[str]]:
             ready=_integer(fields, "ready", line_number),
             chosen=fields["chosen"],
             tie=fields["tie"],
+            emitted_slot=(
+                _integer(fields, "slot", line_number) if "slot" in fields else None
+            ),
+            source_file=fields.get("file"),
+            source_statement=(
+                _integer(fields, "statement", line_number)
+                if "statement" in fields
+                else None
+            ),
+            reason=fields.get("reason"),
+            ready_ids=tuple(
+                item for item in fields.get("ready_ids", "").split(",") if item
+            ),
         )
         if event.ready < 1:
             raise ValueError(
@@ -134,6 +152,12 @@ def scheduler_report(
         "events": [event.as_dict() for event in selected],
         "event_count": len(selected),
         "ready_set_ties": sum(event.ready > 1 for event in selected),
+        "provenance_complete": sum(
+            event.emitted_slot is not None
+            and event.reason is not None
+            and event.source_statement is not None
+            for event in selected
+        ),
         "procedures": sorted({event.proc for event in events}),
         "blocks": sorted({event.block for event in selected}),
     }
@@ -169,6 +193,11 @@ def compare_scheduler_traces(
                         "ready",
                         "chosen",
                         "tie",
+                        "emitted_slot",
+                        "source_file",
+                        "source_statement",
+                        "reason",
+                        "ready_ids",
                     )
                     if expected is None
                     or actual is None
@@ -234,6 +263,13 @@ def instrument_scheduler_source(
             raise ValueError(
                 f"scheduler profile does not emit required token {token!r}"
             )
+    if profile.get("provenance_required") is True:
+        for token in ("slot=", "statement=", "reason=", "ready_ids="):
+            if token not in instrumented:
+                raise ValueError(
+                    "scheduler provenance profile does not emit required token "
+                    f"{token!r}"
+                )
     report = {
         "schema": INSTRUMENT_RESULT_SCHEMA,
         "profile": profile.get("name"),

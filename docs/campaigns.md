@@ -292,6 +292,15 @@ fields keep their old cache identity.
 
 ## Finish and promote one immutable winner
 
+Before materializing anything into the working tree, `campaign checkpoint`
+can archive current and deterministically ranked best as separate,
+content-addressed artifacts. `campaign restore-best` drift-checks the current
+checkpoint, creates a recoverable backup, and atomically installs best;
+`campaign accept` records a manifest pointer to that immutable checkpoint and
+requires exactness by default. The complete lifecycle, target readiness
+census, and append-only falsified-hypothesis dossier are documented in
+[Evidence, candidate lifecycle, and queue readiness](evidence-lifecycle.md).
+
 `campaign finish CAMPAIGN` selects a recorded source/cache key, verifies its
 source and cached-object hashes, then performs a fresh no-cache rebuild. The
 receipt keeps six gates independent: fresh function exactness, required

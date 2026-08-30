@@ -5,6 +5,57 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Evidence lifecycle and campaign memory
+
+- Campaigns now preserve current, measured best, and accepted state as three
+  explicit concepts. `campaign checkpoint` archives source/object pairs in an
+  immutable content-addressed store; `campaign restore-best` refuses drift,
+  creates a recoverable backup, and replaces atomically; `campaign accept`
+  records an exact-by-default manifest pointer rather than relying on a loose
+  winner file. Manifest reinitialization preserves these fields.
+- `campaign dossier-add` and `campaign dossier-list` provide append-only,
+  machine-queryable negative space. Canonical bounded records carry function,
+  hypothesis, lever, result, outcome, do-not-repeat status, and evidence. IDs
+  are deterministic over substantive contents, duplicates are refused, and
+  reads recompute IDs so edited history cannot masquerade as the original
+  experiment.
+- `campaign readiness` rehashes a versioned target queue and separates
+  promotion-ready, codegen-ready, relocation-identity-maintenance, and
+  remeasurement work. A stale measurement never enters a source lane;
+  plateaued work is eligible only for a new evidence-producing mechanism.
+  Relocation reports and their nested evidence are transitively hash-checked.
+
+### Compiler-decision provenance
+
+- `instrument-ugen` now stamps free-list events with a producer procedure
+  ordinal. `trace fifo --ucode --symbol` maps that ordinal to the candidate's
+  retained Ucode procedure name, binds optional candidate-object identity, and
+  refuses mixed procedure scopes. The claim is intentionally candidate-only;
+  no target allocator trace is inferred from machine code.
+- `trace pre` adds a stable procedure/block/expression PRE and speculative-
+  hoist decision contract with identity-aligned differentials.
+  `instrument pre` is a source-hash-pinned, uniqueness-checked adapter for
+  project-reviewed generated-uopt profiles and names the fidelity/positive
+  controls required before a profile becomes evidence. No universal generated
+  compiler patch is claimed.
+- Scheduler records can carry emitted slot, source file/statement, decision
+  reason, and the complete ready set. Profiles that declare
+  `provenance_required=true` must emit the complete required subset; readers
+  preserve it through reports/diffs and count complete events.
+
+### Promotion proof contracts
+
+- `reloc-surface --identity-provider` joins each exact object relocation site
+  to a project-owned canonical namespace/module/section/offset identity and
+  distinguishes resolved, unknown, and contradicted sites. The interface is
+  declarative, so overlay atlas formats remain in their owning projects.
+- `reloc-proof` composes but never conflates fallback-static relocation
+  evidence and promoted-linked exact bytes. It rehashes reports and nested
+  artifacts, requires shipped-table corroboration, complete identities, one
+  owning section, the same target image, the selected candidate object, and an
+  exact named linked range. Receipts are replayable; artifact identity is
+  content-based, so timestamp-only changes do not invalidate them.
+
 ### The linked image as an oracle
 
 - `reloc-surface`, `linked-compare`, and a `permute-doctor` that routes

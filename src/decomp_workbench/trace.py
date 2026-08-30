@@ -71,6 +71,7 @@ class TraceSummary(TypedDict):
     actions: dict[str, int]
     registers: dict[str, int]
     source_lines: dict[str, int]
+    procedures: dict[str, int]
 
 
 class AliasTraceSummary(TypedDict):
@@ -368,6 +369,7 @@ class TraceEvent:
     emitted_index: int | None = None
     object_row: int | None = None
     source_file: str | None = None
+    procedure: int | None = None
     fields: dict[str, str] = field(default_factory=dict)
     raw: str = ""
 
@@ -447,11 +449,17 @@ def parse_trace(text: str) -> list[TraceEvent]:
             or fields.get("ord")
         )
         row_value = fields.get("row") or fields.get("object_row")
+        procedure_value = fields.get("proc") or fields.get("procedure")
         serial_value = fields.get("serial")
         list_value = fields.get("list") or fields.get("list_address")
         register = (
             parse_register(register_value) if register_value is not None else None
         )
+        parsed_procedure = (
+            parse_integer(procedure_value) if procedure_value is not None else None
+        )
+        if parsed_procedure is not None and parsed_procedure < 0:
+            parsed_procedure = None
         events.append(
             TraceEvent(
                 index=line_number,
@@ -474,6 +482,7 @@ def parse_trace(text: str) -> list[TraceEvent]:
                     parse_integer(row_value) if row_value is not None else None
                 ),
                 source_file=fields.get("file") or fields.get("source_file"),
+                procedure=parsed_procedure,
                 fields=fields,
                 raw=raw,
             )
@@ -494,6 +503,7 @@ class LogicalEvent:
     object_row: int | None = None
     source_file: str | None = None
     instruction: str | None = None
+    procedure: int | None = None
 
     def as_dict(self) -> dict[str, object]:
         result = asdict(self)
@@ -512,6 +522,7 @@ class FifoReplay:
     violations: list[str]
     max_live: int
     ignored_events: int
+    procedure: int | None = None
 
     @property
     def valid(self) -> bool:
@@ -536,6 +547,7 @@ class FifoReplay:
             "violations": self.violations,
             "max_live": self.max_live,
             "ignored_events": self.ignored_events,
+            "procedure": self.procedure,
             "emission_join": {
                 "logical_events": len(self.logical_events),
                 "with_emitted_index": emitted,
@@ -633,6 +645,7 @@ def replay_fifo(
     registers: set[int] | None = None,
     list_address: int | None = None,
     emission_map: dict[int, EmissionLocation] | None = None,
+    procedure: int | None = None,
 ) -> FifoReplay:
     """Replay allocation and append events as a strict FIFO.
 
@@ -641,17 +654,40 @@ def replay_fifo(
     """
 
     all_events = list(events)
-    relevant = [
+    fifo_events = [
         event
         for event in all_events
-        if event.action in {"allocate", "append"}
-        and event.register is not None
-        and (registers is None or event.register in registers)
+        if event.action in {"allocate", "append"} and event.register is not None
+    ]
+    procedures = {
+        event.procedure for event in fifo_events if event.procedure is not None
+    }
+    unscoped = sum(event.procedure is None for event in fifo_events)
+    if procedure is not None and procedure not in procedures:
+        raise ValueError(f"trace contains no FIFO events for procedure {procedure}")
+    if procedure is None and len(procedures) > 1:
+        raise ValueError(
+            "trace contains multiple procedures; pass --proc to prevent FIFO "
+            "events from different functions being combined"
+        )
+    if procedure is None and procedures and unscoped:
+        raise ValueError(
+            "trace mixes procedure-scoped and unscoped events; recapture with one "
+            "procedure-aware instrument rather than guessing ownership"
+        )
+    selected_procedure = (
+        procedure if procedure is not None else next(iter(procedures), None)
+    )
+    relevant = [
+        event
+        for event in fifo_events
+        if (registers is None or event.register in registers)
         and (
             list_address is None
             or event.action == "allocate"
             or event.list_address == list_address
         )
+        and (selected_procedure is None or event.procedure == selected_procedure)
     ]
     inferred = initial_queue is None
     seed = infer_initial_queue(relevant) if inferred else list(initial_queue or [])
@@ -736,6 +772,7 @@ def replay_fifo(
                     object_row=object_row,
                     source_file=source_file,
                     instruction=instruction,
+                    procedure=event.procedure,
                 )
             )
             next_value += 1
@@ -766,6 +803,7 @@ def replay_fifo(
                     object_row=object_row,
                     source_file=source_file,
                     instruction=instruction,
+                    procedure=event.procedure,
                 )
             )
 
@@ -777,6 +815,7 @@ def replay_fifo(
         violations=violations,
         max_live=max_live,
         ignored_events=len(all_events) - len(relevant),
+        procedure=selected_procedure,
     )
 
 
@@ -795,6 +834,9 @@ def trace_summary(events: Iterable[TraceEvent]) -> TraceSummary:
         for event in materialized
         if event.source_line is not None
     )
+    procedures = collections.Counter(
+        str(event.procedure) for event in materialized if event.procedure is not None
+    )
     return {
         "events": len(materialized),
         "actions": dict(sorted(actions.items())),
@@ -802,6 +844,7 @@ def trace_summary(events: Iterable[TraceEvent]) -> TraceSummary:
         "source_lines": dict(
             sorted(source_lines.items(), key=lambda item: int(item[0]))
         ),
+        "procedures": dict(sorted(procedures.items(), key=lambda item: int(item[0]))),
     }
 
 

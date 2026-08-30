@@ -52,6 +52,20 @@ class SchedulerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repeats field.*proc"):
             parse_scheduler_trace(TRACE.replace("proc=7", "proc=7 proc=8", 1))
 
+    def test_optional_emit_and_source_provenance_is_preserved(self) -> None:
+        enriched = TRACE.replace(
+            "tie=source-line",
+            "tie=source-line slot=18 file=draw.c statement=44 "
+            "reason=latency ready_ids=n7,n9",
+        )
+        events, _ = parse_scheduler_trace(enriched)
+        report = scheduler_report(events)
+        self.assertEqual(report["provenance_complete"], 1)
+        event = report["events"][0]
+        self.assertEqual(event["emitted_slot"], 18)
+        self.assertEqual(event["source_file"], "draw.c")
+        self.assertEqual(event["ready_ids"], ("n7", "n9"))
+
     def test_external_profile_is_hash_and_anchor_guarded(self) -> None:
         source = "void choose(void) {\n    CHOOSE();\n}\n"
         trace = (
@@ -77,6 +91,27 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(len(report["calibration_required"]), 5)
         with self.assertRaisesRegex(ValueError, "SHA-256"):
             instrument_scheduler_source(source + " ", profile)
+
+    def test_provenance_profile_requires_emit_source_reason_and_ready_set(self) -> None:
+        source = "void choose(void) {\n  pick();\n}\n"
+        profile = {
+            "schema": PROFILE_SCHEMA,
+            "name": "incomplete",
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "provenance_required": True,
+            "injections": [
+                {
+                    "anchor": "  pick();\n",
+                    "position": "before",
+                    "text": (
+                        'emit("[DKWB-SCHED-V1] proc= block= cycle= word= '
+                        'opcode= line= ready= chosen= tie=");\n'
+                    ),
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "slot="):
+            instrument_scheduler_source(source, profile)
 
 
 if __name__ == "__main__":

@@ -142,6 +142,7 @@ def initialize_manifest(
     )
     now = time.time()
     source_records: list[dict[str, Any]] = []
+    durable_state: dict[str, Any] = {}
     for candidate in candidates:
         digest = str(candidate.provenance["source_sha256"])
         suffix = candidate.source.suffix if candidate.source.suffix else ".c"
@@ -186,6 +187,11 @@ def initialize_manifest(
             existing[key] = item
         source_records = list(existing.values())
         created = manifest.get("created_at_unix", now)
+        durable_state = {
+            key: manifest[key]
+            for key in ("hypothesis", "artifacts", "accepted")
+            if key in manifest
+        }
     else:
         created = now
     manifest = {
@@ -210,6 +216,7 @@ def initialize_manifest(
         },
         "sources": sorted(source_records, key=lambda item: str(item["path"])),
         "experiment": experiment,
+        **durable_state,
     }
     _write_json_atomic(manifest_path, manifest)
     return manifest_path, ledger_path, manifest
@@ -1161,6 +1168,12 @@ def build_status(manifest_path: str | Path) -> dict[str, Any]:
         "coverage": coverage,
         "conclusion_label": conclusion_label,
         "hypothesis": manifest.get("hypothesis"),
+        "artifacts": {
+            role: value.get("id")
+            for role, value in (manifest.get("artifacts") or {}).items()
+            if isinstance(value, dict) and isinstance(value.get("id"), str)
+        },
+        "accepted": manifest.get("accepted"),
         "source_retention": source_retention,
     }
 

@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from .elf import ElfFormatError, read_elf
+from .evidence import (
+    EvidenceError,
+    artifact_record,
+    load_json_object,
+    write_json_atomic,
+)
 from .linked_compare import (
     ImageRange,
     RangeError,
@@ -35,6 +41,12 @@ from .reloc_surface import (
     render_linker_block,
     synthesize,
     tracked_values,
+)
+from .relocation_identity import identity_report, parse_identity_provider
+from .relocation_proof import (
+    EVIDENCE_SCHEMA,
+    build_relocation_proof,
+    verify_relocation_proof,
 )
 from .terminal import warn_to_stderr
 
@@ -82,6 +94,16 @@ def reloc_surface_command(args: argparse.Namespace) -> int:
         module = _load_module_map(args.module_map)
         image = Path(args.image).expanduser().read_bytes()
         surface = synthesize(_objects(args.object), module, image)
+        identities = (
+            identity_report(
+                surface.sites,
+                parse_identity_provider(
+                    load_json_object(args.identity_provider, where="identity provider")
+                ),
+            )
+            if args.identity_provider
+            else None
+        )
         report = (
             audit(
                 surface,
@@ -105,6 +127,25 @@ def reloc_surface_command(args: argparse.Namespace) -> int:
 
     if args.json:
         payload: dict[str, Any] = surface.as_dict()
+        payload["evidence"] = {
+            "schema": EVIDENCE_SCHEMA,
+            "module": module.as_dict(),
+            "artifacts": [
+                artifact_record(args.module_map, role="module-map"),
+                artifact_record(args.image, role="target-image"),
+                *(
+                    artifact_record(path, role="candidate-object")
+                    for path in args.object
+                ),
+                *(
+                    [artifact_record(args.identity_provider, role="identity-provider")]
+                    if args.identity_provider
+                    else []
+                ),
+            ],
+        }
+        if identities is not None:
+            payload["identities"] = identities
         if not args.sites:
             payload.pop("sites", None)
         if report is not None:
@@ -179,10 +220,66 @@ def linked_compare_command(args: argparse.Namespace) -> int:
         target_name=str(args.target),
     )
     if args.json:
-        print(json.dumps(comparison.as_dict(), indent=2, sort_keys=True))
+        payload = comparison.as_dict()
+        payload["evidence"] = {
+            "schema": EVIDENCE_SCHEMA,
+            "artifacts": [
+                artifact_record(args.built, role="built-image"),
+                artifact_record(args.target, role="target-image"),
+                *(
+                    [artifact_record(args.ranges, role="range-map")]
+                    if args.ranges
+                    else []
+                ),
+            ],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print("\n".join(render(comparison)))
     return 0 if comparison.ok else 1
+
+
+def relocation_proof_command(args: argparse.Namespace) -> int:
+    """Build or verify one hash-bound dual-surface proof receipt."""
+
+    try:
+        if args.verify:
+            report = verify_relocation_proof(args.verify)
+        else:
+            missing = [
+                name
+                for name, value in (
+                    ("--linked", args.linked),
+                    ("--symbol", args.symbol),
+                    ("--source", args.source),
+                    ("--candidate-object", args.candidate_object),
+                )
+                if not value
+            ]
+            if missing:
+                raise EvidenceError(
+                    "building a relocation proof requires " + ", ".join(missing)
+                )
+            report = build_relocation_proof(
+                fallback_report=args.fallback,
+                linked_report=args.linked,
+                symbol=args.symbol,
+                source=args.source,
+                candidate_object=args.candidate_object,
+            )
+            if args.out:
+                output = Path(args.out).expanduser()
+                if output.exists():
+                    raise FileExistsError(f"refusing to overwrite receipt: {output}")
+                write_json_atomic(output, report)
+    except (EvidenceError, FileExistsError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json or not args.out:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"relocation proof: PASS -> {Path(args.out).expanduser()}")
+    return 0 if report.get("pass", report.get("status") == "PASS") else 1
 
 
 def register_linked_oracle_commands(
@@ -230,6 +327,15 @@ def register_linked_oracle_commands(
     surface.add_argument(
         "--sites", action="store_true", help="report every mapped relocation site"
     )
+    surface.add_argument(
+        "--identity-provider",
+        metavar="FILE",
+        help=(
+            "project-generated relocation identity document; joins exact "
+            "overlay/section/offset identities without teaching the workbench "
+            "a game's atlas format"
+        ),
+    )
     surface.add_argument("--json", action="store_true", help="emit JSON")
     surface.set_defaults(handler=reloc_surface_command, report_command="reloc-surface")
 
@@ -256,6 +362,31 @@ def register_linked_oracle_commands(
     compare.set_defaults(
         handler=linked_compare_command, report_command="linked-compare"
     )
+
+    proof = commands.add_parser(
+        "reloc-proof",
+        help="bind fallback relocation evidence to exact final linked bytes",
+        description=(
+            "Compose two deliberately separate surfaces: a corroborated static "
+            "relocation report with complete project-supplied identities, and an "
+            "exact range in a promoted linked image. Every report and artifact "
+            "is re-hashed; stale, ambiguous, or incomplete evidence is refused."
+        ),
+    )
+    proof_mode = proof.add_mutually_exclusive_group(required=True)
+    proof_mode.add_argument(
+        "--fallback", metavar="REPORT", help="JSON reloc-surface report"
+    )
+    proof_mode.add_argument(
+        "--verify", metavar="RECEIPT", help="rebuild and verify an existing receipt"
+    )
+    proof.add_argument("--linked", metavar="REPORT", help="JSON linked-compare report")
+    proof.add_argument("--symbol", help="the exact linked range name")
+    proof.add_argument("--source", help="candidate source file to bind")
+    proof.add_argument("--candidate-object", help="candidate object to bind")
+    proof.add_argument("--out", metavar="FILE", help="write a new receipt atomically")
+    proof.add_argument("--json", action="store_true", help="emit JSON")
+    proof.set_defaults(handler=relocation_proof_command, report_command="reloc-proof")
 
 
 __all__ = [

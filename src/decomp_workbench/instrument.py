@@ -65,6 +65,7 @@ HELPERS = r"""
 #include <stdlib.h>
 static int dkwb_trace_state = -1;
 static int dkwb_trace_depth;
+static int dkwb_trace_proc = -1;
 static int dkwb_trace_on(void) {
     if (dkwb_trace_state < 0) {
         const char *value = getenv("DKWB_UGEN_TRACE");
@@ -87,6 +88,12 @@ static void dkwb_trace_exit(int *unused) {
     }
     dkwb_trace_depth--;
 }
+static void dkwb_proc_begin(void) {
+    dkwb_trace_proc++;
+    if (dkwb_trace_on()) {
+        fprintf(stderr, "DKWB-PROC BEGIN proc=%d\n", dkwb_trace_proc);
+    }
+}
 #define DKWB_IBUFFER_FORWARD_CURSOR 0x10018e70u
 static long dkwb_emit_index(uint8_t *mem) {
     if (mem == NULL) return -1;
@@ -104,8 +111,8 @@ static long dkwb_source_line(uint8_t *mem) {
 }
 static void dkwb_freelist(const char *event, unsigned reg, uint8_t *mem) {
     if (dkwb_trace_on()) {
-        fprintf(stderr, "DKWB-FREELIST %s reg=%u emitted=%ld line=%ld\n",
-                event, reg & 0xffu, dkwb_emit_index(mem),
+        fprintf(stderr, "DKWB-FREELIST %s proc=%d reg=%u emitted=%ld line=%ld\n",
+                event, dkwb_trace_proc, reg & 0xffu, dkwb_emit_index(mem),
                 dkwb_source_line(mem));
     }
 }
@@ -121,6 +128,7 @@ class InstrumentationResult:
     functions: int
     free_list_hooks: int
     result_hooks: int = 0
+    procedure_hooks: int = 0
 
 
 def _function_body_span(source: str, name: str) -> tuple[int, int] | None:
@@ -201,6 +209,7 @@ def instrument_ugen(
     source: str,
     *,
     function_pattern: str = r"^f_",
+    procedure_function: str | None = "f_init_regs",
 ) -> InstrumentationResult:
     """Instrument selected recompiled functions and known free-list helpers."""
 
@@ -209,14 +218,18 @@ def instrument_ugen(
     selected = re.compile(function_pattern)
     function_count = 0
     free_list_count = 0
+    procedure_hook_count = 0
 
     def add_frame(match: re.Match[str]) -> str:
-        nonlocal function_count, free_list_count
+        nonlocal function_count, free_list_count, procedure_hook_count
         name = match.group("name")
         additions: list[str] = []
         if selected.search(name):
             additions.append(f'DKWB_TRACE_FRAME("{name}");')
             function_count += 1
+        if procedure_function is not None and name == procedure_function:
+            additions.append("dkwb_proc_begin();")
+            procedure_hook_count += 1
         event = FREE_LIST_FUNCTIONS.get(name)
         if (
             event
@@ -248,4 +261,5 @@ def instrument_ugen(
         functions=function_count,
         free_list_hooks=free_list_count,
         result_hooks=result_hook_count,
+        procedure_hooks=procedure_hook_count,
     )

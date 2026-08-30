@@ -24,7 +24,10 @@ from .campaign_state import (
     validate_resume,
 )
 from .campaign_survey import CampaignSurveyError, survey_campaign, survey_lines
+from .candidate_lifecycle import accept_best, checkpoint_campaign, restore_best
 from .compare import MIXED_ALIGNMENT_CAUTION
+from .dossier import RESULTS as DOSSIER_RESULTS
+from .dossier import append_entry, dossier_report
 from .experiment_controls import run_control_preflight
 from .experiments import (
     EXPERIMENT_SCHEMA,
@@ -505,6 +508,136 @@ def campaign_note_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def campaign_checkpoint_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        if args.current_object and not args.current_source:
+            raise ValueError("--current-object requires --current-source")
+        report = checkpoint_campaign(
+            manifest,
+            current_source=args.current_source,
+            current_object=args.current_object,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"best checkpoint: {report['best']['id']}")
+        if report["current"] is not None:
+            print(f"current checkpoint: {report['current']['id']}")
+            print(f"same: {'yes' if report['same'] else 'no'}")
+    return 0
+
+
+def campaign_restore_best_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        report = restore_best(
+            manifest, destination=args.destination, allow_drift=args.allow_drift
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"restored best {report['best_id']} -> {report['destination']}")
+        if report["backup"] is not None:
+            print(f"backup: {report['backup']['path']}")
+    return 0
+
+
+def campaign_accept_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        report = accept_best(manifest, allow_mismatch=args.allow_mismatch)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        accepted = report["accepted"]
+        print(
+            f"accepted artifact: {accepted['artifact_id']} "
+            f"exact={'yes' if accepted['exact'] else 'no'}"
+        )
+    return 0
+
+
+def campaign_dossier_add_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        entry = append_entry(
+            manifest.parent / "dossier.jsonl",
+            function=args.function,
+            hypothesis=args.hypothesis,
+            lever=args.lever,
+            result=args.result,
+            outcome=args.outcome,
+            do_not_repeat=args.do_not_repeat,
+            evidence=args.evidence or (),
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    report = {"schema": "decomp-workbench-dossier-add-v1", "entry": entry}
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"dossier entry: {entry['id']} ({entry['result']})")
+    return 0
+
+
+def campaign_dossier_list_command(args: argparse.Namespace) -> int:
+    try:
+        manifest = find_manifest(
+            args.campaign,
+            state_root=args.state_dir,
+            require_explicit_when_ambiguous=True,
+        )
+        report = dossier_report(
+            manifest.parent / "dossier.jsonl",
+            function=args.function,
+            result=args.result,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        noun = "entry" if report["entry_count"] == 1 else "entries"
+        print(
+            f"dossier: {report['entry_count']} {noun}, "
+            f"do-not-repeat={report['do_not_repeat']}"
+        )
+        for entry in report["entries"]:
+            print(
+                f"{entry['id']} {entry['function']} {entry['result']}: "
+                f"{entry['hypothesis']}"
+            )
+    return 0 if report["entry_count"] else 1
+
+
 def campaign_survey_command(args: argparse.Namespace) -> int:
     from .terminal import emit_lines
 
@@ -873,6 +1006,95 @@ def register_campaign_cockpit_commands(
     note.add_argument("--state-dir", default=".decomp-workbench")
     note.add_argument("--json", action="store_true", help="emit JSON")
     note.set_defaults(handler=campaign_note_command)
+
+    checkpoint = commands.add_parser(
+        "campaign-checkpoint",
+        help=argparse.SUPPRESS,
+        description=(
+            "Archive the deterministically ranked best source/object pair and, "
+            "when supplied, a separate current source/object pair. Content-addressed "
+            "artifacts are immutable and verified after copying."
+        ),
+    )
+    checkpoint.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    checkpoint.add_argument("--state-dir", default=".decomp-workbench")
+    checkpoint.add_argument("--current-source")
+    checkpoint.add_argument("--current-object")
+    checkpoint.add_argument("--json", action="store_true", help="emit JSON")
+    checkpoint.set_defaults(
+        handler=campaign_checkpoint_command, report_command="campaign-checkpoint"
+    )
+
+    restore = commands.add_parser(
+        "campaign-restore-best",
+        help=argparse.SUPPRESS,
+        description=(
+            "Materialize the immutable best source at an explicit destination. "
+            "Existing contents are hash-checked against the current checkpoint "
+            "and copied to a recoverable backup before replacement."
+        ),
+    )
+    restore.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    restore.add_argument("--state-dir", default=".decomp-workbench")
+    restore.add_argument("--destination", required=True)
+    restore.add_argument(
+        "--allow-drift",
+        action="store_true",
+        help="permit a destination changed since its current checkpoint",
+    )
+    restore.add_argument("--json", action="store_true", help="emit JSON")
+    restore.set_defaults(
+        handler=campaign_restore_best_command,
+        report_command="campaign-restore-best",
+    )
+
+    accept = commands.add_parser(
+        "campaign-accept",
+        help=argparse.SUPPRESS,
+        description="Point the manifest at one immutable best checkpoint.",
+    )
+    accept.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    accept.add_argument("--state-dir", default=".decomp-workbench")
+    accept.add_argument("--allow-mismatch", action="store_true")
+    accept.add_argument("--json", action="store_true", help="emit JSON")
+    accept.set_defaults(
+        handler=campaign_accept_command, report_command="campaign-accept"
+    )
+
+    dossier_add = commands.add_parser(
+        "campaign-dossier-add",
+        help=argparse.SUPPRESS,
+        description="Append one tested hypothesis and its do-not-repeat result.",
+    )
+    dossier_add.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    dossier_add.add_argument("--state-dir", default=".decomp-workbench")
+    dossier_add.add_argument("--function", required=True)
+    dossier_add.add_argument("--hypothesis", required=True)
+    dossier_add.add_argument("--lever", required=True)
+    dossier_add.add_argument("--result", choices=sorted(DOSSIER_RESULTS), required=True)
+    dossier_add.add_argument("--outcome", required=True)
+    dossier_add.add_argument("--do-not-repeat", action="store_true")
+    dossier_add.add_argument("--evidence", action="append")
+    dossier_add.add_argument("--json", action="store_true", help="emit JSON")
+    dossier_add.set_defaults(
+        handler=campaign_dossier_add_command,
+        report_command="campaign-dossier-add",
+    )
+
+    dossier_list = commands.add_parser(
+        "campaign-dossier-list",
+        help=argparse.SUPPRESS,
+        description="Query tested hypotheses by function or result.",
+    )
+    dossier_list.add_argument("campaign", nargs="?", help="manifest, directory, or ID")
+    dossier_list.add_argument("--state-dir", default=".decomp-workbench")
+    dossier_list.add_argument("--function")
+    dossier_list.add_argument("--result", choices=sorted(DOSSIER_RESULTS))
+    dossier_list.add_argument("--json", action="store_true", help="emit JSON")
+    dossier_list.set_defaults(
+        handler=campaign_dossier_list_command,
+        report_command="campaign-dossier-list",
+    )
 
 
 def _add_terminal(parser: argparse.ArgumentParser) -> None:

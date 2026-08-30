@@ -132,9 +132,12 @@ from .pass_replay import ListingEdit, replay_as1
 from .pass_replay_cli import register_replay_ugen_command
 from .permute_cli import register_permute_commands
 from .phase_cli import register_phase_commands
+from .pre_cli import register_pre_commands
 from .preflight import compile_preflight
+from .procedure_identity import procedure_map, select_procedure
 from .project_cli import register_project_commands
 from .ranking_cli import register_ranking_commands
+from .readiness_cli import register_readiness_command
 from .relocation_cli import register_relocation_command
 from .reporting import SCHEMAS, error_report, render_json, run_json_handler
 from .scheduler_cli import register_scheduler_commands
@@ -1500,6 +1503,7 @@ def instrument_command(args: argparse.Namespace) -> int:
         result = instrument_ugen(
             source_path.read_text(encoding="utf-8"),
             function_pattern=args.functions,
+            procedure_function=args.procedure_function or None,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(result.source, encoding="utf-8")
@@ -1508,7 +1512,8 @@ def instrument_command(args: argparse.Namespace) -> int:
         return 2
     print(
         f"instrumented {result.functions} functions and "
-        f"{result.free_list_hooks} free-list hooks -> {output_path}"
+        f"{result.free_list_hooks} free-list hooks; "
+        f"procedure hooks={result.procedure_hooks} -> {output_path}"
     )
     return 0
 
@@ -1684,6 +1689,21 @@ def parse_register_list(value: str | None) -> list[int] | None:
 def trace_fifo_command(args: argparse.Namespace) -> int:
     try:
         events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
+        procedure_identity = None
+        selected_procedure = args.proc
+        if args.ucode or args.symbol:
+            if not args.ucode or not args.symbol:
+                raise ValueError("--ucode and --symbol must be supplied together")
+            procedure_identity = procedure_map(
+                args.ucode, candidate_object=args.candidate_object
+            )
+            mapped = select_procedure(procedure_identity, args.symbol)
+            if selected_procedure is not None and selected_procedure != mapped:
+                raise ValueError(
+                    f"--proc={selected_procedure} disagrees with retained Ucode "
+                    f"mapping {args.symbol!r} to proc={mapped}"
+                )
+            selected_procedure = mapped
         emission_map = (
             parse_emission_map(
                 json.loads(Path(args.emission_map).read_text(encoding="utf-8"))
@@ -1702,12 +1722,16 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
             registers=set(selected) if selected is not None else None,
             list_address=list_address,
             emission_map=emission_map,
+            procedure=selected_procedure,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     if args.json:
-        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        payload = report.as_dict()
+        if procedure_identity is not None:
+            payload["procedure_identity"] = procedure_identity
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(
             "initial: " + " ".join(register_name(item) for item in report.initial_queue)
@@ -2158,6 +2182,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_handoff_command(commands)
     register_discovery_commands(commands)
     register_scheduler_commands(commands)
+    register_pre_commands(commands)
     register_allocator_commands(commands)
     register_a71_command(commands)
     # The cascade family reads the same instrumented build the `trace`
@@ -2192,6 +2217,7 @@ def build_parser() -> argparse.ArgumentParser:
     # measurement of one tree, and every consumer of it is entitled to know
     # whether that tree is still the one in front of it.
     register_ranking_commands(commands)
+    register_readiness_command(commands)
     register_line_probe_command(commands)
     # Two source-level probes: the same-value check one campaign never ran,
     # and the zero-footprint construct no object diff can point at.
@@ -2250,6 +2276,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--functions",
         default=r"^f_",
         help=r"regular expression selecting generated functions (default: ^f_)",
+    )
+    instrument_parser.add_argument(
+        "--procedure-function",
+        default="f_init_regs",
+        help=(
+            "generated function invoked once at each target procedure start; "
+            "its invocation ordinal is stamped on free-list events "
+            "(default: f_init_regs, empty disables)"
+        ),
     )
     instrument_parser.add_argument(
         "--in-place",
@@ -2358,6 +2393,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fifo_parser.add_argument(
         "--list-address", help="only include appends for this list"
+    )
+    fifo_parser.add_argument(
+        "--proc",
+        type=int,
+        help="include exactly one producer-stamped procedure ordinal",
+    )
+    fifo_parser.add_argument(
+        "--ucode",
+        help="retained candidate Ucode used to map --symbol to a procedure ordinal",
+    )
+    fifo_parser.add_argument("--symbol", help="procedure name carried by --ucode")
+    fifo_parser.add_argument(
+        "--candidate-object",
+        help="also bind the candidate object hash into the procedure identity receipt",
     )
     fifo_parser.add_argument(
         "--emission-map",

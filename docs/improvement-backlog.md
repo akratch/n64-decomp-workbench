@@ -212,6 +212,15 @@ undeclared one is reported `unknown` rather than `fresh`.
   wall: where a residual reduces to which ready instruction the list scheduler
   drops into a fixed latency bubble, there is no C-level steering — it is a
   permuter/rescheduler target, not a source-edit target.
+- **Workbench status (2026-08-30).** The generic producer/reader contract is
+  now complete. Ugen events carry producer procedure ordinals and can be bound
+  to names from hash-pinned retained candidate Ucode. `DKWB-SCHED-V1` accepts
+  optional emitted slot, source file/statement, reason, and full ready-set IDs;
+  profiles declaring `provenance_required=true` must emit the complete set,
+  and reports expose a completeness count. This closes the workbench-side
+  schema and guard gap. A revision-specific emitter still requires a
+  project-owned, source-hash-pinned profile and the documented fidelity gates;
+  no universal generated-compiler patch is claimed.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;

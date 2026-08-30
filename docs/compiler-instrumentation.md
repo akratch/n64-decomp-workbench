@@ -44,8 +44,9 @@ The generated source emits:
 
 - `DKWB-CALL` entry/exit records for selected `f_*` functions;
 - `DKWB-FREELIST` records at known allocator/free-list helper entries, stamped
-  with the current forward-ibuffer emitted ordinal *and* ugen's current source
-  line (`line=`, the value `f_warning` prints as `line %d`). The source line
+  with the target-procedure ordinal (`proc=`), current forward-ibuffer emitted
+  ordinal, and ugen's current source line (`line=`, the value `f_warning`
+  prints as `line %d`). The source line
   ties a temp-ring pop to the construct that consumed it: two pops on one line
   is a phantom pop (e.g. a redundant `x & 0xFFFF` on a byte field allocates a
   temp that is folded away, advancing the ring one phase), and the line that
@@ -99,6 +100,64 @@ of them. The emitted ordinal is a real pass coordinate, not an inferred object
 row; join it through `trace fifo --emission-map` as documented in
 [Trace analysis](trace-analysis.md). Its call-frame helper uses the GCC/Clang
 `cleanup` attribute.
+
+### Procedure identity is producer-scoped
+
+The default procedure boundary is `f_init_regs`, measured to run once per
+target procedure in the supported generated ugen. `instrument-ugen` injects a
+single ordinal increment there and stamps every free-list event with that
+ordinal. Select another reviewed generated function with
+`--procedure-function`; an empty value disables the hook for profile
+development.
+
+An ordinal alone is run-local. Bind it to the candidate's own retained Ucode,
+where every `Uent` is followed by its procedure-name `Ucomm`:
+
+```sh
+decomp-workbench trace fifo ugen.log \
+  --ucode build/retained.U --symbol demo \
+  --candidate-object build/demo.o --json
+```
+
+The resulting `decomp-workbench-ugen-procedures-v1` block hashes the retained
+Ucode and optional candidate object, maps the unique symbol to its ordinal, and
+uses that ordinal to scope FIFO replay. A mixed-procedure trace is refused
+unless `--proc` or the Ucode/symbol pair selects one procedure. Mixed scoped
+and legacy unscoped events are also refused rather than silently joined.
+
+This is candidate evidence only. Machine code does not retain the allocator's
+producer events, so the map never claims to reconstruct a target trace.
+
+## PRE and speculative-hoist decisions
+
+`trace pre` reads stable `[DKWB-PRE-V1]` records. Every event names procedure,
+block, expression identity, decision, reason, and source line; candidate,
+availability, and cost are optional. Decisions are exactly `insert`, `hoist`,
+`retain`, `reject`, or `kill`.
+
+```sh
+decomp-workbench trace pre pre.log --proc 3
+decomp-workbench trace pre target-pre.log --against candidate-pre.log --json
+```
+
+Diffs align by procedure/block/expression and name the fields that changed.
+They are compiler-decision evidence, never source originality or object-match
+evidence.
+
+Generated uopt layouts differ, so the workbench supplies a guarded adapter,
+not a pretend-universal patch:
+
+```sh
+decomp-workbench instrument pre generated-uopt.c traced-uopt.c \
+  --profile pre-profile.json
+```
+
+The `decomp-workbench-pre-profile-v1` document pins the exact input SHA-256 and
+lists uniqueness-checked `anchor`, `text`, and `position` injections. The
+injected source must visibly emit every required named field. It becomes
+supported evidence only after tracing-off section identity, accept and reject
+positive controls, and collateral-procedure gates pass. No reviewed generated
+uopt source is bundled with the package.
 
 ## Pinned uopt profiles
 
@@ -598,7 +657,8 @@ unsupported. The workbench also supports the replacement interface:
 
 ```txt
 [DKWB-SCHED-V1] proc=1 block=2 cycle=3 word=0x8c220000 \
-opcode=lw line=9 ready=2 chosen=n4 tie=source-order
+opcode=lw line=9 ready=2 chosen=n4 tie=source-order \
+slot=7 file=demo.c statement=14 reason=latency ready_ids=n4,n9
 ```
 
 Read and compare stable records:
@@ -611,6 +671,14 @@ decomp-workbench trace-scheduler target.log --against candidate.log
 Every field is named and strictly parsed. Reports can filter one procedure or
 block, align two traces by procedure/block/cycle, and distinguish opcode,
 source-line, ready-set, chosen-node, and tie-break changes.
+
+The fields after `tie` are optional for existing profiles. A profile that sets
+`provenance_required=true` must emit `slot`, `statement`, `reason`, and
+`ready_ids`; instrumentation refuses the profile when any token is absent.
+`file` is optional. Reports preserve those fields, include them in aligned
+diffs, and print `provenance=N/M` so partial captures cannot look complete.
+This exposes which ready instruction occupied an emitted slot and why. It does
+not imply that a C-level lever can change that choice.
 
 Generated compiler C is still revision-specific, so the repository does not
 bundle a pretend-universal as1 patch. Apply a project-owned, hash-pinned

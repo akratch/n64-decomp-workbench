@@ -16,6 +16,57 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
 - `decomp-workbench-trace-source-v1`
+- `decomp-workbench-relocation-proof-v1`
+- `decomp-workbench-target-readiness-v1`
+
+### Hash-bound promotion and campaign state
+
+Artifact records use resolved `path`, descriptive `role`, byte `size`, and
+lowercase `sha256`. Content is identity: modification time is not recorded.
+Consumers should not infer source/object causality from two adjacent records;
+the relocation proof states that relation as `host-declared` because it does
+not run the build.
+
+`reloc-surface --identity-provider` retains the ordinary
+`decomp-workbench-reloc-surface-v1` host schema and adds an `identities`
+sub-document named `decomp-workbench-relocation-identity-report-v1`. Site
+statuses are exactly `resolved`, `unknown`, and `contradicted`; `complete=true`
+means a non-empty site set is wholly resolved with no contradiction.
+
+`reloc-proof` emits `decomp-workbench-relocation-proof-v1`. Its
+`surfaces.fallback_static` and `surfaces.promoted_linked` members are separate
+claims. A newly built receipt has `status=PASS`; verification adds
+`verification=AGREES|DISAGREES`, boolean `pass`, and the recorded/rebuilt
+documents. Verification errors on stale input rather than returning agreement
+over a different file.
+
+Candidate lifecycle reports are
+`decomp-workbench-campaign-checkpoint-v1`,
+`decomp-workbench-campaign-restore-v1`, and
+`decomp-workbench-campaign-accept-v1`. Candidate artifacts use
+`decomp-workbench-candidate-artifact-v1`; contextual manifest pointers use
+`decomp-workbench-candidate-pointer-v1`. This separation lets current and best
+point at the same immutable content while retaining different roles,
+comparison evidence, and origin paths. `same` is true only when both were
+supplied and their content IDs agree.
+
+Campaign dossier JSONL uses one `decomp-workbench-dossier-entry-v1` object per
+line; the query report is `decomp-workbench-dossier-v1`. IDs are SHA-256
+prefixes over substantive canonical fields and are checked on read. A torn
+final line is a warning; malformed or edited completed lines are errors.
+
+`campaign readiness` consumes `decomp-workbench-target-queue-v1` and emits
+`decomp-workbench-target-readiness-v1`. Class values are exactly
+`promotion-ready`, `codegen-ready`, `identity-maintenance`, and `remeasure`.
+`source_queue`, `maintenance_queue`, and `promotion_queue` are derived lists,
+not additional classifications.
+
+PRE reports use `decomp-workbench-pre-trace-v1` or
+`decomp-workbench-pre-diff-v1`; the guarded adapter emits
+`decomp-workbench-pre-instrument-v1`. Scheduler provenance is additive inside
+`decomp-workbench-scheduler-trace-v1`: `emitted_slot`, `source_file`,
+`source_statement`, `reason`, and `ready_ids`, plus report-level
+`provenance_complete`.
 
 ### One command, two shapes
 

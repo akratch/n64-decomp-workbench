@@ -19,18 +19,21 @@ the older items are preserved in
 
 ## Blockers: instrumentation
 
-1. **A `[CDX] pre`/`hoistcand` record for uopt's PRE and speculative-hoist
-   choice.** Two independent scratches in the 2026-08 GE007 frontier campaign
+1. **Adapter and trace contract shipped; a calibrated producer remains.** A
+   stable, procedure-scoped PRE/hoist decision schema, aligned differential
+   reader, and exact-source-hash/unique-anchor external profile adapter now
+   ship. Two independent scratches in the 2026-08 GE007 frontier campaign
    hit the identical wall: the residual was decided before p1 coloring, in a
-   pass the current CDX stream does not record. The highest-value single
-   instrument left.
-2. **A ugen FP-temp/freelist tracer.** The ugen expression-temp rotation law
+   pass the prior CDX stream did not record. This blocker closes only when a
+   reviewed generated-uopt profile passes tracing-off fidelity, accept/reject
+   positive controls, and collateral gates; the package intentionally does not
+   invent source anchors for a compiler revision it cannot ship.
+2. **Shipped: a procedure-scoped ugen FP-temp/freelist tracer.** The ugen expression-temp rotation law
    was reverse-engineered black-box twice by different operators because the
-   allocator's own decision stream is unobservable. A `CDX_LOG`-style record
-   on the ugen temp allocator replaces that probing. The macOS half of the
-   fix is already documented: an unsigned instrument binary is killed by
-   codesign, and `codesign --force -s -` clears it
-   ([troubleshooting](troubleshooting.md)).
+   allocator's own decision stream was unobservable. `instrument-ugen` now
+   records request/result temp-ring events with source line and producer
+   procedure ordinal; `trace fifo --ucode --symbol` binds that ordinal to a
+   hash-pinned candidate Ucode/object identity and refuses mixed procedures.
 3. **Per-section size deltas on the compare verdict line.** A `words=0`
    comparison across 17,588 instructions whose `.data` had grown 0x20 → 0x60
    still printed "no source change is indicated". The verdict line should
@@ -40,11 +43,14 @@ the older items are preserved in
 
 ## Blockers: verification
 
-4. **Post-link relocation-resolved comparison as a command.** The frontier
+4. **Shipped: dual-surface post-link relocation proof.** The frontier
    campaign's `relink.py`/`verify-tu.sh` resolve `symbol_value+addend` and
    compare final bytes — strictly stronger than `words=0` and than raw `cmp`,
-   both of which false-positive on anonymous `.rodata` jump tables. Promote
-   that logic into the workbench with the usual verdict/JSON contract.
+   both of which false-positive on anonymous `.rodata` jump tables.
+   `reloc-surface --identity-provider`, `linked-compare`, and `reloc-proof`
+   now keep fallback-static and promoted-linked claims separate, rehash every
+   input, require complete project identities and one range owner, and bind the
+   exact final bytes into a replayable receipt.
 5. **Context faithfulness checks on scratch intake.** A scratch's `ctx.c` is
    not repo-faithful, and nothing cross-checks it: an `s32`-vs-`u8*` field
    and an `s32`-vs-`f32` prototype each cost about ten builds before being
@@ -69,13 +75,14 @@ the older items are preserved in
    project's own object, and stamped rankings — which closes the "did it
    search the right thing" half. The three items above are about the search
    itself and the ledger it lands in, and remain open.
-9. **A falsified-hypothesis dossier schema.** Roughly 150 of the frontier
+9. **Shipped: falsified-hypothesis dossier and accepted pointer.** Roughly 150 of the frontier
    campaign's 215 commits closed candidate routes, but only as prose in a
    5,000-line handoff; ~13,000 permuter iterations partly re-walked closed
-   routes. A per-function dossier (hypothesis / lever / result /
-   do-not-repeat) would make the negative space queryable, and a
-   `manifest.accepted` pointer would make the positive terminal state
-   discoverable instead of living in loose `accepted-code.c` files.
+   routes. The campaign now has an append-only, deterministic-ID per-function
+   dossier (hypothesis / lever / result / do-not-repeat), independently
+   archived current/best artifacts, guarded best restoration with backup, and
+   an exact-by-default `manifest.accepted` pointer. `campaign readiness` also
+   keeps stale measurements and incomplete identities out of source lanes.
 10. **`doctor` host checks for environment folklore.** zsh word-splitting,
     BSD vs GNU sed/head, codesign kills, stale build-artifact hashes — each
     cost a session before being written down

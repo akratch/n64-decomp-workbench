@@ -20,6 +20,9 @@ are tracked in the [Workbench quality checklist](workbench-quality-checklist.md)
 | Check a 99.xx% decomp.me result | `doctor ZIP` → `check-scratch --view` → optional site-faithful compile/project truth differential |
 | Publish a proof repository | `handoff audit` → resolve missing/untracked dependencies → fresh-clone review |
 | Work a candidate family | v1/v2 `experiment validate` → control preflight → `campaign` → status/note/resume/export |
+| Preserve current vs measured best | `campaign checkpoint` → guarded `restore-best` with backup → exact-by-default `campaign accept` |
+| Avoid repeating closed searches | append/query the campaign falsified-hypothesis dossier |
+| Assign only current work | `campaign readiness` rehashes artifacts and splits codegen, identity, remeasurement, and promotion queues |
 | Finish and promote a winner | immutable selection → `campaign finish` fresh/optional gates → optional receipt-gated `campaign package` |
 | Manage local state | default `.decomp-workbench/` manifests/ledgers/cache; recoverable `cache prune/restore` |
 | Reuse project inputs | conservative `project init` preview → strict `.decomp-workbench.toml` → configured `next`/`compare`/`diagnose`/`campaign` |
@@ -27,6 +30,8 @@ are tracked in the [Workbench quality checklist](workbench-quality-checklist.md)
 | Identify compiler lineage | behavioral `fingerprint-toolchain`; hash-recorded `lineage` across caller-supplied objects |
 | Explain allocator decisions | `trace-webs`, `trace-source`, `trace-stack-homes`, `oracle plan/diff/force/sweep/status/export` |
 | Explain scheduler decisions | stable trace reader plus hash-pinned external profile adapter and calibration gates |
+| Explain PRE/hoist decisions | stable procedure/block/expression records plus a hash-pinned external profile adapter |
+| Prove an unrelocated-overlay promotion | project identity provider → `reloc-surface` → `linked-compare` → hash-bound `reloc-proof` |
 | Audit a matched project's shiftability | `shift audit` inventory → `shift rehearse orchestrate` two-delta relink → `--census unexplained_changed=0,stale_confirmed=0` as the CI gate |
 | Make a matched project shiftable | `shift audit --blobs auto --elf` → linker-config edit gated by `shift config verify` → `shift rehearse` with `--base-elf/--shifted-elf` at two deltas → `shift plan --markdown` work order → per-fix loop, `--census` in CI |
 | Automate safely | versioned success/error JSON, census exit codes, bounded streams, generated completions |

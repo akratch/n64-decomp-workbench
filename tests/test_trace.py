@@ -182,6 +182,46 @@ class TraceTests(unittest.TestCase):
         # construct that consumed it (two pops on one line = a phantom pop).
         self.assertEqual([event.source_line for event in results], [42, 42])
 
+    def test_mixed_procedure_fifo_requires_an_explicit_scope(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ADD proc=0 reg=14\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=0 reg=14\n"
+            "DKWB-FREELIST ADD proc=1 reg=15\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=1 reg=15\n"
+        )
+        with self.assertRaisesRegex(ValueError, "multiple procedures"):
+            replay_fifo(events)
+        report = replay_fifo(events, procedure=1)
+        self.assertEqual(report.procedure, 1)
+        self.assertEqual(report.allocations, [15])
+        self.assertTrue(all(event.procedure == 1 for event in report.logical_events))
+
+    def test_scoped_and_unscoped_events_cannot_be_combined(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ADD proc=-1 reg=14\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=0 reg=14\n"
+        )
+        with self.assertRaisesRegex(ValueError, "scoped and unscoped"):
+            replay_fifo(events)
+
+    def test_unscoped_non_fifo_diagnostics_do_not_poison_procedure_scope(self) -> None:
+        events = parse_trace(
+            "DKWB-CALL ENTER name=f_get_free_reg\n"
+            "DKWB-FREELIST ADD proc=2 reg=14\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=2 reg=14\n"
+        )
+        report = replay_fifo(events)
+        self.assertEqual(report.procedure, 2)
+        self.assertTrue(report.valid)
+
+    def test_absent_explicit_procedure_is_refused(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ADD proc=2 reg=14\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=2 reg=14\n"
+        )
+        with self.assertRaisesRegex(ValueError, "no FIFO events for procedure 3"):
+            replay_fifo(events, procedure=3)
+
     def test_joins_fifo_events_to_emitted_rows_and_source(self) -> None:
         events = parse_trace(
             "DKWB-FREELIST ADD reg=14 emitted=257\n"

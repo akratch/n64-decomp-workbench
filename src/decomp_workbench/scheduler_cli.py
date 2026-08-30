@@ -90,7 +90,8 @@ def trace_scheduler_command(args: argparse.Namespace) -> int:
         else:
             print(
                 f"scheduler: {report['event_count']} event(s), "
-                f"{report['ready_set_ties']} ready-set tie(s)"
+                f"{report['ready_set_ties']} ready-set tie(s), "
+                f"provenance={report['provenance_complete']}/{report['event_count']}"
             )
             for event in report["events"][: args.limit]:
                 print(
@@ -99,6 +100,13 @@ def trace_scheduler_command(args: argparse.Namespace) -> int:
                     f"opcode={event['opcode']} line={event['line']} "
                     f"ready={event['ready']} chosen={event['chosen']} "
                     f"tie={event['tie']}"
+                    + (
+                        f" slot={event['emitted_slot']} "
+                        f"statement={event['source_statement']} "
+                        f"reason={event['reason']}"
+                        if event.get("emitted_slot") is not None
+                        else ""
+                    )
                 )
         print(f"proof: {report['proof']}")
     return 0 if events else 1

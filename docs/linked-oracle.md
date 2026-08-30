@@ -14,12 +14,13 @@ placeholder's value. Until that happens the candidate does not link at all;
 once it does, `compare` and the permuter are still scoring the wrong thing,
 because the target names symbols the candidate cannot.
 
-Two commands answer the two halves:
+Three commands answer the two halves and bind the promotion claim:
 
 | Command | Question |
 |---|---|
 | `reloc-surface` | what value must each placeholder carry for the link to reproduce the shipped words? |
 | `linked-compare` | given the image that link produced, is this function's range the target's bytes? |
+| `reloc-proof` | are both reports current, identity-complete, and about the same target and candidate? |
 
 Neither builds anything. The [host-side loop](#the-host-side-loop) is the
 project's, because only the project knows how it builds.
@@ -131,6 +132,31 @@ gOverlay1ModeObject = 0x00018010;
 whole surface under `decomp-workbench-reloc-surface-v1`, with `sites` included
 only when `--sites` is also given.
 
+### Project identity provider
+
+Stored addends establish the value a link needs, not the canonical identity of
+what a relocation means in a particular project. Supply that separately:
+
+```sh
+decomp-workbench reloc-surface build/overlay1.c.o \
+  --module-map module.json --image target.z64 \
+  --identity-provider relocation-identities.json --json
+```
+
+The provider schema is `decomp-workbench-relocation-identities-v1`. Each entry
+is keyed by the exact object path, section, object offset, numeric relocation
+type, and symbol. Its status is `resolved`, `unknown`, or `contradicted`.
+Resolved entries carry a project-owned namespace plus module, section, offset,
+and addend. This interface lets a project translate an overlay atlas, linker
+map, or other ownership model without teaching the workbench a game-specific
+format. A synthetic VMA is never treated as unique identity.
+
+The report joins every observed site and emits
+`decomp-workbench-relocation-identity-report-v1`. `complete=true` requires at
+least one site, every site resolved, and no contradictions. Provider entries
+that did not join are retained under `unused_provider_entries`; they are not
+quietly accepted as evidence for another object revision.
+
 Exit status is 0 when every referenced symbol got a value and 1 when any was
 refused. The three refusals:
 
@@ -190,6 +216,44 @@ The report names the first differing offset inside the range and the first
 one outside it. The image-level verdict is the worst of its ranges. Exit
 status is 0 when every range's own bytes agree — `exact` or `text-exact` —
 and 1 otherwise.
+
+## Compose a dual-surface proof
+
+Write JSON from both commands, including a complete identity provider on the
+static side, then compose one receipt:
+
+```sh
+decomp-workbench reloc-proof \
+  --fallback fallback-relocations.json \
+  --linked linked-comparison.json \
+  --symbol overlay1DrawActive \
+  --source src/overlay1.c \
+  --candidate-object build/overlay1.c.o \
+  --out relocation-proof.json
+```
+
+`PASS` requires all of the following:
+
+- fallback synthesis has no conflicts and is corroborated by the shipped
+  relocation table;
+- every observed relocation site has one resolved project identity;
+- fallback and linked reports bind the same target-image SHA-256;
+- the selected candidate object is the one bound by the fallback report;
+- exactly one module section owns the selected range; and
+- that range is `exact` or `text-exact` in the final linked image.
+
+The receipt keeps `fallback_static` and `promoted_linked` as separate named
+surfaces. The static claim explicitly does not claim linked exactness. Source
+to candidate object is recorded as `host-declared`: the workbench hashes both,
+but this command does not run or infer the build.
+
+Verify later by rebuilding the receipt from every rehashed input:
+
+```sh
+decomp-workbench reloc-proof --verify relocation-proof.json --json
+```
+
+Content is identity; timestamp-only changes do not invalidate the proof.
 
 ## The host-side loop
 
