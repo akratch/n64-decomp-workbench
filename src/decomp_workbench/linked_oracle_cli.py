@@ -86,7 +86,7 @@ def _load_module_map(path: str) -> Any:
 
 
 def _objects(paths: list[str]) -> list[tuple[str, Any]]:
-    return [(path, read_elf(path)) for path in paths]
+    return [(str(Path(path).expanduser().resolve()), read_elf(path)) for path in paths]
 
 
 def reloc_surface_command(args: argparse.Namespace) -> int:
@@ -146,7 +146,7 @@ def reloc_surface_command(args: argparse.Namespace) -> int:
         }
         if identities is not None:
             payload["identities"] = identities
-        if not args.sites:
+        if not args.sites and identities is None:
             payload.pop("sites", None)
         if report is not None:
             payload["audit"] = report.as_dict()

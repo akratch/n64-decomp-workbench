@@ -28,9 +28,11 @@ The archive lives below the campaign directory under `artifacts/ID/`. IDs are
 derived from source and object contents. Existing archive files are rehashed
 and never overwritten. Re-running the command is therefore idempotent for the
 same candidate and a refusal if an immutable archive was altered.
-Checkpoint, restore, and accept share one manifest transaction lock; archive
-creation has a per-content lock, so cooperating concurrent campaign workers
-cannot publish a half-written pointer or race the same immutable ID.
+Checkpoint, restore, accept, campaign initialization/finalization, retention,
+control recording, and hypothesis updates share one manifest transaction lock.
+Archive creation has a per-content lock, so cooperating concurrent campaign
+workers cannot lose a field, publish a half-written pointer, or race the same
+immutable ID.
 
 Materializing best is an explicit, recoverable operation:
 
@@ -102,13 +104,27 @@ entry carries a measured comparison and at least one artifact receipt:
       "symbol": "demo",
       "artifacts": [
         {
+          "role": "target-object",
+          "path": "/work/build/demo.target.o",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "size": 4096
+        },
+        {
           "role": "candidate-object",
           "path": "/work/build/demo.o",
-          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
           "size": 4096
         }
       ],
-      "measurement": {"exact": false, "words": 4, "verdict": "schedule"},
+      "measurement": {
+        "exact": false,
+        "words": 4,
+        "verdict": "schedule",
+        "artifact_sha256": {
+          "target-object": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "candidate-object": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        }
+      },
       "plateau": true
     }
   ]
@@ -134,10 +150,18 @@ A plateau remains `codegen-ready` only for a new evidence-producing mechanism;
 the report says so in `next`. It is not permission to repeat the same source
 search.
 
+`measurement.artifact_sha256` is mandatory. It must bind a target side
+(`target-object` or `target-image`) and a candidate side (`candidate-object` or
+`built-image`) to uniquely named queue artifacts. Rehashing an artifact proves
+that the file is current; this second binding proves that the comparison is a
+measurement of those current bytes rather than a stale result placed beside
+them.
+
 When `relocation_required=true`, `relocation_report` is itself a full artifact
 receipt, not a path string. The report must be a current JSON
 `reloc-surface --identity-provider` result. Readiness rehashes that report and
-every artifact nested in its evidence block before reading `identities.complete`.
+every artifact nested in its evidence block, then replays relocation synthesis
+and the identity-provider join before reading `identities.complete`.
 Unknown identity and contradicted identity remain distinct in that report, but
 both stay out of the source queue.
 

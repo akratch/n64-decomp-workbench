@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -27,16 +28,46 @@ def file_sha256(path: str | Path) -> str:
 
 
 def artifact_record(path: str | Path, *, role: str) -> dict[str, Any]:
-    """Describe one existing regular file by resolved path and content identity."""
+    """Describe one stable regular file by resolved path and content identity.
 
+    Hashing a file that is being replaced or rewritten can otherwise produce a
+    digest for no state that ever existed on disk.  Read through one descriptor
+    and require both that descriptor and the resolved path to name the same,
+    unchanged file before publishing the receipt.
+    """
+
+    if not role:
+        raise EvidenceError("artifact role must be a non-empty string")
     location = Path(path).expanduser().resolve()
-    if not location.is_file():
-        raise EvidenceError(f"{role} is not a regular file: {location}")
+    digest = hashlib.sha256()
+    try:
+        with location.open("rb") as source:
+            before = os.fstat(source.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise EvidenceError(f"{role} is not a regular file: {location}")
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+            after = os.fstat(source.fileno())
+        current = location.stat()
+    except OSError as error:
+        raise EvidenceError(f"cannot capture {role} {location}: {error}") from None
+
+    def identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+
+    if identity(before) != identity(after) or identity(after) != identity(current):
+        raise EvidenceError(f"{role} changed while it was being captured: {location}")
     return {
         "role": role,
         "path": str(location),
-        "sha256": file_sha256(location),
-        "size": location.stat().st_size,
+        "sha256": digest.hexdigest(),
+        "size": after.st_size,
     }
 
 
@@ -46,8 +77,11 @@ def verify_artifact_record(value: object, *, where: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise EvidenceError(f"{where} must be an artifact object")
     path_value = value.get("path")
+    role = value.get("role")
     digest = value.get("sha256")
     size = value.get("size")
+    if not isinstance(role, str) or not role:
+        raise EvidenceError(f"{where}.role must be a non-empty string")
     if not isinstance(path_value, str) or not path_value:
         raise EvidenceError(f"{where}.path must be a non-empty string")
     if (
@@ -58,7 +92,7 @@ def verify_artifact_record(value: object, *, where: str) -> dict[str, Any]:
         raise EvidenceError(f"{where}.sha256 must be a lowercase SHA-256 digest")
     if type(size) is not int or size < 0:
         raise EvidenceError(f"{where}.size must be a non-negative integer")
-    current = artifact_record(path_value, role=str(value.get("role", where)))
+    current = artifact_record(path_value, role=role)
     if current["size"] != size or current["sha256"] != digest:
         raise EvidenceError(
             f"{where} is stale: {path_value} no longer has the recorded content"
@@ -97,6 +131,12 @@ def write_json_atomic(path: str | Path, value: Mapping[str, Any]) -> Path:
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, destination)
+        if os.name != "nt":
+            directory = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         temporary.unlink(missing_ok=True)
     return destination

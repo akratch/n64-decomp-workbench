@@ -9,10 +9,23 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from test_reloc_surface import (
+    MODULE_START,
+    TU_OFFSET,
+    candidate_object,
+    module_document,
+    shipped_image,
+)
+
+from decomp_workbench.elf import read_elf
 from decomp_workbench.evidence import EvidenceError, artifact_record
-from decomp_workbench.linked_compare import LINKED_COMPARE_SCHEMA
-from decomp_workbench.reloc_surface import SURFACE_SCHEMA
-from decomp_workbench.relocation_identity import IDENTITY_REPORT_SCHEMA
+from decomp_workbench.linked_compare import RANGES_SCHEMA, ImageRange, compare_images
+from decomp_workbench.reloc_surface import parse_module_map, synthesize
+from decomp_workbench.relocation_identity import (
+    IDENTITY_PROVIDER_SCHEMA,
+    identity_report,
+    parse_identity_provider,
+)
 from decomp_workbench.relocation_proof import (
     EVIDENCE_SCHEMA,
     build_relocation_proof,
@@ -25,15 +38,17 @@ class RelocationProofTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.source = self.root / "candidate.c"
-        self.candidate = self.root / "candidate.o"
+        self.candidate = self.root / "tu.c.o"
         self.target = self.root / "target.z64"
         self.built = self.root / "built.z64"
         self.module_map = self.root / "module.json"
         self.source.write_text("void draw(void) {}\n", encoding="utf-8")
-        self.candidate.write_bytes(b"candidate-object")
-        self.target.write_bytes(bytes(0x200))
-        self.built.write_bytes(bytes(0x200))
-        self.module_map.write_text("{}\n", encoding="utf-8")
+        self.candidate.write_bytes(candidate_object())
+        self.target.write_bytes(shipped_image())
+        self.built.write_bytes(shipped_image())
+        self.module_map.write_text(json.dumps(module_document()), encoding="utf-8")
+        self.identity_provider = self.root / "identities.json"
+        self.range_map = self.root / "ranges.json"
         self.fallback_path = self.root / "fallback.json"
         self.linked_path = self.root / "linked.json"
         self.receipt_path = self.root / "receipt.json"
@@ -43,55 +58,78 @@ class RelocationProofTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def _write_reports(self, *, identities_complete: bool = True) -> None:
-        fallback = {
-            "schema": SURFACE_SCHEMA,
-            "module": "overlay7",
-            "ok": True,
-            "corroborated": True,
-            "identities": {
-                "schema": IDENTITY_REPORT_SCHEMA,
-                "sites": 1,
-                "resolved": 1 if identities_complete else 0,
-                "unknown": 0 if identities_complete else 1,
-                "contradicted": 0,
-                "complete": identities_complete,
-                "entries": [],
-            },
-            "evidence": {
-                "schema": EVIDENCE_SCHEMA,
-                "module": {
-                    "name": "overlay7",
-                    "image_start": 0x100,
-                    "image_end": 0x180,
-                    "sections": [{"name": ".text", "offset": 0, "size": 0x80}],
-                },
-                "artifacts": [
-                    artifact_record(self.module_map, role="module-map"),
-                    artifact_record(self.target, role="target-image"),
-                    artifact_record(self.candidate, role="candidate-object"),
-                ],
-            },
-        }
-        linked = {
-            "schema": LINKED_COMPARE_SCHEMA,
-            "class": "exact",
-            "ok": True,
-            "ranges": [
+        module = parse_module_map(module_document())
+        surface = synthesize(
+            [(str(self.candidate.resolve()), read_elf(self.candidate))],
+            module,
+            self.target.read_bytes(),
+        )
+        provider = {
+            "schema": IDENTITY_PROVIDER_SCHEMA,
+            "entries": [
                 {
-                    "name": "draw",
-                    "start": 0x110,
-                    "end": 0x120,
-                    "size": 0x10,
-                    "class": "exact",
+                    "object": site.object,
+                    "section": site.section,
+                    "object_offset": site.object_offset,
+                    "type": site.type,
+                    "symbol": site.symbol,
+                    "status": "resolved" if identities_complete else "unknown",
+                    **(
+                        {
+                            "identity": {
+                                "namespace": "test-module-offset",
+                                "module": module.name,
+                                "section": site.section,
+                                "offset": site.module_offset,
+                                "addend": 0,
+                            }
+                        }
+                        if identities_complete
+                        else {}
+                    ),
+                    "evidence": "synthetic fixture ownership",
                 }
+                for site in surface.sites
             ],
-            "evidence": {
-                "schema": EVIDENCE_SCHEMA,
-                "artifacts": [
-                    artifact_record(self.built, role="built-image"),
-                    artifact_record(self.target, role="target-image"),
-                ],
-            },
+        }
+        self.identity_provider.write_text(json.dumps(provider), encoding="utf-8")
+        fallback = surface.as_dict()
+        fallback["identities"] = identity_report(
+            surface.sites, parse_identity_provider(provider)
+        )
+        fallback["evidence"] = {
+            "schema": EVIDENCE_SCHEMA,
+            "module": module.as_dict(),
+            "artifacts": [
+                artifact_record(self.module_map, role="module-map"),
+                artifact_record(self.target, role="target-image"),
+                artifact_record(self.candidate, role="candidate-object"),
+                artifact_record(self.identity_provider, role="identity-provider"),
+            ],
+        }
+        ranges = [
+            ImageRange("draw", MODULE_START + TU_OFFSET, MODULE_START + TU_OFFSET + 16)
+        ]
+        self.range_map.write_text(
+            json.dumps(
+                {"schema": RANGES_SCHEMA, "ranges": [item.as_dict() for item in ranges]}
+            ),
+            encoding="utf-8",
+        )
+        linked = compare_images(
+            self.built.read_bytes(),
+            self.target.read_bytes(),
+            ranges,
+            built_name=str(self.built),
+            target_name=str(self.target),
+        ).as_dict()
+        linked["evidence"] = {
+            "schema": EVIDENCE_SCHEMA,
+            "artifacts": [
+                artifact_record(self.built, role="built-image"),
+                artifact_record(self.target, role="target-image"),
+                artifact_record(self.range_map, role="range-map"),
+            ],
         }
         self.fallback_path.write_text(json.dumps(fallback), encoding="utf-8")
         self.linked_path.write_text(json.dumps(linked), encoding="utf-8")
@@ -108,8 +146,8 @@ class RelocationProofTests(unittest.TestCase):
     def test_two_surfaces_remain_named_and_owner_is_derived(self) -> None:
         receipt = self._build()
         self.assertEqual(receipt["status"], "PASS")
-        self.assertEqual(receipt["owner"]["module"], "overlay7")
-        self.assertEqual(receipt["owner"]["offset"], 0x10)
+        self.assertEqual(receipt["owner"]["module"], "m1")
+        self.assertEqual(receipt["owner"]["offset"], TU_OFFSET)
         self.assertEqual(
             set(receipt["surfaces"]), {"fallback_static", "promoted_linked"}
         )
@@ -127,6 +165,27 @@ class RelocationProofTests(unittest.TestCase):
         linked["evidence"]["artifacts"][1] = artifact_record(other, role="target-image")
         self.linked_path.write_text(json.dumps(linked), encoding="utf-8")
         with self.assertRaisesRegex(EvidenceError, "different target images"):
+            self._build()
+
+    def test_fabricated_identity_claim_is_refused(self) -> None:
+        fallback = json.loads(self.fallback_path.read_text(encoding="utf-8"))
+        fallback["identities"]["entries"][0]["identity"]["offset"] += 4
+        self.fallback_path.write_text(json.dumps(fallback), encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "identities disagree"):
+            self._build()
+
+    def test_fabricated_linked_verdict_is_refused(self) -> None:
+        linked = json.loads(self.linked_path.read_text(encoding="utf-8"))
+        linked["ranges"][0]["class"] = "text-exact"
+        self.linked_path.write_text(json.dumps(linked), encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "bound inputs"):
+            self._build()
+
+    def test_cropped_linked_range_is_refused(self) -> None:
+        linked = json.loads(self.linked_path.read_text(encoding="utf-8"))
+        linked["ranges"][0]["start"] += 4
+        self.linked_path.write_text(json.dumps(linked), encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "bound range map"):
             self._build()
 
     def test_receipt_verification_rehashes_every_input(self) -> None:

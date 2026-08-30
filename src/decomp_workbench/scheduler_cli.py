@@ -53,14 +53,30 @@ def _read_scheduler_trace(
 
 def trace_scheduler_command(args: argparse.Namespace) -> int:
     try:
+        for name in ("proc", "block", "limit"):
+            value = getattr(args, name)
+            if value is not None and value < 0:
+                raise ValueError(f"--{name} must be non-negative")
         events, ignored = _read_scheduler_trace(
             args.trace, from_as1_r=args.from_as1_r, proc=args.proc or 0
         )
+        selected = [
+            event
+            for event in events
+            if (args.proc is None or event.proc == args.proc)
+            and (args.block is None or event.block == args.block)
+        ]
         if args.against:
             candidate, _ = _read_scheduler_trace(
                 args.against, from_as1_r=args.from_as1_r, proc=args.proc or 0
             )
-            report = compare_scheduler_traces(events, candidate)
+            selected_candidate = [
+                event
+                for event in candidate
+                if (args.proc is None or event.proc == args.proc)
+                and (args.block is None or event.block == args.block)
+            ]
+            report = compare_scheduler_traces(selected, selected_candidate)
         else:
             report = scheduler_report(events, proc=args.proc, block=args.block)
             report["ignored_diagnostic_lines"] = len(ignored)
@@ -109,7 +125,7 @@ def trace_scheduler_command(args: argparse.Namespace) -> int:
                     )
                 )
         print(f"proof: {report['proof']}")
-    return 0 if events else 1
+    return 0 if selected else 1
 
 
 def instrument_scheduler_command(args: argparse.Namespace) -> int:

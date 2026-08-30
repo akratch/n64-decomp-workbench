@@ -20,10 +20,22 @@ from .trace import read_trace_text
 
 def trace_pre_command(args: argparse.Namespace) -> int:
     try:
+        if args.proc is not None and args.proc < 0:
+            raise ValueError("--proc must be non-negative")
+        if args.limit < 0:
+            raise ValueError("--limit must be non-negative")
         events, ignored = parse_pre_trace(read_trace_text(args.trace))
+        selected = [
+            event for event in events if args.proc is None or event.proc == args.proc
+        ]
         if args.against:
             candidate, _ = parse_pre_trace(read_trace_text(args.against))
-            report = compare_pre_traces(events, candidate)
+            selected_candidate = [
+                event
+                for event in candidate
+                if args.proc is None or event.proc == args.proc
+            ]
+            report = compare_pre_traces(selected, selected_candidate)
         else:
             report = pre_report(events, proc=args.proc)
             report["ignored_diagnostic_lines"] = len(ignored)
@@ -48,7 +60,7 @@ def trace_pre_command(args: argparse.Namespace) -> int:
                 f"reason={item['reason']}"
             )
         print(f"proof: {report['proof']}")
-    return 0 if events else 1
+    return 0 if selected else 1
 
 
 def instrument_pre_command(args: argparse.Namespace) -> int:

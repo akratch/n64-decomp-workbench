@@ -17,6 +17,7 @@ INSTRUMENT_SCHEMA = "decomp-workbench-pre-instrument-v1"
 FIELD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)")
 DECISIONS = frozenset({"insert", "hoist", "retain", "reject", "kill"})
 REQUIRED_FIELDS = ("proc", "block", "expression", "decision", "reason", "line")
+OPTIONAL_FIELDS = ("candidate", "availability", "cost")
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,24 @@ def parse_pre_trace(text: str) -> tuple[list[PreDecision], list[str]]:
             if line.strip():
                 ignored.append(line)
             continue
-        pairs = FIELD_RE.findall(line[len(TRACE_PREFIX) :])
+        tokens = line[len(TRACE_PREFIX) :].split()
+        pairs: list[tuple[str, str]] = []
+        for token in tokens:
+            match = FIELD_RE.fullmatch(token)
+            if match is None:
+                raise ValueError(
+                    f"PRE trace line {line_number} has malformed token {token!r}"
+                )
+            pairs.append((match.group(1), match.group(2)))
         fields = dict(pairs)
         if len(fields) != len(pairs):
             raise ValueError(f"PRE trace line {line_number} repeats a field")
+        unknown = sorted(set(fields) - set(REQUIRED_FIELDS) - set(OPTIONAL_FIELDS))
+        if unknown:
+            raise ValueError(
+                f"PRE trace line {line_number} has unsupported field(s): "
+                + ", ".join(unknown)
+            )
         missing = [name for name in REQUIRED_FIELDS if name not in fields]
         if missing:
             raise ValueError(
@@ -88,6 +103,12 @@ def parse_pre_trace(text: str) -> tuple[list[PreDecision], list[str]]:
             availability=fields.get("availability"),
             cost=cost,
         )
+        for name in ("proc", "block", "line", "cost"):
+            value = getattr(item, name)
+            if value is not None and value < 0:
+                raise ValueError(
+                    f"PRE trace line {line_number} has negative field {name!r}"
+                )
         if item.key in seen:
             raise ValueError(
                 "PRE trace repeats proc/block/expression " + repr(item.key)
@@ -178,6 +199,7 @@ def instrument_pre_source(
     if not injections:
         raise ValueError("PRE profile injections must be a non-empty list")
     instrumented = source
+    injected_text: list[str] = []
     for index, raw in enumerate(injections):
         if not isinstance(raw, Mapping):
             raise ValueError(f"PRE injection {index} must be an object")
@@ -202,8 +224,10 @@ def instrument_pre_source(
             )
         replacement = text + anchor if position == "before" else anchor + text
         instrumented = instrumented.replace(anchor, replacement, 1)
+        injected_text.append(text)
+    emitted = "".join(injected_text)
     for token in (TRACE_PREFIX, *(f"{field}=" for field in REQUIRED_FIELDS)):
-        if token not in instrumented:
+        if token not in emitted:
             raise ValueError(f"PRE profile does not emit required token {token!r}")
     return instrumented, {
         "schema": INSTRUMENT_SCHEMA,

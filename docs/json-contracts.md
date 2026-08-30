@@ -37,8 +37,11 @@ means a non-empty site set is wholly resolved with no contradiction.
 `surfaces.fallback_static` and `surfaces.promoted_linked` members are separate
 claims. A newly built receipt has `status=PASS`; verification adds
 `verification=AGREES|DISAGREES`, boolean `pass`, and the recorded/rebuilt
-documents. Verification errors on stale input rather than returning agreement
-over a different file.
+documents. Static synthesis, the project identity join, and linked byte
+classification are recomputed from the hash-bound inputs; linked range
+coordinates must agree with a bound `range-map` artifact. Verification errors
+on stale, cropped, or internally fabricated input rather than returning
+agreement over a different file.
 
 Candidate lifecycle reports are
 `decomp-workbench-campaign-checkpoint-v1`,
@@ -59,14 +62,18 @@ final line is a warning; malformed or edited completed lines are errors.
 `decomp-workbench-target-readiness-v1`. Class values are exactly
 `promotion-ready`, `codegen-ready`, `identity-maintenance`, and `remeasure`.
 `source_queue`, `maintenance_queue`, and `promotion_queue` are derived lists,
-not additional classifications.
+not additional classifications. Every measurement has an `artifact_sha256`
+role-to-digest map binding at least one target-side and one candidate-side
+artifact; adjacent but unbound current files do not make a measurement fresh.
 
 PRE reports use `decomp-workbench-pre-trace-v1` or
 `decomp-workbench-pre-diff-v1`; the guarded adapter emits
 `decomp-workbench-pre-instrument-v1`. Scheduler provenance is additive inside
 `decomp-workbench-scheduler-trace-v1`: `emitted_slot`, `source_file`,
 `source_statement`, `reason`, and `ready_ids`, plus report-level
-`provenance_complete`.
+`provenance_complete`. A complete event has every field, exactly `ready`
+unique IDs, and its `chosen` ID in that set; partial or contradictory sets are
+never counted as complete.
 
 ### One command, two shapes
 
@@ -248,8 +255,8 @@ overwritten.
 
 Compact campaign automation should prefer `--json-summary`. Full `--json`
 includes richer compiler and instruction evidence. JSONL ledgers are
-append-only; a torn final line after interruption is ignored with a warning,
-while malformed earlier records are rejected.
+append-only; an unterminated torn final line after interruption is ignored with
+a warning, while every newline-terminated malformed record is rejected.
 
 ## Files written by reports
 

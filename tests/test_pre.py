@@ -51,6 +51,16 @@ class PreTraceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported decision"):
             parse_pre_trace(TRACE.replace("decision=hoist", "decision=maybe"))
 
+    def test_unparsed_tokens_and_unknown_fields_are_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "malformed token"):
+            parse_pre_trace(TRACE.replace("proc=2", "proc=2 garbage", 1))
+        with self.assertRaisesRegex(ValueError, "unsupported field"):
+            parse_pre_trace(TRACE.replace("proc=2", "proc=2 surprise=yes", 1))
+
+    def test_negative_coordinates_are_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "negative field"):
+            parse_pre_trace(TRACE.replace("block=7", "block=-1", 1))
+
 
 class PreInstrumentationTests(unittest.TestCase):
     def test_profile_is_hash_pinned_and_all_required_fields_are_present(self) -> None:
@@ -84,6 +94,30 @@ class PreInstrumentationTests(unittest.TestCase):
                     "injections": [{}],
                 },
             )
+
+    def test_required_tokens_must_come_from_the_injection(self) -> None:
+        required = " ".join(
+            [
+                "[DKWB-PRE-V1]",
+                "proc=",
+                "block=",
+                "expression=",
+                "decision=",
+                "reason=",
+                "line=",
+            ]
+        )
+        source = f"/* {required} */\nvoid f(void) {{}}\n"
+        profile = {
+            "schema": PROFILE_SCHEMA,
+            "name": "empty-record",
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "injections": [
+                {"anchor": "void f", "position": "before", "text": "/* no trace */\n"}
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "does not emit required token"):
+            instrument_pre_source(source, profile)
 
 
 if __name__ == "__main__":

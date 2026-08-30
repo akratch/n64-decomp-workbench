@@ -129,8 +129,9 @@ gOverlay1ModeObject = 0x00018010;
 ```
 
 `--sites` reports every mapped site behind those values. `--json` emits the
-whole surface under `decomp-workbench-reloc-surface-v1`, with `sites` included
-only when `--sites` is also given.
+whole surface under `decomp-workbench-reloc-surface-v1`. It includes `sites`
+when `--sites` is given and always includes them with `--identity-provider`,
+because a later proof must be able to replay the provider join site by site.
 
 ### Project identity provider
 
@@ -220,7 +221,9 @@ and 1 otherwise.
 ## Compose a dual-surface proof
 
 Write JSON from both commands, including a complete identity provider on the
-static side, then compose one receipt:
+static side and a project range-map file via `linked-compare --ranges` on the
+linked side, then compose one receipt. Inline `--range` is useful for an
+interactive comparison but deliberately insufficient for a durable proof:
 
 ```sh
 decomp-workbench reloc-proof \
@@ -234,20 +237,23 @@ decomp-workbench reloc-proof \
 
 `PASS` requires all of the following:
 
-- fallback synthesis has no conflicts and is corroborated by the shipped
-  relocation table;
+- fallback synthesis is replayed from the bound module map, objects, and target
+  image, has no conflicts, and is corroborated by the shipped relocation table;
 - every observed relocation site has one resolved project identity;
 - fallback and linked reports bind the same target-image SHA-256;
 - the selected candidate object is the one bound by the fallback report;
+- every compared linked range agrees with the bound project range map;
 - exactly one module section owns the selected range; and
-- that range is `exact` or `text-exact` in the final linked image.
+- the linked classification is replayed from the bound built/target images;
+  and that range is `exact` or `text-exact` in the final linked image.
 
 The receipt keeps `fallback_static` and `promoted_linked` as separate named
 surfaces. The static claim explicitly does not claim linked exactness. Source
 to candidate object is recorded as `host-declared`: the workbench hashes both,
 but this command does not run or infer the build.
 
-Verify later by rebuilding the receipt from every rehashed input:
+Verify later by rebuilding the receipt from every rehashed input and replaying
+both deterministic measurements:
 
 ```sh
 decomp-workbench reloc-proof --verify relocation-proof.json --json

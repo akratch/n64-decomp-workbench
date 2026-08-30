@@ -25,6 +25,7 @@ REQUIRED_FIELDS = (
     "chosen",
     "tie",
 )
+OPTIONAL_FIELDS = ("slot", "file", "statement", "reason", "ready_ids")
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,15 @@ def parse_scheduler_trace(text: str) -> tuple[list[SchedulerEvent], list[str]]:
             if line.strip():
                 ignored.append(line)
             continue
-        field_pairs = FIELD_RE.findall(line[len(TRACE_PREFIX) :])
+        tokens = line[len(TRACE_PREFIX) :].split()
+        field_pairs: list[tuple[str, str]] = []
+        for token in tokens:
+            match = FIELD_RE.fullmatch(token)
+            if match is None:
+                raise ValueError(
+                    f"scheduler trace line {line_number} has malformed token {token!r}"
+                )
+            field_pairs.append((match.group(1), match.group(2)))
         fields = dict(field_pairs)
         if len(fields) != len(field_pairs):
             counts: dict[str, int] = {}
@@ -86,6 +95,12 @@ def parse_scheduler_trace(text: str) -> tuple[list[SchedulerEvent], list[str]]:
             raise ValueError(
                 f"scheduler trace line {line_number} repeats field(s): "
                 + ", ".join(repeated)
+            )
+        unknown = sorted(set(fields) - set(REQUIRED_FIELDS) - set(OPTIONAL_FIELDS))
+        if unknown:
+            raise ValueError(
+                f"scheduler trace line {line_number} has unsupported field(s): "
+                + ", ".join(unknown)
             )
         missing = [name for name in REQUIRED_FIELDS if name not in fields]
         if missing:
@@ -122,6 +137,39 @@ def parse_scheduler_trace(text: str) -> tuple[list[SchedulerEvent], list[str]]:
                 f"scheduler trace line {line_number} has ready={event.ready}; "
                 "the selected node itself must be ready"
             )
+        for name in (
+            "proc",
+            "block",
+            "cycle",
+            "line",
+            "emitted_slot",
+            "source_statement",
+        ):
+            value = getattr(event, name)
+            if value is not None and value < 0:
+                raise ValueError(
+                    f"scheduler trace line {line_number} has negative field {name!r}"
+                )
+        if not 0 <= event.word <= 0xFFFFFFFF:
+            raise ValueError(
+                f"scheduler trace line {line_number} word is outside 32 bits"
+            )
+        if "ready_ids" in fields:
+            raw_ready_ids = fields["ready_ids"].split(",")
+            if (
+                any(not item for item in raw_ready_ids)
+                or len(set(raw_ready_ids)) != len(raw_ready_ids)
+                or len(raw_ready_ids) != event.ready
+            ):
+                raise ValueError(
+                    f"scheduler trace line {line_number} ready_ids must contain "
+                    f"exactly {event.ready} unique non-empty ids"
+                )
+            if event.chosen not in event.ready_ids:
+                raise ValueError(
+                    f"scheduler trace line {line_number} chosen node is absent "
+                    "from ready_ids"
+                )
         if event.key in seen:
             raise ValueError(f"scheduler trace repeats proc/block/cycle {event.key}")
         seen.add(event.key)
@@ -154,8 +202,10 @@ def scheduler_report(
         "ready_set_ties": sum(event.ready > 1 for event in selected),
         "provenance_complete": sum(
             event.emitted_slot is not None
+            and event.source_file is not None
             and event.reason is not None
             and event.source_statement is not None
+            and bool(event.ready_ids)
             for event in selected
         ),
         "procedures": sorted({event.proc for event in events}),
@@ -231,7 +281,13 @@ def instrument_scheduler_source(
     injections = profile.get("injections")
     if not isinstance(injections, list) or not injections:
         raise ValueError("scheduler profile requires at least one injection")
+    if (
+        "provenance_required" in profile
+        and type(profile["provenance_required"]) is not bool
+    ):
+        raise ValueError("scheduler profile provenance_required must be a boolean")
     instrumented = source
+    injected_text: list[str] = []
     applied = 0
     for index, injection in enumerate(injections):
         if not isinstance(injection, dict):
@@ -257,15 +313,17 @@ def instrument_scheduler_source(
             )
         replacement = text + anchor if position == "before" else anchor + text
         instrumented = instrumented.replace(anchor, replacement, 1)
+        injected_text.append(text)
         applied += 1
+    emitted = "".join(injected_text)
     for token in (TRACE_PREFIX, *(f"{name}=" for name in REQUIRED_FIELDS)):
-        if token not in instrumented:
+        if token not in emitted:
             raise ValueError(
                 f"scheduler profile does not emit required token {token!r}"
             )
     if profile.get("provenance_required") is True:
-        for token in ("slot=", "statement=", "reason=", "ready_ids="):
-            if token not in instrumented:
+        for token in ("slot=", "file=", "statement=", "reason=", "ready_ids="):
+            if token not in emitted:
                 raise ValueError(
                     "scheduler provenance profile does not emit required token "
                     f"{token!r}"

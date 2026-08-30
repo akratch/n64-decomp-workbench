@@ -165,6 +165,38 @@ class CandidateLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(first, second)
 
+    def test_checkpoint_refuses_an_object_changed_after_measurement(self) -> None:
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        cache_key = manifest["sources"][0]["cache_key"]
+        current_object = Path(manifest["cache_directory"]) / f"{cache_key}.o"
+        current_object.write_bytes(b"changed after the ledger measurement")
+        status, _stdout, stderr = self.run_cli(
+            ["campaign", "checkpoint", str(self.manifest)]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("object hash disagrees with its ledger record", stderr)
+
+    def test_acceptance_revalidates_immutable_archive_metadata(self) -> None:
+        status, stdout, stderr = self.run_cli(
+            ["campaign", "checkpoint", str(self.manifest), "--json"]
+        )
+        self.assertEqual((status, stderr), (0, ""))
+        checkpoint = json.loads(stdout)
+        metadata = (
+            self.manifest.parent
+            / "artifacts"
+            / checkpoint["best"]["id"]
+            / "artifact.json"
+        )
+        record = json.loads(metadata.read_text(encoding="utf-8"))
+        record["id"] = "0" * 24
+        metadata.write_text(json.dumps(record), encoding="utf-8")
+        status, _stdout, stderr = self.run_cli(
+            ["campaign", "accept", str(self.manifest)]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("immutable metadata", stderr)
+
     def test_dossier_is_append_only_queryable_and_deduplicated(self) -> None:
         arguments = [
             "campaign",
@@ -214,6 +246,12 @@ class CandidateLifecycleTests(unittest.TestCase):
         entry["outcome"] = "tampered"
         dossier.write_text(json.dumps(entry) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "content does not match id"):
+            read_dossier(dossier)
+
+    def test_complete_corrupt_final_dossier_line_is_not_treated_as_torn(self) -> None:
+        dossier = self.manifest.parent / "dossier.jsonl"
+        dossier.write_text('{"schema":\n', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "malformed dossier line"):
             read_dossier(dossier)
 
 

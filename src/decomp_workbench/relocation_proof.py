@@ -12,15 +12,24 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .elf import read_elf
 from .evidence import (
     EvidenceError,
     artifact_record,
     load_json_object,
     verify_artifact_record,
 )
-from .linked_compare import LINKED_COMPARE_SCHEMA
-from .reloc_surface import SURFACE_SCHEMA
-from .relocation_identity import IDENTITY_REPORT_SCHEMA
+from .linked_compare import (
+    LINKED_COMPARE_SCHEMA,
+    compare_images,
+    parse_ranges,
+)
+from .reloc_surface import SURFACE_SCHEMA, parse_module_map, synthesize
+from .relocation_identity import (
+    IDENTITY_REPORT_SCHEMA,
+    identity_report,
+    parse_identity_provider,
+)
 
 PROOF_SCHEMA = "decomp-workbench-relocation-proof-v1"
 EVIDENCE_SCHEMA = "decomp-workbench-hash-bound-artifacts-v1"
@@ -80,6 +89,144 @@ def _artifact_by_role(
     return selected[0]
 
 
+def _artifacts_by_role(
+    artifacts: Sequence[Mapping[str, Any]], role: str, *, where: str
+) -> list[Mapping[str, Any]]:
+    selected = [item for item in artifacts if item.get("role") == role]
+    if not selected:
+        raise EvidenceError(
+            f"{where} requires at least one artifact with role={role!r}"
+        )
+    return selected
+
+
+def _require_recomputed_fields(
+    actual: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    *,
+    fields: Sequence[str],
+    where: str,
+) -> None:
+    disagreements = [field for field in fields if actual.get(field) != expected[field]]
+    if disagreements:
+        raise EvidenceError(
+            f"{where} disagrees with its bound inputs in field(s): "
+            + ", ".join(disagreements)
+        )
+
+
+def _recompute_fallback(
+    report: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+    artifacts: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    """Replay the static surface and identity join from hash-verified inputs."""
+
+    module_record = _artifact_by_role(
+        artifacts, "module-map", where="fallback-static evidence"
+    )
+    target_record = _artifact_by_role(
+        artifacts, "target-image", where="fallback-static evidence"
+    )
+    candidate_records = _artifacts_by_role(
+        artifacts, "candidate-object", where="fallback-static evidence"
+    )
+    provider_record = _artifact_by_role(
+        artifacts, "identity-provider", where="fallback-static evidence"
+    )
+    module = parse_module_map(
+        load_json_object(module_record["path"], where="module map"),
+        origin=str(module_record["path"]),
+    )
+    objects = [
+        (str(item["path"]), read_elf(str(item["path"]))) for item in candidate_records
+    ]
+    target = Path(str(target_record["path"])).read_bytes()
+    surface = synthesize(objects, module, target)
+    expected_surface = surface.as_dict()
+    _require_recomputed_fields(
+        report,
+        expected_surface,
+        fields=tuple(expected_surface),
+        where="fallback-static report",
+    )
+    if evidence.get("module") != module.as_dict():
+        raise EvidenceError(
+            "fallback-static evidence module disagrees with its bound module map"
+        )
+    expected_identities = identity_report(
+        surface.sites,
+        parse_identity_provider(
+            load_json_object(provider_record["path"], where="identity provider")
+        ),
+    )
+    if report.get("identities") != expected_identities:
+        raise EvidenceError(
+            "fallback-static identities disagree with the bound provider and sites"
+        )
+    return expected_identities
+
+
+def _recompute_linked(
+    report: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]
+) -> None:
+    """Replay linked byte classification from the bound images and ranges."""
+
+    built_record = _artifact_by_role(
+        artifacts, "built-image", where="promoted-linked evidence"
+    )
+    target_record = _artifact_by_role(
+        artifacts, "target-image", where="promoted-linked evidence"
+    )
+    range_record = _artifact_by_role(
+        artifacts, "range-map", where="promoted-linked evidence"
+    )
+    ranges = parse_ranges(
+        load_json_object(range_record["path"], where="range map"),
+        origin=str(range_record["path"]),
+    )
+    reported_ranges = report.get("ranges")
+    if not isinstance(reported_ranges, Sequence) or isinstance(
+        reported_ranges, str | bytes
+    ):
+        raise EvidenceError("promoted-linked report ranges must be a list")
+    coordinates = [
+        {key: item.get(key) for key in ("name", "start", "end")}
+        for item in reported_ranges
+        if isinstance(item, Mapping)
+    ]
+    expected_coordinates = [
+        {key: item.as_dict()[key] for key in ("name", "start", "end")}
+        for item in ranges
+    ]
+    if coordinates != expected_coordinates:
+        raise EvidenceError("promoted-linked ranges disagree with the bound range map")
+    comparison = compare_images(
+        Path(str(built_record["path"])).read_bytes(),
+        Path(str(target_record["path"])).read_bytes(),
+        ranges,
+        built_name=str(report.get("built", built_record["path"])),
+        target_name=str(report.get("target", target_record["path"])),
+    ).as_dict()
+    _require_recomputed_fields(
+        report,
+        comparison,
+        fields=tuple(field for field in comparison if field not in {"built", "target"}),
+        where="promoted-linked report",
+    )
+
+
+def verify_fallback_surface(report: object) -> dict[str, Any]:
+    """Recompute one relocation surface and its project identity join."""
+
+    fallback = _mapping(report, where="fallback-static report")
+    if fallback.get("schema") != SURFACE_SCHEMA:
+        raise EvidenceError(f"fallback report schema must be {SURFACE_SCHEMA}")
+    evidence = _report_evidence(fallback, where="fallback-static report")
+    artifacts = _verify_evidence_artifacts(evidence, where="fallback-static evidence")
+    return dict(_recompute_fallback(fallback, evidence, artifacts))
+
+
 def _candidate_artifact(
     artifacts: Sequence[Mapping[str, Any]], candidate: Mapping[str, Any]
 ) -> Mapping[str, Any]:
@@ -128,9 +275,10 @@ def _owner(
 ) -> dict[str, Any]:
     module = _mapping(fallback_evidence.get("module"), where="fallback module")
     image_start = _integer(module.get("image_start"), where="module.image_start")
+    image_end = _integer(module.get("image_end"), where="module.image_end")
     start = _integer(selected_range.get("start"), where="linked range start")
     end = _integer(selected_range.get("end"), where="linked range end")
-    if end <= start or start < image_start:
+    if end <= start or start < image_start or end > image_end:
         raise EvidenceError("linked range does not lie inside the fallback module")
     module_offset = start - image_start
     size = end - start
@@ -187,7 +335,18 @@ def build_relocation_proof(
         raise EvidenceError(
             "fallback-static surface lacks a shipped relocation-table corroboration"
         )
-    identities = _mapping(fallback.get("identities"), where="fallback identities")
+    fallback_evidence = _report_evidence(fallback, where="fallback-static report")
+    linked_evidence = _report_evidence(linked, where="promoted-linked report")
+    fallback_artifacts = _verify_evidence_artifacts(
+        fallback_evidence, where="fallback-static evidence"
+    )
+    linked_artifacts = _verify_evidence_artifacts(
+        linked_evidence, where="promoted-linked evidence"
+    )
+    identities = _mapping(
+        _recompute_fallback(fallback, fallback_evidence, fallback_artifacts),
+        where="fallback identities",
+    )
     if identities.get("schema") != IDENTITY_REPORT_SCHEMA:
         raise EvidenceError(
             "fallback-static report lacks a versioned project identity-provider result"
@@ -199,19 +358,6 @@ def build_relocation_proof(
             f"unknown={identities.get('unknown')} "
             f"contradicted={identities.get('contradicted')}"
         )
-
-    fallback_evidence = _report_evidence(fallback, where="fallback-static report")
-    linked_evidence = _report_evidence(linked, where="promoted-linked report")
-    fallback_artifacts = _verify_evidence_artifacts(
-        fallback_evidence, where="fallback-static evidence"
-    )
-    linked_artifacts = _verify_evidence_artifacts(
-        linked_evidence, where="promoted-linked evidence"
-    )
-    source_record = artifact_record(source, role="candidate-source")
-    candidate_record = artifact_record(candidate_object, role="candidate-object")
-    _candidate_artifact(fallback_artifacts, candidate_record)
-
     fallback_target = _artifact_by_role(
         fallback_artifacts, "target-image", where="fallback-static evidence"
     )
@@ -222,6 +368,10 @@ def build_relocation_proof(
         raise EvidenceError(
             "fallback-static and promoted-linked surfaces use different target images"
         )
+    _recompute_linked(linked, linked_artifacts)
+    source_record = artifact_record(source, role="candidate-source")
+    candidate_record = artifact_record(candidate_object, role="candidate-object")
+    _candidate_artifact(fallback_artifacts, candidate_record)
     _artifact_by_role(linked_artifacts, "built-image", where="promoted-linked evidence")
     selected = _selected_range(linked, symbol)
     owner = _owner(fallback_evidence, selected)
@@ -309,5 +459,6 @@ __all__ = [
     "EVIDENCE_SCHEMA",
     "PROOF_SCHEMA",
     "build_relocation_proof",
+    "verify_fallback_surface",
     "verify_relocation_proof",
 ]

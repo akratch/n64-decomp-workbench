@@ -9,7 +9,7 @@ from typing import Any
 from .evidence import EvidenceError, load_json_object, verify_artifact_record
 from .reloc_surface import SURFACE_SCHEMA
 from .relocation_identity import IDENTITY_REPORT_SCHEMA
-from .relocation_proof import EVIDENCE_SCHEMA
+from .relocation_proof import EVIDENCE_SCHEMA, verify_fallback_surface
 
 QUEUE_SCHEMA = "decomp-workbench-target-queue-v1"
 READINESS_SCHEMA = "decomp-workbench-target-readiness-v1"
@@ -19,6 +19,8 @@ CLASSES = (
     "identity-maintenance",
     "remeasure",
 )
+TARGET_ROLES = frozenset({"target-object", "target-image"})
+CANDIDATE_ROLES = frozenset({"candidate-object", "built-image"})
 
 
 def _entry_artifacts(value: Mapping[str, Any], *, where: str) -> list[object]:
@@ -49,11 +51,8 @@ def _relocation_state(record: object) -> tuple[bool, str]:
         verify_artifact_record(
             artifact, where=f"relocation report evidence artifacts[{index}]"
         )
-    identities = report.get("identities")
-    if (
-        not isinstance(identities, Mapping)
-        or identities.get("schema") != IDENTITY_REPORT_SCHEMA
-    ):
+    identities = verify_fallback_surface(report)
+    if identities.get("schema") != IDENTITY_REPORT_SCHEMA:
         return False, "relocation report has no project identity-provider result"
     if identities.get("complete") is True:
         return True, "every relocation site has one exact project identity"
@@ -63,6 +62,57 @@ def _relocation_state(record: object) -> tuple[bool, str]:
         f"resolved={identities.get('resolved')} unknown={identities.get('unknown')} "
         f"contradicted={identities.get('contradicted')}",
     )
+
+
+def _measurement_binding_reasons(
+    measurement: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    """Require a measurement to name the exact target and candidate it consumed."""
+
+    binding = measurement.get("artifact_sha256")
+    if not isinstance(binding, Mapping) or not binding:
+        return ["measurement has no artifact_sha256 binding"]
+    by_role: dict[str, list[Mapping[str, Any]]] = {}
+    for artifact in artifacts:
+        role = artifact.get("role")
+        if not isinstance(role, str) or not role:
+            return ["queue artifact has no non-empty role"]
+        by_role.setdefault(role, []).append(artifact)
+    reasons: list[str] = []
+    bound_roles = set()
+    for role, digest in binding.items():
+        if not isinstance(role, str) or not role:
+            reasons.append("measurement artifact role must be a non-empty string")
+            continue
+        bound_roles.add(role)
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            reasons.append(f"measurement artifact {role!r} has an invalid SHA-256")
+            continue
+        matches = by_role.get(role, [])
+        if len(matches) != 1:
+            reasons.append(
+                f"measurement artifact {role!r} resolves to {len(matches)} "
+                "queue artifacts"
+            )
+        elif matches[0].get("sha256") != digest:
+            reasons.append(
+                f"measurement artifact {role!r} does not match its queue hash"
+            )
+    if not (bound_roles & TARGET_ROLES):
+        reasons.append("measurement binds no target-object or target-image")
+    if not (bound_roles & CANDIDATE_ROLES):
+        reasons.append("measurement binds no candidate-object or built-image")
+    measured_roles = (TARGET_ROLES | CANDIDATE_ROLES) & set(by_role)
+    unbound = sorted(measured_roles - bound_roles)
+    if unbound:
+        reasons.append(
+            "measurement leaves comparison artifact(s) unbound: " + ", ".join(unbound)
+        )
+    return reasons
 
 
 def classify_target(raw: object, *, index: int) -> dict[str, Any]:
@@ -89,6 +139,15 @@ def classify_target(raw: object, *, index: int) -> dict[str, Any]:
     if not isinstance(measurement, Mapping):
         stale_reasons.append("no measured comparison is recorded")
         measurement = {}
+    else:
+        stale_reasons.extend(
+            _measurement_binding_reasons(measurement, current_artifacts)
+        )
+        if type(measurement.get("exact")) is not bool:
+            stale_reasons.append("measurement.exact must be a boolean")
+    for field in ("relocation_required", "plateau"):
+        if field in raw and type(raw[field]) is not bool:
+            stale_reasons.append(f"{where}.{field} must be a boolean")
     if stale_reasons:
         return {
             "symbol": symbol,
@@ -99,7 +158,7 @@ def classify_target(raw: object, *, index: int) -> dict[str, Any]:
         }
 
     exact = measurement.get("exact") is True
-    relocation_required = raw.get("relocation_required") is True
+    relocation_required = raw.get("relocation_required", False)
     relocation_record = raw.get("relocation_report")
     identities_complete = not relocation_required
     identity_reason = "target declares no project relocation identity requirement"
@@ -117,7 +176,7 @@ def classify_target(raw: object, *, index: int) -> dict[str, Any]:
     elif relocation_required:
         identity_reason = "target requires relocation identities but has no report"
 
-    plateau = raw.get("plateau") is True
+    plateau = raw.get("plateau", False)
     if relocation_required and not identities_complete:
         klass = "identity-maintenance"
         next_step = (

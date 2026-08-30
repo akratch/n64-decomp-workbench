@@ -135,7 +135,9 @@ def read_dossier(path: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
     location = Path(path)
     if not location.exists():
         return [], []
-    lines = location.read_text(encoding="utf-8").splitlines()
+    contents = location.read_text(encoding="utf-8")
+    lines = contents.splitlines()
+    final_line_is_torn = bool(lines) and not contents.endswith(("\n", "\r"))
     entries: list[dict[str, Any]] = []
     warnings: list[str] = []
     seen: set[str] = set()
@@ -145,7 +147,7 @@ def read_dossier(path: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
         try:
             value = json.loads(line)
         except json.JSONDecodeError as error:
-            if index == len(lines):
+            if index == len(lines) and final_line_is_torn:
                 warnings.append(f"ignored torn final dossier line {index}")
                 break
             raise ValueError(f"malformed dossier line {index}: {error}") from None

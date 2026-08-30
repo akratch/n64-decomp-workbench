@@ -1691,6 +1691,10 @@ def trace_fifo_command(args: argparse.Namespace) -> int:
         events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
         procedure_identity = None
         selected_procedure = args.proc
+        if selected_procedure is not None and selected_procedure < 0:
+            raise ValueError("--proc must be non-negative")
+        if args.candidate_object and not args.ucode:
+            raise ValueError("--candidate-object requires --ucode and --symbol")
         if args.ucode or args.symbol:
             if not args.ucode or not args.symbol:
                 raise ValueError("--ucode and --symbol must be supplied together")

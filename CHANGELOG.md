@@ -23,7 +23,13 @@ in [design notes](docs/history/design-notes.md).
   promotion-ready, codegen-ready, relocation-identity-maintenance, and
   remeasurement work. A stale measurement never enters a source lane;
   plateaued work is eligible only for a new evidence-producing mechanism.
-  Relocation reports and their nested evidence are transitively hash-checked.
+  Measurements must bind target/candidate roles to those exact artifact hashes.
+  Relocation reports and their nested evidence are transitively hash-checked
+  and their static synthesis and identity join are replayed.
+- Every campaign manifest writer now shares the lifecycle transaction lock;
+  immutable candidate metadata and measured object hashes are revalidated at
+  checkpoint/acceptance, and restore refuses a destination changed mid-copy.
+  Dossier recovery tolerates only an actually unterminated final record.
 
 ### Compiler-decision provenance
 
@@ -41,7 +47,8 @@ in [design notes](docs/history/design-notes.md).
 - Scheduler records can carry emitted slot, source file/statement, decision
   reason, and the complete ready set. Profiles that declare
   `provenance_required=true` must emit the complete required subset; readers
-  preserve it through reports/diffs and count complete events.
+  preserve it through reports/diffs, validate ready-set cardinality,
+  uniqueness, and chosen-node membership, and count only complete events.
 
 ### Promotion proof contracts
 
@@ -51,10 +58,12 @@ in [design notes](docs/history/design-notes.md).
   declarative, so overlay atlas formats remain in their owning projects.
 - `reloc-proof` composes but never conflates fallback-static relocation
   evidence and promoted-linked exact bytes. It rehashes reports and nested
-  artifacts, requires shipped-table corroboration, complete identities, one
-  owning section, the same target image, the selected candidate object, and an
-  exact named linked range. Receipts are replayable; artifact identity is
-  content-based, so timestamp-only changes do not invalidate them.
+  artifacts, replays static synthesis, the identity-provider join, and linked
+  byte classification, and requires shipped-table corroboration, complete
+  identities, a bound project range map, one owning section, the same target
+  image, the selected candidate object, and an exact named linked range.
+  Receipts are replayable; artifact identity is content-based, so timestamp-only
+  changes do not invalidate them.
 
 ### The linked image as an oracle
 

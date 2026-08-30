@@ -51,12 +51,16 @@ class SchedulerTests(unittest.TestCase):
             parse_scheduler_trace(TRACE + TRACE)
         with self.assertRaisesRegex(ValueError, "repeats field.*proc"):
             parse_scheduler_trace(TRACE.replace("proc=7", "proc=7 proc=8", 1))
+        with self.assertRaisesRegex(ValueError, "malformed token"):
+            parse_scheduler_trace(TRACE.replace("proc=7", "proc=7 garbage", 1))
+        with self.assertRaisesRegex(ValueError, "unsupported field"):
+            parse_scheduler_trace(TRACE.replace("proc=7", "proc=7 surprise=yes", 1))
 
     def test_optional_emit_and_source_provenance_is_preserved(self) -> None:
         enriched = TRACE.replace(
             "tie=source-line",
             "tie=source-line slot=18 file=draw.c statement=44 "
-            "reason=latency ready_ids=n7,n9",
+            "reason=latency ready_ids=n18,n9",
         )
         events, _ = parse_scheduler_trace(enriched)
         report = scheduler_report(events)
@@ -64,7 +68,17 @@ class SchedulerTests(unittest.TestCase):
         event = report["events"][0]
         self.assertEqual(event["emitted_slot"], 18)
         self.assertEqual(event["source_file"], "draw.c")
-        self.assertEqual(event["ready_ids"], ("n7", "n9"))
+        self.assertEqual(event["ready_ids"], ("n18", "n9"))
+
+    def test_complete_ready_set_is_validated(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exactly 2 unique"):
+            parse_scheduler_trace(
+                TRACE.replace("tie=source-line", "tie=x ready_ids=n18")
+            )
+        with self.assertRaisesRegex(ValueError, "chosen node is absent"):
+            parse_scheduler_trace(
+                TRACE.replace("tie=source-line", "tie=x ready_ids=n7,n9")
+            )
 
     def test_external_profile_is_hash_and_anchor_guarded(self) -> None:
         source = "void choose(void) {\n    CHOOSE();\n}\n"
@@ -111,6 +125,42 @@ class SchedulerTests(unittest.TestCase):
             ],
         }
         with self.assertRaisesRegex(ValueError, "slot="):
+            instrument_scheduler_source(source, profile)
+
+    def test_required_tokens_must_come_from_the_injection(self) -> None:
+        required = " ".join(
+            [
+                "[DKWB-SCHED-V1]",
+                *(
+                    f"{name}="
+                    for name in (
+                        "proc",
+                        "block",
+                        "cycle",
+                        "word",
+                        "opcode",
+                        "line",
+                        "ready",
+                        "chosen",
+                        "tie",
+                    )
+                ),
+            ]
+        )
+        source = f"/* {required} */\nvoid choose(void) {{}}\n"
+        profile = {
+            "schema": PROFILE_SCHEMA,
+            "name": "empty-record",
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "injections": [
+                {
+                    "anchor": "void choose",
+                    "position": "before",
+                    "text": "/* no trace */\n",
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "does not emit required token"):
             instrument_scheduler_source(source, profile)
 
 

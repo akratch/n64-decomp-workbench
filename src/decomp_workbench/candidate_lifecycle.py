@@ -137,6 +137,49 @@ def _pointer_artifact(pointer: Mapping[str, Any], *, role: str) -> Mapping[str, 
     return artifact
 
 
+def _verify_archived_artifact(
+    artifact: Mapping[str, Any], *, campaign_directory: Path, role: str
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Prove a candidate record names its content-addressed archive exactly."""
+
+    identifier = artifact.get("id")
+    if not isinstance(identifier, str) or len(identifier) != 24:
+        raise ValueError(f"{role} candidate has an invalid artifact id")
+    source = verify_artifact_record(
+        artifact.get("source"), where=f"archived {role} source"
+    )
+    object_value = artifact.get("object")
+    object_record = (
+        verify_artifact_record(object_value, where=f"archived {role} object")
+        if object_value is not None
+        else None
+    )
+    expected_id = _artifact_id(
+        str(source["sha256"]),
+        str(object_record["sha256"]) if object_record is not None else None,
+    )
+    if identifier != expected_id:
+        raise ValueError(f"{role} candidate id disagrees with archived contents")
+    directory = (campaign_directory / "artifacts" / identifier).resolve()
+    if Path(str(source["path"])) != directory / "source":
+        raise ValueError(f"{role} candidate source is outside its immutable archive")
+    if (
+        object_record is not None
+        and Path(str(object_record["path"])) != directory / "object"
+    ):
+        raise ValueError(f"{role} candidate object is outside its immutable archive")
+    metadata = directory / "artifact.json"
+    try:
+        recorded = json.loads(metadata.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"cannot validate immutable candidate metadata: {error}"
+        ) from None
+    if recorded != dict(artifact):
+        raise ValueError(f"{role} candidate disagrees with immutable metadata")
+    return source, object_record
+
+
 def _source_record_for_best(
     manifest: Mapping[str, Any], best: Mapping[str, Any]
 ) -> Mapping[str, Any]:
@@ -174,10 +217,14 @@ def _checkpoint_campaign_locked(
         raise ValueError("campaign has no successful candidate to checkpoint")
     source_record = _source_record_for_best(manifest, best)
     best_source = durable_source_path(source_record)
+    if best.get("source_sha256") != source_record.get("sha256"):
+        raise ValueError("best campaign source hash disagrees with its manifest record")
     cache_key = str(best.get("cache_key", ""))
     best_object = Path(str(manifest["cache_directory"])) / f"{cache_key}.o"
     if not best_object.is_file():
         raise FileNotFoundError(f"best candidate object is absent: {best_object}")
+    if best.get("object_sha256") != file_sha256(best_object):
+        raise ValueError("best campaign object hash disagrees with its ledger record")
     best_archive = archive_candidate(
         path.parent,
         source=best_source,
@@ -245,8 +292,8 @@ def _restore_best_locked(
         raise ValueError("campaign has no best checkpoint; run campaign checkpoint")
     best = artifacts["best"]
     archived = _pointer_artifact(best, role="best")
-    source_record = verify_artifact_record(
-        archived.get("source"), where="archived best source"
+    source_record, _ = _verify_archived_artifact(
+        archived, campaign_directory=path.parent, role="best"
     )
     archived_source = Path(str(source_record["path"]))
     expected_best = str(source_record["sha256"])
@@ -279,7 +326,21 @@ def _restore_best_locked(
     if temporary.exists():
         raise FileExistsError(f"stale restore temporary exists: {temporary}")
     _copy_exclusive(archived_source, temporary, expected_best)
-    os.replace(temporary, target)
+    try:
+        if before is None:
+            if target.exists():
+                raise ValueError(
+                    "destination appeared during restore; refusing overwrite"
+                )
+        else:
+            current = artifact_record(target, role="destination-before-install")
+            if current["sha256"] != before["sha256"]:
+                raise ValueError(
+                    "destination changed during restore; refusing overwrite"
+                )
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
     after = artifact_record(target, role="destination-after")
     if after["sha256"] != expected_best:
         raise ValueError("restored source failed its final hash check")
@@ -311,14 +372,8 @@ def _accept_best_locked(
     if not isinstance(best, Mapping):
         raise ValueError("campaign has no best checkpoint; run campaign checkpoint")
     artifact = _pointer_artifact(best, role="best")
-    source = verify_artifact_record(
-        artifact.get("source"), where="archived best source"
-    )
-    object_value = artifact.get("object")
-    object_record = (
-        verify_artifact_record(object_value, where="archived best object")
-        if object_value is not None
-        else None
+    source, object_record = _verify_archived_artifact(
+        artifact, campaign_directory=path.parent, role="best"
     )
     comparison = best.get("comparison")
     exact = isinstance(comparison, Mapping) and comparison.get("exact") is True
@@ -338,10 +393,6 @@ def _accept_best_locked(
     return {"schema": ACCEPT_SCHEMA, "manifest": str(path), "accepted": accepted}
 
 
-def _lifecycle_lock_path(manifest: Path) -> Path:
-    return manifest.with_name(f".{manifest.name}.lifecycle.lock")
-
-
 def checkpoint_campaign(
     manifest_path: str | Path,
     *,
@@ -350,10 +401,10 @@ def checkpoint_campaign(
 ) -> dict[str, Any]:
     """Archive current/best under one manifest transaction lock."""
 
-    from .campaign_state import resolve_manifest
+    from .campaign_state import manifest_lock_path, resolve_manifest
 
     path = resolve_manifest(manifest_path)
-    with exclusive_file_lock(_lifecycle_lock_path(path)):
+    with exclusive_file_lock(manifest_lock_path(path)):
         return _checkpoint_campaign_locked(
             path,
             current_source=current_source,
@@ -369,10 +420,10 @@ def restore_best(
 ) -> dict[str, Any]:
     """Restore best under the same lock used by checkpoint and acceptance."""
 
-    from .campaign_state import resolve_manifest
+    from .campaign_state import manifest_lock_path, resolve_manifest
 
     path = resolve_manifest(manifest_path)
-    with exclusive_file_lock(_lifecycle_lock_path(path)):
+    with exclusive_file_lock(manifest_lock_path(path)):
         return _restore_best_locked(
             path, destination=destination, allow_drift=allow_drift
         )
@@ -383,10 +434,10 @@ def accept_best(
 ) -> dict[str, Any]:
     """Accept best under the same lock used by checkpoint and restoration."""
 
-    from .campaign_state import resolve_manifest
+    from .campaign_state import manifest_lock_path, resolve_manifest
 
     path = resolve_manifest(manifest_path)
-    with exclusive_file_lock(_lifecycle_lock_path(path)):
+    with exclusive_file_lock(manifest_lock_path(path)):
         return _accept_best_locked(path, allow_mismatch=allow_mismatch)
 
 

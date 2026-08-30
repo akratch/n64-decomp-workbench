@@ -675,6 +675,9 @@ source-line, ready-set, chosen-node, and tie-break changes.
 The fields after `tie` are optional for existing profiles. A profile that sets
 `provenance_required=true` must emit `slot`, `statement`, `reason`, and
 `ready_ids`; instrumentation refuses the profile when any token is absent.
+The parser also requires exactly `ready` unique IDs and requires `chosen` to be
+one of them. An event counts toward `provenance_complete` only when slot, source
+file and statement, reason, and that validated ready set are all present.
 `file` is optional. Reports preserve those fields, include them in aligned
 diffs, and print `provenance=N/M` so partial captures cannot look complete.
 This exposes which ready instruction occupied an emitted slot and why. It does

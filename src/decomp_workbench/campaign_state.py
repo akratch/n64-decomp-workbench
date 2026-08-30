@@ -17,6 +17,7 @@ from .campaign import (
     file_sha256,
     render_compile_command,
 )
+from .evidence import exclusive_file_lock, write_json_atomic
 from .experiment_signals import required_signals_pass
 from .model import display_path
 from .toolchain import MANIFEST_NAME as TOOLCHAIN_MANIFEST_NAME
@@ -38,13 +39,16 @@ def _canonical_json(value: object) -> bytes:
 
 
 def _write_json_atomic(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(value, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    if not isinstance(value, Mapping):
+        raise ValueError("campaign state must be a JSON object")
+    write_json_atomic(path, value)
+
+
+def manifest_lock_path(path: str | Path) -> Path:
+    """Return the one lock shared by every campaign manifest writer."""
+
+    manifest = Path(path)
+    return manifest.with_name(f".{manifest.name}.lifecycle.lock")
 
 
 def _write_bytes_atomic(path: Path, payload: bytes) -> None:
@@ -112,7 +116,7 @@ def campaign_identity(
     return hashlib.sha256(_canonical_json(payload)).hexdigest(), payload
 
 
-def initialize_manifest(
+def _initialize_manifest_locked(
     candidates: Iterable[Candidate],
     *,
     identity: str,
@@ -222,7 +226,49 @@ def initialize_manifest(
     return manifest_path, ledger_path, manifest
 
 
-def finish_manifest(
+def initialize_manifest(
+    candidates: Iterable[Candidate],
+    *,
+    identity: str,
+    identity_inputs: dict[str, Any],
+    state_root: str | Path = DEFAULT_STATE_ROOT,
+    ledger: str | Path | None = None,
+    cache_dir: str | Path,
+    artifact_dir: str | Path | None,
+    jobs: int,
+    timeout: float | None,
+    stop_on_exact: bool,
+    experiment: dict[str, Any] | None = None,
+    rank_by: str = "auto",
+    retain_sources: str = "leaders",
+) -> tuple[Path, Path, dict[str, Any]]:
+    """Create or extend one campaign while serializing manifest state."""
+
+    target_name = Path(identity_inputs["target"]["path"]).stem
+    label = identity_inputs.get("symbol") or target_name
+    root = Path(state_root).expanduser().resolve()
+    manifest = (
+        root / "campaigns" / f"{_slug(str(label))}-{identity[:12]}" / "manifest.json"
+    )
+    with exclusive_file_lock(manifest_lock_path(manifest)):
+        return _initialize_manifest_locked(
+            candidates,
+            identity=identity,
+            identity_inputs=identity_inputs,
+            state_root=state_root,
+            ledger=ledger,
+            cache_dir=cache_dir,
+            artifact_dir=artifact_dir,
+            jobs=jobs,
+            timeout=timeout,
+            stop_on_exact=stop_on_exact,
+            experiment=experiment,
+            rank_by=rank_by,
+            retain_sources=retain_sources,
+        )
+
+
+def _finish_manifest_locked(
     path: str | Path,
     *,
     results: int,
@@ -256,7 +302,28 @@ def finish_manifest(
     return manifest
 
 
-def record_control_preflight(
+def finish_manifest(
+    path: str | Path,
+    *,
+    results: int,
+    prepared: int,
+    exact: bool,
+    interrupted: bool = False,
+    control_invalid: bool = False,
+) -> dict[str, Any]:
+    manifest = resolve_manifest(path)
+    with exclusive_file_lock(manifest_lock_path(manifest)):
+        return _finish_manifest_locked(
+            manifest,
+            results=results,
+            prepared=prepared,
+            exact=exact,
+            interrupted=interrupted,
+            control_invalid=control_invalid,
+        )
+
+
+def _record_control_preflight_locked(
     path: str | Path, report: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Persist one immutable-by-campaign control receipt before ordinary work."""
@@ -269,7 +336,15 @@ def record_control_preflight(
     return manifest
 
 
-def update_hypothesis(path: str | Path, note: str) -> dict[str, Any]:
+def record_control_preflight(
+    path: str | Path, report: Mapping[str, Any]
+) -> dict[str, Any]:
+    manifest = resolve_manifest(path)
+    with exclusive_file_lock(manifest_lock_path(manifest)):
+        return _record_control_preflight_locked(manifest, report)
+
+
+def _update_hypothesis_locked(path: str | Path, note: str) -> dict[str, Any]:
     """Persist the campaign's current reasoning without rewriting its ledger."""
 
     normalized = note.strip()
@@ -283,6 +358,12 @@ def update_hypothesis(path: str | Path, note: str) -> dict[str, Any]:
     manifest["updated_at_unix"] = time.time()
     _write_json_atomic(manifest_path, manifest)
     return manifest
+
+
+def update_hypothesis(path: str | Path, note: str) -> dict[str, Any]:
+    manifest = resolve_manifest(path)
+    with exclusive_file_lock(manifest_lock_path(manifest)):
+        return _update_hypothesis_locked(manifest, note)
 
 
 def load_manifest(path: str | Path) -> dict[str, Any]:
@@ -496,7 +577,7 @@ def _retention_leaders(records: list[dict[str, Any]], *, ranked_by: str) -> set[
     return leaders
 
 
-def finalize_source_retention(manifest_path: str | Path) -> dict[str, Any]:
+def _finalize_source_retention_locked(manifest_path: str | Path) -> dict[str, Any]:
     """Promote the requested durable source set and prune staging copies.
 
     Unrun candidates always remain staged so an exact stop or interruption
@@ -579,6 +660,14 @@ def finalize_source_retention(manifest_path: str | Path) -> dict[str, Any]:
     manifest["updated_at_unix"] = time.time()
     _write_json_atomic(path, manifest)
     return manifest
+
+
+def finalize_source_retention(manifest_path: str | Path) -> dict[str, Any]:
+    """Finalize retained sources under the shared manifest transaction lock."""
+
+    path = resolve_manifest(manifest_path)
+    with exclusive_file_lock(manifest_lock_path(path)):
+        return _finalize_source_retention_locked(path)
 
 
 def durable_source_path(source_record: Mapping[str, Any]) -> Path:
