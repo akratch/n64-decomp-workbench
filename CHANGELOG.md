@@ -5,6 +5,31 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### ugen emit-order provenance
+
+- `instrument-ugen --emit-provenance` hooks all 67 ibuffer emit helpers and
+  `trace-emit` decodes the resulting `DKWB-EMIT-V1` records: per basic block,
+  the order ugen wrote instruction records and the source line each carries
+  into the assembler, plus the **line-order conflicts** — adjacent instruction
+  records whose lines, not whose dependences, decide their order.
+- This closes improvement-backlog item #3(b), which had been filed as
+  unhookable. The premise was a category error: ugen has no instruction
+  scheduler at all — no ready list, no dependence DAG, no delay-slot filler in
+  its 431 named functions — so it has no slot to report. The scheduler is
+  `as1`'s and already traceable via `cc -Wa,-R`. What ugen owns is that
+  scheduler's *input*, and the emit helpers are discrete single-entry
+  functions, so a helper hook reaches it after all.
+- The lever this exposes: a loop-invariant address hoisted into a preheader is
+  stamped with the loop header's line, so any initialiser above the loop wins
+  as1's minimised line key with no dependence edge behind it. Putting the
+  initialiser on the loop header's physical line removes the separation. Two
+  Mickey's Speedway residuals whose handoffs had recorded the schedule as
+  sourceless closed on it: `overlay40UpdateEntries` 44/46 → exact, and
+  `overlay57HandleModeInput` → exact under relocation-masked comparison.
+- `trace-emit` reports no slot, ready-list position or delay-slot occupancy.
+  ugen does not decide them; the report's `proof` says so and points at
+  `trace-scheduler --from-as1-r`.
+
 ### Evidence lifecycle and campaign memory
 
 - Campaigns now preserve current, measured best, and accepted state as three

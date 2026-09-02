@@ -109,3 +109,65 @@ class InstrumentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The ibuffer emit helpers. Each writes the record at MEM_U32(0x10018e70) and
+# then advances that word, so the index read at entry is the emit ordinal of
+# the record the call is about to write. f_demit_* writes the backward buffer.
+EMIT_SOURCE = """\
+#include "header.h"
+static void f_emit_rrr(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
+(void)mem;
+}
+static void f_demit_dir1(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
+(void)mem;
+}
+static void f_define_label(uint8_t *mem, uint32_t sp, uint32_t a0) {
+(void)mem;
+}
+static void f_emit_vers(uint8_t *mem, uint32_t sp) {
+(void)mem;
+}
+static void f_init_regs(uint8_t *mem, uint32_t sp, uint32_t a0) {
+(void)mem;
+}
+"""
+
+
+class EmitProvenanceInstrumentationTest(unittest.TestCase):
+    def test_default_leaves_the_emit_helpers_alone(self) -> None:
+        result = instrument_ugen(EMIT_SOURCE)
+        self.assertEqual(result.emit_hooks, 0)
+        self.assertNotIn("dkwb_emit(", result.source)
+        self.assertNotIn("DKWB_UGEN_SCHED", result.source)
+
+    def test_hooks_every_emit_helper_that_takes_a0_and_mem(self) -> None:
+        result = instrument_ugen(EMIT_SOURCE, emit_provenance=True)
+        # f_emit_vers takes no a0, so there is no selector to record and it is
+        # skipped rather than logged with a fabricated value.
+        self.assertEqual(result.emit_hooks, 3)
+        self.assertIn('dkwb_emit("f_emit_rrr", a0, mem, 0, 0);', result.source)
+        self.assertIn('dkwb_emit("f_define_label", a0, mem, 0, 1);', result.source)
+
+    def test_marks_the_backward_buffer_emitters(self) -> None:
+        result = instrument_ugen(EMIT_SOURCE, emit_provenance=True)
+        # f_demit_* writes the backward (data/directive) buffer, whose cursor
+        # counts down from the top of the ibuffer; reading the forward cursor
+        # for it would stamp an unrelated ordinal.
+        self.assertIn('dkwb_emit("f_demit_dir1", a0, mem, 1, 0);', result.source)
+
+    def test_emits_the_helper_block_only_when_asked(self) -> None:
+        result = instrument_ugen(EMIT_SOURCE, emit_provenance=True)
+        self.assertIn("DKWB_UGEN_SCHED", result.source)
+        self.assertIn("DKWB_IBUFFER_BACKWARD_CURSOR", result.source)
+        self.assertIn("DKWB-EMIT-V1", result.source)
+
+    def test_the_block_counter_resets_at_each_procedure(self) -> None:
+        result = instrument_ugen(EMIT_SOURCE, emit_provenance=True)
+        self.assertIn("dkwb_sched_block = 0;", result.source)
+
+    def test_refuses_a_source_with_no_emit_helper(self) -> None:
+        # Silently instrumenting nothing would produce an empty trace that
+        # reads as "this procedure emitted no instructions".
+        with self.assertRaisesRegex(ValueError, "no ibuffer emit helpers"):
+            instrument_ugen(SOURCE, emit_provenance=True)

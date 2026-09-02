@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .as1_reorganize import parse_as1_reorganize_trace, to_dkwb_records
+from .emit_provenance import emit_report, format_emit_report, parse_emit_trace
 from .scheduler import (
     compare_scheduler_traces,
     instrument_scheduler_source,
@@ -156,6 +157,26 @@ def instrument_scheduler_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def trace_emit_command(args: argparse.Namespace) -> int:
+    try:
+        for name in ("proc", "block"):
+            value = getattr(args, name)
+            if value is not None and value < 0:
+                raise ValueError(f"--{name} must be non-negative")
+        text = read_trace_text(args.trace, warn=warn_to_stderr)
+        events, ignored = parse_emit_trace(text)
+        report = emit_report(events, proc=args.proc, block=args.block)
+        report["ignored_diagnostic_lines"] = len(ignored)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_emit_report(report))
+    return 0
+
+
 def register_scheduler_commands(
     commands: argparse._SubParsersAction[Any],
 ) -> None:
@@ -199,6 +220,32 @@ def register_scheduler_commands(
     trace.add_argument("--limit", type=int, default=50)
     trace.add_argument("--json", action="store_true", help="emit JSON")
     trace.set_defaults(handler=trace_scheduler_command)
+
+    trace_emit = commands.add_parser(
+        "trace-emit",
+        help="read ugen DKWB-EMIT-V1 emit-order provenance records",
+        description=(
+            "Print, per basic block, the order ugen wrote instruction records "
+            "into the ibuffer and the source line each one carries into the "
+            "assembler's scheduler. This is the scheduler's *input*: ugen has "
+            "no ready list, no dependence DAG and no delay-slot filler, so "
+            "slot, priority and delay-slot occupancy come from "
+            "`trace-scheduler --from-as1-r`, not from here. What this answers "
+            "is which source line each of two independent ready nodes carries "
+            "-- the one scheduler key with a source lever attached."
+        ),
+        epilog=(
+            "example: DKWB_UGEN_SCHED=1 cc -c source.c 2>emit.log && "
+            "decomp-workbench trace-emit emit.log --proc 0 --block 0\n\n"
+            "Produce the log with an ugen instrumented by "
+            "`instrument-ugen --emit-provenance`."
+        ),
+    )
+    trace_emit.add_argument("trace")
+    trace_emit.add_argument("--proc", type=int)
+    trace_emit.add_argument("--block", type=int)
+    trace_emit.add_argument("--json", action="store_true", help="emit JSON")
+    trace_emit.set_defaults(handler=trace_emit_command)
 
     instrument = commands.add_parser(
         "instrument-scheduler",

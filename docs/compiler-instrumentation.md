@@ -702,6 +702,83 @@ positive control, unedited replay, collateral, and project-output gates are
 recorded by a real-copy [toolchain](toolchain-calibration.md). A scheduling
 trace explains a compiler decision, never the original C.
 
+### ugen emit-order provenance (`DKWB-EMIT-V1`)
+
+#### ugen has no scheduler; it has the scheduler's input
+
+A full inventory of ugen's 431 named generated functions contains **no ready
+list, no dependence DAG, no delay-slot filler and no nop inserter**. The names
+that match `sched|reorg|slot|delay|nop|ready|dag|hazard|fill` are
+`f_fill_reg` (a register move) and the free-list helpers. Every instruction
+ugen produces is written by one of the 67 `f_emit_*` / `f_demit_*` /
+`f_define_label` helpers, in the order codegen calls them; the list scheduler
+that reorders them, fills delay slots and inserts protective nops is `as1`'s
+(`f_reorganize_bb`, `f_schedule`, `f_fill_inst`, `f_emitnop`), traceable
+without any patch through `cc -Wa,-R`.
+
+So "which slot did ugen give this instruction" has no answer, and
+`instrument-ugen` does not invent one. What ugen *does* decide is the order
+records enter the ibuffer and **the source line each record carries into
+as1** — and that line is a key in as1's selection chain, minimised, the one key
+with a source-level lever attached. `--emit-provenance` records exactly that:
+
+```sh
+decomp-workbench instrument-ugen --emit-provenance ugen.c ugen.traced.c
+DKWB_UGEN_SCHED=1 cc -c source.c 2>emit.log
+decomp-workbench trace-emit emit.log --proc 0 --block 0
+```
+
+Each record names the procedure ordinal (the `f_init_regs` invocation count
+shared with the free-list hooks), a basic-block ordinal that advances at each
+`f_define_label`, the ibuffer index the call is about to write, the emitter's
+`a0` selector, ugen's current source line, and which of the two ibuffers —
+forward (instructions) or backward (data/directives) — the record goes to:
+
+```text
+DKWB-EMIT-V1 proc=0 block=0 emit=5 op=41 line=45 buffer=fwd fn=f_emit_ri_
+```
+
+The emit ordinal is read at function entry, *before* the helper advances the
+cursor at `0x10018e70`, so it is the ordinal of the record this call writes.
+One record is not always one word: `f_emit_ra` writes a single record that the
+assembler expands into a HI16/LO16 pair, which is why a hoisted address can
+have its two halves scheduled apart.
+
+#### The loop-invariant hoist, and the lever it hides
+
+`trace-emit` lists a block's records in emission order and then reports its
+**line-order conflicts**: adjacent instruction records, in one block, where the
+later-emitted one carries a strictly greater source line. That pair is where
+as1's minimised line key can hold ugen's emission order in place with no
+dependence edge to justify it.
+
+The recurring shape is the loop-invariant hoist. When a base-address
+materialisation is lifted into a loop preheader, it is stamped with the **loop
+header's** line, not its use site's. Every initialiser written above the loop
+therefore carries a lower line and wins the tie. Moving the initialiser is not
+the lever — it is already as late as C allows. Putting it on the *same physical
+line* as the loop header is: the lines become equal, the line key stops
+deciding, and the next key does.
+
+Measured on two Mickey's Speedway residuals whose handoffs had both recorded
+the schedule as sourceless. `overlay40UpdateEntries` (44/46 words, first
+mismatch `+0xC`): the loop count at line 45 and the hoisted object-table
+address at line 46 are adjacent in emission order with a one-line gap; writing
+`remaining = 7; do {` on one line makes the object **46/46 exact**.
+`overlay57HandleModeInput` (3 relocation-masked differences at `+0xE0`–`+0xE8`):
+an index initialiser at line 90/91 against two base addresses hoisted to line
+92; joining the initialiser to the `do {` line makes the object exact under the
+project's relocation-masked comparison.
+
+#### What these records are not
+
+They are evidence about the scheduler's *input*. Slot, ready-list position,
+priority and delay-slot occupancy are not derivable from them and the report's
+`proof` string says so; read those from `trace-scheduler --from-as1-r`. Nor
+does a line ordering explain the original C — it explains one compiler
+decision, and a source form that reproduces it is a hypothesis the object still
+has to confirm.
+
 ## Required fidelity gates
 
 For each profile and host:

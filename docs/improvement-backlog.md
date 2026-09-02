@@ -222,6 +222,68 @@ undeclared one is reported `unknown` rather than `fresh`.
   project-owned, source-hash-pinned profile and the documented fidelity gates;
   no universal generated-compiler patch is claimed.
 
+**Status (landed, 2026-09-02). Part (b) is closed, and the premise it was
+filed under was wrong.** The earlier finding — "g0 provenance is NOT hookable
+via a helper fn (no discrete scheduler in ugen); it needs per-emit-record
+ibuffer tagging, a materially larger build" — was half right and half a
+category error. Right: there is no scheduler to hook. A full inventory of
+ugen's **431 named generated functions** contains no ready list, no dependence
+DAG, no delay-slot filler and no nop inserter. Wrong: that is not because the
+scheduler is hidden inside ugen's emit path. **ugen has no instruction
+scheduler at all.** The list scheduler is `as1`'s — `f_reorganize_bb`,
+`f_schedule`, `f_fill_inst`, `f_emitnop` — already readable with no patch via
+`cc -Wa,-R` and already decoded by `as1_reorganize`. "Which slot did g0 give
+this instruction" has no answer, and asking for one is what stalled part (b).
+
+What ugen *does* own is the scheduler's **input**: the order instruction
+records enter the ibuffer, and the source line each one carries into as1. That
+line is a key in as1's selection chain, minimised, and the only key in it with
+a source lever attached. It is hookable by exactly the mechanism the earlier
+note ruled out — a helper hook — because all 67 `f_emit_*` / `f_demit_*` /
+`f_define_label` helpers are discrete single-entry functions that each write
+one 16-byte ibuffer record at `MEM_U32(0x10018e70)` and then advance it.
+`instrument-ugen --emit-provenance` hooks them; `DKWB_UGEN_SCHED=1` turns the
+records on; `trace-emit` prints a block's emission order with lines and reports
+its **line-order conflicts** — adjacent instruction records where the
+later-emitted one carries a greater line, the pairs as1's line key can decide.
+
+**The lever, and two closed acceptance cases.** The recurring shape is the
+loop-invariant hoist: a base address lifted into a preheader is stamped with
+the *loop header's* line, not its use site's, so every initialiser above the
+loop carries a lower line and wins with no dependence edge behind it. Moving
+the initialiser is not the lever — it is already as late as C allows. Putting
+it on the **same physical line** as the loop header is, and both surveyed
+residuals fell to it:
+
+- `overlay40UpdateEntries` (44/46, first mismatch `+0xC`, handoff recorded as
+  "no dependency edge authenticates a new source form"): loop count at line 45
+  against the hoisted object-table address at line 46. `remaining = 7; do {`
+  on one line → **46/46 exact**.
+- `overlay57HandleModeInput` (3 relocation-masked differences, `+0xE0`–`+0xE8`,
+  handoff recorded as needing "source-authentic evidence for IDO's
+  base-address scheduling"): index initialiser at line 90/91 against two base
+  addresses hoisted to line 92. Joining the initialiser to the `do {` line →
+  **exact under the project's relocation-masked comparison**.
+
+Both TUs pass the fidelity gate: built through the instrumented `cc` with
+traces off, `.text` is `cmp`-identical to stock, in both the shipped
+(`GLOBAL_ASM`) and `-DNON_MATCHING` configurations.
+
+**What this does not reach.** `func_8001A154`'s residual, recorded above as a
+`li -1` dropped into a fixed `mtc1`→`cvt.s.w` latency bubble, is a
+ready-list/slot-fill choice inside as1, not a line assignment; `trace-emit`
+displays its input but hands over no lever, and the third-pass verdict on it
+stands. The lever this item now supplies is specific: it applies where two
+independent ready nodes are separated **only** by the lines ugen stamped them
+with, and it works by removing that separation.
+
+**Deliberately out:** `trace-emit` does not report slot, ready-list position,
+priority or delay-slot occupancy. ugen does not decide them, so any value
+printed there would be invented; the report's `proof` string says as much and
+names `trace-scheduler --from-as1-r` as where they live. Procedure *names* are
+also out — ugen gives ordinals, and binding them to names is the existing
+retained-Ucode mechanism, not a new one.
+
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
   `trace-fifo` / `trace-summary` reject them with UTF-8 decode errors, forcing a

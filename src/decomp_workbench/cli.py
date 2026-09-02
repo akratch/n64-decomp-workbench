@@ -1504,6 +1504,7 @@ def instrument_command(args: argparse.Namespace) -> int:
             source_path.read_text(encoding="utf-8"),
             function_pattern=args.functions,
             procedure_function=args.procedure_function or None,
+            emit_provenance=args.emit_provenance,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(result.source, encoding="utf-8")
@@ -1513,7 +1514,8 @@ def instrument_command(args: argparse.Namespace) -> int:
     print(
         f"instrumented {result.functions} functions and "
         f"{result.free_list_hooks} free-list hooks; "
-        f"procedure hooks={result.procedure_hooks} -> {output_path}"
+        f"procedure hooks={result.procedure_hooks}; "
+        f"emit hooks={result.emit_hooks} -> {output_path}"
     )
     return 0
 
@@ -2288,6 +2290,16 @@ def build_parser() -> argparse.ArgumentParser:
             "generated function invoked once at each target procedure start; "
             "its invocation ordinal is stamped on free-list events "
             "(default: f_init_regs, empty disables)"
+        ),
+    )
+    instrument_parser.add_argument(
+        "--emit-provenance",
+        action="store_true",
+        help=(
+            "also hook every ibuffer emit helper, so each instruction ugen "
+            "writes is reported in emission order with the source line it "
+            "carries into the assembler's scheduler (DKWB-EMIT-V1 records, "
+            "gated on DKWB_UGEN_SCHED)"
         ),
     )
     instrument_parser.add_argument(
