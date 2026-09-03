@@ -195,16 +195,22 @@ def plan(
             )
         if not profile.command:
             continue
+        in_path = generated / profile.source
+        out_path = output / profile.source
         argv = [
             workbench,
             *(
-                token.format(
-                    input=generated / profile.source,
-                    output=output / profile.source,
-                )
+                token.format(input=in_path, output=out_path)
                 for token in profile.command
             ),
         ]
+        # `instrument-uopt` and `instrument-ugen` refuse an input that is also
+        # the output unless --in-place is given, so a plan whose generated and
+        # output trees are the same directory has to say so. Without this the
+        # emitted script dies on its first step under `set -eu`, and the
+        # rebuild silently keeps the drop-in it already had.
+        if in_path == out_path:
+            argv.append("--in-place")
         steps.append(
             {
                 "profile": profile.name,
