@@ -660,6 +660,13 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "cfe-spelling": (
         (
             "ido53",
+            "L75",
+            "at a pointer add, commutations, casts and assignment forms are "
+            "exhausted and the byte-offset rewrite that does move the temp "
+            "order is already spent",
+        ),
+        (
+            "ido53",
             "L67",
             "a comparison prints its copy-propagated variable first, so "
             "operand order is a readout of the carrier and not a lever",
@@ -686,8 +693,26 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "declared locals take descending stack homes in declaration "
             "order, so a declaration reorder places a call-crossing spill",
         ),
+        (
+            "ido53",
+            "L72",
+            "the declared block rounds to 8, so a declaration can be free: "
+            "read the frame, do not count the declarations",
+        ),
+        (
+            "ido53",
+            "L73",
+            "a home below the declared block is reached by de-declaring the "
+            "value, never by reordering -- reordering stays inside a region",
+        ),
     ),
     "uopt-globalcolor": (
+        (
+            "ido53",
+            "L81",
+            "an address fold follows what is live where the value is formed, "
+            "not where the defining statement is written",
+        ),
         (
             "ido53",
             "L66",
@@ -708,6 +733,18 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "a folded redundant mask emits no instruction and still pops the "
             "ring once -- the phantom pop, and it works in both directions",
         ),
+        (
+            "ido53",
+            "L76",
+            "a struct field read through a local costs one ring pop that a "
+            "direct read does not, and emits the same instructions",
+        ),
+        (
+            "ido53",
+            "L77",
+            "an index scaled twice burns an invisible temp: one more pop "
+            "than the same access scaled once, at no visible cost",
+        ),
     ),
     "g0-scheduler": (
         (
@@ -715,6 +752,18 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "L70",
             "measure on the project path, never on an isolated cc -c: the "
             "same source compiled 56 instructions one way and 58 the other",
+        ),
+        (
+            "ido53",
+            "L79",
+            "lineno is the last key in as1's chain, so a selection decided "
+            "above it is decided by readiness and no placement reaches it",
+        ),
+        (
+            "ido53",
+            "L80",
+            "a loop-invariant hoist carries the loop header's line, so the "
+            "lever is to join the initialiser to that physical line",
         ),
     ),
 }

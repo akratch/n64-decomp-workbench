@@ -1,6 +1,6 @@
 # Product status
 
-As of 0.7.0, 2026-08-28.
+As of 0.8.0, 2026-09-03.
 
 This is the current-state companion to the dated records in
 [docs/history](history/). Those documents preserve why features were

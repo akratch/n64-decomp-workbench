@@ -702,6 +702,162 @@ positive control, unedited replay, collateral, and project-output gates are
 recorded by a real-copy [toolchain](toolchain-calibration.md). A scheduling
 trace explains a compiler decision, never the original C.
 
+### ugen emit-order provenance (`DKWB-EMIT-V1`)
+
+#### ugen has no scheduler; it has the scheduler's input
+
+A full inventory of ugen's 431 named generated functions contains **no ready
+list, no dependence DAG, no delay-slot filler and no nop inserter**. The names
+that match `sched|reorg|slot|delay|nop|ready|dag|hazard|fill` are
+`f_fill_reg` (a register move) and the free-list helpers. Every instruction
+ugen produces is written by one of the 67 `f_emit_*` / `f_demit_*` /
+`f_define_label` helpers, in the order codegen calls them; the list scheduler
+that reorders them, fills delay slots and inserts protective nops is `as1`'s
+(`f_reorganize_bb`, `f_schedule`, `f_fill_inst`, `f_emitnop`), traceable
+without any patch through `cc -Wa,-R`.
+
+So "which slot did ugen give this instruction" has no answer, and
+`instrument-ugen` does not invent one. What ugen *does* decide is the order
+records enter the ibuffer and **the source line each record carries into
+as1** — and that line is a key in as1's selection chain, minimised, the one key
+with a source-level lever attached. `--emit-provenance` records exactly that:
+
+```sh
+decomp-workbench instrument-ugen --emit-provenance ugen.c ugen.traced.c
+DKWB_UGEN_SCHED=1 cc -c source.c 2>emit.log
+decomp-workbench trace-emit emit.log --proc 0 --block 0
+```
+
+Each record names the procedure ordinal (the `f_init_regs` invocation count
+shared with the free-list hooks), a basic-block ordinal that advances at each
+`f_define_label`, the ibuffer index the call is about to write, the emitter's
+`a0` selector, ugen's current source line, and which of the two ibuffers —
+forward (instructions) or backward (data/directives) — the record goes to:
+
+```text
+DKWB-EMIT-V1 proc=0 block=0 emit=5 op=41 line=45 buffer=fwd fn=f_emit_ri_
+```
+
+The emit ordinal is read at function entry, *before* the helper advances the
+cursor at `0x10018e70`, so it is the ordinal of the record this call writes.
+One record is not always one word: `f_emit_ra` writes a single record that the
+assembler expands into a HI16/LO16 pair, which is why a hoisted address can
+have its two halves scheduled apart.
+
+#### The loop-invariant hoist, and the lever it hides
+
+`trace-emit` lists a block's records in emission order and then reports its
+**line-order conflicts**: adjacent instruction records, in one block, where the
+later-emitted one carries a strictly greater source line. That pair is where
+as1's minimised line key can hold ugen's emission order in place with no
+dependence edge to justify it.
+
+The recurring shape is the loop-invariant hoist. When a base-address
+materialisation is lifted into a loop preheader, it is stamped with the **loop
+header's** line, not its use site's. Every initialiser written above the loop
+therefore carries a lower line and wins the tie. Moving the initialiser is not
+the lever — it is already as late as C allows. Putting it on the *same physical
+line* as the loop header is: the lines become equal, the line key stops
+deciding, and the next key does.
+
+Measured on two Mickey's Speedway residuals whose handoffs had both recorded
+the schedule as sourceless. `overlay40UpdateEntries` (44/46 words, first
+mismatch `+0xC`): the loop count at line 45 and the hoisted object-table
+address at line 46 are adjacent in emission order with a one-line gap; writing
+`remaining = 7; do {` on one line makes the object **46/46 exact**.
+`overlay57HandleModeInput` (3 relocation-masked differences at `+0xE0`–`+0xE8`):
+an index initialiser at line 90/91 against two base addresses hoisted to line
+92; joining the initialiser to the `do {` line makes the object exact under the
+project's relocation-masked comparison.
+
+#### What these records are not
+
+They are evidence about the scheduler's *input*. Slot, ready-list position,
+priority and delay-slot occupancy are not derivable from them and the report's
+`proof` string says so; read those from `trace-scheduler --from-as1-r`. Nor
+does a line ordering explain the original C — it explains one compiler
+decision, and a source form that reproduces it is a hypothesis the object still
+has to confirm.
+
+## One drop-in carrying both passes
+
+The two profile families above are applied to **different generated sources**:
+the CDX allocator profiles rewrite `uopt.c`, the free-list and emit-order hooks
+rewrite `ugen.c`. A drop-in built from only one of them answers only half the
+questions, and it does so **silently** — a profile that is not in the binary
+produces an empty log, not an error.
+
+That failure has a receipt. A campaign rebuilding its drop-in for a ugen spike
+reproduced ugen and dropped uopt's CDX profile; `CDX_LOG=1` wrote nothing, and
+four separate analysts over two days each re-derived the same conclusion from
+the same empty file before anyone checked the binary. Four functions whose
+residual was an allocator tie — the class CDX decides directly — were blocked
+for the duration.
+
+So the recipe is one command, and so is the check that the rebuild kept both.
+
+### The recipe
+
+```sh
+decomp-workbench instrument-drop-in \
+  /path/to/ido-static-recomp/build/5.3/out \
+  /path/to/instrumented \
+  --script /path/to/build-instrumented.sh
+```
+
+The first argument is the directory holding the recompiled compiler's C; the
+second is where the instrumented copies go. The command writes nothing but the
+script, reads nothing but a hash of each source, and refuses to overwrite a
+script that already exists. Read it before running it — it rewrites generated
+compiler source — and note that a plan over a tree that does not exist yet is
+still the plan, which is how it is used before the first `ido-static-recomp`
+build.
+
+What it prints is two applications and a checklist:
+
+| Profile | Source | Applied by | Switched on with |
+|---|---|---|---|
+| `uopt-globalcolor` | `uopt.c` | `instrument-uopt --profile globalcolor --profile alias` | `CDX_LOG`, `CDX_OUT`, `CDX_DETAIL_WEB`, `CDX_FORCE` |
+| `uopt-alias` | `uopt.c` | (composed into the same pass) | `DKWB_UOPT_ALIAS_TRACE` |
+| `ugen-freelist` | `ugen.c` | `instrument-ugen --emit-provenance` | `DKWB_UGEN_TRACE` |
+| `ugen-emit-provenance` | `ugen.c` | (the same rewrite) | `DKWB_UGEN_SCHED` |
+
+Two commands, four profiles, because each source is rewritten once and carries
+two profiles out. Applying a uopt profile to `ugen.c` or the reverse fails the
+pinned-source hash rather than producing a half-instrumented compiler.
+
+The plan also names the scheduler evidence that needs **no** drop-in at all,
+because the reader assembling an instrumented compiler is exactly the reader
+about to patch `as1` for it: `cc -Wa,-R` prints the assembler's own
+list-scheduler trace, the object is `cmp`-identical with the option on, and
+`trace-scheduler --from-as1-r` reads it.
+
+Then rebuild both passes through `ido-static-recomp`'s own build and run
+[the fidelity gates](#required-fidelity-gates). The plan restates them in the
+order they are run, so a recipe that names the profiles cannot ship without
+naming the checks.
+
+### Checking that the rebuild kept both
+
+```sh
+decomp-workbench check-drop-in /path/to/instrumented/cc --json
+```
+
+It scans the built binaries for each profile's injected marker strings and
+reports, per profile, `carried` or `ABSENT`; it exits non-zero when any profile
+is missing. Name several binaries when the passes ship separately — a profile
+found in any of them counts.
+
+The claim is deliberately one-sided, and the report's `proof` says so. A marker
+present proves the instrumented source was compiled in. A marker absent proves
+it was not. **Neither proves the profile fires**: that is the positive
+control's job (gate 3 and gate 8 above), and it needs the compiler. What this
+adds is the cheap half — the half that was missing when four analysts spent two
+days reading an empty log.
+
+Run it once after every rebuild of the drop-in, and again at the start of any
+campaign that is about to depend on a trace.
+
 ## Required fidelity gates
 
 For each profile and host:

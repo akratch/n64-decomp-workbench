@@ -21,7 +21,7 @@ below them is reference you consult when you need it.
 |---|---|
 | You have an almost-matched function and do not know what to do next | **[Start here](START_HERE.md)** |
 | `view` named a mechanism and you need the C that moves it | **[Field guide](field-guide.md)** |
-| You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** |
+| You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** — including the four classes `diagnose` names the edit for outright |
 | You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
 | You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
 | You are about to conclude that no source form can reach your target | **[Case study: SSB64 unref_800036B4](../case-studies/ssb64-unref-800036B4.md)** |
@@ -78,7 +78,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | The project compiler provably cannot emit what the target does | [Alternate authentic frontends](alternate-frontends.md) |
 | You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
 | You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
-| You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — L62-L70 are the newest nine, from a whole-ROM campaign; `guide laws ido-5.3 L64` prints one |
+| You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — L72-L82 are the newest eleven, from an overlay lever cohort of 22 measured targets; seven say what an edit does and four say what no edit does; `guide laws ido-5.3 L80` prints one |
 | Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |
 | A trace gives you `save`, `nocs`, `totalsave`, `chargeA`, or `chargeB` and you need the whole allocator formula in one place | [The p1 decision arithmetic](p1-decision-arithmetic.md) |
 | A number improved and you are about to trust it | [Metric traps](metric-traps.md) — the catalogue of correct readings of the wrong quantity |

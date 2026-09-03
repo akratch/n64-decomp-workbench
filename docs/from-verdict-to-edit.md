@@ -13,7 +13,8 @@ compiler, no toolchain.
 - [2. Six differences, one cause](#2-six-differences-one-cause)
 - [3. Why a "fake" edit is not superstition](#3-why-a-fake-edit-is-not-superstition)
 - [4. The edit](#4-the-edit)
-- [5. Re-diagnose, and know when to stop](#5-re-diagnose-and-know-when-to-stop)
+- [5. When the screen names the edit for you](#5-when-the-screen-names-the-edit-for-you)
+- [6. Re-diagnose, and know when to stop](#6-re-diagnose-and-know-when-to-stop)
 
 ---
 
@@ -160,7 +161,81 @@ which is exactly the `+1` the lane view measured.
 One dimension per attempt. Rebuild the translation unit the way your project
 normally builds it — full TU, asm-processor and all — and compare again.
 
-## 5. Re-diagnose, and know when to stop
+## 5. When the screen names the edit for you
+
+The twenty minutes above are what you spend when the verdict names a mechanism
+and you have to pick the lever. For four residual classes the screen does that
+step itself, in a `lever:` block under the mechanism view:
+
+```text
+lever: stack-home -- the frames agree and one home is displaced at an unchanged
+  instruction count, which is one declaration too many
+  edit (reuse-an-existing-local-as-carrier): carry the value in a local that is
+  already dead at that point instead of declaring a second one; the declared
+  count falls by one and every home below it moves one slot, at an unchanged
+  instruction count
+  proved on: func_overlay_026_F0000B18_187AF10, Mickey's Speedway USA,
+  2026-09-03: 129/131 words to exact, 131 words on both sides
+  evidence: frame: target 48 bytes, candidate 48 bytes, delta +0
+  evidence: 2 aligned row(s) differ only in a stack displacement, over 1
+  distinct home(s): a frame fact, not an immediate
+  evidence: every declared local reserves a home whether or not it is
+  register-coloured, and the declared block rounds up to 8 bytes: measured over
+  five builds on func_overlay_022_F0000000, 7 locals -> 0x58, 6 -> 0x58, 5 ->
+  0x50
+  capture: declared-local count: rebuild with CDX_SYMTAB=1 on the instrumented
+  uopt and pass the log as --ladder
+  or (drop-a-declared-local) when the candidate frame is larger than the
+  target's, or one homed value sits one word above the target's home with the
+  frame equal
+  or (declare-the-pair-later) when the frames are equal and two or more
+  adjacent homes are displaced by the same amount
+```
+
+The block prints under the mechanism view in the full report. `--terse`, which
+section 1 used, trims it along with the lanes.
+
+Four classes, and each one is a different question about where the evidence
+comes from:
+
+| `lever_class` | Read from | The edit family | Lever |
+|---|---|---|---|
+| `stack-home` | the two prologues, and `--ladder` for the declared count | drop a declaration, reuse a dead local as the carrier, or declare a pair later | [40](field-guide.md#40-de-declare-a-value-so-it-takes-a-compiler-temp-home) |
+| `temp-ring` | `--ring-trace`: ring pops per source line | read a field directly, scale an index twice, or split a fused accumulate | [41](field-guide.md#41-buy-or-sell-a-ring-pop-with-the-construct-that-costs-one) |
+| `line-order` | `--emit-trace`: the line-order conflicts | join the initialiser to the loop header's physical line, or change a hoist's birth order | [42](field-guide.md#42-join-an-initialiser-to-the-loop-headers-physical-line) |
+| `unreachable` | `--as1-trace`: the key that decided a selection | none — read the proof and spend the builds elsewhere | [43](field-guide.md#43-read-the-proof-before-re-deriving-it) |
+
+**The rule that makes the block worth reading: there is no `edit (…)` line
+whenever the input that would name one is missing, and `capture:` names the
+command that produces it.** A `lever: temp-ring` with no edit and a `capture:`
+line is not the tool hedging — it is the tool declining to guess which of three
+constructs moved the pop, because that is a fact about the free list and not
+about the disassembly. Capture the trace and run it again.
+
+The block above is the one class that reads the other way. Its three
+directions are picked apart by the frame pair, which every disassembly carries,
+so it names an edit straight away and its `capture:` line asks for the ladder
+that would corroborate the declared count rather than for the evidence that
+chose the family.
+
+That refusal has a receipt. `overlay40UpdateEntries` was recorded "not
+reachable by statement placement" by an analyst with four regressed variants
+and a correct reading of everything they could see. The line the scheduler
+actually reads was not one of those things: a loop-invariant hoisted into the
+preheader carries the *loop header's* line, so the initialiser they had already
+pushed as late as C allows was still winning the tie. With the emit trace, one
+join — `remaining = 7; do {` — took it to exact the same day. A guessed lever
+family would have re-manufactured that verdict rather than corrected it.
+
+```sh
+decomp-workbench diagnose target.o build/candidate.o --function animStep \
+  --ring-trace ugen.log --lever-proc 3
+```
+
+`--ladder`, `--emit-trace` and `--as1-trace` supply the other three classes'
+inputs the same way.
+
+## 6. Re-diagnose, and know when to stop
 
 ```sh
 decomp-workbench diagnose target.o build/candidate.o --function animStep
@@ -210,7 +285,9 @@ is a good campaign.
 - [Start here](START_HERE.md) — the ten-minute tour of the screen this page
   acts on.
 - [Field guide](field-guide.md) — every lever, with the measured effect of
-  each.
+  each; levers 40-43 are the four the `lever:` block names.
+- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — what the compiler does
+  about each of them, and what it does about the ones no edit reaches.
 - [The `guide` command](guide-command.md) — those levers, in the terminal.
 - [Aligned mechanism view](view.md) — every option on the screen above.
 - [Working a backlog of near matches](walkthrough-30-near-matches.md) — the
