@@ -175,6 +175,9 @@ _LITERAL_RE = re.compile(
     r"^[-+~()\s]*(?:0[xX][0-9a-fA-F]+|\d+)[uUlLfF]*[-+*/|&^()\s0-9xXa-fA-FuUlL]*$"
 )
 _SUBSCRIPT_RE = re.compile(r"\[([^\]]*)\]")
+#: A binary multiply: a `*` with a value, not a type or a statement, to its
+#: left. Distinguishes `a * b` from the `*q` of a dereference.
+_MULTIPLY_RE = re.compile(r"[A-Za-z0-9_\)\]]\s*\*")
 
 
 def classify_construct(line: str) -> str:
@@ -199,8 +202,11 @@ def classify_construct(line: str) -> str:
     bare = _CAST_RE.sub("", right).strip()
     # The fused accumulate is checked before the plain field read because its
     # shape contains one: `x = field + a * b` is L78's construct, and reading
-    # it as L76's would name the wrong edit for the same line.
-    if "*" in bare and re.search(r"[+\-]", bare):
+    # it as L76's would name the wrong edit for the same line. The `*` has to
+    # be a binary multiply: `n = *q + 1` is a dereference and an add, and
+    # reading it as an accumulate names `split-the-accumulate` for a line the
+    # rule was never measured on.
+    if _MULTIPLY_RE.search(bare) and re.search(r"[+\-]", bare):
         return CONSTRUCT_FUSED_ACCUMULATE
     if "->" in right or re.search(r"[A-Za-z_0-9\])]\s*\.\s*[A-Za-z_]", right):
         return CONSTRUCT_FIELD_THROUGH_LOCAL
@@ -456,7 +462,8 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
         ),
         precondition=(
             "the colourer owns the residual and it is one consistent web "
-            "substitution across its sites"
+            "substitution across its sites, between the registers a call "
+            "takes its argument in and returns in"
         ),
     ),
     "cfe-pointer-add-order": UnreachableProof(
@@ -488,17 +495,29 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
 }
 
 
+#: The registers a call's argument and return values are coloured into, and
+#: the only ones L82's tie is between.
+ARGUMENT_RETURN_REGISTERS: frozenset[str] = frozenset(
+    {"v0", "v1", "a0", "a1", "a2", "a3"}
+)
+
+
 def _coalescing_tie_applies(view: MechanismView) -> bool:
     """Whether the coalescing tie-break's measured shape is the one on screen.
 
-    One web, substituted consistently wherever it appears, under the colourer.
-    That is exactly `overlay59PrepareEntry`'s nine words at seven sites, and it
-    was also `debug_text_width`'s -- where the block printed the proof under
-    `see_also`, said `none-known`, asked for three traces, and the one build
-    an analyst spent confirmed the proof's own prediction byte-for-byte.
+    One web, substituted consistently wherever it appears, under the colourer
+    -- and both of its registers drawn from the argument/return set, because
+    that is the tie the proof is about. `overlay59PrepareEntry` colours one
+    web into the argument register where the target uses the return register;
+    `debug_text_width` is `v1`/`v0`. A lone `s0`->`s1` web is also one web
+    under the colourer and this proof says nothing about it, so it is left
+    where an unmet precondition belongs: under `see_also`.
     """
 
-    return len(view.webs) == 1
+    if len(view.webs) != 1:
+        return False
+    web = view.webs[0]
+    return {web.target, web.candidate} <= ARGUMENT_RETURN_REGISTERS
 
 
 #: When a catalogue proof's precondition is decidable from the evidence the
@@ -769,10 +788,14 @@ def _stack_home_lever(
         primary = STACK_HOME_FAMILIES[0 if pool_delta > 0 else 2]
         reason = (
             "the pool lane is "
-            + ("longer" if pool_delta > 0 else "shorter")
-            + " on the candidate, so it colours a web the target does not "
-            "keep in one; that names the declaration the list is wrong about, "
-            "and lane evidence is ranked ahead of the frame arithmetic"
+            + (
+                "longer on the candidate, so it"
+                if pool_delta > 0
+                else "shorter on the candidate, so the target"
+            )
+            + " colours a web the other side does not; that names the "
+            "declaration the list is wrong about, and lane evidence is "
+            "ranked ahead of the frame arithmetic"
         )
     elif delta is not None and delta > 0:
         primary = STACK_HOME_FAMILIES[0]
@@ -973,6 +996,15 @@ def _temp_ring_lever(
         )
     else:
         primary = _family(named[0])
+        # The line that *selected* the family, which is not always the first
+        # charged one: a `constant` at line 41 beside a field read at 42
+        # names one family, and reporting line 41's construct beside it would
+        # say a constant is the construct that rule was measured on.
+        selected = next(
+            line
+            for line in charged
+            if CONSTRUCT_FAMILIES.get(constructs.get(line, "")) == named[0]
+        )
         direction = (
             "the pool lane differs in length, so the residual is a web "
             "population difference before it is a rotation"
@@ -984,8 +1016,8 @@ def _temp_ring_lever(
             "edit must sell one"
         )
         reason = (
-            f"{direction}; the charged line is a "
-            f"{constructs[charged[0]]}, which is the construct "
+            f"{direction}; line {selected} is a "
+            f"{constructs[selected]}, which is the construct "
             f"{primary.name} was measured on"
         )
     return Lever(

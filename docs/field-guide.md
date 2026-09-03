@@ -1037,7 +1037,10 @@ Two of these are reported as **measurements**, and when they are, the class is
 whose selections are all decided above the line key.
 `uopt-coalescing-tie-break` needs only what two disassemblies already carry:
 the colourer owning the residual, and one consistent web substitution across
-its sites. The other two describe shapes a disassembly cannot distinguish, so
+its sites between the registers a call takes its argument in and returns in.
+A lone `s0`->`s1` web is also one web under the colourer, and this proof says
+nothing about it. The other two describe shapes a disassembly cannot
+distinguish, so
 they stay under `see_also` — each with an `applies when:` line stating the
 shape it was measured on, for you to check.
 

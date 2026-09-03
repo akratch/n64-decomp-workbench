@@ -739,6 +739,41 @@ class TempRingPreconditionTests(unittest.TestCase):
         self.assertIn("measured pop cost", lever.reason)
         self.assertIn("constant", lever.reason)
 
+    def test_the_reason_names_the_line_that_selected_the_family(self) -> None:
+        """With no line doubled, every traced line is charged.
+
+        The family then comes from whichever of them holds a construct with a
+        measured pop cost, and the reason has to name *that* line. Naming the
+        first charged line instead reports a `constant` as the construct a
+        field-read rule was measured on, which is both false and the exact
+        confusion this gate exists to prevent.
+        """
+
+        flat = (
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=41 emitted=10\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=15 line=42 emitted=11\n"
+        )
+        lines = ["" for _ in range(50)]
+        lines[40] = "limit = 0x40;"
+        lines[41] = "count = entry->total;"
+        lever = lever_for(
+            self.rotation_view(),
+            ring_events=parse_trace(flat),
+            proc=3,
+            source=lines,
+        )
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "read-the-field-directly")
+        self.assertIn("line 42 is a field-through-local", lever.reason)
+        self.assertNotIn("is a constant", lever.reason)
+
+    def test_a_dereference_is_not_a_fused_accumulate(self) -> None:
+        # `*` is a multiply in L78's construct and a dereference here. Read as
+        # an accumulate, the line names `split-the-accumulate` for a shape the
+        # rule was never measured on.
+        self.assertEqual(classify_construct("n = *cursor + 1;"), "unclassified")
+        self.assertEqual(classify_construct("x = a + b * c;"), "fused-accumulate")
+
     def test_the_charged_constructs_reach_the_measurements(self) -> None:
         lever = lever_for(
             self.rotation_view(),
@@ -788,6 +823,28 @@ class StackHomeRankingTests(unittest.TestCase):
         self.assertEqual(lever.measurements["pool_lane_length_delta"], 1)
         self.assertIn("outranks the frame arithmetic", " ".join(lever.evidence))
 
+    def test_a_shorter_candidate_lane_says_the_target_holds_the_web(self) -> None:
+        """The two sides of the lane comparison name opposite directions.
+
+        Reported the wrong way round, the reason contradicts the evidence line
+        printed directly above it in the same block.
+        """
+
+        view = view_for(HOME_TARGET, HOME_CANDIDATE)
+        pool = next(item for item in view.lanes if item.classification == "pool")
+        surplus = dataclasses.replace(pool, target=(*pool.target, "v1"))
+        view = dataclasses.replace(
+            view,
+            lanes=tuple(
+                surplus if item.classification == "pool" else item
+                for item in view.lanes
+            ),
+        )
+        lever = lever_for(view)
+        self.assertEqual(lever.measurements["pool_lane_length_delta"], -1)
+        self.assertIn("so the target colours a web", lever.reason)
+        self.assertIn("the target colours a web", " ".join(lever.evidence))
+
     def test_equal_lanes_fall_through_to_the_frame_arithmetic(self) -> None:
         lever = lever_for(view_for(HOME_TARGET, HOME_CANDIDATE))
         assert lever.family is not None
@@ -829,6 +886,27 @@ class ProofPromotionTests(unittest.TestCase):
         lever = lever_for(self.colour_view(3))
         self.assertEqual(lever.lever_class, LEVER_NONE_KNOWN)
         self.assertTrue(lever.needs)
+
+    def test_a_saved_register_web_is_not_the_argument_return_tie(self) -> None:
+        """One web under the colourer is necessary, not sufficient.
+
+        L82 is about a tie between the register a call takes its argument in
+        and the one it returns in. An `s0`->`s1` web is one consistent
+        substitution under the same pass and the proof says nothing about it,
+        so promoting it to a verdict would rule out an edit on a shape nobody
+        measured.
+        """
+
+        view = self.colour_view(1)
+        view = dataclasses.replace(
+            view,
+            webs=(dataclasses.replace(view.webs[0], target="s0", candidate="s1"),),
+        )
+        lever = lever_for(view)
+        self.assertEqual(lever.lever_class, LEVER_NONE_KNOWN)
+        self.assertIn(
+            "uopt-coalescing-tie-break", [item.name for item in lever.see_also]
+        )
 
     def test_every_proof_states_the_shape_it_was_measured_on(self) -> None:
         for name, proof in UNREACHABLE_PROOFS.items():

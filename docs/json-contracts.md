@@ -159,7 +159,9 @@ A catalogue proof is the **verdict** whenever the evidence at hand meets that
 precondition, not a footnote beside `none-known`. Two do:
 `as1-readiness` from an `--as1-trace` whose selections are all decided above
 the line key, and `uopt-coalescing-tie-break` when the colourer owns the
-residual and it is one consistent web substitution across its sites. The
+residual and it is one consistent web substitution across its sites between
+argument and return registers — the tie the proof is about, and narrower than
+"one web", which any pass can produce. The
 remaining two describe shapes two disassemblies cannot distinguish, so they
 stay under `see_also` with their `precondition` for the reader to check.
 Every entry under `see_also` carries that sentence for the same reason.
