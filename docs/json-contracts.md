@@ -138,7 +138,7 @@ produced the family. For every other class the family is read from a trace and
 
 `unreachable` is null unless the class is `unreachable`; when present it
 carries `unreachable_class` (`as1-readiness`, `uopt-address-folding`,
-`uopt-coalescing-tie-break`, or `cfe-pointer-add-canonicalisation`), the
+`uopt-coalescing-tie-break`, or `cfe-pointer-add-order`), the
 `proof`, its `citation`, and `reopens_when` — the condition under which the
 target is worth another look. Only `as1-readiness` is ever reported as a
 measurement, and only from an `--as1-trace`: the deciding key of a selection

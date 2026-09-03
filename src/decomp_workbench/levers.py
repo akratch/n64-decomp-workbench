@@ -2,12 +2,11 @@
 
 `diagnose` names the mechanism, the owning pass, and how close a source edit
 gets to it. It stops one step short of the thing an analyst actually types.
-Four residual classes closed ten of thirteen Mickey's Speedway USA targets
-worked on 2026-09-02/03 -- six exact, four proved unreachable -- and in every
-one of them the
-distance between the verdict on screen and the edit in the file was a piece of
-arithmetic somebody did by hand, from evidence the tool already held or could
-read from a trace it already parses.
+Across 22 Mickey's Speedway USA targets with measured work on 2026-09-02/03,
+four residual classes closed ten -- six exact, four proved unreachable -- and
+in every one of them the distance between the verdict on screen and the edit in
+the file was a piece of arithmetic somebody did by hand, from evidence the tool
+already held or could read from a trace it already parses.
 
 This module does that arithmetic, and only that arithmetic:
 
@@ -146,17 +145,17 @@ STACK_HOME_FAMILIES: tuple[EditFamily, ...] = (
     EditFamily(
         name="drop-a-declared-local",
         edit=(
-            "stop naming the value and repeat its expression at both uses, so "
-            "it becomes a call-crossing common subexpression and takes the "
-            "compiler-temp home one word below the declared block"
+            "stop naming the value and repeat its expression at both uses, "
+            "so it becomes a call-crossing common subexpression and is homed "
+            "in the compiler-temp region instead of the declared one"
         ),
         discriminator=(
             "the candidate frame is larger than the target's, or one homed "
-            "value sits one word above the target's home with the frame equal"
+            "value sits one word from the target's home with the frame equal"
         ),
         citation=(
             "overlay34InitStorage, Mickey's Speedway USA, 2026-09-03: "
-            "46/50 words to exact"
+            "46/50 words to exact; the home moves sp+0x18 to sp+0x1C"
         ),
     ),
     EditFamily(
@@ -164,7 +163,7 @@ STACK_HOME_FAMILIES: tuple[EditFamily, ...] = (
         edit=(
             "carry the value in a local that is already dead at that point "
             "instead of declaring a second one; the declared count falls by "
-            "one and every home below it moves one slot, at an unchanged "
+            "one and a later spill moves one slot, at an unchanged "
             "instruction count"
         ),
         discriminator=(
@@ -173,7 +172,8 @@ STACK_HOME_FAMILIES: tuple[EditFamily, ...] = (
         ),
         citation=(
             "func_overlay_026_F0000B18_187AF10, Mickey's Speedway USA, "
-            "2026-09-03: 129/131 words to exact, 131 words on both sides"
+            "2026-09-03: 129/131 words to exact, 131 words on both sides; "
+            "the spill moves sp+0x40 to sp+0x44"
         ),
     ),
     EditFamily(
@@ -190,7 +190,8 @@ STACK_HOME_FAMILIES: tuple[EditFamily, ...] = (
         ),
         citation=(
             "overlay84InitializeAndUpdate, Mickey's Speedway USA, 2026-09-03: "
-            "172/179 words to exact on a uniform two-word displacement"
+            "172/179 words to exact; the pair moves sp+0x4C/0x48 to "
+            "sp+0x44/0x40"
         ),
     ),
 )
@@ -361,20 +362,26 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "directly"
         ),
     ),
-    "cfe-pointer-add-canonicalisation": UnreachableProof(
-        name="cfe-pointer-add-canonicalisation",
+    "cfe-pointer-add-order": UnreachableProof(
+        name="cfe-pointer-add-order",
         proof=(
-            "cfe canonicalises every pointer-add to walk the pointer first, "
-            "so no spelling of a pointer add reorders the temps it allocates: "
-            "five distinct spellings produced one identical object"
+            "at the mismatching pointer-add expression the shard records "
+            "typed-pointer commutations, casts and assignment forms as "
+            "exhausted. Byte-offset arithmetic is the one spelling that did "
+            "move the temp order, and it is already retained: it takes the "
+            "baseline's pointer/mask/scale to mask/scale/pointer, where the "
+            "target wants mask/pointer/scale"
         ),
         citation=(
-            "levelFreeAll, Mickey's Speedway USA: 114/117 words, all 36 "
-            "relocations exact, permuter flat"
+            "levelFreeAll, Mickey's Speedway USA, undated triage shard: "
+            "114/117 words after the retained rewrite, up from 112/117; "
+            "36/36 relocation offsets, types and identities exact; a "
+            "fidelity-gated ugen source-line trace supplied the order. A "
+            "resident function, not part of the overlay lever cohort"
         ),
         reopens_when=(
-            "the expression is reformulated without a pointer add -- compute "
-            "the byte offset in an integer and add once"
+            "a source form yields mask, pointer, scale -- the one order no "
+            "tried spelling produced"
         ),
     ),
 }
@@ -386,7 +393,7 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
 #: would be the guess this module refuses to make, so these are printed as
 #: `see_also`, never as the diagnosis.
 PASS_PROOFS: dict[str, tuple[str, ...]] = {
-    OWNING_PASS_CFE: ("cfe-pointer-add-canonicalisation",),
+    OWNING_PASS_CFE: ("cfe-pointer-add-order",),
     OWNING_PASS_UOPT_COLOR: (
         "uopt-coalescing-tie-break",
         "uopt-address-folding",

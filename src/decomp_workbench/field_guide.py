@@ -661,8 +661,9 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
         (
             "ido53",
             "L75",
-            "cfe canonicalises every pointer-add to walk the pointer first, "
-            "so respelling the add cannot reorder the temps it allocates",
+            "at a pointer add, commutations, casts and assignment forms are "
+            "exhausted and the byte-offset rewrite that does move the temp "
+            "order is already spent",
         ),
         (
             "ido53",

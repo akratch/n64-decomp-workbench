@@ -1021,7 +1021,7 @@ tell you what not to spend.
 | `as1-readiness` | the two instructions are separated by readiness, not by their lines; in a block of *N* pre-branch nodes whose branch is ready at cycle *N*−1 exactly one node is left over, and a leftover always wins the delay slot | a model of as1's `besttime`, so the node set can be reasoned about forward |
 | `uopt-address-folding` | an address fold follows what is live where the value is formed, not where the definition is written — below the stores, in the loop init clause, and removed entirely all leave it intact | a shape in which the target pointer is not a constant offset from a live base at that point |
 | `uopt-coalescing-tie-break` | the web is coloured on a tie between the call's argument register and its return register, and the locals the pool lane suggests merging are already coalesced | a forced-colour probe (CDX), which decides the tie directly |
-| `cfe-pointer-add-canonicalisation` | cfe canonicalises every pointer-add to walk the pointer first, so no spelling of the add reorders its temps — five spellings, one object | a formulation with no pointer add: compute the byte offset in an integer and add once |
+| `cfe-pointer-add-order` | at one pointer-add expression, typed-pointer commutations, casts and assignment forms are recorded exhausted; byte-offset arithmetic *did* move the temp order, and was kept, but to mask/scale/pointer where the target wants mask/pointer/scale | a source form yielding mask, pointer, scale — the one order no tried spelling produced |
 
 `diagnose --as1-trace` reports the first as a **measurement**: the deciding key
 of a selection says whether the line lever reaches a block, and a selection
@@ -1034,8 +1034,8 @@ about *hand* levers. Run
 [the permuter](permute-sweep.md) before recording any of them as final.
 
 **Points here:** `lever_class=unreachable` from `diagnose`, and
-[L75](compiler-laws/ido-5.3.md#l75-cfe-canonicalises-every-pointer-add-to-walk-the-pointer-first),
-[L79](compiler-laws/ido-5.3.md#l79-besttime-is-a-key-l59-omits-and-a-selection-decided-above-lineno-has-no-source-lever),
+[L75](compiler-laws/ido-5.3.md#l75-the-temp-order-at-a-pointer-add-what-moves-it-and-what-the-record-says-does-not),
+[L79](compiler-laws/ido-5.3.md#l79-a-selection-decided-above-lineno-has-no-source-lever),
 [L81](compiler-laws/ido-5.3.md#l81-address-reassociation-is-insensitive-to-where-the-definition-is-written),
 [L82](compiler-laws/ido-5.3.md#l82-an-argumentreturn-coalescing-tie-is-not-a-source-form).
 
@@ -1290,13 +1290,13 @@ acceptance still requires the authentic compiler and the target frame.
 ### 40. De-declare a value so it takes a compiler-temp home
 
 **Diff looks like:** `lever: stack-home` with the frames equal or the
-candidate's larger, and the target homing a call-crossing value **one word
-below** the lowest home the candidate declares.
+candidate's larger, and one call-crossing value homed a single word away from
+the target's slot for it.
 
-The frame is `[declared locals][cfe temps][uopt temps]`, top down, and
-reordering declarations permutes slots *inside* the first region. It cannot
-move a value out of it. So when the target's home sits below every declared
-home, the whole declaration-order family
+The frame is `[declared locals][cfe temps][uopt temps]`, and reordering
+declarations permutes slots *inside* the first region. It cannot move a value
+out of it. So when the target homes the value in the temp region and the
+candidate declares it, the whole declaration-order family
 ([lever 26](#26-recover-stack-homes-without-losing-the-live-range-topology))
 is spent before it starts, and the edit is to stop declaring the value:
 
@@ -1314,25 +1314,26 @@ zero(count * (s32)sizeof(Entry));
 
 Three directions, one family, and the frame arithmetic picks between them:
 
-| The measurement says | The edit |
-|---|---|
-| candidate frame larger | drop a declaration (above) |
-| frames equal, one home moved one word, instruction counts equal | carry the value in a local that is already dead there, so the declared count falls by one |
-| frames equal, two or more adjacent homes moved by the same amount | declare the pair *after* the local whose slots it must follow |
+| The measurement says | The edit | Measured on |
+|---|---|---|
+| candidate frame larger | drop a declaration (above) | `overlay34InitStorage`, 46/50 to exact, home `sp+0x18` against the target's `sp+0x1C` |
+| frames equal, one home moved one word, instruction counts equal | carry the value in a local that is already dead there, so the declared count falls by one | `func_overlay_026_F0000B18_187AF10`, 129/131 to exact, spill `sp+0x40` to `sp+0x44` |
+| frames equal, two or more adjacent homes moved by the same amount | declare the pair *after* the local whose slots it must follow | `overlay84InitializeAndUpdate`, 172/179 to exact, pair `sp+0x4C`/`0x48` to `sp+0x44`/`0x40` |
 
 **Check the frame moved before believing the count.** A declared block rounds
 up to 8 bytes, so a removed declaration is often free, and an 8-byte difference
 is one quantum rather than two declarations
 ([L72](compiler-laws/ido-5.3.md#l72-the-declared-block-is-a-rounded-quantum--measure-the-frame-do-not-count-declarations)).
-Not every declared scalar owns a home at all: one removal in this cohort
-produced a byte-identical object.
+Not every declared scalar owns a home at all: in this cohort two declarations
+came out of one function for a byte-identical object.
 
 **The repeated expression has to be one the compiler commons** — call-crossing
 and identical at both sites. Where it is not, the cost is an extra
-materialisation, and the object grows.
+materialisation: `func_overlay_026`'s ruled-out variant inlined the difference
+at three sites, the CSE declined, and the object went to 135 words.
 
 **Points here:** `lever_class=stack-home` from `diagnose`, and
-[L73](compiler-laws/ido-5.3.md#l73-a-value-the-target-homes-below-the-declared-block-is-reached-by-de-declaring-it).
+[L73](compiler-laws/ido-5.3.md#l73-the-declared-local-count-not-only-the-order-places-a-call-crossing-home).
 
 ### 31. Spend an array's unaddressed tail on a new local
 

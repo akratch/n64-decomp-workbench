@@ -323,7 +323,7 @@ class CatalogueTests(unittest.TestCase):
                 "as1-readiness",
                 "uopt-address-folding",
                 "uopt-coalescing-tie-break",
-                "cfe-pointer-add-canonicalisation",
+                "cfe-pointer-add-order",
             },
         )
 
