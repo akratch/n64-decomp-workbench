@@ -289,12 +289,14 @@ Part (a), the ring pop sequence with line provenance, landed 2026-08-27; part
 does not exist, but the order records enter the ibuffer and the line each
 carries into as1.
 
-What the two halves are worth, measured. Of thirteen overlay targets worked on
-2026-09-02/03, six closed exact: two on the ring pops per line (L76–L78), three
-on the line-order conflicts (L80), one on frame arithmetic that needed no trace
-at all. Four more closed in the other direction — proved unreachable, with the
-proof recorded so the builds are not spent again (L75, L79, L81, L82). The one
-residual class this item named and did not reach is item 15.
+What the two halves are worth, measured. Of the 22 overlay targets with
+measured work on 2026-09-02/03, six closed exact: one on the ring pops per line
+(L76–L78), two on the line-order conflicts (L80), three on frame arithmetic that
+needed no trace at all (L72–L74). A seventh improved from 10 words to 6 on the
+line join. Four more closed in the other direction — proved unreachable, with
+the proof recorded so the builds are not spent again (L79, L81, L82, and the
+coalescing tie). The one residual class this item named and did not reach is
+item 15.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
@@ -747,9 +749,11 @@ the wrong sites; the table is an input, and a run without one says so.
   `overlay33InitializeBuffers`, `overlay1ResolvePathPoint`) each ended in the
   same place: the trace shows the
   block's nodes, their readiness, and the leftover that took the delay slot,
-  and nothing says what a *different* source form would make ready. Thirteen
-  builds and seven traces went on finding that out one variant at a time, and
-  every one of them was a guess with a receipt attached afterwards.
+  and nothing says what a *different* source form would make ready. On the
+  overlay 1 pair alone that cost seven `-Wa,-R` traces and three full builds
+  across seven levers, of which exactly one moved the schedule — and it moved
+  the wrong instruction into the slot. The other three functions' lane iterated
+  compile-only, so no build count attaches to them.
 - **What is already known, which is most of the model.** The key chain is
   decoded and reproduced against 2688 recorded selections (`as1_reorganize`).
   `besttime` is release recency and follows ugen's emission order, which

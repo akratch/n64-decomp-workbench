@@ -27,7 +27,7 @@ in [design notes](docs/history/design-notes.md).
 - Three `unreachable` sub-classes are catalogue entries printed under
   `see_also`, never as the diagnosis: nothing in two disassemblies
   distinguishes uopt's address folding, an argument/return coalescing tie, or
-  cfe's pointer-add canonicalisation. Each records what would reopen it.
+  the exhausted spellings at a pointer add. Each records what would reopen it.
 - The block is a namespaced sub-document (`lever`, `lever_schema`) and is
   absent on an exact comparison, which has no residual to explain. Field-guide
   levers 40-43 and [from verdict to edit](docs/from-verdict-to-edit.md) reach
@@ -35,20 +35,24 @@ in [design notes](docs/history/design-notes.md).
 
 ### Compiler laws L72-L82
 
-- Eleven laws from an overlay lever cohort of thirteen targets worked on
-  2026-09-02/03. Seven say what an edit does: the declared block rounds to 8 so a
-  declaration can be free (L72), a home below that block is reached by
-  de-declaring rather than reordering (L73), an address-taken aggregate is the
-  block's floor (L74), a field read through a local and an index scaled twice
-  each cost one ring pop (L76, L77), a pool-carried accumulate keeps a field in
-  its web (L78), and a hoisted invariant carries the loop header's line (L80).
-- Four say what no edit does, which is the expensive half: cfe's pointer-add
-  canonicalisation (L75), as1's chain decided above the line key with its
-  leftover-node corollary (L79), uopt's address fold ignoring statement
-  placement (L81), and an argument/return coalescing tie (L82). L79 also
-  records that L59's key chain omits `besttime`, and that two campaigns place
-  `besttime` and `aftercycles` differently — nothing shipped depends on which
-  is right, and improvement-backlog item 15 is where that has to be settled.
+- Eleven laws from an overlay lever cohort of seven lanes and 22 targets with
+  measured work, 2026-09-02/03; the laws name 19 of them, plus one resident
+  function outside the cohort. Seven say what an edit does: the declared block
+  rounds to 8 so a declaration can be free (L72), the declared *count* moves a
+  call-crossing home between frame regions (L73), an 8-byte aggregate declared
+  last sits below the temp region and holds the frame (L74), a field read
+  through a local and an index scaled twice each cost one ring pop (L76, L77),
+  a pool-carried accumulate keeps a field in its web (L78), and a hoisted
+  invariant carries the loop header's line (L80).
+- Four say what no edit does, which is the expensive half: the exhausted
+  spellings at a pointer add, and the one rewrite that moved its temp order
+  but not to the target's (L75); as1's chain decided above the line key, with
+  its leftover-node corollary (L79); uopt's address fold ignoring statement
+  placement (L81); and an argument/return coalescing tie (L82). L79 records
+  three different readings of where `besttime` sits in as1's chain — the
+  hand-offs', this workbench's decoder's, and L59's, which omits it. Nothing
+  shipped depends on which is right; improvement-backlog item 15 is where it
+  has to be settled.
 
 ### One instrumented drop-in, and a check that it survived
 
