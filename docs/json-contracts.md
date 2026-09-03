@@ -130,21 +130,39 @@ edit will act on a guess. `edit` and `citation` travel with `edit_family` and
 are null with it.
 
 `stack-home` is the one class whose family comes from the disassembly rather
-than from a trace: the frame pair picks between the three directions, so a
-`stack-home` lever always names a family, and a `needs` beside it asks for the
-frame ladder that *corroborates* the count rather than for the input that
-produced the family. For every other class the family is read from a trace and
-`edit_family` stays null until one is supplied.
+than from a trace, so a `stack-home` lever always names a family, and a `needs`
+beside it asks for the frame ladder that *corroborates* the count rather than
+for the input that produced the family. It ranks its three directions in the
+order `STACK_HOME_RANKING` states: an unequal **pool lane** first — the side
+carrying the surplus web names the direction, because a value one side colours
+and the other homes is a declaration-list fact — then the frame delta, then the
+number of displaced homes. For every other class the family is read from a
+trace and `edit_family` stays null until one is supplied.
+
+`temp-ring` needs two inputs, not one, and names a family only when both are
+present. `--ring-trace` says which line was charged a pop; `--source` says what
+that line contains, and `measurements.constructs_by_line` reports it as
+`field-through-local`, `scaled-index`, `fused-accumulate`, `constant`, or
+`unclassified`. Each pop-cost rule was measured on one construct, so a charged
+line that holds none of the first three yields no family and a `reason` naming
+the construct it does hold. A pop count says which line to edit; it does not
+say which law reaches it.
 
 `unreachable` is null unless the class is `unreachable`; when present it
 carries `unreachable_class` (`as1-readiness`, `uopt-address-folding`,
-`uopt-coalescing-tie-break`, or `cfe-pointer-add-order`), the
-`proof`, its `citation`, and `reopens_when` — the condition under which the
-target is worth another look. Only `as1-readiness` is ever reported as a
-measurement, and only from an `--as1-trace`: the deciding key of a selection
-says whether the line lever reaches a block. The other three are catalogue
-entries, reported under `see_also` and never as the diagnosis, because nothing
-in two disassemblies distinguishes them.
+`uopt-coalescing-tie-break`, or `cfe-pointer-add-order`), the `proof`, its
+`citation`, `reopens_when` — the condition under which the target is worth
+another look — and `precondition`, the residual shape the proof was measured
+on.
+
+A catalogue proof is the **verdict** whenever the evidence at hand meets that
+precondition, not a footnote beside `none-known`. Two do:
+`as1-readiness` from an `--as1-trace` whose selections are all decided above
+the line key, and `uopt-coalescing-tie-break` when the colourer owns the
+residual and it is one consistent web substitution across its sites. The
+remaining two describe shapes two disassemblies cannot distinguish, so they
+stay under `see_also` with their `precondition` for the reader to check.
+Every entry under `see_also` carries that sentence for the same reason.
 
 `decomp-workbench commands --json` is the versioned discovery surface. Existing
 flat command names and journey spellings return the same report:

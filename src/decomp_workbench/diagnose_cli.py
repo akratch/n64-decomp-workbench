@@ -168,6 +168,14 @@ def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
         emit_events, _ignored = parse_emit_trace(
             read_trace_text(Path(args.emit_trace).expanduser(), warn=warn_to_stderr)
         )
+    source = None
+    if getattr(args, "source", None):
+        source = (
+            Path(args.source)
+            .expanduser()
+            .read_text(encoding="utf-8", errors="replace")
+            .splitlines()
+        )
     selections = None
     if getattr(args, "as1_trace", None):
         selections, _events, _ignored = parse_as1_reorganize_trace(
@@ -179,6 +187,7 @@ def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
         ring_events=ring_events,
         emit_events=emit_events,
         as1_selections=selections,
+        source=source,
         proc=getattr(args, "lever_proc", None),
     )
     return dataclasses.replace(diagnosis, lever=lever)
@@ -489,6 +498,16 @@ def _add_shared_arguments(
             "selection settles the line question outright: decided on lineno "
             "the line lever reaches it, decided above lineno nothing in the "
             "source does"
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        metavar="PATH",
+        help=(
+            "the candidate's C. Read only to check what the line a ring "
+            "trace charged actually contains: each pop-cost rule was "
+            "measured on one construct, and without the line no temp-ring "
+            "edit family is named"
         ),
     )
     parser.add_argument(

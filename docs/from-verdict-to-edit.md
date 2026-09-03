@@ -201,9 +201,9 @@ comes from:
 | `lever_class` | Read from | The edit family | Lever |
 |---|---|---|---|
 | `stack-home` | the two prologues, and `--ladder` for the declared count | drop a declaration, reuse a dead local as the carrier, or declare a pair later | [40](field-guide.md#40-de-declare-a-value-so-it-takes-a-compiler-temp-home) |
-| `temp-ring` | `--ring-trace`: ring pops per source line | read a field directly, scale an index twice, or split a fused accumulate | [41](field-guide.md#41-buy-or-sell-a-ring-pop-with-the-construct-that-costs-one) |
+| `temp-ring` | `--ring-trace` for the charged line, `--source` for the construct on it | read a field directly, scale an index twice, or split a fused accumulate | [41](field-guide.md#41-buy-or-sell-a-ring-pop-with-the-construct-that-costs-one) |
 | `line-order` | `--emit-trace`: the line-order conflicts | join the initialiser to the loop header's physical line, or change a hoist's birth order | [42](field-guide.md#42-join-an-initialiser-to-the-loop-headers-physical-line) |
-| `unreachable` | `--as1-trace`: the key that decided a selection | none — read the proof and spend the builds elsewhere | [43](field-guide.md#43-read-the-proof-before-re-deriving-it) |
+| `unreachable` | `--as1-trace`'s deciding key, or a catalogue proof whose precondition the residual already meets | none — read the proof and spend the builds elsewhere | [43](field-guide.md#43-read-the-proof-before-re-deriving-it) |
 
 **The rule that makes the block worth reading: there is no `edit (…)` line
 whenever the input that would name one is missing, and `capture:` names the

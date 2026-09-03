@@ -11,6 +11,7 @@ verdict a trace overturned the same day.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import tempfile
@@ -33,8 +34,10 @@ from decomp_workbench.levers import (
     LEVER_UNREACHABLE,
     LINE_ORDER_FAMILIES,
     STACK_HOME_FAMILIES,
+    STACK_HOME_RANKING,
     TEMP_RING_FAMILIES,
     UNREACHABLE_PROOFS,
+    classify_construct,
     format_lever,
     lever_for,
     pops_by_line,
@@ -42,7 +45,7 @@ from decomp_workbench.levers import (
 )
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.trace import parse_trace
-from decomp_workbench.view import MechanismView, build_view
+from decomp_workbench.view import MechanismView, Web, build_view
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -564,7 +567,11 @@ class DiagnoseCommandTests(unittest.TestCase):
             payload["lever"]["measurements"]["pops_by_line"],
             {"41": 1, "42": 2, "43": 1},
         )
-        self.assertEqual(payload["lever"]["needs"], [])
+        # A trace alone names the line and not the rule: the construct on it
+        # is what says which pop-cost law applies, so the block asks for the
+        # source rather than naming the nearest family.
+        self.assertIsNone(payload["lever"]["edit_family"])
+        self.assertTrue(any("--source" in item for item in payload["lever"]["needs"]))
 
     def test_an_unreadable_trace_is_an_error_document_not_a_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -638,3 +645,196 @@ class LawCitationTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class ConstructClassificationTests(unittest.TestCase):
+    """The precondition check the field test found missing.
+
+    `func_800056A4` was given `read-the-field-directly` for a line whose local
+    holds a cast integer constant. The pop count was right; the law was not,
+    and all three spellings compiled byte-identically.
+    """
+
+    def test_each_pop_cost_construct_is_recognised(self) -> None:
+        cases = {
+            "flare.blue = entry->blue & 0xFFFFU;": "field-through-local",
+            "owner = context->entries[index * 2].owner;": "scaled-index",
+            "angle = state->angle + state->angleStep * ticks;": ("fused-accumulate"),
+        }
+        for text, expected in cases.items():
+            with self.subTest(line=text):
+                self.assertEqual(classify_construct(text), expected)
+
+    def test_a_cast_integer_constant_is_not_a_field_read(self) -> None:
+        for text in (
+            "table = (s32 **)0x800A0000;",
+            "count = 7;",
+            "i = 0;",
+        ):
+            with self.subTest(line=text):
+                self.assertEqual(classify_construct(text), "constant")
+
+    def test_anything_unplaceable_is_unclassified_not_the_nearest_rule(
+        self,
+    ) -> None:
+        for text in ("entry = &D_0_entries;", "if (a == b) {", ""):
+            with self.subTest(line=text):
+                self.assertEqual(classify_construct(text), "unclassified")
+
+    def test_the_fused_shape_outranks_the_field_read_it_contains(self) -> None:
+        self.assertEqual(
+            classify_construct("x = s->base + s->step * n;"), "fused-accumulate"
+        )
+
+
+class TempRingPreconditionTests(unittest.TestCase):
+    def rotation_view(self) -> MechanismView:
+        return view_for(
+            (ROOT / "examples" / "fixtures" / "phase-shift-target.objdump").read_text(
+                encoding="utf-8"
+            ),
+            (
+                ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
+            ).read_text(encoding="utf-8"),
+        )
+
+    def source(self, line42: str) -> list[str]:
+        lines = ["" for _ in range(50)]
+        lines[40] = "total = other;"
+        lines[41] = line42
+        lines[42] = "next = other;"
+        return lines
+
+    def test_a_trace_without_source_names_no_family(self) -> None:
+        lever = lever_for(
+            self.rotation_view(), ring_events=parse_trace(RING_TRACE), proc=3
+        )
+        self.assertEqual(lever.lever_class, LEVER_TEMP_RING)
+        self.assertIsNone(lever.family)
+        self.assertTrue(any("--source" in item for item in lever.needs))
+
+    def test_a_field_read_on_the_charged_line_names_its_family(self) -> None:
+        lever = lever_for(
+            self.rotation_view(),
+            ring_events=parse_trace(RING_TRACE),
+            proc=3,
+            source=self.source("blue = entry->blue;"),
+        )
+        self.assertIsNotNone(lever.family)
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "read-the-field-directly")
+        self.assertEqual(lever.needs, ())
+
+    def test_a_constant_on_the_charged_line_names_none(self) -> None:
+        # The field-test case: the pop count is real and the construct is not
+        # one any pop-cost rule was measured on.
+        lever = lever_for(
+            self.rotation_view(),
+            ring_events=parse_trace(RING_TRACE),
+            proc=3,
+            source=self.source("table = (s32 **)0x800A0000;"),
+        )
+        self.assertEqual(lever.lever_class, LEVER_TEMP_RING)
+        self.assertIsNone(lever.family)
+        self.assertIn("measured pop cost", lever.reason)
+        self.assertIn("constant", lever.reason)
+
+    def test_the_charged_constructs_reach_the_measurements(self) -> None:
+        lever = lever_for(
+            self.rotation_view(),
+            ring_events=parse_trace(RING_TRACE),
+            proc=3,
+            source=self.source("blue = entry->blue;"),
+        )
+        self.assertEqual(
+            lever.measurements["constructs_by_line"]["42"], "field-through-local"
+        )
+
+    def test_a_scaled_index_names_the_double_scale_family(self) -> None:
+        lever = lever_for(
+            self.rotation_view(),
+            ring_events=parse_trace(RING_TRACE),
+            proc=3,
+            source=self.source("owner = ctx->entries[i * 2].owner;"),
+        )
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "scale-the-index-twice")
+
+
+class StackHomeRankingTests(unittest.TestCase):
+    """Lane evidence outranks frame arithmetic.
+
+    On `func_80005868` the frames agreed and one home was displaced, so the
+    frame-only ranking named `reuse-an-existing-local-as-carrier` -- for a
+    six-line function with no dead local. The pool lane printed two paragraphs
+    above named the surplus web, and declaration placement closed two stack
+    constants, 8 words to 6.
+    """
+
+    def test_a_surplus_candidate_web_names_the_drop_direction(self) -> None:
+        view = view_for(HOME_TARGET, HOME_CANDIDATE)
+        pool = next(item for item in view.lanes if item.classification == "pool")
+        surplus = dataclasses.replace(pool, candidate=(*pool.candidate, "v1"))
+        view = dataclasses.replace(
+            view,
+            lanes=tuple(
+                surplus if item.classification == "pool" else item
+                for item in view.lanes
+            ),
+        )
+        lever = lever_for(view)
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "drop-a-declared-local")
+        self.assertEqual(lever.measurements["pool_lane_length_delta"], 1)
+        self.assertIn("outranks the frame arithmetic", " ".join(lever.evidence))
+
+    def test_equal_lanes_fall_through_to_the_frame_arithmetic(self) -> None:
+        lever = lever_for(view_for(HOME_TARGET, HOME_CANDIDATE))
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "reuse-an-existing-local-as-carrier")
+
+    def test_the_ordering_rule_is_stated_in_order(self) -> None:
+        self.assertEqual(len(STACK_HOME_RANKING), 3)
+        self.assertIn("pool lane", STACK_HOME_RANKING[0])
+        self.assertIn("frame delta", STACK_HOME_RANKING[1])
+
+
+class ProofPromotionTests(unittest.TestCase):
+    """A catalogue proof whose precondition is met is the verdict."""
+
+    def colour_view(self, webs: int) -> MechanismView:
+        view = view_for(HOME_TARGET, HOME_TARGET)
+        made = tuple(
+            Web(web=f"w{index}", target="v0", candidate="a0", count=7, rows=(index,))
+            for index in range(webs)
+        )
+        return dataclasses.replace(view, webs=made, verdict="register-permutation")
+
+    def test_one_web_under_the_colourer_is_unreachable_not_none_known(
+        self,
+    ) -> None:
+        lever = lever_for(self.colour_view(1))
+        self.assertEqual(lever.lever_class, LEVER_UNREACHABLE)
+        assert lever.unreachable is not None
+        self.assertEqual(lever.unreachable.name, "uopt-coalescing-tie-break")
+        self.assertEqual(lever.needs, ())
+
+    def test_the_promoted_proof_leaves_the_others_as_see_also(self) -> None:
+        lever = lever_for(self.colour_view(1))
+        self.assertEqual(
+            [item.name for item in lever.see_also], ["uopt-address-folding"]
+        )
+
+    def test_several_webs_do_not_meet_the_precondition(self) -> None:
+        lever = lever_for(self.colour_view(3))
+        self.assertEqual(lever.lever_class, LEVER_NONE_KNOWN)
+        self.assertTrue(lever.needs)
+
+    def test_every_proof_states_the_shape_it_was_measured_on(self) -> None:
+        for name, proof in UNREACHABLE_PROOFS.items():
+            with self.subTest(proof=name):
+                self.assertTrue(proof.precondition.strip())
+
+    def test_an_unpromotable_proof_prints_its_precondition(self) -> None:
+        lines = format_lever(lever_for(self.colour_view(3)))
+        self.assertTrue(any(item.startswith("    applies when: ") for item in lines))
