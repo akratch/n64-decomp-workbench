@@ -10,6 +10,42 @@ in [design notes](docs/history/design-notes.md).
   the old drop-in installed (found rebuilding the Mickey toolchain,
   2026-09-03).
 
+## Unreleased
+
+### Lever-block corrections from the first field test
+
+Ten resident plateaus were diagnosed with the 0.8.0 block; three defects
+followed, all of them the block claiming more than its evidence carried.
+
+- **`temp-ring` named a family without checking the construct.** A pop count
+  says which line to edit; each pop-cost rule was measured on one construct,
+  and nothing checked that the charged line was it. `read-the-field-directly`
+  was named for a line whose local holds a cast integer constant, and three
+  spellings of the edit compiled byte-identically. `diagnose --source` now
+  reads the charged line, `measurements.constructs_by_line` reports what it
+  found, and a line holding no construct with a measured pop cost yields no
+  family and a reason saying which construct it does hold. Without `--source`
+  the class is still named and the family is not.
+- **`stack-home` ranked on frame arithmetic and ignored the pool lane it had
+  just printed.** On a six-line function with equal frames and one displaced
+  home the frame-only rule named "reuse a dead local as the carrier", and no
+  dead local existed; the pool lane's surplus web named declaration placement,
+  which closed two stack constants and took the residual from 8 words to 6. The
+  ranking is now lane evidence, then frame delta, then displaced-home count,
+  stated in `STACK_HOME_RANKING` and in the docs.
+- **A met catalogue proof was printed as a footnote.** `debug_text_width` got
+  `none-known` with three `capture:` lines while `uopt-coalescing-tie-break`
+  sat under `see_also` — and one build confirmed that proof byte-for-byte. A
+  proof whose precondition the evidence meets is now the verdict:
+  `lever_class=unreachable` citing it. Every proof gains a `precondition`
+  sentence, printed under `see_also` as `applies when:` when it cannot be
+  checked from two disassemblies.
+
+The field test also confirmed the block's `none-known` on `func_8003A2C8` as
+correct and useful — `permuter-target` plus the note that a target register is
+ring-only is a measurement no hand lever can argue with — and lever 43 now
+records that.
+
 ## 0.8.0 - 2026-09-03
 
 ### The lever diagnosis

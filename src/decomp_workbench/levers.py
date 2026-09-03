@@ -39,7 +39,8 @@ answering a question the evidence had not been asked.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+import re
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +58,7 @@ from .view import (
 )
 
 __all__ = [
+    "CONSTRUCT_VALUES",
     "LEVER_CLASS_VALUES",
     "LEVER_LINE_ORDER",
     "LEVER_NONE_KNOWN",
@@ -71,6 +73,7 @@ __all__ = [
     "EditFamily",
     "Lever",
     "UnreachableProof",
+    "classify_construct",
     "format_lever",
     "lever_for",
     "pops_by_line",
@@ -126,6 +129,11 @@ class UnreachableProof:
     proof: str
     citation: str
     reopens_when: str
+    #: The residual shape this proof was measured on, in one sentence. When a
+    #: predicate in :data:`PROOF_PRECONDITIONS` can see that shape in the
+    #: evidence at hand, the proof *is* the verdict; otherwise it is printed
+    #: under `see_also` and the reader checks the sentence themselves.
+    precondition: str = ""
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -133,7 +141,78 @@ class UnreachableProof:
             "proof": self.proof,
             "citation": self.citation,
             "reopens_when": self.reopens_when,
+            "precondition": self.precondition,
         }
+
+
+#: What a traced source line actually contains, as far as a line of C can be
+#: read without a parser.
+#:
+#: This exists because the block once named `read-the-field-directly` for a
+#: line whose local carries a cast integer constant. The pop count was right
+#: and the edit was inert -- three spellings, one byte-identical object --
+#: because L76 is measured on a *struct field* read through a local, and
+#: nothing had checked that the line was one. A pop count says a line is the
+#: one to edit; it does not say which law applies to it.
+CONSTRUCT_FIELD_THROUGH_LOCAL = "field-through-local"
+CONSTRUCT_SCALED_INDEX = "scaled-index"
+CONSTRUCT_FUSED_ACCUMULATE = "fused-accumulate"
+CONSTRUCT_CONSTANT = "constant"
+CONSTRUCT_UNCLASSIFIED = "unclassified"
+
+CONSTRUCT_VALUES: tuple[str, ...] = (
+    CONSTRUCT_FIELD_THROUGH_LOCAL,
+    CONSTRUCT_SCALED_INDEX,
+    CONSTRUCT_FUSED_ACCUMULATE,
+    CONSTRUCT_CONSTANT,
+    CONSTRUCT_UNCLASSIFIED,
+)
+
+_COMMENT_RE = re.compile(r"/\*.*?\*/|//.*$")
+_ASSIGN_RE = re.compile(r"(?<![=!<>+\-*/%&|^])=(?!=)")
+_CAST_RE = re.compile(r"\(\s*[A-Za-z_][A-Za-z0-9_ *]*\)")
+_LITERAL_RE = re.compile(
+    r"^[-+~()\s]*(?:0[xX][0-9a-fA-F]+|\d+)[uUlLfF]*[-+*/|&^()\s0-9xXa-fA-FuUlL]*$"
+)
+_SUBSCRIPT_RE = re.compile(r"\[([^\]]*)\]")
+#: A binary multiply: a `*` with a value, not a type or a statement, to its
+#: left. Distinguishes `a * b` from the `*q` of a dereference.
+_MULTIPLY_RE = re.compile(r"[A-Za-z0-9_\)\]]\s*\*")
+
+
+def classify_construct(line: str) -> str:
+    """Name the construct on one line of C, for the pop-cost rules only.
+
+    Deliberately shallow, and the shallowness is the contract: this decides
+    whether a law's *precondition* is visibly met, never what the line means.
+    Anything it cannot place is `unclassified`, which suppresses the family
+    rather than picking the nearest one.
+    """
+
+    text = _COMMENT_RE.sub("", line).strip().rstrip(";").strip()
+    if not text:
+        return CONSTRUCT_UNCLASSIFIED
+    match = _ASSIGN_RE.search(text)
+    right = text[match.end() :].strip() if match else text
+    if not right:
+        return CONSTRUCT_UNCLASSIFIED
+    for subscript in _SUBSCRIPT_RE.findall(right):
+        if "*" in subscript or "<<" in subscript:
+            return CONSTRUCT_SCALED_INDEX
+    bare = _CAST_RE.sub("", right).strip()
+    # The fused accumulate is checked before the plain field read because its
+    # shape contains one: `x = field + a * b` is L78's construct, and reading
+    # it as L76's would name the wrong edit for the same line. The `*` has to
+    # be a binary multiply: `n = *q + 1` is a dereference and an add, and
+    # reading it as an accumulate names `split-the-accumulate` for a line the
+    # rule was never measured on.
+    if _MULTIPLY_RE.search(bare) and re.search(r"[+\-]", bare):
+        return CONSTRUCT_FUSED_ACCUMULATE
+    if "->" in right or re.search(r"[A-Za-z_0-9\])]\s*\.\s*[A-Za-z_]", right):
+        return CONSTRUCT_FIELD_THROUGH_LOCAL
+    if _LITERAL_RE.match(bare):
+        return CONSTRUCT_CONSTANT
+    return CONSTRUCT_UNCLASSIFIED
 
 
 #: The three declaration-list edits that closed a stack-home residual.
@@ -251,6 +330,17 @@ TEMP_RING_FAMILIES: tuple[EditFamily, ...] = (
     ),
 )
 
+#: Which pop-cost rule each construct qualifies for.
+#:
+#: A construct with no entry here has no measured pop cost, and that is a
+#: finding rather than a gap: the block says the line does not fit a rule
+#: instead of naming the nearest family.
+CONSTRUCT_FAMILIES: dict[str, str] = {
+    CONSTRUCT_FIELD_THROUGH_LOCAL: "read-the-field-directly",
+    CONSTRUCT_SCALED_INDEX: "scale-the-index-twice",
+    CONSTRUCT_FUSED_ACCUMULATE: "split-the-accumulate",
+}
+
 #: The two ways a residual separated only by ugen's line stamps is closed.
 LINE_ORDER_FAMILIES: tuple[EditFamily, ...] = (
     EditFamily(
@@ -321,6 +411,10 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "as1's besttime derivation is modelled, so a candidate's release "
             "order can be predicted instead of only observed"
         ),
+        precondition=(
+            "an as1 trace in which every selection in scope is decided above "
+            "the line key"
+        ),
     ),
     "uopt-address-folding": UnreachableProof(
         name="uopt-address-folding",
@@ -342,6 +436,11 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "constant offset from a live base at the point the induction "
             "variable is formed"
         ),
+        precondition=(
+            "the two sides form one address from different base pointers, "
+            "which two disassemblies do not distinguish from a colour "
+            "difference -- check it by hand"
+        ),
     ),
     "uopt-coalescing-tie-break": UnreachableProof(
         name="uopt-coalescing-tie-break",
@@ -360,6 +459,11 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "a forced-colour oracle is available: an instrumented uopt "
             "carrying the CDX globalcolor profile, which decides the tie "
             "directly"
+        ),
+        precondition=(
+            "the colourer owns the residual and it is one consistent web "
+            "substitution across its sites, between the registers a call "
+            "takes its argument in and returns in"
         ),
     ),
     "cfe-pointer-add-order": UnreachableProof(
@@ -383,7 +487,48 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "a source form yields mask, pointer, scale -- the one order no "
             "tried spelling produced"
         ),
+        precondition=(
+            "the residual is the temp order at a pointer add, which needs "
+            "the expression in front of you -- check it by hand"
+        ),
     ),
+}
+
+
+#: The registers a call's argument and return values are coloured into, and
+#: the only ones L82's tie is between.
+ARGUMENT_RETURN_REGISTERS: frozenset[str] = frozenset(
+    {"v0", "v1", "a0", "a1", "a2", "a3"}
+)
+
+
+def _coalescing_tie_applies(view: MechanismView) -> bool:
+    """Whether the coalescing tie-break's measured shape is the one on screen.
+
+    One web, substituted consistently wherever it appears, under the colourer
+    -- and both of its registers drawn from the argument/return set, because
+    that is the tie the proof is about. `overlay59PrepareEntry` colours one
+    web into the argument register where the target uses the return register;
+    `debug_text_width` is `v1`/`v0`. A lone `s0`->`s1` web is also one web
+    under the colourer and this proof says nothing about it, so it is left
+    where an unmet precondition belongs: under `see_also`.
+    """
+
+    if len(view.webs) != 1:
+        return False
+    web = view.webs[0]
+    return {web.target, web.candidate} <= ARGUMENT_RETURN_REGISTERS
+
+
+#: When a catalogue proof's precondition is decidable from the evidence the
+#: view already carries, it is checked here and the proof becomes the verdict.
+#:
+#: Only the shapes that are genuinely visible in two disassemblies appear. A
+#: proof with no entry stays under `see_also`, with its `precondition`
+#: sentence for the reader to check -- printing it as a verdict from a shape
+#: nobody measured would be the guess this module refuses.
+PROOF_PRECONDITIONS: dict[str, Callable[[MechanismView], bool]] = {
+    "uopt-coalescing-tie-break": _coalescing_tie_applies,
 }
 
 #: Which catalogue proof an owning pass points at when nothing else fired.
@@ -410,6 +555,10 @@ CAPTURE_LADDER = (
 CAPTURE_RING = (
     "pops per source line: rebuild with DKWB_UGEN_TRACE=1 on a cc carrying "
     "instrument-ugen's free-list hooks and pass the log as --ring-trace"
+)
+CAPTURE_SOURCE = (
+    "the traced line's construct: pass the candidate's C with --source, so "
+    "the pop-cost rule a line qualifies for is checked rather than assumed"
 )
 CAPTURE_EMIT = (
     "line-order conflicts: rebuild with DKWB_UGEN_SCHED=1 on a cc carrying "
@@ -553,6 +702,25 @@ def _displaced_homes(view: MechanismView) -> tuple[int, int]:
     return rows, len(moved)
 
 
+#: How the stack-home directions are ranked, in the order the rules are read.
+#:
+#: Lane evidence first, frame arithmetic second. The frame says how much
+#: storage moved; the pool lane says *which value* one side colours and the
+#: other does not, and that is nearer the declaration list than a byte count
+#: is. Ranked on the frame alone, `func_80005868` put the direction its own
+#: printed pool lane named -- one surplus web at slot 0 -- third of three; the
+#: two directions above it were inapplicable, and the answer was to declare an
+#: index and a pointer ahead of a large buffer, 8 words to 6.
+STACK_HOME_RANKING: tuple[str, ...] = (
+    "a pool lane of unequal length: the side carrying the surplus web names "
+    "the direction, because a value one side colours and the other homes is "
+    "a declaration-list fact",
+    "the frame delta: a whole 8-byte quantum in either direction",
+    "the number of displaced homes: more than one is a position in the list "
+    "rather than a count",
+)
+
+
 def _stack_home_lever(
     view: MechanismView,
     ladder: Ladder | None,
@@ -571,7 +739,10 @@ def _stack_home_lever(
         else abs(candidate_frame) - abs(target_frame)
     )
     declared = None if ladder is None else len(ladder.named)
+    pool = _pool_lane(view)
+    pool_delta = None if pool is None else len(pool.candidate) - len(pool.target)
     measurements: dict[str, Any] = {
+        "pool_lane_length_delta": pool_delta,
         "target_frame_size": target_frame,
         "candidate_frame_size": candidate_frame,
         "frame_delta": delta,
@@ -599,6 +770,13 @@ def _stack_home_lever(
             f"frame ladder: {declared} declared local slot(s) above the "
             "compiler-temp region"
         )
+    if pool_delta:
+        evidence.append(
+            f"pool lane differs in length by {pool_delta:+d}: the "
+            + ("candidate" if pool_delta > 0 else "target")
+            + " colours a web the other side does not, which is a "
+            "declaration-list difference and outranks the frame arithmetic"
+        )
     evidence.append(
         "every declared local reserves a home whether or not it is "
         "register-coloured, and the declared block rounds up to 8 bytes: "
@@ -606,7 +784,20 @@ def _stack_home_lever(
         "-> 0x58, 6 -> 0x58, 5 -> 0x50"
     )
 
-    if delta is not None and delta > 0:
+    if pool_delta:
+        primary = STACK_HOME_FAMILIES[0 if pool_delta > 0 else 2]
+        reason = (
+            "the pool lane is "
+            + (
+                "longer on the candidate, so it"
+                if pool_delta > 0
+                else "shorter on the candidate, so the target"
+            )
+            + " colours a web the other side does not; that names the "
+            "declaration the list is wrong about, and lane evidence is "
+            "ranked ahead of the frame arithmetic"
+        )
+    elif delta is not None and delta > 0:
         primary = STACK_HOME_FAMILIES[0]
         reason = (
             "the candidate's frame is larger than the target's by at least "
@@ -657,10 +848,29 @@ def _stack_home_lever(
     )
 
 
+def _family(name: str) -> EditFamily:
+    return next(item for item in TEMP_RING_FAMILIES if item.name == name)
+
+
+def _traced_constructs(
+    counts: dict[int, int], source: Sequence[str] | None
+) -> dict[int, str]:
+    """Classify each line the ring trace charged a pop to."""
+
+    if source is None:
+        return {}
+    constructs: dict[int, str] = {}
+    for line in counts:
+        text = source[line - 1] if 0 < line <= len(source) else ""
+        constructs[line] = classify_construct(text)
+    return constructs
+
+
 def _temp_ring_lever(
     view: MechanismView,
     ring_events: Sequence[TraceEvent] | None,
     proc: int | None,
+    source: Sequence[str] | None = None,
 ) -> Lever:
     temp = _temp_lane(view)
     pool = _pool_lane(view)
@@ -677,6 +887,7 @@ def _temp_ring_lever(
         "pops_by_line": None,
         "pop_total": None,
         "ring_order": None,
+        "constructs_by_line": None,
     }
     evidence: list[str] = []
     if temp is not None and temp.rotation is not None:
@@ -720,42 +931,94 @@ def _temp_ring_lever(
             + " consume more than one pop each; a line whose pops exceed the "
             "target's ring advance is the statement to edit"
         )
-    # Which family applies is a *direction*: buy a pop or sell one. That
-    # direction is the temp lane's rotation, and where the lane did not
-    # rotate the pop trace says how many pops each line took but not which
-    # way the residual runs -- so no family is named. Defaulting to one of
-    # them would state a direction from nothing.
-    rotation = measurements["temp_lane_rotation"]
-    primary: EditFamily | None
-    needs: tuple[str, ...] = ()
-    if lengths:
-        primary = TEMP_RING_FAMILIES[2]
-        reason = (
-            "the pool lane differs in length, so the residual is a web "
-            "population difference before it is a rotation"
+    # Two independent gates, and a family is named only when both pass.
+    #
+    # The *direction* -- buy a pop or sell one -- is the temp lane's rotation.
+    # The *precondition* is what the charged line actually contains: each
+    # pop-cost rule was measured on one construct, and a pop count says which
+    # line to edit without saying which law reaches it. Naming a family from
+    # the count alone is what made `read-the-field-directly` the answer for a
+    # line holding a cast integer constant, at three inert builds.
+    charged = doubled or sorted(counts)
+    constructs = _traced_constructs(counts, source)
+    if constructs:
+        measurements["constructs_by_line"] = {
+            str(line): value for line, value in sorted(constructs.items())
+        }
+        named = sorted(
+            {
+                CONSTRUCT_FAMILIES[constructs[line]]
+                for line in charged
+                if constructs.get(line) in CONSTRUCT_FAMILIES
+            }
         )
-    elif rotation is None:
-        primary = None
+        evidence.append(
+            "charged line construct(s): "
+            + ", ".join(f"{line} {constructs.get(line, '?')}" for line in charged)
+        )
+    else:
+        named = []
+
+    rotation = measurements["temp_lane_rotation"]
+    primary: EditFamily | None = None
+    needs: tuple[str, ...] = ()
+    if source is None:
         reason = (
-            "the pop counts are read, but no temp lane rotated, so which "
-            "way the ring runs against the target is unmeasured and the "
-            "direction that picks between the families below with it"
+            "the pop counts are read and the line to edit is named, but "
+            "which pop-cost rule that line qualifies for is a property of "
+            "the construct on it, and no source was supplied to check one"
+        )
+        needs = (CAPTURE_SOURCE,)
+    elif not named:
+        reason = (
+            "the charged line(s) hold no construct with a measured pop cost "
+            "-- "
+            + ", ".join(f"{line} is {constructs.get(line, '?')}" for line in charged)
+            + " -- so no family below applies to them, and the nearest one "
+            "is not an answer"
+        )
+    elif len(named) > 1:
+        reason = (
+            "the charged lines hold more than one construct with a measured "
+            "pop cost (" + ", ".join(named) + "), so which of them carries "
+            "the residual is not decided by the counts alone"
+        )
+    elif rotation is None and not lengths:
+        reason = (
+            "the construct on the charged line names a rule, but no temp "
+            "lane rotated and the pool lane is the same length, so which way "
+            "the ring runs against the target is unmeasured"
         )
         needs = (
             "a temp-lane rotation: compare against a target disassembly in "
             "which the temp lane diverges, so the sign of the rotation names "
             "whether the edit buys a pop or sells one",
         )
-    elif rotation < 0:
-        primary = TEMP_RING_FAMILIES[1]
-        reason = (
-            "the candidate is short of the target's ring advance, so the "
-            "edit must buy a pop"
-        )
     else:
-        primary = TEMP_RING_FAMILIES[0]
+        primary = _family(named[0])
+        # The line that *selected* the family, which is not always the first
+        # charged one: a `constant` at line 41 beside a field read at 42
+        # names one family, and reporting line 41's construct beside it would
+        # say a constant is the construct that rule was measured on.
+        selected = next(
+            line
+            for line in charged
+            if CONSTRUCT_FAMILIES.get(constructs.get(line, "")) == named[0]
+        )
+        direction = (
+            "the pool lane differs in length, so the residual is a web "
+            "population difference before it is a rotation"
+            if lengths
+            else "the candidate is short of the target's ring advance, so "
+            "the edit must buy a pop"
+            if rotation is not None and rotation < 0
+            else "the candidate spends a pop the target does not, so the "
+            "edit must sell one"
+        )
         reason = (
-            "the candidate spends a pop the target does not, so the edit must sell one"
+            f"{direction}; line {selected} is a "
+            f"{constructs[selected]}, which is the construct "
+            f"{primary.name} was measured on"
         )
     return Lever(
         lever_class=LEVER_TEMP_RING,
@@ -895,6 +1158,7 @@ def lever_for(
     ring_events: Sequence[TraceEvent] | None = None,
     emit_events: Sequence[EmitEvent] | None = None,
     as1_selections: Sequence[Selection] | None = None,
+    source: Sequence[str] | None = None,
     proc: int | None = None,
 ) -> Lever:
     """Name the source-edit class this residual's evidence supports.
@@ -903,6 +1167,10 @@ def lever_for(
     settles the line question outright, so it is read first; a frame delta is
     an arithmetic fact about two prologues and needs nothing; a ring rotation
     and a line-order conflict each need their own trace and say so.
+
+    `source` is the candidate's C, split into lines. It is not a trace and it
+    decides nothing on its own: it is read only to check whether the line a
+    ring trace charged holds the construct a pop-cost rule was measured on.
     """
 
     if as1_selections:
@@ -921,11 +1189,41 @@ def lever_for(
     if frames_differ or rows or owning == OWNING_PASS_STACK_HOME:
         return _stack_home_lever(view, ladder, rows, homes)
     if owning == OWNING_PASS_UGEN_RING:
-        return _temp_ring_lever(view, ring_events, proc)
+        return _temp_ring_lever(view, ring_events, proc, source)
     if owning == OWNING_PASS_G0_SCHEDULER or emit_events is not None:
         return _line_order_lever(view, emit_events, proc)
 
     proofs = tuple(UNREACHABLE_PROOFS[name] for name in PASS_PROOFS.get(owning, ()))
+    measurements = {
+        "owning_pass": owning,
+        "displaced_home_rows": rows,
+        "webs": len(view.webs),
+    }
+    # A catalogue proof whose precondition the evidence already meets is the
+    # verdict, not a footnote. Printed under `see_also` beside `none-known`
+    # and three capture lines, it read as background and cost a build that
+    # reproduced the proof exactly.
+    met = [
+        proof
+        for proof in proofs
+        if proof.name in PROOF_PRECONDITIONS and PROOF_PRECONDITIONS[proof.name](view)
+    ]
+    if len(met) == 1:
+        settled = met[0]
+        return Lever(
+            lever_class=LEVER_UNREACHABLE,
+            reason=(
+                f"the owning pass reads {owning} and the residual has the "
+                f"shape {settled.name} was measured on: {settled.precondition}"
+            ),
+            unreachable=settled,
+            evidence=(
+                f"{len(view.webs)} consistent web substitution(s) over "
+                f"{sum(item.count for item in view.webs)} site(s)",
+            ),
+            measurements=measurements,
+            see_also=tuple(item for item in proofs if item is not settled),
+        )
     return Lever(
         lever_class=LEVER_NONE_KNOWN,
         reason=(
@@ -934,10 +1232,7 @@ def lever_for(
             "line-order measurement is present"
         ),
         needs=(CAPTURE_RING, CAPTURE_EMIT, CAPTURE_AS1),
-        measurements={
-            "owning_pass": owning,
-            "displaced_home_rows": rows,
-        },
+        measurements=measurements,
         see_also=proofs,
     )
 
@@ -963,4 +1258,6 @@ def format_lever(lever: Lever) -> tuple[str, ...]:
         lines.append(f"  or ({family.name}) when {family.discriminator}")
     for proof in lever.see_also:
         lines.append(f"  see also ({proof.name}): {proof.proof}")
+        if proof.precondition:
+            lines.append(f"    applies when: {proof.precondition}")
     return tuple(lines)

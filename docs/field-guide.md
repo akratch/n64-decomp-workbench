@@ -826,6 +826,15 @@ The third is the one to reach for when the **pool** lane differs in *length*
 and not only in content: that is a web population difference, and no rotation
 lever fixes it.
 
+**Check the construct on the charged line before you believe the family.** The
+pop count names the line; it does not name the law. Each rule above was
+measured on one construct, so pass the candidate's C with `--source` and read
+`constructs_by_line`: a charged line reported `constant` or `unclassified`
+qualifies for none of them, and the block says so instead of naming the nearest.
+A field test spent three builds on `read-the-field-directly` for a line whose
+local held a cast integer constant; all three spellings compiled
+byte-identically, because L76 is measured on a struct field.
+
 **Two pops off means two of these, and neither works alone.** On the function
 that established the first two, each lever on its own scored *worse* than the
 plateau — 25 differing words against 8 — and composing them was exact. A
@@ -1023,11 +1032,32 @@ tell you what not to spend.
 | `uopt-coalescing-tie-break` | the web is coloured on a tie between the call's argument register and its return register, and the locals the pool lane suggests merging are already coalesced | a forced-colour probe (CDX), which decides the tie directly |
 | `cfe-pointer-add-order` | at one pointer-add expression, typed-pointer commutations, casts and assignment forms are recorded exhausted; byte-offset arithmetic *did* move the temp order, and was kept, but to mask/scale/pointer where the target wants mask/pointer/scale | a source form yielding mask, pointer, scale — the one order no tried spelling produced |
 
-`diagnose --as1-trace` reports the first as a **measurement**: the deciding key
-of a selection says whether the line lever reaches a block, and a selection
-decided above `lineno` is decided by readiness. The other three are catalogue
-entries, printed under `see_also` and never as the diagnosis, because nothing
-in two disassemblies distinguishes them.
+Two of these are reported as **measurements**, and when they are, the class is
+`unreachable` rather than `none-known`. `as1-readiness` needs an `--as1-trace`
+whose selections are all decided above the line key.
+`uopt-coalescing-tie-break` needs only what two disassemblies already carry:
+the colourer owning the residual, and one consistent web substitution across
+its sites between the registers a call takes its argument in and returns in.
+A lone `s0`->`s1` web is also one web under the colourer, and this proof says
+nothing about it. The other two describe shapes a disassembly cannot
+distinguish, so
+they stay under `see_also` — each with an `applies when:` line stating the
+shape it was measured on, for you to check.
+
+That promotion exists because the alternative was measured. A field test met
+`none-known`, three `capture:` lines and this proof as a footnote, read the
+proof, and spent one build to confirm it: the carrier coalesced away
+byte-identically, exactly as the proof says. The build was the cost of printing
+a met proof as background.
+
+**And the honest `none-known` is worth as much.** In the same field test
+`func_8003A2C8` returned `none-known`, `routing=permuter-first`,
+`reachability=permuter-target`, with the note that one of its five
+substitutions wants `t6` — a register the era's colouring pass never hands out
+([L64](compiler-laws/ido-5.3.md#l64-the-integer-temp-ring-is-seeded-t6-t7-t8-t9-t0--t5)).
+No build was spent, and none should have been: a ring-only target register is a
+measurement no hand lever can argue with, and the routing had already named the
+tool that can. Declining to guess is an output, not a gap.
 
 **And "unreachable" is still not a wall.** Every one of these is a statement
 about *hand* levers. Run
@@ -1313,6 +1343,16 @@ zero(count * (s32)sizeof(Entry));
 ```
 
 Three directions, one family, and the frame arithmetic picks between them:
+
+**Read the pool lane before the frame.** The ranking is: an unequal pool lane
+first, then the frame delta, then the number of displaced homes. A pool lane
+longer on the candidate means it colours a web the target keeps elsewhere,
+which points at the declaration list more directly than a byte count does. A
+field test on a six-line function had equal frames and one displaced home — on
+frame arithmetic alone that reads as "one declaration too many", and there was
+no dead local to reuse; the pool lane's surplus web named declaration
+placement, and declaring an index and a pointer ahead of a large `u8` buffer
+closed both stack constants, 8 words to 6.
 
 | The measurement says | The edit | Measured on |
 |---|---|---|
