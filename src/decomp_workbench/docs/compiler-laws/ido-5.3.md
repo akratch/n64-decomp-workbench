@@ -37,14 +37,18 @@ from scratch because they were nowhere on this page. Two of them (L69, L70)
 are not compiler behaviour at all but **measurement** laws about harnesses
 that lie, filed under Measurement laws for that reason.
 
-Laws L72–L82 come from the same campaign's overlay cohort (2026-09-02/03),
-thirteen targets worked in three days with an instrumented ugen and the
-assembler's own scheduler trace. Seven of them state what an edit *does*
-(L72–L74 the frame, L76–L78 the ring, L80 the hoisted line) and four state
-what no edit does (L75, L79, L81, L82); L79 carries a delay-slot corollary of
-the same kind. The second group is the more expensive half: each of those was established by
-spending builds until the mechanism was read, and each is now a test an
-analyst can run before spending them again.
+Laws L72–L82 come from the same campaign's overlay lever cohort
+(2026-09-02/03): seven lanes carrying **22** targets with measured work, run
+with an instrumented ugen and the assembler's own scheduler trace. These laws
+name 19 of those 22; the twentieth function they name, `levelFreeAll` in L75,
+is a resident target from a separate shard and is outside the cohort.
+
+Seven of them state what an edit *does* (L72–L74 the frame, L76–L78 the ring,
+L80 the hoisted line) and four state what no edit does (L75, L79, L81, L82);
+L79 carries a delay-slot corollary of the same kind. The second group is the
+more expensive half: each of those was established by spending builds until
+the mechanism was read, and each is now a test an analyst can run before
+spending them again.
 
 ## What a receipt may cite
 
@@ -398,141 +402,181 @@ and front-end cohorts.
 
 Every declared local reserves a home
 ([L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)),
-including one the allocator colours into a register and never spills; the
-reservation is a property of the declaration, not of the value's fate. But the
-block is rounded up to **8 bytes**, so the *n*th declaration is free whenever
-the block is already odd, and a declaration count is therefore not a frame
-size. The operational rule is the negative one: **read the frame, do not count
-the declarations.**
+including one the allocator colours into a register and never spills;
+`register` does not suppress the reservation, and that was measured rather
+than assumed. But the block is rounded up to **8 bytes**, so a declaration is
+free whenever the block is already odd, and a declaration count is therefore
+not a frame size. The operational rule is the negative one: **read the frame,
+do not count the declarations.**
 
 **Receipt — T2**, a five-build ladder on one function. On
 `func_overlay_022_F0000000` seven declared locals give a `0x58` frame, six give
 `0x58`, and five give `0x50`: the 7→6 step is the rounding and is free, the
-6→5 step is the quantum. Both endpoints were whole-object builds through the
-project path.
+6→5 step is the quantum.
 
 **Falsifies.** "Removing a declaration shrinks the frame by four." Half of
-these steps cost nothing. It also falsifies the reverse inference, which two
-campaign agents made in one week: that an 8-byte frame difference names two
-declarations. It names one quantum, and how many declarations that is depends
-on where the block already sat.
+these steps cost nothing. It also falsifies the reverse inference: that an
+8-byte frame difference names two declarations. It names one quantum, and how
+many declarations that is depends on where the block already sat.
 
-**Counter-examples, both measured, and neither is a hedge.** Not every declared
-scalar owns a home: on `func_overlay_036_F0000818` removing a declared scalar
-and respelling its six statements produced a **byte-identical** object, so that
-declaration was reserving nothing. And a frame delta is not always a
-declaration: on `func_overlay_029_F0000EE0` folding two locals into one left
-the frame at `-112` and cost two words, because the 8 bytes belonged to the
-caller-save staging around a call and not to the declaration list. A residual
-whose frame differs is a stack-home residual; a residual whose frame differs
-*because of the declaration list* is a claim that needs the frame measured on
-both sides of the edit.
+**Counter-examples, both measured.** Not every declared scalar owns a home. On
+`func_overlay_036_F0000818` removing `center` **together with** the
+six-statement high/low juggle it feeds — four locals instead of six — produced
+a **byte-identical** object (sha1 `d5b15a9c149a`, 63 instructions, frame
+`0x80`, the same 7 differing words), and the same sha1 is produced by a variant
+that replaces the juggle and removes **no** declaration at all. Two
+declarations came out for nothing, which is what the lane means by "`center`
+never owned a home"; on that function the frame moves only when one particular
+local goes, and never reaches the target's. Second: a frame delta is not
+always a declaration. On `func_overlay_029_F0000EE0` folding two locals into
+one left the frame at `-112` and cost two words (29 → 31). That lane's own
+next-lever line reads the two surplus words as temp/staging homes rather than
+declarations, and proposes attacking the caller-save staging around a call;
+that is a hypothesis it recorded, not a cause it measured, and it is repeated
+here as one.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay lever
-cohort, `func_overlay_022_F0000000` frame ladder.
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), lane `lever-ov6`
+for the frame ladder and the `func_overlay_036` counter-example, lane
+`lever-ov8` for the `func_overlay_029` counter-example.
 
-### L73. A value the target homes below the declared block is reached by de-declaring it
+### L73. The declared-local *count*, not only the order, places a call-crossing home
 
-The block order is `[declared locals][cfe temps][uopt temps]`
+The frame block is `[declared locals][cfe temps][uopt temps]`
 ([L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)),
-and the boundary between the first two regions is not addressable from source
-except by moving a value across it. So when the target homes a call-crossing
-value **one word below** the lowest declared home and the candidate homes it
-inside the declared block, no reordering reaches it: reordering permutes slots
-within a region. The edit is to stop declaring the value, so that the same
-expression — repeated at each use, and live across the call — becomes a common
-subexpression and takes a compiler-temp home instead.
+and declared locals take descending homes from the frame top in declaration
+order ([L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)).
+Reordering permutes slots inside the declared region. Changing how many locals
+are declared moves a value between regions, and that is a different lever with
+three directions.
 
-> Therefore the three stack-home edits are one edit family in three
-> directions: **drop** a declaration to move a value down across the boundary,
-> **reuse** an existing dead local as the carrier so the declared count falls
-> by one, or **declare later** so a value keeps its region and changes its slot.
+> **Drop** a declaration, so a call-crossing common subexpression stays a
+> compiler temporary and is homed in the temp region. **Reuse** a local that
+> is already dead as the carrier, so the declared count falls by one and a
+> later spill moves one slot. **Declare later**, so a value keeps its region
+> and changes its slot.
 
-**Receipt — T2**, three exact matches in one day, one per direction. Dropping
-the byte-count local and repeating its expression at both call sites moved it
-to the target's compiler-temp home and took `overlay34InitStorage` from 46/50
-words to exact. Carrying a value in a local already dead at that point, rather
-than declaring a second, took `func_overlay_026_F0000B18_187AF10` from 129/131
-to exact at an unchanged 131-word object. Declaring a displaced pair *after*
-the local whose slots it must follow took `overlay84InitializeAndUpdate` from
-172/179 to exact on a uniform two-word displacement. All three are whole-object
-matches through the project build.
+**Receipt — T2**, three matches on 2026-09-03, one per direction, each
+recorded with its offsets.
 
-**Falsifies.** The reading of [L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)
-that treats declaration *order* as the whole lever. Order chooses a slot inside
-the declared region; it cannot move a value out of that region, and a residual
-whose target home sits below every declared home will not yield to any
-permutation of the declaration list. Two of the three matches above had already
-been through an order sweep.
+* `overlay34InitStorage`, 46/50 words to exact. Frame `0x30` on both sides;
+  besides `ra` at `sp+0x14` the only in-frame home was the byte count, at
+  `sp+0x18` in the candidate against `sp+0x1C` in the target. Passing
+  `count * (s32)sizeof(...)` into both calls and repeating the expression makes
+  it a call-crossing common subexpression, which the hand-off records as taking
+  a temp home rather than a declared-local home. **Note the direction as it is
+  recorded**: the sp-relative offset moves *up* one word, `0x18` to `0x1C`,
+  while the project's learnings page describes the same move as "one word
+  lower" in the ladder's top-down ordering. Both descriptions are of this one
+  measurement; nothing here resolves them into a general direction.
+* `func_overlay_026_F0000B18_187AF10`, 129/131 words to exact at an unchanged
+  131-word object. Thirteen declared locals occupy `sp+0x44..0x74` descending
+  from the frame top, with the sole caller-save temp immediately below at
+  `sp+0x40`; the target spills at `sp+0x44`, so it has twelve declared locals
+  and the frame rounds up, leaving `sp+0x40` a hole. A local dead after the
+  normalisation divides carries the value and the separate one disappears.
+* `overlay84InitializeAndUpdate`, 172/179 words to exact. The target homes the
+  pair at `sp+0x44`/`sp+0x40`, the candidate at `sp+0x4C`/`sp+0x48`; declaring
+  the pair after the local whose slots it must follow lands them on the retail
+  offsets.
 
-**Scope.** The repeated expression must be one the compiler will actually
-common — call-crossing and identical at both sites. Where it is not, the cost
-is an extra materialisation rather than a home: on `func_overlay_026` inlining
-the difference at three sites declined the CSE and grew the object by four
-words.
+**A caveat on these three receipts, from the record.** The two matches in the
+first lane were promoted with the resident call sites left unrebound, and the
+campaign branch they merged into **failed to link** until a later lane declared
+the missing `objcopy --redefine-sym` steps; that hand-off states that anything
+reporting a verified match after those promotions merged should be re-checked.
+The per-function evidence above — offsets, word counts, and the third match's
+`promotion_trial exact in=0 out=0` — is what the lanes recorded; a whole-ROM
+verification of the first two inside that window is not claimed here and has
+not been re-run against the current tree.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-03), `overlay34InitStorage`,
-`func_overlay_026_F0000B18_187AF10`, `overlay84InitializeAndUpdate`.
+**Falsifies.** The reading of L63 that treats declaration *order* as the whole
+lever. One of the three had already been through an order sweep:
+`overlay34InitStorage` records reordering its four locals as having no effect,
+because only one of them is ever homed.
 
-### L74. An address-taken aggregate anchors the declared block from below
+**Scope.** The repeated expression must be one the compiler actually commons.
+Where it declines, the cost is an extra materialisation:
+`func_overlay_026`'s ruled-out variant inlined the difference at three sites
+and the CSE declined, at **135 words**.
 
-A declared aggregate whose address is taken is placed at the bottom of the
-declared region, and everything below it — the whole compiler-temp area — is
-measured from its edge. So moving an aggregate up the declaration list does not
-merely reorder two homes: it moves the temp region by the aggregate's size, and
-every temp home with it. Deleting the aggregate collapses the frame by its
-rounded size.
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), lanes `lever-ov3`
+(the first two) and `lever-ov4` (the third).
+
+### L74. An 8-byte aggregate declared last sits below the temp region and holds the frame from there
+
+A declared aggregate at the end of the declaration list is placed **below the
+temp region**, and the frame size is held from there. Moving it up the list
+does not merely reorder two homes: the whole temp region moves by its size,
+and every temp home with it. Deleting it collapses the frame.
 
 **Receipt — T2**, two builds against one target. On
-`overlay84InitializeAndUpdate` moving an 8-byte scratch array above the first
-scalar put the two scalars on their target homes and dropped the entire temp
-region by 8 bytes, moving an argument's home from `sp+0x38` to `sp+0x30` — 10
-differing words where the reorder alone gave exact. Deleting the same array
-collapsed the frame from `0x58` to `0x50` and cost 30 words.
+`overlay84InitializeAndUpdate` an 8-byte `scratch` aggregate declared last
+holds the frame at `0x58`. Moving it above the first scalar puts the two
+scalars on their target homes but drops the whole temp region by 8 bytes,
+moving an argument's home from `sp+0x38` to `sp+0x30` — **10 words**, where
+the declaration reorder alone
+([L73](#l73-the-declared-local-count-not-only-the-order-places-a-call-crossing-home))
+gave exact. Deleting it collapses the frame from `0x58` to `0x50`, **30
+words**. The hand-off's conclusion is that `scratch` must stay last, and that
+it is load-bearing rather than decoration.
 
-**Falsifies.** "An unused-looking local array is spendable." It is the block's
-floor. That is a different claim from
+**Falsifies.** "An unused-looking local array is spendable." Here it is what
+holds the frame. That is a different claim from
 [L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame), which is about
-the *interior* of an array whose address is taken and which stays declared.
+the *interior* of an array that stays declared.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+**Scope.** One 8-byte aggregate in one function, at the end of one declaration
+list. The hand-off does not record whether its address is taken, and no such
+premise is claimed here; a third variant that folded the two scalars into an
+`s32 range[2]` and dropped `scratch` reached 109 instructions at frame `0x50`,
+which is a different shape and not a further measurement of this law.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), lane `lever-ov4`,
 `overlay84InitializeAndUpdate`.
 
-### L75. cfe canonicalises every pointer-add to walk the pointer first
+### L75. The temp order at a pointer add: what moves it, and what the record says does not
 
-An expression that adds an integer to a pointer is canonicalised by cfe into
-one shape, with the pointer as the first operand, before any temp is allocated
-for it. Because ugen's free order follows operand order
-([L11](#l11-ugen-frees-a-binary-ops-sources-in-operand-order)), the temp
-sequence a pointer-add produces is fixed by that canonicalisation and is not a
-property of how the addition was spelled. Commuting the operands, casting
-either side, changing the assignment form and routing through a typed pointer
-all produce the same object.
+**This law was overstated and is restated to its evidence.** It previously
+claimed that cfe canonicalises every pointer-add so that *no* spelling
+reorders the temps it allocates, and cited a basin of five spellings
+collapsing to one object and a flat permuter run. Neither is in the record,
+and the record contradicts the scope: byte-offset arithmetic — named there as
+the untried direction — was tried, and it *did* move the order.
 
-> Therefore a residual that needs a *different* temp order across a pointer-add
-> is not reachable by respelling the add. It is reachable, if at all, by not
-> writing an add of a pointer: compute the byte offset in an integer and add
-> once.
+What the shard records is narrower and still worth having. At one pointer-add
+expression the baseline allocates **pointer, mask, then scale**. Semantically
+equivalent byte-offset arithmetic changes that order to **mask, scale, then
+pointer**, which makes the masked index exact and improves the body from
+112/117 to 114/117 words with no change to size, frame, calls or relocations.
+The order the target needs is **mask, pointer, then scale**, and no tried form
+produces it.
 
-**Receipt — T2**, a basin of five spellings. On `levelFreeAll` (114/117 words,
-frame `0x28`, all 36 relocations exact on offset, type and identity) five
-distinct source spellings of the same pointer arithmetic produced **one
-identical object**, and a decomp-permuter search over the same function was
-flat. A hash-pinned instrumented ugen's source-line trace, gated against stock
-output for text, rodata, data, relocations and symbols, showed the baseline
-allocating pointer, mask, then scale at the one mismatching expression, where
-the target's order is mask, pointer, scale.
+> Therefore: the byte-offset rewrite is a real lever on this order and is
+> already spent. Typed-pointer commutations, casts and assignment forms are
+> recorded as exhausted, and repeating them is the recorded do-not-repeat.
 
-**Falsifies.** The standing assumption that operand order at a pointer add is
-a source lever, which it is at an integer add
-([L1](#l1-free-order-is-cfes-operand-order)). The two cases are not the same
-construct once cfe has canonicalised one of them.
+**Receipt — T2, with a T1 trace behind the order it names.** `levelFreeAll`
+(`src/main/level.c`), 114/117 words, frame `0x28`, first mismatch `+0x13C`,
+36/36 relocation offsets, types and identities exact. A hash-pinned IDO 5.3
+ugen build that passed stock object fidelity for text, rodata, data,
+relocations and symbols supplied the allocation order through its source-line
+trace. Three register-only words remain, the pointer and scale temporaries
+exchanged.
 
-**Scope.** Measured on one function's byte-offset arithmetic. The remaining
-direction — a formulation with no pointer add in it — was identified and not
-tried, so this law says what does not move the order, not that nothing does.
+**Falsifies.** Its own earlier statement, above, and the habit that produced
+it: reading a plateau note's "next lever" line as a description of what was
+tried. The shard's `retained gain` field records the byte-offset rewrite as
+**kept**, not as a suggestion.
 
-**Provenance:** Mickey's Speedway USA decomp, `levelFreeAll` triage shard.
+**Scope.** One resident function, one expression. Nothing here says which pass
+fixes the order, and no claim is made that a pointer add is canonicalised:
+the one spelling change that was measured moved it. The remaining question is
+which source form yields mask, pointer, scale.
+
+**Provenance:** Mickey's Speedway USA decomp, the project's own
+`levelFreeAll` plateau-handoff shard, which carries no date. It is a resident
+function; the overlay lever cohort behind L72–L74 and L76–L82 does not include
+it.
 
 ---
 
@@ -1505,16 +1549,13 @@ function did not move under any of a dozen line layouts.
 (`L-st-1`…`L-st-3`), re-confirmed inert on two later bases by stages
 `wordsaudit` (`L-wa-2`) and `finalframe`.
 
-### L79. `besttime` is a key L59 omits, and a selection decided above `lineno` has no source lever
+### L79. A selection decided above `lineno` has no source lever
 
-[L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) states
-as1's selection chain without `besttime`, which is a real key and sits above
-`aftercycles` in the reading this workbench's decoder reproduces. The
-correction matters less than its consequence, which is the operational law:
-**`lineno` is the last key in the chain, so a selection decided on any earlier
-key is decided by readiness or by the critical path, and no statement placement
-reaches it.** The deciding key of a selection is therefore a reachability
-test — the cheapest one on this page, because the assembler prints it.
+`lineno` is the **last** key in as1's selection chain, so a selection decided
+on any earlier key is decided by readiness or by the critical path, and no
+statement placement reaches it. The deciding key of a selection is therefore a
+reachability test — the cheapest one on this page, because the assembler
+prints it.
 
 A second, sharper form for the delay slot. In a block of *N* pre-branch nodes
 whose branch becomes ready at cycle *N*−1, exactly one node is always left
@@ -1524,92 +1565,120 @@ node picked. So a target that fills its delay slot from below needs a block
 with a different node *count*, which is an instruction-count change and not a
 placement change.
 
-**Receipt — T1**, from `cc -Wa,-R`, across four functions and one positive
-control. On `overlay1FindNextAngle` the pre-branch block holds four nodes; a
-stack reload is picked at cycle 0 on the longest critical path, two more follow,
-the branch becomes ready at cycle 3 on a load-use latency, and at cycle 3 it
-outranks the remaining zero-latency initialiser — so the initialiser is left
-over and takes the slot, where the target's branch is picked at cycle 4 with
-nothing left over. Seven `-Wa,-R` traces and three full builds moved nothing:
-hoisting the loop counter split its web and added a copy that became the new
-leftover; the same hoist as a comma operator was byte-identical to it; three
-separate line joins left the **object hash unchanged**. The positive control
-closes it: moving one load inside the guarded block leaves three fillers, the
-branch becomes the last node picked, and as1 *does* perform the successor fill
-the target shows — the mechanism is live, and the obstacle is the node count.
+**Receipt — T1**, from `cc -Wa,-R`. On `overlay1FindNextAngle` and its
+identically-shaped twin `overlay1FindPreviousAngle` (2 words each) the
+pre-branch block holds four nodes: the stack reload of the count is picked at
+cycle 0 on the highest `aftercycles`, the address-high node at cycle 1, the
+float load at cycle 2, and the branch becomes ready at cycle 3 on a load-use
+latency. At cycle 3 the branch (`aftercycles` 1) outranks the remaining
+zero-latency initialisation (`aftercycles` 0), so the branch is picked and the
+leftover node necessarily fills the slot; the target has the branch picked at
+cycle 4 with no leftover. **Seven levers were tried, over 7 as1 traces and 3
+full builds.** Five were inert on the pair — three line joins, one of which
+left the object sha1 unchanged from the baseline, and two hoists of the
+loop-counter initialiser that regressed to 51 instructions and 36 differing
+words (the comma-operator form of the hoist was byte-identical to the plain
+one). **One did move the schedule**: swapping the result initialiser above the
+limit load put the *float load* into the delay slot instead, which confirms
+the line tie-break among equal-`aftercycles` ready nodes and does not move the
+branch. The positive control closes it: moving the limit load inside the
+guarded block leaves three fillers, the branch becomes the last node picked,
+and as1 *does* perform the successor fill the target shows — the mechanism is
+live, and the obstacle is the node count.
+
 Three further functions fail the same test for three different reasons, which
-is what makes it a test rather than one function's story: on
-`overlay11UpdateMenu` **every node in the block carries the same source line**,
-so the line key has nothing to discriminate on; on `overlay33InitializeBuffers`
-the two nodes differ on `aftercycles`; on `overlay1ResolvePathPoint` they tie on
-`aftercycles` and separate on `besttime`.
+is what makes it a test rather than one function's story. Their lane iterated
+**compile-only** (`cc -Wa,-R` plus objdump), with a promotion trial as the
+closing oracle, so no build count attaches to them. On `overlay11UpdateMenu`
+every node in the block is stamped with the call statement's line, so the line
+key has nothing to discriminate on; on `overlay33InitializeBuffers` the two
+nodes differ on `aftercycles` (0 against 1); on `overlay1ResolvePathPoint`
+they tie at `aftercycles` 4 and separate on `besttime`.
 
 **Falsifies.** The general reading of L59 as "schedule residuals are a line
-lever". They are, when `lineno` decides — and that case closed two functions the
-same week ([L80](#l80-a-loop-invariant-hoist-carries-the-loop-headers-line)). When
-an earlier key decides, the line lever is not merely unlikely to work; it
-provably cannot, and thirteen builds across four functions were spent proving
-it one function at a time before the key was read.
+lever". They are, when `lineno` decides — and that case closed two functions
+the same week
+([L80](#l80-a-loop-invariant-hoist-carries-the-loop-headers-line)). When an
+earlier key decides, the line lever is not merely unlikely to work: the seven
+levers above are what it costs to establish that one function at a time.
 
-**Scope, and one disagreement left open.** Two campaigns place `besttime` and
-`aftercycles` differently relative to each other, and neither's recorded
-selections separate the two orderings decisively. Nothing above depends on the
-answer: `start_time` outranks both under either reading, and `lineno` is last
-under both, which is all the reachability test uses.
+**Scope, and a disagreement about the chain that is left open.** These
+hand-offs record the order as **highest `aftercycles` first, ties broken by
+lowest `besttime`** (release recency, following ugen's emission order). This
+workbench's own decoder places `besttime` *above* `aftercycles` and maximises
+both, reproducing its own fixture's 2688 selections; L59 lists neither key in
+that position and omits `besttime` entirely. Three readings, and nothing above
+depends on which is right: readiness is the outer key and `lineno` is the last
+key under all three, which is all the reachability test uses. Settling it is
+improvement-backlog item 15's first job.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-02/03), overlay 1 and
-overlay 11/33 lever cohorts; decoder agreement checked against the workbench's
-`as1-reorganize` fixture.
+**Provenance:** Mickey's Speedway USA decomp (2026-09-02/03), lane
+`lever-as1` for the overlay 1 pair and lane `lever-ov2` for the other three.
 
 ### L80. A loop-invariant hoist carries the loop header's line
 
 When an address or a bound is hoisted into a loop preheader, ugen stamps the
 hoisted record with the **loop header's** source line, not the line of the
 statement that uses it. Every initialiser written above the loop therefore
-carries a strictly lower line into as1 and wins the minimised `lineno` key with
-no dependence edge behind it. The initialiser cannot be moved later — it is
-already as late as C allows — so the lever is to remove the difference rather
-than to reverse it: put the initialiser on the loop header's **physical line**.
+carries a strictly lower line into as1 and wins the minimised `lineno` key
+with no dependence edge behind it. The initialiser cannot be moved later — it
+is already as late as C allows — so the lever is to remove the difference
+rather than to reverse it: put the initialiser on the loop header's
+**physical line**.
 
 A second-order form. Where the preheader materialises *several* invariants,
-their order among themselves is ugen's **birth order**, and birth order follows
-source statement order. A bound kept in a local is born before a count read
-inline; spelling the bound inline in the loop test moves its birth after the
-count.
+their order among themselves is ugen's **birth order**, and birth order
+follows source statement order. A bound kept in a local is born before a count
+read inline; spelling the bound inline in the loop test moves its birth after
+the count.
 
-**Receipt — T1**, from `DKWB-EMIT-V1` emit-provenance records, four functions.
-`overlay40UpdateEntries` had been recorded "no dependency edge authenticates a
-new source form" at 44/46 words, with four regressed variants behind the
-verdict; `remaining = 7; do {` on one physical line took it to **exact**.
-`overlay57HandleModeInput`, recorded as needing "source-authentic evidence for
-IDO's base-address scheduling", closed the same way under the project's
-relocation-masked comparison. `func_overlay_047_F00009D0` needed one join per
-loop and went from 10 to 6 words, having first been sent the wrong way by
-explicit end-pointer locals — those flipped the *high* halves instead, because
-birth order follows statement order. `func_overlay_014_F0000000` needed both
-halves of this law: the bound spelled inline to change its birth order, and the
-cursor's initialiser joined to the `do {` line. Every one of these translation
-units passes the fidelity gate: built through the instrumented `cc` with traces
-off, `.text` is `cmp`-identical to stock.
+**Receipt — T1 on two functions, T2 on two more.** The emit-provenance records
+(`DKWB-EMIT-V1`) were read for exactly two: `overlay40UpdateEntries`, recorded
+"no dependency edge authenticates a new source form" at 44/46 words with four
+regressed variants behind the verdict, went to **exact** with the loop-count
+initialiser joined to the loop header's physical line — `remaining = 7; do {`
+as the source spells it, `count = 7; do {` in the generic form the project's
+own learnings page uses; and `overlay57HandleModeInput`, recorded as needing
+"source-authentic evidence for IDO's base-address scheduling", lost its three
+scheduled words the same way. Both on 2026-09-02. **Only those two carry a
+recorded fidelity gate**: built through the instrumented `cc` with traces off,
+`.text` is `cmp`-identical to stock in both the shipped (`GLOBAL_ASM`) and
+`-DNON_MATCHING` configurations.
 
-**Falsifies.** Two recorded "unreachable by statement placement" verdicts, both
-correct about the evidence in front of them and both wrong. The line the
-scheduler reads was never printed, so the analyst compared the lines they could
-see — the statements' own — and concluded that the earlier statement was
+The other two were closed on `diagnose` and `cc -Wa,-R`, with no emit trace.
+`func_overlay_047_F00009D0` showed the LO16 relocation identities swapped at
+the head of both release loops, with the pool lane confirming the two `addiu`s
+issued cursor-first where retail issues bound-first; `entry = &D_0_entries;
+do {` on one line, once per loop, took it from 10 words to 6. It had first
+been sent the wrong way by explicit end-pointer locals initialised before the
+cursors — still 10 words, and flipping the `lui` pair instead, because birth
+order follows statement order. `func_overlay_014_F0000000` needed both halves:
+the bound spelled inline in the tail test so it is hoisted after the count,
+and the cursor's initialiser joined to the `do {` line; 4/4 words, promotion
+trial exact, ROM verifies.
+
+**Falsifies.** Two recorded "unreachable by statement placement" verdicts,
+both correct about the evidence in front of them and both wrong. The line the
+scheduler reads was never printed, so the analyst compared the lines they
+could see — the statements' own — and concluded that the earlier statement was
 already as early as it goes. It was; the hoist was later than it looked.
 
 **Scope, and a negative control worth running.** The join works where the two
 records are separated **only** by their lines. Where they are not, it is inert
-and says so cheaply: on `func_overlay_022_F0000000` joining a store's assignment
-to the `if` line compiled byte-identically, and on `func_overlay_070_F00000D8`
-the comma-joined form of a statement split did the same
+and says so cheaply: on `func_overlay_022_F0000000` joining the carrier's
+assignment onto the `if` line compiled byte-identically, so that store pair is
+not line-scheduled, and on `func_overlay_070_F00000D8` the comma-joined form
+of a statement split did the same
 ([L78](#l78-a-pool-carried-accumulate-keeps-a-field-in-its-web-the-fused-form-spends-a-temp)).
 A byte-identical object under a line join is evidence the residual is not
-line-owned, and it costs one build.
+line-owned, and it costs one build. The lever also does not apply to register
+renames, to delay-slot fills chosen by latency, or to relocation-surface
+differences.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-02/03),
-`overlay40UpdateEntries`, `overlay57HandleModeInput`,
-`func_overlay_047_F00009D0`, `func_overlay_014_F0000000`.
+**Provenance:** Mickey's Speedway USA decomp, the emit-provenance pass
+(2026-09-02) for `overlay40UpdateEntries` and `overlay57HandleModeInput`, lane
+`lever-ov7` (2026-09-03) for `func_overlay_047_F00009D0` and lane `lever-ov2`
+for `func_overlay_014_F0000000`.
 
 ---
 
