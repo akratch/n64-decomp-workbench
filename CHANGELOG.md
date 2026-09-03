@@ -3,6 +3,13 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
+## Unreleased
+
+- `instrument-drop-in` passes `--in-place` when a plan rewrites a source in
+  place; the generated script previously stopped at its first step, leaving
+  the old drop-in installed (found rebuilding the Mickey toolchain,
+  2026-09-03).
+
 ## 0.8.0 - 2026-09-03
 
 ### The lever diagnosis
