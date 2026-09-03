@@ -24,6 +24,7 @@ from decomp_workbench.emit_provenance import parse_emit_trace
 from decomp_workbench.field_guide import PASS_LAWS
 from decomp_workbench.frame_ladder import frame_ladder
 from decomp_workbench.levers import (
+    LEVER_CLASS_VALUES,
     LEVER_LINE_ORDER,
     LEVER_NONE_KNOWN,
     LEVER_SCHEMA,
@@ -381,9 +382,83 @@ class RenderingTests(unittest.TestCase):
         self.assertNotIn("schema", payload)
         self.assertEqual(LEVER_SCHEMA, "decomp-workbench-lever-v1")
 
+    def test_every_class_keeps_the_documented_nullability(self) -> None:
+        """`docs/json-contracts.md` states four invariants. Hold every one.
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
+        The contract is what a consumer switches on, so the cases are
+        enumerated rather than sampled: a lever with a family, one with none
+        because its trace is absent, one that ruled the edit out, and one that
+        found nothing to say.
+        """
+
+        ring = view_for(
+            (ROOT / "examples" / "fixtures" / "phase-shift-target.objdump").read_text(
+                encoding="utf-8"
+            ),
+            (
+                ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
+            ).read_text(encoding="utf-8"),
+        )
+        selections, _events, _ignored = parse_as1_reorganize_trace(
+            (ROOT / "examples" / "traces" / "as1-reorganize.log").read_text(
+                encoding="utf-8"
+            )
+        )
+        readiness = [item for item in selections if item.tie == "start-time"]
+        levers = [
+            lever_for(view_for(HOME_TARGET, HOME_CANDIDATE)),
+            lever_for(ring),
+            lever_for(ring, ring_events=parse_trace(RING_TRACE), proc=3),
+            lever_for(ring, as1_selections=readiness),
+        ]
+        for lever in levers:
+            payload = lever.as_dict()
+            with self.subTest(lever_class=payload["lever_class"]):
+                self.assertIn(payload["lever_class"], LEVER_CLASS_VALUES)
+                # `edit`/`citation` travel with `edit_family` or not at all.
+                named = payload["edit_family"] is not None
+                self.assertEqual(named, payload["edit"] is not None)
+                self.assertEqual(named, payload["citation"] is not None)
+                # `unreachable` is present exactly for the unreachable class.
+                self.assertEqual(
+                    payload["unreachable"] is not None,
+                    payload["lever_class"] == LEVER_UNREACHABLE,
+                )
+                # A ruled-out residual never also names an edit.
+                if payload["lever_class"] == LEVER_UNREACHABLE:
+                    self.assertIsNone(payload["edit_family"])
+                # `see_also` is a pointer, never a diagnosis: it appears only
+                # where nothing was named.
+                if payload["see_also"]:
+                    self.assertIsNone(payload["edit_family"])
+                    self.assertIsNone(payload["unreachable"])
+
+    def test_only_stack_home_names_a_family_while_needs_is_non_empty(self) -> None:
+        """The one exception the contract has to spell out.
+
+        A stack-home family is picked from the frame pair, which every
+        disassembly carries, so `--ladder` corroborates a named family rather
+        than producing one. Every other class reads its family from a trace,
+        and says `edit_family: null` until it has one.
+        """
+
+        stack_home = lever_for(view_for(HOME_TARGET, HOME_CANDIDATE))
+        self.assertIsNotNone(stack_home.family)
+        self.assertTrue(stack_home.needs)
+
+        untraced = lever_for(
+            view_for(
+                (
+                    ROOT / "examples" / "fixtures" / "phase-shift-target.objdump"
+                ).read_text(encoding="utf-8"),
+                (
+                    ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
+                ).read_text(encoding="utf-8"),
+            )
+        )
+        self.assertEqual(untraced.lever_class, LEVER_TEMP_RING)
+        self.assertIsNone(untraced.family)
+        self.assertTrue(untraced.needs)
 
 
 class DiagnoseCommandTests(unittest.TestCase):
@@ -559,3 +634,7 @@ class LawCitationTests(unittest.TestCase):
             law for entries in PASS_LAWS.values() for _era, law, _summary in entries
         }
         self.assertTrue({"L72", "L73", "L76", "L77", "L79", "L80"} <= cited)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

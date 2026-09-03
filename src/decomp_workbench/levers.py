@@ -2,8 +2,9 @@
 
 `diagnose` names the mechanism, the owning pass, and how close a source edit
 gets to it. It stops one step short of the thing an analyst actually types.
-Four residual classes closed thirteen Mickey's Speedway USA targets in three
-days -- six exact, four proved unreachable -- and in every one of them the
+Four residual classes closed ten of thirteen Mickey's Speedway USA targets
+worked on 2026-09-02/03 -- six exact, four proved unreachable -- and in every
+one of them the
 distance between the verdict on screen and the edit in the file was a piece of
 arithmetic somebody did by hand, from evidence the tool already held or could
 read from a trace it already parses.
@@ -306,8 +307,9 @@ UNREACHABLE_PROOFS: dict[str, UnreachableProof] = {
             "which is an instruction-count change and not a placement change"
         ),
         citation=(
-            "overlay1FindNextAngle and overlay1FindPreviousAngle (2 words "
-            "each, 7 as1 traces and 3 full builds), overlay11UpdateMenu "
+            "overlay1FindNextAngle and its twin overlay1FindPreviousAngle "
+            "(2 words each, 7 as1 traces and 3 full builds), "
+            "overlay11UpdateMenu "
             "(every node in the block stamped with one line, so the line key "
             "has nothing to discriminate on), overlay33InitializeBuffers (the "
             "two nodes differ on aftercycles), overlay1ResolvePathPoint "
@@ -600,16 +602,19 @@ def _stack_home_lever(
     if delta is not None and delta > 0:
         primary = STACK_HOME_FAMILIES[0]
         reason = (
-            "the candidate's frame is larger than the target's, so the "
-            "candidate declares a local the target does not home"
+            "the candidate's frame is larger than the target's by at least "
+            "one 8-byte quantum, so the candidate homes something the target "
+            "does not -- how many declarations that is depends on where the "
+            "block already sat, and the frame is the measurement, not the "
+            "declaration count"
         )
     elif delta is not None and delta < 0:
         primary = STACK_HOME_FAMILIES[2]
         reason = (
-            "the target's frame is larger than the candidate's, so the "
-            "target homes a local the candidate does not declare -- read "
-            "the family below in reverse, adding a declaration rather than "
-            "moving one"
+            "the target's frame is larger than the candidate's by at least "
+            "one 8-byte quantum, so the target homes something the candidate "
+            "does not -- read the family below in reverse, adding a "
+            "declaration rather than moving one"
         )
     elif homes > 1:
         primary = STACK_HOME_FAMILIES[2]
@@ -708,25 +713,48 @@ def _temp_ring_lever(
             + " consume more than one pop each; a line whose pops exceed the "
             "target's ring advance is the statement to edit"
         )
+    # Which family applies is a *direction*: buy a pop or sell one. That
+    # direction is the temp lane's rotation, and where the lane did not
+    # rotate the pop trace says how many pops each line took but not which
+    # way the residual runs -- so no family is named. Defaulting to one of
+    # them would state a direction from nothing.
     rotation = measurements["temp_lane_rotation"]
-    short = rotation is not None and rotation < 0
-    primary = TEMP_RING_FAMILIES[1] if short else TEMP_RING_FAMILIES[0]
-    reason = (
-        "the candidate is short of the target's ring advance, so the edit "
-        "must buy a pop"
-        if short
-        else "the candidate spends a pop the target does not, so the edit must sell one"
-    )
+    primary: EditFamily | None
+    needs: tuple[str, ...] = ()
     if lengths:
         primary = TEMP_RING_FAMILIES[2]
         reason = (
             "the pool lane differs in length, so the residual is a web "
             "population difference before it is a rotation"
         )
+    elif rotation is None:
+        primary = None
+        reason = (
+            "the pop counts are read, but no temp lane rotated, so which "
+            "way the ring runs against the target is unmeasured and the "
+            "direction that picks between the families below with it"
+        )
+        needs = (
+            "a temp-lane rotation: compare against a target disassembly in "
+            "which the temp lane diverges, so the sign of the rotation names "
+            "whether the edit buys a pop or sells one",
+        )
+    elif rotation < 0:
+        primary = TEMP_RING_FAMILIES[1]
+        reason = (
+            "the candidate is short of the target's ring advance, so the "
+            "edit must buy a pop"
+        )
+    else:
+        primary = TEMP_RING_FAMILIES[0]
+        reason = (
+            "the candidate spends a pop the target does not, so the edit must sell one"
+        )
     return Lever(
         lever_class=LEVER_TEMP_RING,
         reason=reason,
         family=primary,
+        needs=needs,
         evidence=tuple(
             (
                 *evidence,
@@ -738,7 +766,9 @@ def _temp_ring_lever(
         ),
         measurements=measurements,
         alternatives=tuple(
-            item for item in TEMP_RING_FAMILIES if item.name != primary.name
+            item
+            for item in TEMP_RING_FAMILIES
+            if primary is None or item.name != primary.name
         ),
     )
 
@@ -829,7 +859,7 @@ def _as1_lever(selections: Sequence[Selection]) -> Lever | None:
             measurements=measurements,
             alternatives=(LINE_ORDER_FAMILIES[1],),
         )
-    if readiness:
+    if readiness and readiness == len(selections):
         return Lever(
             lever_class=LEVER_UNREACHABLE,
             reason=(
