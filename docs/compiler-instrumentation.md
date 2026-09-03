@@ -779,6 +779,85 @@ does a line ordering explain the original C — it explains one compiler
 decision, and a source form that reproduces it is a hypothesis the object still
 has to confirm.
 
+## One drop-in carrying both passes
+
+The two profile families above are applied to **different generated sources**:
+the CDX allocator profiles rewrite `uopt.c`, the free-list and emit-order hooks
+rewrite `ugen.c`. A drop-in built from only one of them answers only half the
+questions, and it does so **silently** — a profile that is not in the binary
+produces an empty log, not an error.
+
+That failure has a receipt. A campaign rebuilding its drop-in for a ugen spike
+reproduced ugen and dropped uopt's CDX profile; `CDX_LOG=1` wrote nothing, and
+four separate analysts over two days each re-derived the same conclusion from
+the same empty file before anyone checked the binary. Four functions whose
+residual was an allocator tie — the class CDX decides directly — were blocked
+for the duration.
+
+So the recipe is one command, and so is the check that the rebuild kept both.
+
+### The recipe
+
+```sh
+decomp-workbench instrument-drop-in \
+  /path/to/ido-static-recomp/build/5.3/out \
+  /path/to/instrumented \
+  --script /path/to/build-instrumented.sh
+```
+
+The first argument is the directory holding the recompiled compiler's C; the
+second is where the instrumented copies go. The command writes nothing but the
+script, reads nothing but a hash of each source, and refuses to overwrite a
+script that already exists. Read it before running it — it rewrites generated
+compiler source — and note that a plan over a tree that does not exist yet is
+still the plan, which is how it is used before the first `ido-static-recomp`
+build.
+
+What it prints is two applications and a checklist:
+
+| Profile | Source | Applied by | Switched on with |
+|---|---|---|---|
+| `uopt-globalcolor` | `uopt.c` | `instrument-uopt --profile globalcolor --profile alias` | `CDX_LOG`, `CDX_OUT`, `CDX_DETAIL_WEB`, `CDX_FORCE` |
+| `uopt-alias` | `uopt.c` | (composed into the same pass) | `DKWB_UOPT_ALIAS_TRACE` |
+| `ugen-freelist` | `ugen.c` | `instrument-ugen --emit-provenance` | `DKWB_UGEN_TRACE` |
+| `ugen-emit-provenance` | `ugen.c` | (the same rewrite) | `DKWB_UGEN_SCHED` |
+
+Two commands, four profiles, because each source is rewritten once and carries
+two profiles out. Applying a uopt profile to `ugen.c` or the reverse fails the
+pinned-source hash rather than producing a half-instrumented compiler.
+
+The plan also names the scheduler evidence that needs **no** drop-in at all,
+because the reader assembling an instrumented compiler is exactly the reader
+about to patch `as1` for it: `cc -Wa,-R` prints the assembler's own
+list-scheduler trace, the object is `cmp`-identical with the option on, and
+`trace-scheduler --from-as1-r` reads it.
+
+Then rebuild both passes through `ido-static-recomp`'s own build and run
+[the fidelity gates](#required-fidelity-gates). The plan restates them in the
+order they are run, so a recipe that names the profiles cannot ship without
+naming the checks.
+
+### Checking that the rebuild kept both
+
+```sh
+decomp-workbench check-drop-in /path/to/instrumented/cc --json
+```
+
+It scans the built binaries for each profile's injected marker strings and
+reports, per profile, `carried` or `ABSENT`; it exits non-zero when any profile
+is missing. Name several binaries when the passes ship separately — a profile
+found in any of them counts.
+
+The claim is deliberately one-sided, and the report's `proof` says so. A marker
+present proves the instrumented source was compiled in. A marker absent proves
+it was not. **Neither proves the profile fires**: that is the positive
+control's job (gate 3 and gate 8 above), and it needs the compiler. What this
+adds is the cheap half — the half that was missing when four analysts spent two
+days reading an empty log.
+
+Run it once after every rebuild of the drop-in, and again at the start of any
+campaign that is about to depend on a trace.
+
 ## Required fidelity gates
 
 For each profile and host:

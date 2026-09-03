@@ -147,6 +147,8 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("pre", "apply a hash-pinned PRE/hoist profile"),
         ("fidelity", "gate meaningful sections, relocations, and symbols"),
         ("gate", "prove an instrumented build reproduces stock, and stamp it"),
+        ("drop-in", "plan one cc carrying both passes' profiles"),
+        ("check", "report which profiles a built compiler actually carries"),
     ),
     "pass": (
         ("replay-as1", "calibrate and probe late assembler scheduling"),
@@ -294,6 +296,8 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("instrument", "pre"): "instrument-pre",
     ("instrument", "fidelity"): "fidelity",
     ("instrument", "gate"): "instrument-gate",
+    ("instrument", "drop-in"): "instrument-drop-in",
+    ("instrument", "check"): "check-drop-in",
     ("pass", "replay-as1"): "replay-as1",
     ("pass", "replay-ugen"): "replay-ugen",
     ("pass", "diff"): "pass-diff",

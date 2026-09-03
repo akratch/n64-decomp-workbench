@@ -79,6 +79,10 @@ from .discovery import (
     register_discovery_commands,
     rewrite_group_alias,
 )
+from .drop_in import audit as drop_in_audit
+from .drop_in import format_audit as format_drop_in_audit
+from .drop_in import plan as drop_in_plan
+from .drop_in import render_script as render_drop_in_script
 from .environment import merge_toolchain_environment, resolve_compiler_environment
 from .environment import parse_environment as parse_environment
 from .experiment_cli import register_experiment_commands
@@ -1599,6 +1603,50 @@ def instrument_profiles_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def instrument_drop_in_command(args: argparse.Namespace) -> int:
+    generated = Path(args.generated).expanduser()
+    output = Path(args.output).expanduser()
+    document = drop_in_plan(generated=generated, output=output)
+    script_path = Path(args.script).expanduser() if args.script else None
+    try:
+        if script_path is not None:
+            if script_path.exists():
+                raise FileExistsError(f"refusing to overwrite script: {script_path}")
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            script_path.write_text(render_drop_in_script(document), encoding="utf-8")
+            script_path.chmod(0o755)
+    except OSError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(document, indent=2, sort_keys=True))
+    else:
+        print(render_drop_in_script(document), end="")
+        if script_path is not None:
+            print(f"# written to {script_path}")
+    missing = [item["source"] for item in document["sources"] if not item["present"]]
+    if missing and args.require_sources:
+        print(
+            "error: generated source not found: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def check_drop_in_command(args: argparse.Namespace) -> int:
+    try:
+        document = drop_in_audit([Path(item).expanduser() for item in args.binary])
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(document, indent=2, sort_keys=True))
+    else:
+        print(format_drop_in_audit(document))
+    return 0 if document["complete"] else 1
+
+
 def trace_summary_command(args: argparse.Namespace) -> int:
     try:
         events = parse_trace(read_trace_text(args.trace, warn=warn_to_stderr))
@@ -2372,6 +2420,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="permit input and output to be the same path",
     )
     instrument_profiles_parser.set_defaults(handler=instrument_profiles_command)
+
+    drop_in_parser = commands.add_parser(
+        "instrument-drop-in",
+        help="plan one instrumented cc carrying both passes' profiles",
+        description=(
+            "Print the reproducible recipe for an instrumented drop-in that "
+            "carries the uopt CDX profiles and the ugen free-list and "
+            "emit-order hooks together, with the fidelity gates that close it."
+        ),
+    )
+    drop_in_parser.add_argument(
+        "generated",
+        help="the recompiled compiler's generated C (ido-static-recomp: build/5.3/out)",
+    )
+    drop_in_parser.add_argument(
+        "output", help="where the instrumented sources are written"
+    )
+    drop_in_parser.add_argument(
+        "--script",
+        metavar="PATH",
+        help="also write the recipe as a runnable script; refuses to overwrite",
+    )
+    drop_in_parser.add_argument(
+        "--require-sources",
+        action="store_true",
+        help="exit 1 when a generated source named by the plan is not present",
+    )
+    drop_in_parser.add_argument("--json", action="store_true", help="emit JSON")
+    drop_in_parser.set_defaults(handler=instrument_drop_in_command)
+
+    check_drop_in_parser = commands.add_parser(
+        "check-drop-in",
+        help="report which instrumentation profiles a built compiler carries",
+        description=(
+            "Scan built compiler binaries for each profile's injected marker "
+            "strings. A profile that did not survive a rebuild produces empty "
+            "logs rather than errors, so it is checked rather than discovered."
+        ),
+    )
+    check_drop_in_parser.add_argument(
+        "binary", nargs="+", help="built compiler binaries (uopt, ugen, or cc)"
+    )
+    check_drop_in_parser.add_argument("--json", action="store_true", help="emit JSON")
+    check_drop_in_parser.set_defaults(handler=check_drop_in_command)
 
     summary_parser = commands.add_parser(
         "trace-summary",
