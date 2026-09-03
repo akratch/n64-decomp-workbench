@@ -37,6 +37,15 @@ from scratch because they were nowhere on this page. Two of them (L69, L70)
 are not compiler behaviour at all but **measurement** laws about harnesses
 that lie, filed under Measurement laws for that reason.
 
+Laws L72–L82 come from the same campaign's overlay cohort (2026-09-02/03),
+thirteen targets worked in three days with an instrumented ugen and the
+assembler's own scheduler trace. Six of them state what an edit *does*
+(L72–L74 the frame, L76–L78 the ring, L80 the hoisted line) and five state
+what no edit does (L75, L79, L81, L82, and L79's delay-slot corollary). The
+second group is the more expensive half: each of those was established by
+spending builds until the mechanism was read, and each is now a test an
+analyst can run before spending them again.
+
 ## What a receipt may cite
 
 Every receipt on this page is a **symbol-level citation**: the function a
@@ -385,6 +394,146 @@ instrument, not by this reconfirmation.
 **Provenance:** Mickey's Speedway USA decomp (2026-08), resident collision
 and front-end cohorts.
 
+### L72. The declared block is a rounded quantum — measure the frame, do not count declarations
+
+Every declared local reserves a home
+([L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)),
+including one the allocator colours into a register and never spills; the
+reservation is a property of the declaration, not of the value's fate. But the
+block is rounded up to **8 bytes**, so the *n*th declaration is free whenever
+the block is already odd, and a declaration count is therefore not a frame
+size. The operational rule is the negative one: **read the frame, do not count
+the declarations.**
+
+**Receipt — T2**, a five-build ladder on one function. On
+`func_overlay_022_F0000000` seven declared locals give a `0x58` frame, six give
+`0x58`, and five give `0x50`: the 7→6 step is the rounding and is free, the
+6→5 step is the quantum. Both endpoints were whole-object builds through the
+project path.
+
+**Falsifies.** "Removing a declaration shrinks the frame by four." Half of
+these steps cost nothing. It also falsifies the reverse inference, which two
+campaign agents made in one week: that an 8-byte frame difference names two
+declarations. It names one quantum, and how many declarations that is depends
+on where the block already sat.
+
+**Counter-examples, both measured, and neither is a hedge.** Not every declared
+scalar owns a home: on `func_overlay_036_F0000818` removing a declared scalar
+and respelling its six statements produced a **byte-identical** object, so that
+declaration was reserving nothing. And a frame delta is not always a
+declaration: on `func_overlay_029_F0000EE0` folding two locals into one left
+the frame at `-112` and cost two words, because the 8 bytes belonged to the
+caller-save staging around a call and not to the declaration list. A residual
+whose frame differs is a stack-home residual; a residual whose frame differs
+*because of the declaration list* is a claim that needs the frame measured on
+both sides of the edit.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay lever
+cohort, `func_overlay_022_F0000000` frame ladder.
+
+### L73. A value the target homes below the declared block is reached by de-declaring it
+
+The block order is `[declared locals][cfe temps][uopt temps]`
+([L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)),
+and the boundary between the first two regions is not addressable from source
+except by moving a value across it. So when the target homes a call-crossing
+value **one word below** the lowest declared home and the candidate homes it
+inside the declared block, no reordering reaches it: reordering permutes slots
+within a region. The edit is to stop declaring the value, so that the same
+expression — repeated at each use, and live across the call — becomes a common
+subexpression and takes a compiler-temp home instead.
+
+> Therefore the three stack-home edits are one edit family in three
+> directions: **drop** a declaration to move a value down across the boundary,
+> **reuse** an existing dead local as the carrier so the declared count falls
+> by one, or **declare later** so a value keeps its region and changes its slot.
+
+**Receipt — T2**, three exact matches in one day, one per direction. Dropping
+the byte-count local and repeating its expression at both call sites moved it
+to the target's compiler-temp home and took `overlay34InitStorage` from 46/50
+words to exact. Carrying a value in a local already dead at that point, rather
+than declaring a second, took `func_overlay_026_F0000B18_187AF10` from 129/131
+to exact at an unchanged 131-word object. Declaring a displaced pair *after*
+the local whose slots it must follow took `overlay84InitializeAndUpdate` from
+172/179 to exact on a uniform two-word displacement. All three are whole-object
+matches through the project build.
+
+**Falsifies.** The reading of [L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)
+that treats declaration *order* as the whole lever. Order chooses a slot inside
+the declared region; it cannot move a value out of that region, and a residual
+whose target home sits below every declared home will not yield to any
+permutation of the declaration list. Two of the three matches above had already
+been through an order sweep.
+
+**Scope.** The repeated expression must be one the compiler will actually
+common — call-crossing and identical at both sites. Where it is not, the cost
+is an extra materialisation rather than a home: on `func_overlay_026` inlining
+the difference at three sites declined the CSE and grew the object by four
+words.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), `overlay34InitStorage`,
+`func_overlay_026_F0000B18_187AF10`, `overlay84InitializeAndUpdate`.
+
+### L74. An address-taken aggregate anchors the declared block from below
+
+A declared aggregate whose address is taken is placed at the bottom of the
+declared region, and everything below it — the whole compiler-temp area — is
+measured from its edge. So moving an aggregate up the declaration list does not
+merely reorder two homes: it moves the temp region by the aggregate's size, and
+every temp home with it. Deleting the aggregate collapses the frame by its
+rounded size.
+
+**Receipt — T2**, two builds against one target. On
+`overlay84InitializeAndUpdate` moving an 8-byte scratch array above the first
+scalar put the two scalars on their target homes and dropped the entire temp
+region by 8 bytes, moving an argument's home from `sp+0x38` to `sp+0x30` — 10
+differing words where the reorder alone gave exact. Deleting the same array
+collapsed the frame from `0x58` to `0x50` and cost 30 words.
+
+**Falsifies.** "An unused-looking local array is spendable." It is the block's
+floor. That is a different claim from
+[L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame), which is about
+the *interior* of an array whose address is taken and which stays declared.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`overlay84InitializeAndUpdate`.
+
+### L75. cfe canonicalises every pointer-add to walk the pointer first
+
+An expression that adds an integer to a pointer is canonicalised by cfe into
+one shape, with the pointer as the first operand, before any temp is allocated
+for it. Because ugen's free order follows operand order
+([L11](#l11-ugen-frees-a-binary-ops-sources-in-operand-order)), the temp
+sequence a pointer-add produces is fixed by that canonicalisation and is not a
+property of how the addition was spelled. Commuting the operands, casting
+either side, changing the assignment form and routing through a typed pointer
+all produce the same object.
+
+> Therefore a residual that needs a *different* temp order across a pointer-add
+> is not reachable by respelling the add. It is reachable, if at all, by not
+> writing an add of a pointer: compute the byte offset in an integer and add
+> once.
+
+**Receipt — T2**, a basin of five spellings. On `levelFreeAll` (114/117 words,
+frame `0x28`, all 36 relocations exact on offset, type and identity) five
+distinct source spellings of the same pointer arithmetic produced **one
+identical object**, and a decomp-permuter search over the same function was
+flat. A hash-pinned instrumented ugen's source-line trace, gated against stock
+output for text, rodata, data, relocations and symbols, showed the baseline
+allocating pointer, mask, then scale at the one mismatching expression, where
+the target's order is mask, pointer, scale.
+
+**Falsifies.** The standing assumption that operand order at a pointer add is
+a source lever, which it is at an integer add
+([L1](#l1-free-order-is-cfes-operand-order)). The two cases are not the same
+construct once cfe has canonicalised one of them.
+
+**Scope.** Measured on one function's byte-offset arithmetic. The remaining
+direction — a formulation with no pointer add in it — was identified and not
+tried, so this law says what does not move the order, not that nothing does.
+
+**Provenance:** Mickey's Speedway USA decomp, `levelFreeAll` triage shard.
+
 ---
 
 ## uopt (the optimizer)
@@ -662,6 +811,76 @@ one, and is not claimed here.
 
 **Provenance:** Mickey's Speedway USA decomp (2026-08), font cohort,
 `func_8004D40C`.
+
+### L81. Address reassociation is insensitive to where the definition is written
+
+When uopt reassociates an induction base into a constant offset from a live
+pointer, which pointer it folds against is a property of what is live at the
+point the value is formed, not of where the defining statement sits. Moving the
+definition below the stores that follow it, into a loop's init clause, or
+removing the local and spelling the expression at its uses all leave the fold
+intact — and two of those spellings compiled byte-identically to each other.
+
+> Therefore a residual whose two sides fold the same address against
+> *different* base pointers is not a statement-placement residual, and the
+> emission order that follows from the base is not one either: it is
+> downstream of a decision the placement does not reach.
+
+**Receipt — T2**, three variants against one target. On
+`func_overlay_038_F0000000` the target forms the induction base as a small
+constant offset from one pointer and the candidate from another; six of the
+seven differing words are the emission order that follows. Dropping the local
+and passing the field, in the hope that uopt's own reduction would mint the
+target's initial value, produced 83 differing words at 81 instructions — the
+induction variable is genuinely in the source. Moving the definition below the
+field stores sank both registers with it, 9 words. Initialising it in the loop's
+init clause was **byte-identical** to the form it replaced.
+
+**Falsifies.** The assumption that an address fold is reachable by moving the
+statement that creates it — the first thing three separate levers tried, on
+three separate functions, at one build each.
+
+**Scope, and a measurement warning that belongs with the law.** This residual
+is invisible to a two-disassembly comparison of an overlay object: the seven
+sites are relocation-masked and alignment absorbs the rest, so `diagnose`
+reports the pair exact while the project's own comparison reports seven words.
+Any claim about an overlay function's reachability must be made against the
+project comparison, not against a scratch-shaped one
+([L70](#l70-an-isolated-cc--c-does-not-schedule-like-the-project-path) is the
+same failure at a different layer).
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`func_overlay_038_F0000000`.
+
+### L82. An argument/return coalescing tie is not a source form
+
+Where a web can be coloured either into the register a call takes its argument
+in or into the register the call returns in, and both are live-compatible, the
+choice is uopt's and no source spelling expresses it. The two locals a pool
+lane suggests merging are, in this shape, already coalesced: merging them by
+hand changes nothing.
+
+**Receipt — T3**, one function, one decisive build. On `overlay59PrepareEntry`
+nine differing words are one web at seven sites: the target loads a descriptor
+into the return register and spends a register copy in the call's delay slot,
+the candidate colours the same web into the argument register and fills with a
+no-op. Merging the two locals into one carrier — the shape the pool lane
+suggests — produced a **byte-identical** object, sha1 `867bddc1205f`. Single
+observation, not swept; recorded so the next analyst spends the one build on
+something else.
+
+**Falsifies.** The reading of a pool-lane suggestion as an edit. The lane says
+two values share a colour in the target; it does not say the candidate has kept
+them apart, and here uopt had already merged them.
+
+**Scope.** The tie itself is directly decidable with a forced-colour probe
+([the p1 decision arithmetic](../p1-decision-arithmetic.md)), and this law is
+what is left when that instrument is unavailable: the CDX profile was absent
+from the campaign's instrumented uopt for the whole of this cohort, which is
+why the class is T3 and not T1.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`overlay59PrepareEntry`.
 
 ---
 
@@ -1286,6 +1505,112 @@ function did not move under any of a dozen line layouts.
 (`L-st-1`…`L-st-3`), re-confirmed inert on two later bases by stages
 `wordsaudit` (`L-wa-2`) and `finalframe`.
 
+### L79. `besttime` is a key L59 omits, and a selection decided above `lineno` has no source lever
+
+[L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) states
+as1's selection chain without `besttime`, which is a real key and sits above
+`aftercycles` in the reading this workbench's decoder reproduces. The
+correction matters less than its consequence, which is the operational law:
+**`lineno` is the last key in the chain, so a selection decided on any earlier
+key is decided by readiness or by the critical path, and no statement placement
+reaches it.** The deciding key of a selection is therefore a reachability
+test — the cheapest one on this page, because the assembler prints it.
+
+A second, sharper form for the delay slot. In a block of *N* pre-branch nodes
+whose branch becomes ready at cycle *N*−1, exactly one node is always left
+over, and **a leftover node always wins the delay slot**; as1 fills the slot
+speculatively from the fall-through successor only when the branch is the last
+node picked. So a target that fills its delay slot from below needs a block
+with a different node *count*, which is an instruction-count change and not a
+placement change.
+
+**Receipt — T1**, from `cc -Wa,-R`, across four functions and one positive
+control. On `overlay1FindNextAngle` the pre-branch block holds four nodes; a
+stack reload is picked at cycle 0 on the longest critical path, two more follow,
+the branch becomes ready at cycle 3 on a load-use latency, and at cycle 3 it
+outranks the remaining zero-latency initialiser — so the initialiser is left
+over and takes the slot, where the target's branch is picked at cycle 4 with
+nothing left over. Seven `-Wa,-R` traces and three full builds moved nothing:
+hoisting the loop counter split its web and added a copy that became the new
+leftover; the same hoist as a comma operator was byte-identical to it; three
+separate line joins left the **object hash unchanged**. The positive control
+closes it: moving one load inside the guarded block leaves three fillers, the
+branch becomes the last node picked, and as1 *does* perform the successor fill
+the target shows — the mechanism is live, and the obstacle is the node count.
+Three further functions fail the same test for three different reasons, which
+is what makes it a test rather than one function's story: on
+`overlay11UpdateMenu` **every node in the block carries the same source line**,
+so the line key has nothing to discriminate on; on `overlay33InitializeBuffers`
+the two nodes differ on `aftercycles`; on `overlay1ResolvePathPoint` they tie on
+`aftercycles` and separate on `besttime`.
+
+**Falsifies.** The general reading of L59 as "schedule residuals are a line
+lever". They are, when `lineno` decides — and that case closed two functions the
+same week ([L80](#l80-a-loop-invariant-hoist-carries-the-loop-headers-line)). When
+an earlier key decides, the line lever is not merely unlikely to work; it
+provably cannot, and thirteen builds across four functions were spent proving
+it one function at a time before the key was read.
+
+**Scope, and one disagreement left open.** Two campaigns place `besttime` and
+`aftercycles` differently relative to each other, and neither's recorded
+selections separate the two orderings decisively. Nothing above depends on the
+answer: `start_time` outranks both under either reading, and `lineno` is last
+under both, which is all the reachability test uses.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-02/03), overlay 1 and
+overlay 11/33 lever cohorts; decoder agreement checked against the workbench's
+`as1-reorganize` fixture.
+
+### L80. A loop-invariant hoist carries the loop header's line
+
+When an address or a bound is hoisted into a loop preheader, ugen stamps the
+hoisted record with the **loop header's** source line, not the line of the
+statement that uses it. Every initialiser written above the loop therefore
+carries a strictly lower line into as1 and wins the minimised `lineno` key with
+no dependence edge behind it. The initialiser cannot be moved later — it is
+already as late as C allows — so the lever is to remove the difference rather
+than to reverse it: put the initialiser on the loop header's **physical line**.
+
+A second-order form. Where the preheader materialises *several* invariants,
+their order among themselves is ugen's **birth order**, and birth order follows
+source statement order. A bound kept in a local is born before a count read
+inline; spelling the bound inline in the loop test moves its birth after the
+count.
+
+**Receipt — T1**, from `DKWB-EMIT-V1` emit-provenance records, three functions.
+`overlay40UpdateEntries` had been recorded "no dependency edge authenticates a
+new source form" at 44/46 words, with four regressed variants behind the
+verdict; `remaining = 7; do {` on one physical line took it to **exact**.
+`overlay57HandleModeInput`, recorded as needing "source-authentic evidence for
+IDO's base-address scheduling", closed the same way under the project's
+relocation-masked comparison. `func_overlay_047_F00009D0` needed one join per
+loop and went from 10 to 6 words, having first been sent the wrong way by
+explicit end-pointer locals — those flipped the *high* halves instead, because
+birth order follows statement order. `func_overlay_014_F0000000` needed both
+halves of this law: the bound spelled inline to change its birth order, and the
+cursor's initialiser joined to the `do {` line. Every one of these translation
+units passes the fidelity gate: built through the instrumented `cc` with traces
+off, `.text` is `cmp`-identical to stock.
+
+**Falsifies.** Two recorded "unreachable by statement placement" verdicts, both
+correct about the evidence in front of them and both wrong. The line the
+scheduler reads was never printed, so the analyst compared the lines they could
+see — the statements' own — and concluded that the earlier statement was
+already as early as it goes. It was; the hoist was later than it looked.
+
+**Scope, and a negative control worth running.** The join works where the two
+records are separated **only** by their lines. Where they are not, it is inert
+and says so cheaply: on `func_overlay_022_F0000000` joining a store's assignment
+to the `if` line compiled byte-identically, and on `func_overlay_070_F00000D8`
+the comma-joined form of a statement split did the same
+([L78](#l78-a-pool-carried-accumulate-keeps-a-field-in-its-web-the-fused-form-spends-a-temp)).
+A byte-identical object under a line join is evidence the residual is not
+line-owned, and it costs one build.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-02/03),
+`overlay40UpdateEntries`, `overlay57HandleModeInput`,
+`func_overlay_047_F00009D0`, `func_overlay_014_F0000000`.
+
 ---
 
 ## ugen (the code generator)
@@ -1651,6 +1976,98 @@ instruction and is not this lever.
 **Provenance:** Mickey's Speedway USA decomp (2026-08), `func_8003A520`
 (field-guide lever 16) and `func_8001A154` (instrumented free-list line
 provenance).
+
+### L76. A struct field read through a local costs one ring pop a direct read does not
+
+Naming a struct field in a local and using the local costs **one extra ring
+pop** against reading the field where it is used, even where the two forms emit
+the same instructions. The local's value is a candidate for a coloured web; the
+direct read is an expression, and an expression takes a ring temp. So the
+construct is a one-step ring rotation in the same sense as
+[L65](#l65-a-redundant-mask-still-costs-one-ring-pop--the-phantom-pop)'s
+phantom mask, available in both directions, and unlike the mask it is a shape a
+1999 source tree writes for legibility rather than a fake.
+
+**Receipt — T1**, from free-list records carrying ugen's own source line. On
+`overlay20UpdateObjectResource` a scoped bound-check local made the check a
+uopt-coloured pool web where the target pops a ring temp; reading the field
+directly restored the pop. The line provenance is what located it: the trace
+gives an allocation ordinal per expression site, and the differing site was one
+line.
+
+**Falsifies.** "A local that only carries a field read is codegen-inert." It is
+instruction-inert.
+
+**Scope, and the composition rule that matters more than the law.** This lever
+alone was a **regression** on the function it closed — 25 differing words
+against a plateau of 8 — and became exact only composed with
+[L77](#l77-an-index-scaled-twice-costs-one-more-ring-pop-than-an-index-scaled-once).
+Where a ring is two pops out of phase, two levers are needed and neither is
+individually an improvement, which is precisely why a bounded permutation over
+single edits does not find them.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`overlay20UpdateObjectResource`, 90/98 words to exact.
+
+### L77. An index scaled twice costs one more ring pop than an index scaled once
+
+An index that is scaled twice — multiplied in the expression and again by the
+array's own element size — burns an **invisible temp** between the base load
+and the shift, and so costs one more ring pop than the same access with a
+single scale. No instruction distinguishes the two forms. The lever is
+therefore a *typing* choice: typing a table as pairs and indexing the pair
+scales twice, typing it as elements and indexing the element scales once, and
+the two spellings differ by exactly one ring position.
+
+**Receipt — T1/T2**, both directions, two functions. On
+`overlay20UpdateObjectResource` the original and the direct-read variant each
+allocated four temps for an owner load where the target allocates three; typing
+the table as 8-byte pairs and indexing the pair removed the extra allocation
+and, composed with [L76](#l76-a-struct-field-read-through-a-local-costs-one-ring-pop-a-direct-read-does-not),
+took the function to exact. In the other direction, on
+`func_overlay_070_F00000D8` a pop *lost* to an unrelated lever was recovered by
+typing the pair table so the index scales twice — **visible instructions
+unchanged** — and the function went to exact at 165/171 → 0.
+
+**Falsifies.** The reading of a same-length register permutation as
+necessarily schedule-owned. Both functions above presented as same-length
+`t`-register substitutions, which the current verdict vocabulary routes to the
+scheduler; both were ring population, and the free-list trace is what
+distinguished them.
+
+**Scope.** Measured on integer table indexing where the element size is a power
+of two. The count is one pop per extra scale; nothing here says a third scale
+costs a third pop.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`overlay20UpdateObjectResource` and `func_overlay_070_F00000D8`.
+
+### L78. A pool-carried accumulate keeps a field in its web; the fused form spends a temp
+
+Splitting `x = a + b * c` into `x = a;` then `x += b * c;` keeps `a` in the
+coloured web it already occupies, where the fused form loads it into a ring
+temp. The two forms therefore differ by one ring pop **and** by one web, and
+the difference shows in the pool lane's *length*, not only in its content —
+which is the readout that separates this from an ordinary rotation.
+
+**Receipt — T2**, one function, with a clean negative control. On
+`func_overlay_070_F00000D8` the split made both the pool and the fp lanes
+exact. On its own it scored 44 differing words, because it also removes one ring
+pop and rotates everything downstream; composed with
+[L77](#l77-an-index-scaled-twice-costs-one-more-ring-pop-than-an-index-scaled-once)
+it was exact. **The control:** writing the same split as a single
+comma-joined physical line compiled **byte-identically**, which rules out the
+as1 line key ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers))
+as the mechanism and leaves the web population as the only difference between
+the forms.
+
+**Falsifies.** "A statement split is a scheduling lever." Sometimes it is
+([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)); here
+the byte-identical comma form proves it is not, and the same control run on any
+split separates the two mechanisms in one build.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03),
+`func_overlay_070_F00000D8`.
 
 ---
 

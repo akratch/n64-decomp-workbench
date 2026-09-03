@@ -21,6 +21,7 @@ from decomp_workbench.as1_reorganize import parse_as1_reorganize_trace
 from decomp_workbench.cascade import CdxLog
 from decomp_workbench.cli import main
 from decomp_workbench.emit_provenance import parse_emit_trace
+from decomp_workbench.field_guide import PASS_LAWS
 from decomp_workbench.frame_ladder import frame_ladder
 from decomp_workbench.levers import (
     LEVER_LINE_ORDER,
@@ -506,3 +507,55 @@ class DiagnoseCommandTests(unittest.TestCase):
             )
         self.assertEqual(status, 2)
         self.assertTrue(stderr.startswith("error: "))
+
+
+class LawCitationTests(unittest.TestCase):
+    """Every lever family and proof has a law on the page behind it.
+
+    A family with no law leaves the reader to re-derive the mechanism, which
+    is what the whole overlay cohort did before contributing L72-L82.
+    """
+
+    def laws(self) -> str:
+        return (ROOT / "docs" / "compiler-laws" / "ido-5.3.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_new_laws_are_on_the_page(self) -> None:
+        text = self.laws()
+        for law in range(72, 83):
+            with self.subTest(law=law):
+                self.assertIn(f"### L{law}.", text)
+
+    def test_every_function_a_family_cites_appears_in_a_law(self) -> None:
+        text = self.laws()
+        functions = {
+            "overlay34InitStorage",
+            "func_overlay_026_F0000B18_187AF10",
+            "overlay84InitializeAndUpdate",
+            "overlay20UpdateObjectResource",
+            "func_overlay_070_F00000D8",
+            "overlay40UpdateEntries",
+            "func_overlay_047_F00009D0",
+            "func_overlay_014_F0000000",
+        }
+        for name in functions:
+            with self.subTest(function=name):
+                self.assertIn(name, text)
+
+    def test_every_unreachable_proof_has_its_law(self) -> None:
+        text = self.laws()
+        for name in (
+            "overlay1FindNextAngle",
+            "func_overlay_038_F0000000",
+            "overlay59PrepareEntry",
+            "levelFreeAll",
+        ):
+            with self.subTest(function=name):
+                self.assertIn(name, text)
+
+    def test_the_pass_law_table_reaches_the_new_laws(self) -> None:
+        cited = {
+            law for entries in PASS_LAWS.values() for _era, law, _summary in entries
+        }
+        self.assertTrue({"L72", "L73", "L76", "L77", "L79", "L80"} <= cited)
