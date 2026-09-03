@@ -1,6 +1,6 @@
 # Roadmap to 1.0
 
-As of 0.7.0, 2026-08-28. Each item carries the campaign evidence that earned
+As of 0.8.0, 2026-09-03. Each item carries the campaign evidence that earned
 its place; nothing here is speculative. The dated design discussions behind
 the older items are preserved in
 [the 2026-07/08 tooling roadmap](history/tooling-roadmap.md).

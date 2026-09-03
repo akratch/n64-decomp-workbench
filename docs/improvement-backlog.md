@@ -284,19 +284,10 @@ names `trace-scheduler --from-as1-r` as where they live. Procedure *names* are
 also out — ugen gives ordinals, and binding them to names is the existing
 retained-Ucode mechanism, not a new one.
 
-**Closed, 2026-09-03, and the premise this item was filed under is corrected
-in the title.** "The g0 scheduler" does not exist. There is no instruction
-scheduler in ugen at all — no ready list, no dependence DAG, no delay-slot
-filler and no nop inserter among its 431 named generated functions — and every
-sentence above that asks which slot g0 gave an instruction is asking a question
-the code does not contain. The scheduler is `as1`'s, it schedules from a key
-chain whose last key is the **physical source line**, and it has been readable
-the whole time through `cc -Wa,-R` with the object byte-identical.
-
-Part (a), the ring pop sequence with line provenance, landed 2026-08-27.
-Part (b) landed 2026-09-02 as ugen **emit** provenance — not slot provenance,
-which does not exist, but the order records enter the ibuffer and the line each
-carries into as1, which is the scheduler's input and the half ugen owns.
+Part (a), the ring pop sequence with line provenance, landed 2026-08-27; part
+(b) landed 2026-09-02 as ugen **emit** provenance — not slot provenance, which
+does not exist, but the order records enter the ibuffer and the line each
+carries into as1.
 
 What the two halves are worth, measured. Of thirteen overlay targets worked on
 2026-09-02/03, six closed exact: two on the ring pops per line (L76–L78), three
@@ -750,10 +741,11 @@ the wrong sites; the table is an input, and a run without one says so.
 
 ### 15. Model as1's `besttime`, so readiness is predicted and not only observed
 - **Symptom.** `cc -Wa,-R` says which key decided a selection, which is enough
-  to rule the line lever *out* — and after that the analyst is blind. Four
-  Mickey targets on 2026-09-02/03 (`overlay1FindNextAngle` and its twin,
-  `overlay11UpdateMenu`, `overlay33InitializeBuffers`,
-  `overlay1ResolvePathPoint`) each ended in the same place: the trace shows the
+  to rule the line lever *out* — and after that the analyst is blind. Five
+  Mickey targets on 2026-09-02/03 (`overlay1FindNextAngle` and its twin
+  `overlay1FindPreviousAngle`, `overlay11UpdateMenu`,
+  `overlay33InitializeBuffers`, `overlay1ResolvePathPoint`) each ended in the
+  same place: the trace shows the
   block's nodes, their readiness, and the leftover that took the delay slot,
   and nothing says what a *different* source form would make ready. Thirteen
   builds and seven traces went on finding that out one variant at a time, and

@@ -39,10 +39,10 @@ that lie, filed under Measurement laws for that reason.
 
 Laws L72–L82 come from the same campaign's overlay cohort (2026-09-02/03),
 thirteen targets worked in three days with an instrumented ugen and the
-assembler's own scheduler trace. Six of them state what an edit *does*
-(L72–L74 the frame, L76–L78 the ring, L80 the hoisted line) and five state
-what no edit does (L75, L79, L81, L82, and L79's delay-slot corollary). The
-second group is the more expensive half: each of those was established by
+assembler's own scheduler trace. Seven of them state what an edit *does*
+(L72–L74 the frame, L76–L78 the ring, L80 the hoisted line) and four state
+what no edit does (L75, L79, L81, L82); L79 carries a delay-slot corollary of
+the same kind. The second group is the more expensive half: each of those was established by
 spending builds until the mechanism was read, and each is now a test an
 analyst can run before spending them again.
 
@@ -1577,7 +1577,7 @@ source statement order. A bound kept in a local is born before a count read
 inline; spelling the bound inline in the loop test moves its birth after the
 count.
 
-**Receipt — T1**, from `DKWB-EMIT-V1` emit-provenance records, three functions.
+**Receipt — T1**, from `DKWB-EMIT-V1` emit-provenance records, four functions.
 `overlay40UpdateEntries` had been recorded "no dependency edge authenticates a
 new source form" at 44/46 words, with four regressed variants behind the
 verdict; `remaining = 7; do {` on one physical line took it to **exact**.

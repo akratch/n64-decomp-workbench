@@ -18,11 +18,12 @@ in [design notes](docs/history/design-notes.md).
   reaches a block.
 - Every edit family and every proof carries the function and date it was
   measured on, and the alternatives carry the discriminator that would select
-  them instead. `edit_family` is null exactly when the deciding trace is
-  absent, and `needs` then names the capture that produces it: a class is read
-  from a residual's shape, an edit family is read from a trace, and guessing
-  the second from the first is how `overlay40UpdateEntries` acquired an
+  them instead. `edit_family` is null whenever the input that would name it is
+  absent, and `needs` then names the capture that produces it: guessing an edit
+  family from a residual's shape is how `overlay40UpdateEntries` acquired an
   "unreachable by statement placement" verdict a trace overturned the same day.
+  `stack-home` is the exception the contract spells out, because its family is
+  picked from the frame pair the disassembly already carries.
 - Three `unreachable` sub-classes are catalogue entries printed under
   `see_also`, never as the diagnosis: nothing in two disassemblies
   distinguishes uopt's address folding, an argument/return coalescing tie, or
@@ -34,14 +35,14 @@ in [design notes](docs/history/design-notes.md).
 
 ### Compiler laws L72-L82
 
-- Eleven laws from an overlay lever cohort of thirteen targets worked in three
-  days. Six say what an edit does: the declared block rounds to 8 so a
+- Eleven laws from an overlay lever cohort of thirteen targets worked on
+  2026-09-02/03. Seven say what an edit does: the declared block rounds to 8 so a
   declaration can be free (L72), a home below that block is reached by
   de-declaring rather than reordering (L73), an address-taken aggregate is the
   block's floor (L74), a field read through a local and an index scaled twice
   each cost one ring pop (L76, L77), a pool-carried accumulate keeps a field in
   its web (L78), and a hoisted invariant carries the loop header's line (L80).
-- Five say what no edit does, which is the expensive half: cfe's pointer-add
+- Four say what no edit does, which is the expensive half: cfe's pointer-add
   canonicalisation (L75), as1's chain decided above the line key with its
   leftover-node corollary (L79), uopt's address fold ignoring statement
   placement (L81), and an argument/return coalescing tie (L82). L79 also

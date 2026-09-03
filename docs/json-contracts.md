@@ -123,11 +123,18 @@ carries the numbers it was computed from; `alternatives` lists the sibling
 families in the class, each with the `discriminator` that would select it
 instead; `see_also` lists catalogue proofs the owning pass points at.
 
-**`edit_family` is null whenever the deciding evidence is absent, and `needs`
-then names the capture that produces it.** That pairing is the contract, not a
-convenience: a class is read from the residual's shape, an edit family is read
-from a trace, and a consumer that treats a named class as a named edit will act
-on a guess. `needs` is empty exactly when nothing further is required.
+**`edit_family` is null whenever the input that would name it is absent, and
+`needs` then names the capture that produces it.** That pairing is the
+contract, not a convenience: a consumer that treats a named class as a named
+edit will act on a guess. `edit` and `citation` travel with `edit_family` and
+are null with it.
+
+`stack-home` is the one class whose family comes from the disassembly rather
+than from a trace: the frame pair picks between the three directions, so a
+`stack-home` lever always names a family, and a `needs` beside it asks for the
+frame ladder that *corroborates* the count rather than for the input that
+produced the family. For every other class the family is read from a trace and
+`edit_family` stays null until one is supplied.
 
 `unreachable` is null unless the class is `unreachable`; when present it
 carries `unreachable_class` (`as1-readiness`, `uopt-address-folding`,

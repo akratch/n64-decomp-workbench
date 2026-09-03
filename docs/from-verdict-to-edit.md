@@ -172,15 +172,28 @@ lever: stack-home -- the frames agree and one home is displaced at an unchanged
   instruction count, which is one declaration too many
   edit (reuse-an-existing-local-as-carrier): carry the value in a local that is
   already dead at that point instead of declaring a second one; the declared
-  count falls by one and every home below it moves one slot
+  count falls by one and every home below it moves one slot, at an unchanged
+  instruction count
   proved on: func_overlay_026_F0000B18_187AF10, Mickey's Speedway USA,
   2026-09-03: 129/131 words to exact, 131 words on both sides
-  evidence: frame: target 116 bytes, candidate 116 bytes, delta +0
-  evidence: 3 aligned row(s) differ only in a stack displacement, over 1
+  evidence: frame: target 48 bytes, candidate 48 bytes, delta +0
+  evidence: 2 aligned row(s) differ only in a stack displacement, over 1
   distinct home(s): a frame fact, not an immediate
+  evidence: every declared local reserves a home whether or not it is
+  register-coloured, and the declared block rounds up to 8 bytes: measured over
+  five builds on func_overlay_022_F0000000, 7 locals -> 0x58, 6 -> 0x58, 5 ->
+  0x50
+  capture: declared-local count: rebuild with CDX_SYMTAB=1 on the instrumented
+  uopt and pass the log as --ladder
   or (drop-a-declared-local) when the candidate frame is larger than the
-  target's, or one homed value sits one word above the target's home
+  target's, or one homed value sits one word above the target's home with the
+  frame equal
+  or (declare-the-pair-later) when the frames are equal and two or more
+  adjacent homes are displaced by the same amount
 ```
+
+The block prints under the mechanism view in the full report. `--terse`, which
+section 1 used, trims it along with the lanes.
 
 Four classes, and each one is a different question about where the evidence
 comes from:
@@ -192,12 +205,18 @@ comes from:
 | `line-order` | `--emit-trace`: the line-order conflicts | join the initialiser to the loop header's physical line, or change a hoist's birth order | [42](field-guide.md#42-join-an-initialiser-to-the-loop-headers-physical-line) |
 | `unreachable` | `--as1-trace`: the key that decided a selection | none — read the proof and spend the builds elsewhere | [43](field-guide.md#43-read-the-proof-before-re-deriving-it) |
 
-**The rule that makes the block worth reading: `edit_family` is empty whenever
-the deciding evidence is missing, and `capture:` then names the command that
-produces it.** A `lever: temp-ring` with no family and a `capture:` line is not
-the tool hedging — it is the tool declining to guess which of three constructs
-moved the pop, because that is a fact about the free list and not about the
-disassembly. Capture the trace and run it again.
+**The rule that makes the block worth reading: there is no `edit (…)` line
+whenever the input that would name one is missing, and `capture:` names the
+command that produces it.** A `lever: temp-ring` with no edit and a `capture:`
+line is not the tool hedging — it is the tool declining to guess which of three
+constructs moved the pop, because that is a fact about the free list and not
+about the disassembly. Capture the trace and run it again.
+
+The block above is the one class that reads the other way. Its three
+directions are picked apart by the frame pair, which every disassembly carries,
+so it names an edit straight away and its `capture:` line asks for the ladder
+that would corroborate the declared count rather than for the evidence that
+chose the family.
 
 That refusal has a receipt. `overlay40UpdateEntries` was recorded "not
 reachable by statement placement" by an analyst with four regressed variants
@@ -212,6 +231,9 @@ family would have re-manufactured that verdict rather than corrected it.
 decomp-workbench diagnose target.o build/candidate.o --function animStep \
   --ring-trace ugen.log --lever-proc 3
 ```
+
+`--ladder`, `--emit-trace` and `--as1-trace` supply the other three classes'
+inputs the same way.
 
 ## 6. Re-diagnose, and know when to stop
 
