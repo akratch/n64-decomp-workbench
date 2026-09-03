@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from decomp_workbench.as1_reorganize import parse_as1_reorganize_trace
+from decomp_workbench.as1_reorganize import Selection, parse_as1_reorganize_trace
 from decomp_workbench.cascade import CdxLog
 from decomp_workbench.cli import main
 from decomp_workbench.emit_provenance import parse_emit_trace
@@ -41,7 +41,7 @@ from decomp_workbench.levers import (
 )
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.trace import parse_trace
-from decomp_workbench.view import build_view
+from decomp_workbench.view import MechanismView, build_view
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -102,7 +102,7 @@ DKWB-EMIT-V1 proc=0 block=0 emit=7 op=36 line=46 buffer=fwd fn=f_emit_ra
 """
 
 
-def view_for(target: str, candidate: str, **kwargs: object):
+def view_for(target: str, candidate: str, **kwargs: object) -> MechanismView:
     return build_view(
         parse_disassembly(target),
         parse_disassembly(candidate),
@@ -169,7 +169,7 @@ class StackHomeLeverTests(unittest.TestCase):
 
 
 class TempRingLeverTests(unittest.TestCase):
-    def rotation_view(self):
+    def rotation_view(self) -> MechanismView:
         return view_for(
             (ROOT / "examples" / "fixtures" / "phase-shift-target.objdump").read_text(
                 encoding="utf-8"
@@ -219,7 +219,7 @@ class TempRingLeverTests(unittest.TestCase):
 
 
 class LineOrderLeverTests(unittest.TestCase):
-    def schedule_view(self):
+    def schedule_view(self) -> MechanismView:
         return view_for(
             (ROOT / "examples" / "fixtures" / "loc-boundary-target.objdump").read_text(
                 encoding="utf-8"
@@ -260,7 +260,7 @@ class LineOrderLeverTests(unittest.TestCase):
 
 
 class As1ReadinessTests(unittest.TestCase):
-    def selections(self):
+    def selections(self) -> list[Selection]:
         text = (ROOT / "examples" / "traces" / "as1-reorganize.log").read_text(
             encoding="utf-8"
         )

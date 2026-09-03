@@ -40,7 +40,7 @@ answering a question the evidence had not been asked.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .as1_reorganize import Selection
@@ -433,7 +433,7 @@ class Lever:
     unreachable: UnreachableProof | None = None
     evidence: tuple[str, ...] = ()
     needs: tuple[str, ...] = ()
-    measurements: Mapping[str, Any] | None = None
+    measurements: Mapping[str, Any] = field(default_factory=dict)
     alternatives: tuple[EditFamily, ...] = ()
     see_also: tuple[UnreachableProof, ...] = ()
 
@@ -446,7 +446,7 @@ class Lever:
             "citation": None if self.family is None else self.family.citation,
             "evidence": list(self.evidence),
             "needs": list(self.needs),
-            "measurements": dict(self.measurements or {}),
+            "measurements": dict(self.measurements),
             "alternatives": [item.as_dict() for item in self.alternatives],
             "see_also": [item.as_dict() for item in self.see_also],
         }
@@ -918,12 +918,12 @@ def format_lever(lever: Lever) -> tuple[str, ...]:
         )
         lines.append(f"  measured on: {lever.unreachable.citation}")
         lines.append(f"  reopens when: {lever.unreachable.reopens_when}")
-    for item in lever.evidence:
-        lines.append(f"  evidence: {item}")
-    for item in lever.needs:
-        lines.append(f"  capture: {item}")
-    for item in lever.alternatives:
-        lines.append(f"  or ({item.name}) when {item.discriminator}")
-    for item in lever.see_also:
-        lines.append(f"  see also ({item.name}): {item.proof}")
+    for line in lever.evidence:
+        lines.append(f"  evidence: {line}")
+    for line in lever.needs:
+        lines.append(f"  capture: {line}")
+    for family in lever.alternatives:
+        lines.append(f"  or ({family.name}) when {family.discriminator}")
+    for proof in lever.see_also:
+        lines.append(f"  see also ({proof.name}): {proof.proof}")
     return tuple(lines)

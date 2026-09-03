@@ -3,7 +3,7 @@
 Narrative release notes with the design reasoning behind each change are kept
 in [design notes](docs/history/design-notes.md).
 
-## Unreleased
+## 0.8.0 - 2026-09-03
 
 ### The lever diagnosis
 
