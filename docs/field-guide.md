@@ -806,6 +806,40 @@ Symmetrize the decoration first and see what happens.
 
 ---
 
+### 41. Buy or sell a ring pop with the construct that costs one
+
+**Diff looks like:** `lever: temp-ring` with a rotation in the temp lane, and a
+`--ring-trace` reporting one source line whose pops do not match the target's
+advance.
+
+[Lever 15](#15-the-phantom-pop) and [lever 16](#16-the-redundant-mask-lever)
+buy a pop with a mask. Three further constructs move the same counter, and
+unlike a mask all three are ordinary code:
+
+| Construct | Costs |
+|---|---|
+| reading a struct field **through a local** rather than at its use | one pop the direct read does not |
+| an index scaled **twice** (type the table as pairs and index the pair) | one more pop than the same access scaled once |
+| a **fused** `x = a + b * c` rather than `x = a; x += b * c;` | one pop, and one pool web, against the split form |
+
+The third is the one to reach for when the **pool** lane differs in *length*
+and not only in content: that is a web population difference, and no rotation
+lever fixes it.
+
+**Two pops off means two of these, and neither works alone.** On the function
+that established the first two, each lever on its own scored *worse* than the
+plateau — 25 differing words against 8 — and composing them was exact. A
+bounded permutation over single edits cannot find that pair, which is why the
+pop lines are read rather than searched.
+
+**A control that costs one build.** If you suspect a statement split is
+actually a scheduling effect, write the same split as one comma-joined physical
+line. Byte-identical means the mechanism is the ring, not the line
+([L78](compiler-laws/ido-5.3.md#l78-a-pool-carried-accumulate-keeps-a-field-in-its-web-the-fused-form-spends-a-temp)).
+
+**Points here:** `lever_class=temp-ring` from `diagnose --ring-trace`, and
+[L76](compiler-laws/ido-5.3.md#l76-a-struct-field-read-through-a-local-costs-one-ring-pop-a-direct-read-does-not)/[L77](compiler-laws/ido-5.3.md#l77-an-index-scaled-twice-costs-one-more-ring-pop-than-an-index-scaled-once).
+
 ## Coalescing copies
 
 **Diff looks like:** the residual is exactly one `move rd,rs` (or
@@ -972,6 +1006,38 @@ on any logging run. See
 [Compiler instrumentation](compiler-instrumentation.md#a-forbidden-color-is-declined-not-fatal).
 
 ---
+
+### 43. Read the proof before re-deriving it
+
+**Diff looks like:** `lever: unreachable`, or a `see_also` naming one of the
+proofs below.
+
+Four residual classes have been closed by ruling them out, each at the cost of
+a day and a dozen builds. They are levers in the sense that matters most: they
+tell you what not to spend.
+
+| Proof | What it says | What reopens it |
+|---|---|---|
+| `as1-readiness` | the two instructions are separated by readiness, not by their lines; in a block of *N* pre-branch nodes whose branch is ready at cycle *N*−1 exactly one node is left over, and a leftover always wins the delay slot | a model of as1's `besttime`, so the node set can be reasoned about forward |
+| `uopt-address-folding` | an address fold follows what is live where the value is formed, not where the definition is written — below the stores, in the loop init clause, and removed entirely all leave it intact | a shape in which the target pointer is not a constant offset from a live base at that point |
+| `uopt-coalescing-tie-break` | the web is coloured on a tie between the call's argument register and its return register, and the locals the pool lane suggests merging are already coalesced | a forced-colour probe (CDX), which decides the tie directly |
+| `cfe-pointer-add-canonicalisation` | cfe canonicalises every pointer-add to walk the pointer first, so no spelling of the add reorders its temps — five spellings, one object | a formulation with no pointer add: compute the byte offset in an integer and add once |
+
+`diagnose --as1-trace` reports the first as a **measurement**: the deciding key
+of a selection says whether the line lever reaches a block, and a selection
+decided above `lineno` is decided by readiness. The other three are catalogue
+entries, printed under `see_also` and never as the diagnosis, because nothing
+in two disassemblies distinguishes them.
+
+**And "unreachable" is still not a wall.** Every one of these is a statement
+about *hand* levers. Run
+[the permuter](permute-sweep.md) before recording any of them as final.
+
+**Points here:** `lever_class=unreachable` from `diagnose`, and
+[L75](compiler-laws/ido-5.3.md#l75-cfe-canonicalises-every-pointer-add-to-walk-the-pointer-first),
+[L79](compiler-laws/ido-5.3.md#l79-besttime-is-a-key-l59-omits-and-a-selection-decided-above-lineno-has-no-source-lever),
+[L81](compiler-laws/ido-5.3.md#l81-address-reassociation-is-insensitive-to-where-the-definition-is-written),
+[L82](compiler-laws/ido-5.3.md#l82-an-argumentreturn-coalescing-tie-is-not-a-source-form).
 
 ## When the compiler itself is the variable
 
@@ -1221,6 +1287,53 @@ acceptance still requires the authentic compiler and the target frame.
 `verdict=frame-layout` from `view`/`diagnose`, and
 `playbook=stack-frame-recovery`.
 
+### 40. De-declare a value so it takes a compiler-temp home
+
+**Diff looks like:** `lever: stack-home` with the frames equal or the
+candidate's larger, and the target homing a call-crossing value **one word
+below** the lowest home the candidate declares.
+
+The frame is `[declared locals][cfe temps][uopt temps]`, top down, and
+reordering declarations permutes slots *inside* the first region. It cannot
+move a value out of it. So when the target's home sits below every declared
+home, the whole declaration-order family
+([lever 26](#26-recover-stack-homes-without-losing-the-live-range-topology))
+is spent before it starts, and the edit is to stop declaring the value:
+
+```c
+/* before — the count is a named local, so it is homed in the declared block */
+s32 bytes = count * (s32)sizeof(Entry);
+allocate(bytes);
+zero(bytes);
+
+/* after — the expression is repeated, commoned across the call, and homed
+   in the temp region the target uses */
+allocate(count * (s32)sizeof(Entry));
+zero(count * (s32)sizeof(Entry));
+```
+
+Three directions, one family, and the frame arithmetic picks between them:
+
+| The measurement says | The edit |
+|---|---|
+| candidate frame larger | drop a declaration (above) |
+| frames equal, one home moved one word, instruction counts equal | carry the value in a local that is already dead there, so the declared count falls by one |
+| frames equal, two or more adjacent homes moved by the same amount | declare the pair *after* the local whose slots it must follow |
+
+**Check the frame moved before believing the count.** A declared block rounds
+up to 8 bytes, so a removed declaration is often free, and an 8-byte difference
+is one quantum rather than two declarations
+([L72](compiler-laws/ido-5.3.md#l72-the-declared-block-is-a-rounded-quantum--measure-the-frame-do-not-count-declarations)).
+Not every declared scalar owns a home at all: one removal in this cohort
+produced a byte-identical object.
+
+**The repeated expression has to be one the compiler commons** — call-crossing
+and identical at both sites. Where it is not, the cost is an extra
+materialisation, and the object grows.
+
+**Points here:** `lever_class=stack-home` from `diagnose`, and
+[L73](compiler-laws/ido-5.3.md#l73-a-value-the-target-homes-below-the-declared-block-is-reached-by-de-declaring-it).
+
 ### 31. Spend an array's unaddressed tail on a new local
 
 **Diff looks like:** you need one more registerizable local — a second symbol to
@@ -1363,6 +1476,45 @@ an instruction earlier detonated the allocator at 936 rows.
 **Points here:** `verdict=schedule-mismatch` with identical allocation,
 `playbook=line-assignment-probe`, and any adjacent-instruction swap that survived
 lever 25.
+
+### 42. Join an initialiser to the loop header's physical line
+
+**Diff looks like:** `lever: line-order` with a line-order conflict whose
+earlier record is an initialiser and whose later record is a loop-invariant
+address, or a `--as1-trace` in which a selection was decided on `lineno`.
+
+[Lever 33](#33-fold-statements-to-break-an-as1-scheduler-tie) folds two
+statements onto one line to break a tie. This is the specific case that keeps
+recurring, and the reason it is not obvious: a loop-invariant hoisted into the
+preheader is stamped with the **loop header's** line, not its use site's. Every
+initialiser above the loop therefore carries a lower line and wins as1's
+minimised key, with nothing in the data flow behind it.
+
+```c
+/* before — the count is at line 45, the hoisted table address at line 46 */
+remaining = 7;
+do {
+
+/* after — one physical line, and the line key stops deciding */
+remaining = 7; do {
+```
+
+Moving the initialiser is not the lever. It is already as late as C allows;
+that is what makes the residual look sourceless, and two functions were
+recorded unreachable on exactly that reading before the emit trace existed.
+
+**The second half of the family: birth order.** When the preheader materialises
+*several* invariants, their order among themselves is ugen's birth order, which
+follows source statement order. A bound kept in a local is born before a count
+read inline — so spelling the bound inline in the loop test moves its birth
+after the count. One function needed both halves.
+
+**When it is inert, it says so in one build.** A byte-identical object under a
+line join is evidence the pair is not separated by their lines, and the next
+lever is a different family.
+
+**Points here:** `lever_class=line-order` from `diagnose --emit-trace`, and
+[L80](compiler-laws/ido-5.3.md#l80-a-loop-invariant-hoist-carries-the-loop-headers-line).
 
 ## When the dispatch is the variable
 
@@ -1788,6 +1940,10 @@ Each of these was searched exhaustively at real cost; skip them.
 | jump-table bodies or clusters in the wrong order (IDO 7.1) / `dispatch-layout` | 37, 35, 36, 34 |
 | exact allocation, stack homes off by a constant (IDO 7.1) / `stack-frame-recovery` | 26, 31, 32, and 38 if a switch is in the residual |
 | read-count dial on IDO 7.1 / `pool-position` | 39, then 7-13 |
+| `lever: stack-home` from `diagnose` | 40, then 26, 31, 32 |
+| `lever: temp-ring` from `diagnose --ring-trace` | 41, then 14, 15, 16 |
+| `lever: line-order` from `diagnose --emit-trace` | 42, then 33, 25 |
+| `lever: unreachable`, or a `see_also` proof | 43, then the permuter |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |
@@ -1804,8 +1960,8 @@ Each of these was searched exhaustively at real cost; skip them.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
   [IDO 7.1](compiler-laws/ido-7.1.md) — what the compiler does, as opposed to
-  what to do about it. Levers 34-39 each name their law there, L62-L70 are the
-  newest nine, and `decomp-workbench guide laws ido-5.3 L64` prints one law
+  what to do about it. Levers 34-43 each name their law there, L72-L82 are the
+  newest eleven, and `decomp-workbench guide laws ido-5.3 L80` prints one law
   instead of the page.
 - [Permuter sweeps](permute-sweep.md) — when no hand lever is left:
   `permute-doctor` before the search, `permute-sweep` for it, `permute classify`

@@ -5,6 +5,65 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### The lever diagnosis
+
+- `diagnose` and `diagnose-dumps` gain a `lever` block: the concrete
+  source-edit class a residual's evidence supports, with the evidence lines
+  behind it, or the proof that no edit reaches it. Four classes, each read from
+  a different input — `stack-home` from the two prologues and, with `--ladder`,
+  a CDX frame ladder's declared-local count; `temp-ring` from `--ring-trace`'s
+  pops per source line against the target's temp lane; `line-order` from
+  `--emit-trace`'s line-order conflicts; `unreachable` from `--as1-trace`,
+  where the key that decided a selection says outright whether the line lever
+  reaches a block.
+- Every edit family and every proof carries the function and date it was
+  measured on, and the alternatives carry the discriminator that would select
+  them instead. `edit_family` is null exactly when the deciding trace is
+  absent, and `needs` then names the capture that produces it: a class is read
+  from a residual's shape, an edit family is read from a trace, and guessing
+  the second from the first is how `overlay40UpdateEntries` acquired an
+  "unreachable by statement placement" verdict a trace overturned the same day.
+- Three `unreachable` sub-classes are catalogue entries printed under
+  `see_also`, never as the diagnosis: nothing in two disassemblies
+  distinguishes uopt's address folding, an argument/return coalescing tie, or
+  cfe's pointer-add canonicalisation. Each records what would reopen it.
+- The block is a namespaced sub-document (`lever`, `lever_schema`) and is
+  absent on an exact comparison, which has no residual to explain. Field-guide
+  levers 40-43 and [from verdict to edit](docs/from-verdict-to-edit.md) reach
+  each class from the screen in one step.
+
+### Compiler laws L72-L82
+
+- Eleven laws from an overlay lever cohort of thirteen targets worked in three
+  days. Six say what an edit does: the declared block rounds to 8 so a
+  declaration can be free (L72), a home below that block is reached by
+  de-declaring rather than reordering (L73), an address-taken aggregate is the
+  block's floor (L74), a field read through a local and an index scaled twice
+  each cost one ring pop (L76, L77), a pool-carried accumulate keeps a field in
+  its web (L78), and a hoisted invariant carries the loop header's line (L80).
+- Five say what no edit does, which is the expensive half: cfe's pointer-add
+  canonicalisation (L75), as1's chain decided above the line key with its
+  leftover-node corollary (L79), uopt's address fold ignoring statement
+  placement (L81), and an argument/return coalescing tie (L82). L79 also
+  records that L59's key chain omits `besttime`, and that two campaigns place
+  `besttime` and `aftercycles` differently — nothing shipped depends on which
+  is right, and improvement-backlog item 15 is where that has to be settled.
+
+### One instrumented drop-in, and a check that it survived
+
+- `instrument-drop-in` prints the reproducible recipe for a `cc` carrying both
+  passes' profiles: the uopt CDX allocator profiles and the ugen free-list and
+  emit-order hooks, with their hash gates, the run-time variables each is
+  switched on with, the fidelity gates in the order they are run, and the
+  scheduler trace that needs no drop-in at all. `--script` writes it as a
+  runnable script it refuses to overwrite.
+- `check-drop-in` scans built compiler binaries for each profile's injected
+  markers and exits non-zero when one is missing. The claim is one-sided and
+  the report says so: a marker present proves the profile was compiled in, a
+  marker absent proves it was not, and neither proves it fires. A campaign lost
+  its uopt CDX profile to a ugen-only rebuild and four analysts re-derived that
+  from the same empty log over two days before anyone read the binary.
+
 ### ugen emit-order provenance
 
 - `instrument-ugen --emit-provenance` hooks all 67 ibuffer emit helpers and

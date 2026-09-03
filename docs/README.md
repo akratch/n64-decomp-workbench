@@ -21,7 +21,7 @@ below them is reference you consult when you need it.
 |---|---|
 | You have an almost-matched function and do not know what to do next | **[Start here](START_HERE.md)** |
 | `view` named a mechanism and you need the C that moves it | **[Field guide](field-guide.md)** |
-| You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** |
+| You have a verdict on screen and want the source edit it implies | **[From verdict to edit](from-verdict-to-edit.md)** — including the four classes `diagnose` names the edit for outright |
 | You have a pile of near matches and need an order to work them in | **[Backlog walkthrough](walkthrough-30-near-matches.md)** |
 | You want a full campaign, dead ends included, as a worked example | **[Case study: SSB64 drawbitmap](../case-studies/ssb64-drawbitmap.md)** |
 | You are about to conclude that no source form can reach your target | **[Case study: SSB64 unref_800036B4](../case-studies/ssb64-unref-800036B4.md)** |

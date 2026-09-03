@@ -81,7 +81,7 @@ undeclared one is reported `unknown` rather than `fresh`.
   force-provable; the outstanding gain is verdict clarity so an operator is not
   sent to probe a force that must decline.
 
-### 3. ugen temp-ring and g0-scheduler decision exposure
+### 3. ugen temp-ring and g0-scheduler decision exposure — closed
 - **Symptom.** A batch of `register-only` near-misses (≤10 words, frame-exact)
   proved **integer-reachable-but-unwinnable**: the differing decision was owned
   not by a *colorable tie* (which levers steer) but by the **ugen temp-ring
@@ -283,6 +283,27 @@ printed there would be invented; the report's `proof` string says as much and
 names `trace-scheduler --from-as1-r` as where they live. Procedure *names* are
 also out — ugen gives ordinals, and binding them to names is the existing
 retained-Ucode mechanism, not a new one.
+
+**Closed, 2026-09-03, and the premise this item was filed under is corrected
+in the title.** "The g0 scheduler" does not exist. There is no instruction
+scheduler in ugen at all — no ready list, no dependence DAG, no delay-slot
+filler and no nop inserter among its 431 named generated functions — and every
+sentence above that asks which slot g0 gave an instruction is asking a question
+the code does not contain. The scheduler is `as1`'s, it schedules from a key
+chain whose last key is the **physical source line**, and it has been readable
+the whole time through `cc -Wa,-R` with the object byte-identical.
+
+Part (a), the ring pop sequence with line provenance, landed 2026-08-27.
+Part (b) landed 2026-09-02 as ugen **emit** provenance — not slot provenance,
+which does not exist, but the order records enter the ibuffer and the line each
+carries into as1, which is the scheduler's input and the half ugen owns.
+
+What the two halves are worth, measured. Of thirteen overlay targets worked on
+2026-09-02/03, six closed exact: two on the ring pops per line (L76–L78), three
+on the line-order conflicts (L80), one on frame arithmetic that needed no trace
+at all. Four more closed in the other direction — proved unreachable, with the
+proof recorded so the builds are not spent again (L75, L79, L81, L82). The one
+residual class this item named and did not reach is item 15.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
@@ -724,3 +745,44 @@ project's tools as the worked example, and the workbench measures the bytes it
 is handed. Also out: the workbench does not decode a module's relocation
 table. Its format is per-game, and a wrong decode would silently corroborate
 the wrong sites; the table is an input, and a run without one says so.
+
+---
+
+### 15. Model as1's `besttime`, so readiness is predicted and not only observed
+- **Symptom.** `cc -Wa,-R` says which key decided a selection, which is enough
+  to rule the line lever *out* — and after that the analyst is blind. Four
+  Mickey targets on 2026-09-02/03 (`overlay1FindNextAngle` and its twin,
+  `overlay11UpdateMenu`, `overlay33InitializeBuffers`,
+  `overlay1ResolvePathPoint`) each ended in the same place: the trace shows the
+  block's nodes, their readiness, and the leftover that took the delay slot,
+  and nothing says what a *different* source form would make ready. Thirteen
+  builds and seven traces went on finding that out one variant at a time, and
+  every one of them was a guess with a receipt attached afterwards.
+- **What is already known, which is most of the model.** The key chain is
+  decoded and reproduced against 2688 recorded selections (`as1_reorganize`).
+  `besttime` is release recency and follows ugen's emission order, which
+  `trace-emit` now prints. The leftover-node law is measured: in a block of *N*
+  pre-branch nodes whose branch becomes ready at cycle *N*−1, exactly one node
+  is left over, and a leftover always wins the delay slot (**L79**). The
+  missing piece is not the rule — it is running the rule forward.
+- **Proposed change.** A `replay-as1` that takes one block's nodes from a
+  `-Wa,-R` trace and answers the counterfactual: given this dependence graph
+  and these latencies, which node is left over, and what would have to change
+  about the node set for the branch to be picked last. Two outputs, not one:
+  the predicted selection sequence, and the **node-count** delta the target's
+  schedule requires — because L79's whole content is that the reachable edit is
+  a change in what is in the block, not a change in where a statement sits.
+- **Payoff.** Turns four recorded walls into a question with an answer, and the
+  next one into a prediction rather than a build. It also closes the loop with
+  the lever diagnosis, which today reports `unreachable/as1-readiness` from the
+  deciding key and can say nothing about what would reopen it beyond naming
+  this item.
+- **What it must not do.** Predict a schedule for a source form nobody
+  compiled. A counterfactual over the *node set the trace recorded* is a
+  measurement; a counterfactual over a hypothetical node set is a simulation of
+  ugen as well as as1, and there is no model of ugen's emission here. The
+  output has to say which of the two it is.
+- **One disagreement to settle on the way.** Two campaigns place `besttime` and
+  `aftercycles` differently relative to each other in the chain, and neither's
+  recorded selections separate the orderings. Nothing shipped depends on the
+  answer today, and L79 says why; a forward model does.
