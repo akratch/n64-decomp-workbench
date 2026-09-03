@@ -212,6 +212,25 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertTrue(json.loads(stdout)["complete"])
 
+    def test_an_in_place_plan_passes_in_place_to_every_step(self) -> None:
+        """Generated and output tree the same directory is the normal case:
+        ido-static-recomp builds from the sources in place. Both instrument
+        commands refuse input == output without --in-place, so a plan that
+        omits it emits a script that dies on its first step under `set -eu`,
+        leaving the previously built drop-in in place and its logs empty."""
+        document = plan(generated=Path("/g"), output=Path("/g"))
+        self.assertTrue(document["steps"])
+        for step in document["steps"]:
+            self.assertIn("--in-place", step["argv"], step["profile"])
+        script = render_script(document)
+        self.assertEqual(script.count("--in-place"), len(document["steps"]))
+
+    def test_a_separate_output_tree_does_not_ask_for_in_place(self) -> None:
+        document = plan(generated=Path("/g"), output=Path("/o"))
+        self.assertTrue(document["steps"])
+        for step in document["steps"]:
+            self.assertNotIn("--in-place", step["argv"], step["profile"])
+
     def test_a_missing_binary_is_an_error_document(self) -> None:
         status, _stdout, stderr = run_cli(["check-drop-in", "/nowhere/cc"])
         self.assertEqual(status, 2)
