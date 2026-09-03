@@ -10,11 +10,16 @@ verdict a trace overturned the same day.
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from decomp_workbench.as1_reorganize import parse_as1_reorganize_trace
 from decomp_workbench.cascade import CdxLog
+from decomp_workbench.cli import main
 from decomp_workbench.emit_provenance import parse_emit_trace
 from decomp_workbench.frame_ladder import frame_ladder
 from decomp_workbench.levers import (
@@ -378,3 +383,126 @@ class RenderingTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class DiagnoseCommandTests(unittest.TestCase):
+    """The block on the screen and in the payload, from the real command."""
+
+    def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def dumps(self, root: Path) -> tuple[Path, Path]:
+        target = root / "target.objdump"
+        candidate = root / "candidate.objdump"
+        target.write_text(HOME_TARGET, encoding="utf-8")
+        candidate.write_text(HOME_CANDIDATE, encoding="utf-8")
+        return target, candidate
+
+    def test_the_screen_carries_the_lever_block(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target, candidate = self.dumps(Path(directory))
+            status, stdout, _ = self.run_cli(
+                ["diagnose-dumps", str(target), str(candidate), "--function", "demo"]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("lever: stack-home", stdout)
+        self.assertIn("proved on: ", stdout)
+
+    def test_the_payload_namespaces_the_block_and_its_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target, candidate = self.dumps(Path(directory))
+            _status, stdout, _ = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "demo",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v3")
+        self.assertEqual(payload["lever_schema"], LEVER_SCHEMA)
+        self.assertEqual(payload["lever"]["lever_class"], LEVER_STACK_HOME)
+
+    def test_an_exact_comparison_gets_no_block_because_it_has_no_residual(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.objdump"
+            target.write_text(HOME_TARGET, encoding="utf-8")
+            _status, stdout, _ = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(target),
+                    "--function",
+                    "demo",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout)
+        self.assertNotIn("lever", payload)
+        self.assertNotIn("lever_schema", payload)
+
+    def test_a_ring_trace_reaches_the_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.objdump"
+            candidate = root / "candidate.objdump"
+            target.write_text(
+                (
+                    ROOT / "examples" / "fixtures" / "phase-shift-target.objdump"
+                ).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            candidate.write_text(
+                (
+                    ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
+                ).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            trace = root / "ring.log"
+            trace.write_text(RING_TRACE, encoding="utf-8")
+            _status, stdout, _ = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "animStep",
+                    "--ring-trace",
+                    str(trace),
+                    "--lever-proc",
+                    "3",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout)
+        self.assertEqual(
+            payload["lever"]["measurements"]["pops_by_line"],
+            {"41": 1, "42": 2, "43": 1},
+        )
+        self.assertEqual(payload["lever"]["needs"], [])
+
+    def test_an_unreadable_trace_is_an_error_document_not_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target, candidate = self.dumps(Path(directory))
+            status, _stdout, stderr = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "demo",
+                    "--emit-trace",
+                    str(Path(directory) / "missing.log"),
+                ]
+            )
+        self.assertEqual(status, 2)
+        self.assertTrue(stderr.startswith("error: "))

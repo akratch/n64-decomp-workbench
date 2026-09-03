@@ -10,6 +10,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from .as1_reorganize import parse_as1_reorganize_trace
+from .cascade import CascadeError, CdxLog
 from .census import (
     Predicate,
     census_status,
@@ -32,9 +34,12 @@ from .comparison_render import (
     warning_lines,
 )
 from .diagnosis import Diagnosis, diagnose_dumps, diagnose_objects
+from .emit_provenance import parse_emit_trace
 from .force_spec import write_force_specification
+from .frame_ladder import frame_ladder
 from .globalcolor import parse_globalcolor_trace, pass_evidence
 from .html_report import render_diagnosis_html
+from .levers import format_lever, lever_for
 from .loc_boundaries import (
     MISSING_LISTING_STEPS,
     LocBoundaryReport,
@@ -52,7 +57,7 @@ from .staleness_cli import (
     guard_freshness,
 )
 from .terminal import Painter, emit_lines, resolve_color, warn_to_stderr
-from .trace import read_trace_text
+from .trace import parse_trace, read_trace_text
 from .view import PassEvidence
 from .view_cli import (
     add_view_output_arguments,
@@ -135,6 +140,50 @@ def _with_trace_note(
     return dataclasses.replace(diagnosis, view=view)
 
 
+def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
+    """Attach the source-edit class, reading whichever traces were supplied.
+
+    Nothing here is optional-with-a-default: each input is a different
+    compiler observation, and a lever named from an input the reader did not
+    supply would be the guess the module exists to refuse. An exact comparison
+    gets no block at all, because there is no residual to explain.
+    """
+
+    if diagnosis.comparison.exact:
+        return diagnosis
+    ladder = None
+    if getattr(args, "ladder", None):
+        log = CdxLog(
+            read_trace_text(Path(args.ladder).expanduser(), warn=warn_to_stderr),
+            name=display_path(args.ladder),
+        )
+        ladder = frame_ladder(log, proc=getattr(args, "lever_proc", None))
+    ring_events = None
+    if getattr(args, "ring_trace", None):
+        ring_events = parse_trace(
+            read_trace_text(Path(args.ring_trace).expanduser(), warn=warn_to_stderr)
+        )
+    emit_events = None
+    if getattr(args, "emit_trace", None):
+        emit_events, _ignored = parse_emit_trace(
+            read_trace_text(Path(args.emit_trace).expanduser(), warn=warn_to_stderr)
+        )
+    selections = None
+    if getattr(args, "as1_trace", None):
+        selections, _events, _ignored = parse_as1_reorganize_trace(
+            read_trace_text(Path(args.as1_trace).expanduser(), warn=warn_to_stderr)
+        )
+    lever = lever_for(
+        diagnosis.view,
+        ladder=ladder,
+        ring_events=ring_events,
+        emit_events=emit_events,
+        as1_selections=selections,
+        proc=getattr(args, "lever_proc", None),
+    )
+    return dataclasses.replace(diagnosis, lever=lever)
+
+
 def _statement_lines(
     diagnosis: Diagnosis, args: argparse.Namespace
 ) -> tuple[Diagnosis, LocBoundaryReport | None]:
@@ -177,7 +226,8 @@ def _emit(
         return 2
     try:
         diagnosis, listing_report = _statement_lines(diagnosis, args)
-    except (OSError, ValueError) as error:
+        diagnosis = _lever(diagnosis, args)
+    except (CascadeError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:
@@ -277,9 +327,16 @@ def _emit(
                 width=args.width,
                 terse=args.terse,
                 extra_sections=(
-                    render_loc_boundaries(listing_report, painter)
-                    if listing_report is not None
-                    else ()
+                    *(
+                        render_loc_boundaries(listing_report, painter)
+                        if listing_report is not None
+                        else ()
+                    ),
+                    *(
+                        ("", *format_lever(diagnosis.lever))
+                        if diagnosis.lever is not None
+                        else ()
+                    ),
                 ),
             )
         )
@@ -399,6 +456,49 @@ def _add_shared_arguments(
         type=int,
         metavar="N",
         help="scope --trace to one web within the procedure",
+    )
+    parser.add_argument(
+        "--ladder",
+        metavar="PATH",
+        help=(
+            "a CDX log carrying CDX_SYMTAB=1 itable records; supplies the "
+            "declared-local count the stack-home lever is measured against"
+        ),
+    )
+    parser.add_argument(
+        "--ring-trace",
+        metavar="PATH",
+        help=(
+            "a DKWB_UGEN_TRACE free-list log; supplies ring pops per source "
+            "line, which is what names the construct that bought or sold one"
+        ),
+    )
+    parser.add_argument(
+        "--emit-trace",
+        metavar="PATH",
+        help=(
+            "a DKWB-EMIT-V1 ugen emit-provenance log; supplies the line-order "
+            "conflicts the loop-header join removes"
+        ),
+    )
+    parser.add_argument(
+        "--as1-trace",
+        metavar="PATH",
+        help=(
+            "an as1 `cc -Wa,-R` scheduler trace. The deciding key of a "
+            "selection settles the line question outright: decided on lineno "
+            "the line lever reaches it, decided above lineno nothing in the "
+            "source does"
+        ),
+    )
+    parser.add_argument(
+        "--lever-proc",
+        type=int,
+        metavar="N",
+        help=(
+            "scope --ladder, --ring-trace and --emit-trace to one procedure "
+            "ordinal, for the same reason --trace-proc exists"
+        ),
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     add_view_render_arguments(

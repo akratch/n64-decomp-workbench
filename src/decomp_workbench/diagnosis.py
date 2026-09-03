@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .compare import compare_instructions, resolve_true_instructions
+from .levers import LEVER_SCHEMA, Lever
 from .model import Comparison, Instruction, display_path
 from .objdump import (
     dump_object,
@@ -31,6 +32,10 @@ from .view import (
 #: `reachability` and `ownership_basis` beside it. Additive at both steps:
 #: every v1 key is still present and unchanged, and a consumer that ignores
 #: the new fields reads a v3 document exactly as it read a v1 one.
+#:
+#: The lever block is additive in the other documented way: a namespaced
+#: sub-document under `lever`/`lever_schema`, present only when a residual
+#: exists to explain, so the host schema does not move for it either.
 DIAGNOSIS_SCHEMA = "decomp-workbench-diagnosis-v3"
 
 
@@ -40,6 +45,10 @@ class Diagnosis:
 
     comparison: Comparison
     view: MechanismView
+    #: The source-edit class this residual's evidence supports. Optional and
+    #: attached by the caller, because it can read traces this constructor
+    #: never opens; absent on an exact comparison, which has no residual.
+    lever: Lever | None = None
 
     def as_dict(
         self,
@@ -59,13 +68,17 @@ class Diagnosis:
         )
         comparison = self.comparison.as_dict()
         comparison.update(accepted=accepted, acceptance_basis=basis)
-        return {
+        payload = {
             "schema": DIAGNOSIS_SCHEMA,
             "comparison": comparison,
             "routing": self.routing,
             **self.ownership.as_dict(),
             "view": self.view.as_dict(report_regs=report_regs),
         }
+        if self.lever is not None:
+            payload["lever"] = self.lever.as_dict()
+            payload["lever_schema"] = LEVER_SCHEMA
+        return payload
 
     @property
     def routing(self) -> str:

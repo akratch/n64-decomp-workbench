@@ -12,6 +12,7 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-comparison-v1`
 - `decomp-workbench-staleness-v1`
 - `decomp-workbench-diagnosis-v3`
+- `decomp-workbench-lever-v1`
 - `decomp-workbench-campaign-status-v1`
 - `decomp-workbench-campaign-finish-v1`
 - `decomp-workbench-oracle-sweep-v1`
@@ -106,6 +107,37 @@ least one input/derived pair was actually read: a comparison run without
 rather than certifying a build nobody checked. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
+
+### The lever block
+
+`diagnose` and `diagnose-dumps` add `lever` and `lever_schema`
+(`decomp-workbench-lever-v1`) whenever the comparison is not exact. An exact
+comparison has no residual to explain and carries neither key, so the presence
+of the block is itself the statement that something is left.
+
+`lever_class` is exactly one of `stack-home`, `temp-ring`, `line-order`,
+`unreachable`, and `none-known`. Beside it, `edit_family`, `edit` and
+`citation` name the concrete source edit and the function and date it was
+measured on; `evidence` is the lines that support the class; `measurements`
+carries the numbers it was computed from; `alternatives` lists the sibling
+families in the class, each with the `discriminator` that would select it
+instead; `see_also` lists catalogue proofs the owning pass points at.
+
+**`edit_family` is null whenever the deciding evidence is absent, and `needs`
+then names the capture that produces it.** That pairing is the contract, not a
+convenience: a class is read from the residual's shape, an edit family is read
+from a trace, and a consumer that treats a named class as a named edit will act
+on a guess. `needs` is empty exactly when nothing further is required.
+
+`unreachable` is null unless the class is `unreachable`; when present it
+carries `unreachable_class` (`as1-readiness`, `uopt-address-folding`,
+`uopt-coalescing-tie-break`, or `cfe-pointer-add-canonicalisation`), the
+`proof`, its `citation`, and `reopens_when` — the condition under which the
+target is worth another look. Only `as1-readiness` is ever reported as a
+measurement, and only from an `--as1-trace`: the deciding key of a selection
+says whether the line lever reaches a block. The other three are catalogue
+entries, reported under `see_also` and never as the diagnosis, because nothing
+in two disassemblies distinguishes them.
 
 `decomp-workbench commands --json` is the versioned discovery surface. Existing
 flat command names and journey spellings return the same report:
