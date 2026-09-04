@@ -2001,8 +2001,8 @@ Each of these was searched exhaustively at real cost; skip them.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
   [IDO 7.1](compiler-laws/ido-7.1.md) — what the compiler does, as opposed to
-  what to do about it. Levers 34-43 each name their law there, L72-L82 are the
-  newest eleven, and `decomp-workbench guide laws ido-5.3 L80` prints one law
+  what to do about it. Levers 34-44 each name their law there, L83-L86 are the
+  newest four, and `decomp-workbench guide laws ido-5.3 L80` prints one law
   instead of the page.
 - [Permuter sweeps](permute-sweep.md) — when no hand lever is left:
   `permute-doctor` before the search, `permute-sweep` for it, `permute classify`

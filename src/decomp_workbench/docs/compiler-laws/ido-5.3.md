@@ -50,6 +50,13 @@ more expensive half: each of those was established by spending builds until
 the mechanism was read, and each is now a test an analyst can run before
 spending them again.
 
+Laws L83–L86 come from one lane of the same campaign (2026-09-03), thirteen
+builds on three overlay functions read with the instrumented uopt CDX
+colouring profile. They are what the two colouring sweeps actually order on
+(L83, L84), the one source spelling measured to move a web number (L85), and
+three that move none (L86). They are narrow on purpose: three functions, one
+of which is the only one whose webs reached the callee-saved sweep at all.
+
 ## What a receipt may cite
 
 Every receipt on this page is a **symbol-level citation**: the function a
@@ -926,6 +933,94 @@ why the class is T3 and not T1.
 **Provenance:** Mickey's Speedway USA decomp (2026-09-03),
 `overlay59PrepareEntry`.
 
+### L85. A truncation written at the store renumbers its synthetic temp
+
+uopt mints a synthetic intermediate for a two-step narrowing cast and numbers
+it where the truncation is written. Written as an *expression* cast the temp
+is numbered in the expression; written as a **store** into a narrow local it
+is numbered at the store, and a store is numbered LHS before RHS. Declaring
+the local at its narrow type and dropping the explicit cast therefore moves
+the temp one place later in the web numbering — which is the whole of the
+lever, because the sweeps read nothing else once the saves are equal
+([L83](#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there),
+[L84](#l84-p1-is-repeated-max-save-selection-the-web-number-breaks-ties-only)).
+
+Two preconditions, both measured, both required:
+
+* the value must not be passed on after the narrowing store, or the store
+  truncates a value a later call still needs. On the function below the
+  else-branch call was inlined first — an edit already proved byte-identical
+  — so the narrow store could not reach it.
+* the truncation must survive cfe. A store cfe has already coalesced away
+  cannot be numbered at a site that no longer exists, which is how two other
+  spellings on this same function moved nothing
+  ([L86](#l86-three-spellings-that-move-no-web-number)).
+
+> Therefore a renumbering edit is confirmed against a **second CDX capture**,
+> never against the source diff.
+
+**Receipt — T1**, live records either side of the edit plus an object.
+`overlay4UpdateObjectMotion`, seven builds: webs 48 and 50 are `type=4`
+expression webs — the `config->threshold` load and the synthetic intermediate
+of the `(s16)` truncation, which uopt sinks out of the assignment and into the
+comparison. Declaring `delta` as `s16` and dropping the cast renumbered the
+temp **48 → 49**, closed both threshold webs, and took the residual from 8
+differing words to 3 with the frame unchanged at -0x60 and the instruction
+stream still exact. Reproduced byte-identically under the stock toolchain,
+sha1 `8f11fe39ee5d`, so the result is not an artifact of the profile. The same
+function's remaining three words are the reachability limit recorded in
+[L86](#l86-three-spellings-that-move-no-web-number).
+
+**Falsifies.** The belief that LHS-before-RHS is a property of the *statement*
+a value appears in. It is a property of the site the truncation is written at,
+and the same value written two ways is numbered in two places.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay pool-spike
+lane, `overlay4UpdateObjectMotion`, adopted as commit `cd2b9500`.
+
+### L86. Three spellings that move no web number
+
+Measured on the function of
+[L85](#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp),
+against the same capture:
+
+| Spelling | What it did |
+|---|---|
+| swap two `s32` declarations | **byte-identical**: declaration order is inert for register-resident locals. It is [L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)'s lever only where a home is at stake |
+| swap the comparison operands | **byte-identical**: cfe canonicalises relational operand order, so LHS-before-RHS does not apply at a comparison |
+| read the value into an added local | shifts every downstream web number by a constant (22 → 25, 48 → 51, 50 → 53) and **reorders no pair** — and it bought a stack home, 8 differing words to 22, frame -0x60 to -0x68 |
+
+> Therefore an added local is not a renumbering lever. It translates the
+> numbering and a sweep that reads only the order is unmoved by a translation.
+
+**And the floor this function actually sits on.** Its last three words are not
+colour-reachable at all. Webs 13 and 22 arrive at their decisions with
+identical records — same save 1.5, same `numintf=4`, same
+`forbidden0=0x00038000`, same `available0=0x7ffc0000` — do not interfere, and
+both take the lowest free colour. For the first to take the second colour, the
+first colour must be forbidden to it, which needs an interference with a
+holder of that colour; its whole neighbour set is entry-block pointers, a web
+p1 splits, and one synthetic, while the two holders are late-block webs a
+first-block web cannot reach. The pool populations are equal, so it is not a
+population difference either. A different web **structure** is required, and
+no spelling tried produced one without wrecking the instruction stream.
+
+**Receipt — T2**, four objects and one capture. Three of the four spellings
+above are byte-identical or measured objects; the numbering claims are read
+from `p1color` records, which also show that when a spelling did move a number
+it moved an upstream web (146 → 145) and left 13, 22, 48 and 50 exactly where
+they were.
+
+**Falsifies.** "Add a local to renumber the webs", which is the first thing a
+numbering model suggests and which this function paid 14 extra differing words
+to disprove. Also the reading of a residual with equal saves, equal
+interference counts and equal masks as a tie a lever can break: it is two webs
+the pass cannot tell apart, and neither numbering, priority nor affinity
+separates them.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay pool-spike
+lane, `overlay4UpdateObjectMotion`.
+
 ---
 
 ## p1 (the global-colour allocator)
@@ -1488,6 +1583,62 @@ Treat the re-cache lever as a lead outside the single-consumer shape.
 
 **Provenance:** Mickey's Speedway USA decomp (2026-08), resident menu
 cohort, `func_80038750`.
+
+### L83. p2 visits webs in web-number order, and the save cost is inert there
+
+The caller-saved sweep takes the procedure's webs in **ascending web number**
+and gives each the lowest colour still free. It computes a save for every one
+of them and does not order on it: every `p2dec` in the two procedures below
+records `bestcost=0.000000`, and the largest save in the first is coloured
+sixth.
+
+> Therefore a rotation among p2 webs is reachable by renumbering alone, and
+> only by renumbering: nothing that changes a web's use count or loop depth
+> moves its position in this sweep.
+
+**Receipt — T1**, live records from the instrumented uopt CDX colouring
+profile. `overlay43FilterImage`: 9 decisions, all p2, every `bestcost` zero,
+visit order 0, 2, 6, 9, 12, 16, 60, 73, 84 — strictly ascending — against
+saves of 560.5, 3.7, 23.7, 155.0, 200.0, 1400.0, 120.0, 25.0 and 10.0.
+`overlay60ReassignChoiceSlots`: 10 decisions, all p2, all `bestcost` zero,
+ascending web order, two webs declined at save 0. The profile's own identity
+on this cohort is the receipt under
+[L85](#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp),
+which reproduced byte-identically under the stock toolchain.
+
+**Falsifies.** The reading of the two sweeps as one allocator with one order.
+A campaign that has read [L28](#l28-p1s-decision-is-net--bestcost-and-totalsave-is-net)
+and reaches for a save lever on a p2 web is spending builds on a number the
+sweep does not consult.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay pool-spike
+lane, `overlay43FilterImage` and `overlay60ReassignChoiceSlots`.
+
+### L84. p1 is repeated max-save selection; the web number breaks ties only
+
+The callee-saved sweep re-scans every uncoloured web each round and takes the
+largest save, with **ascending web number as the tie-break**. The `p1cand`
+records make it explicit: each round re-lists every uncoloured web with its
+save and a running `best=`, and the winner is the maximum.
+
+> Therefore a rotation between two p1 webs **tied** on save is reachable by
+> renumbering, and a rotation across a save boundary is not: it needs the cost
+> changed, which means changing use counts or loop depth, which changes the
+> instruction stream — and a rotation is by definition a residual whose
+> instruction stream is already right.
+
+**Receipt — T1**, live records. `overlay4UpdateObjectMotion` (proc ordinal 1)
+selects webs 146, 98, 0, 132, 6 at saves 7.0, 4.0, 3.0, 2.0 and 1.714, and
+then 2, 13, 22, 48, 50 — five webs all tied at save 1.5, taken in ascending
+web number. The tie is what a source edit can reach; the five saves above it
+are not.
+
+**Falsifies.** "The allocator colours by priority" as a single claim. Priority
+orders p1 and orders nothing in p2 ([L83](#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there)),
+and which sweep owns a residual's webs is not visible in a disassembly.
+
+**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay pool-spike
+lane, `overlay4UpdateObjectMotion`.
 
 ---
 

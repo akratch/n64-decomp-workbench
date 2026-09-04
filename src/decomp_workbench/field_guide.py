@@ -709,6 +709,26 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "uopt-globalcolor": (
         (
             "ido53",
+            "L83",
+            "p2 visits webs in ascending web number and ignores the save, so "
+            "a rotation there is renumbering or nothing",
+        ),
+        (
+            "ido53",
+            "L84",
+            "p1 takes the largest save each round and reads the web number "
+            "only inside a tie group, so a rotation across a save boundary "
+            "needs the cost changed instead",
+        ),
+        (
+            "ido53",
+            "L85",
+            "a truncation written at the store, not as an expression cast, "
+            "numbers its synthetic temp one place later -- confirm it with a "
+            "second capture, not with the diff",
+        ),
+        (
+            "ido53",
             "L81",
             "an address fold follows what is live where the value is formed, "
             "not where the defining statement is written",
