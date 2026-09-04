@@ -28,6 +28,8 @@ from decomp_workbench.levers import (
     LEVER_CLASS_VALUES,
     LEVER_LINE_ORDER,
     LEVER_NONE_KNOWN,
+    LEVER_POOL_POPULATION,
+    LEVER_POOL_ROTATION,
     LEVER_SCHEMA,
     LEVER_STACK_HOME,
     LEVER_TEMP_RING,
@@ -38,10 +40,13 @@ from decomp_workbench.levers import (
     TEMP_RING_FAMILIES,
     UNREACHABLE_PROOFS,
     classify_construct,
+    force_reachability,
     format_lever,
     lever_for,
     pops_by_line,
     readiness_keys,
+    sweep_records,
+    tie_groups,
 )
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.trace import parse_trace
@@ -371,6 +376,7 @@ class RenderingTests(unittest.TestCase):
             {
                 "lever_class",
                 "reason",
+                "reachability",
                 "edit_family",
                 "edit",
                 "citation",
@@ -647,6 +653,348 @@ if __name__ == "__main__":  # pragma: no cover
     unittest.main()
 
 
+#: Two caller-saved decisions, in the shape `overlay43FilterImage` and
+#: `overlay60ReassignChoiceSlots` recorded: p2 visits in ascending web number,
+#: every `bestcost` is zero, and the saves are wildly unequal and inert. Web 9
+#: is a `type=4` expression web -- the synthetic intermediate of a narrowing
+#: cast, which is the shape the one measured renumbering spelling was
+#: measured on.
+P2_LOG = """\
+[CDX] webdetail phase=p2 proc=0 role=target web=6 sym=6 type=3 dtype=6 \
+table=1 chain=1 exprtable=1 exprchain=1 bb=1 line=9 raw10=0x00000000 \
+raw14=0x00000000 raw18=0x00000000 raw20=0x00000000
+[CDX] p2dec phase=p2 proc=0 web=6 sym=6 class=1 save=560.500000 nocs=1 \
+totalsave=560.500000 bestcost=0.000000 bestcolor=1 bestreg=v0 \
+forbidden0=0x00000000 forbidden1=0x00000000 regsleft=9 numintf=4 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p2color phase=p2 proc=0 web=6 sym=6 color=1 reg=v0 forced=-2
+[CDX] webdetail phase=p2 proc=0 role=target web=9 sym=0 type=4 dtype=6 \
+table=2 chain=1 exprtable=2 exprchain=1 bb=4 line=9 raw10=0x00000000 \
+raw14=0x00000000 raw18=0x00000000 raw20=0x00000000
+[CDX] p2dec phase=p2 proc=0 web=9 sym=0 class=1 save=3.700000 nocs=1 \
+totalsave=3.700000 bestcost=0.000000 bestcolor=2 bestreg=v1 \
+forbidden0=0x00000000 forbidden1=0x00000000 regsleft=8 numintf=4 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p2color phase=p2 proc=0 web=9 sym=0 color=2 reg=v1 forced=-2
+"""
+
+#: The callee-saved sweep, in the shape `overlay4UpdateObjectMotion` recorded:
+#: one web at save 7.0 taken first, then a tie group at save 1.5 whose members
+#: are ordered by web number alone.
+P1_TIED_LOG = """\
+[CDX] webdetail phase=p1 proc=1 role=target web=48 sym=0 type=4 dtype=6 \
+table=1 chain=1 exprtable=1 exprchain=1 bb=6 line=81 raw10=0x00000000 \
+raw14=0x00000000 raw18=0x00000000 raw20=0x00000000
+[CDX] p1dec phase=p1 proc=1 web=48 sym=0 class=1 save=1.500000 nocs=2 \
+totalsave=3.000000 bestcost=0.000000 bestcolor=1 bestreg=v0 \
+forbidden0=0x00038000 forbidden1=0x00000000 regsleft=9 numintf=4 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p1color phase=p1 proc=1 web=48 sym=0 color=1 reg=v0 forced=-2
+[CDX] webdetail phase=p1 proc=1 role=target web=50 sym=71 type=3 dtype=6 \
+table=2 chain=1 exprtable=2 exprchain=1 bb=6 line=81 raw10=0x00000000 \
+raw14=0x00000000 raw18=0x00000000 raw20=0x00000000
+[CDX] p1dec phase=p1 proc=1 web=50 sym=71 class=1 save=1.500000 nocs=2 \
+totalsave=3.000000 bestcost=0.000000 bestcolor=2 bestreg=v1 \
+forbidden0=0x00038000 forbidden1=0x00000000 regsleft=8 numintf=4 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p1color phase=p1 proc=1 web=50 sym=71 color=2 reg=v1 forced=-2
+[CDX] webdetail phase=p1 proc=1 role=target web=146 sym=12 type=3 dtype=6 \
+table=3 chain=1 exprtable=3 exprchain=1 bb=1 line=81 raw10=0x00000000 \
+raw14=0x00000000 raw18=0x00000000 raw20=0x00000000
+[CDX] p1dec phase=p1 proc=1 web=146 sym=12 class=1 save=7.000000 nocs=2 \
+totalsave=14.000000 bestcost=0.000000 bestcolor=14 bestreg=s0 \
+forbidden0=0x00000000 forbidden1=0x00000000 regsleft=9 numintf=9 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p1color phase=p1 proc=1 web=146 sym=12 color=14 reg=s0 forced=-2
+"""
+
+#: The same p1 pair with the saves separated, which is what puts a rotation
+#: out of numbering's reach: p1 takes the larger save first whatever the web
+#: numbers are.
+P1_UNTIED_LOG = P1_TIED_LOG.replace(
+    "web=50 sym=71 class=1 save=1.500000", "web=50 sym=71 class=1 save=4.000000"
+)
+
+#: A recorded force run: `overlay4UpdateObjectMotion` went to words=0 under
+#: three pinned colours, which is the complete reachability proof.
+FORCE_PROVEN = {
+    "schema": "decomp-workbench-oracle-sweep-v1",
+    "baseline": {
+        "force": None,
+        "comparison": {"words": 8, "candidate_instructions": 96},
+    },
+    "results": [
+        {
+            "force": "p1:w13=c2",
+            "comparison": {"words": 5, "candidate_instructions": 96},
+        },
+        {
+            "force": "p1:w13=c2,p1:w48=c3,p1:w50=c2",
+            "comparison": {"words": 0, "candidate_instructions": 96},
+        },
+    ],
+}
+
+#: The opposite receipt: one force the pass declined outright and one it
+#: bought with two extra instructions.
+FORCE_REFUSED = {
+    "schema": "decomp-workbench-oracle-sweep-v1",
+    "baseline": {
+        "force": None,
+        "comparison": {"words": 8, "candidate_instructions": 96},
+    },
+    "results": [
+        {"force": "p1:w13=c2", "comparison": None},
+        {
+            "force": "p1:w22=c2",
+            "comparison": {"words": 6, "candidate_instructions": 98},
+        },
+    ],
+}
+
+
+class PoolLaneGateTests(unittest.TestCase):
+    """The length gate, and the counter-example it exists for.
+
+    `overlay43FilterImage` carried "the residual is one cyclic pool rotation"
+    until somebody compared the lanes: 18 target slots against 15. Forcing the
+    rotation to the target's colours improved 33 words to 26 and raised opcode
+    mismatches from 8 to 10, because the three values the target colours are in
+    our temp ring and no colour reaches them.
+    """
+
+    def colour_view(
+        self,
+        *,
+        target_pool: tuple[str, ...],
+        candidate_pool: tuple[str, ...],
+        webs: tuple[tuple[str, str], ...] = (("v1", "v0"), ("v0", "v1")),
+    ) -> MechanismView:
+        view = view_for(HOME_TARGET, HOME_TARGET)
+        made = tuple(
+            Web(
+                web=f"w{index}",
+                target=target,
+                candidate=candidate,
+                count=3,
+                rows=(index,),
+            )
+            for index, (target, candidate) in enumerate(webs)
+        )
+        pool = next(item for item in view.lanes if item.classification == "pool")
+        pool = dataclasses.replace(pool, target=target_pool, candidate=candidate_pool)
+        return dataclasses.replace(
+            view,
+            webs=made,
+            verdict="register-permutation",
+            lanes=tuple(
+                pool if item.classification == "pool" else item for item in view.lanes
+            ),
+        )
+
+    def test_unequal_lanes_are_a_population_difference_not_a_rotation(self) -> None:
+        lever = lever_for(
+            self.colour_view(
+                target_pool=("v0", "v1", "a0"), candidate_pool=("v0", "v1")
+            )
+        )
+        self.assertEqual(lever.lever_class, LEVER_POOL_POPULATION)
+        self.assertIsNone(lever.family)
+        self.assertEqual(lever.measurements["pool_lane_length_delta"], -1)
+        self.assertIn("not a rotation", lever.reason)
+
+    def test_the_population_verdict_names_the_side_holding_the_surplus(self) -> None:
+        lever = lever_for(
+            self.colour_view(
+                target_pool=("v0", "v1"), candidate_pool=("v0", "v1", "a0")
+            )
+        )
+        self.assertIn("the candidate colours 1 value", lever.reason)
+
+    def test_the_counter_example_is_cited_where_the_gate_fires(self) -> None:
+        lever = lever_for(
+            self.colour_view(
+                target_pool=("v0", "v1", "a0"), candidate_pool=("v0", "v1")
+            )
+        )
+        self.assertIn("overlay43FilterImage", " ".join(lever.evidence))
+
+    def test_equal_lanes_with_no_capture_ask_for_the_sweep(self) -> None:
+        lever = lever_for(
+            self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1"))
+        )
+        self.assertEqual(lever.lever_class, LEVER_POOL_ROTATION)
+        self.assertIsNone(lever.family)
+        self.assertTrue(any("CDX_LOG=1" in item for item in lever.needs))
+
+    def test_an_identical_pool_lane_is_not_routed_here_at_all(self) -> None:
+        """No difference in the lane is no rotation, whatever the webs say."""
+
+        lever = lever_for(
+            self.colour_view(target_pool=("v0", "v1"), candidate_pool=("v0", "v1"))
+        )
+        self.assertNotIn(
+            lever.lever_class, {LEVER_POOL_ROTATION, LEVER_POOL_POPULATION}
+        )
+
+
+class OwningSweepTests(PoolLaneGateTests):
+    """Which sweep coloured the webs, and what each one's order is."""
+
+    def log(self, text: str) -> CdxLog:
+        return CdxLog(text, name="capture.log")
+
+    def rotation(self) -> MechanismView:
+        return self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1"))
+
+    def test_p2_is_named_from_the_records_with_its_visit_order(self) -> None:
+        lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
+        self.assertEqual(lever.lever_class, LEVER_POOL_ROTATION)
+        self.assertEqual(lever.measurements["owning_sweep"], "p2")
+        self.assertIn("ascending web number", " ".join(lever.evidence))
+
+    def test_p2_reports_the_save_cost_as_inert(self) -> None:
+        lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
+        self.assertIn("bestcost=0.000000", " ".join(lever.evidence))
+
+    def test_the_direction_names_the_web_that_must_move_earlier(self) -> None:
+        lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
+        self.assertEqual(lever.measurements["move_earlier"], 9)
+        self.assertEqual(lever.measurements["move_later"], 6)
+        self.assertIn("web 9 must be visited before web 6", lever.reason)
+
+    def test_a_p1_tie_group_is_named_with_its_save_and_members(self) -> None:
+        lever = lever_for(self.rotation(), cdx_log=self.log(P1_TIED_LOG), proc=1)
+        self.assertEqual(lever.measurements["owning_sweep"], "p1")
+        self.assertEqual(lever.measurements["tie_group"]["save"], 1.5)
+        self.assertEqual(lever.measurements["tie_group"]["webs"], [48, 50])
+
+    def test_an_untied_p1_pair_routes_to_cost_and_says_why(self) -> None:
+        lever = lever_for(self.rotation(), cdx_log=self.log(P1_UNTIED_LOG), proc=1)
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "change-the-save-cost")
+        self.assertIn("not tied on save", " ".join(lever.evidence))
+
+    def test_the_truncation_family_needs_an_expression_web(self) -> None:
+        """The one measured spelling, and the shape it was measured on."""
+
+        lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
+        assert lever.family is not None
+        self.assertEqual(lever.family.name, "store-site-truncation")
+
+        without = P2_LOG.replace("web=9 sym=0 type=4", "web=9 sym=0 type=3")
+        other = lever_for(self.rotation(), cdx_log=self.log(without), proc=0)
+        self.assertIsNone(other.family)
+        self.assertIn("type=4 expression web", " ".join(other.evidence))
+
+    def test_no_renumbering_edit_is_named_without_a_second_capture(self) -> None:
+        for text, proc in ((P2_LOG, 0), (P1_TIED_LOG, 1), (P1_UNTIED_LOG, 1)):
+            with self.subTest(proc=proc):
+                lever = lever_for(self.rotation(), cdx_log=self.log(text), proc=proc)
+                if lever.family is None:
+                    continue
+                self.assertTrue(
+                    any("CONFIRMING second capture" in item for item in lever.needs),
+                    lever.needs,
+                )
+
+    def test_a_web_held_by_two_decisions_names_no_direction(self) -> None:
+        """The `overlay4UpdateObjectMotion` ambiguity, reported as one.
+
+        Webs 13 and 22 arrived at their decisions with identical records and
+        both took v0. A register that two coloured webs hold does not say
+        which of them carries the residual's sites, and the block asks for the
+        detail capture instead of picking one.
+        """
+
+        doubled = P2_LOG + P2_LOG.split(
+            "[CDX] webdetail phase=p2 proc=0 role=target web=9"
+        )[0].replace("web=6", "web=13")
+        lever = lever_for(self.rotation(), cdx_log=self.log(doubled), proc=0)
+        self.assertIsNone(lever.measurements["move_earlier"])
+        self.assertIn("more than one coloured web", lever.reason)
+        self.assertTrue(any("CDX_DETAIL_WEB" in item for item in lever.needs))
+
+
+class ForceReachabilityTests(PoolLaneGateTests):
+    """A recorded force is a statement about the web graph, not about source."""
+
+    def test_words_zero_under_a_force_is_proven(self) -> None:
+        lever = lever_for(
+            self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1")),
+            cdx_log=CdxLog(P2_LOG, name="capture.log"),
+            force_result=FORCE_PROVEN,
+            proc=0,
+        )
+        self.assertEqual(lever.reachability, "proven")
+        self.assertIn("words=0", " ".join(lever.evidence))
+
+    def test_a_declined_or_costed_force_is_unreachable(self) -> None:
+        lever = lever_for(
+            self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1")),
+            cdx_log=CdxLog(P2_LOG, name="capture.log"),
+            force_result=FORCE_REFUSED,
+            proc=0,
+        )
+        self.assertEqual(lever.reachability, "unreachable")
+
+    def test_a_force_that_neither_closed_nor_failed_proves_nothing(self) -> None:
+        payload = {
+            "schema": "decomp-workbench-oracle-sweep-v1",
+            "baseline": {"comparison": {"words": 8, "candidate_instructions": 96}},
+            "results": [
+                {
+                    "force": "p1:w13=c2",
+                    "comparison": {"words": 5, "candidate_instructions": 96},
+                }
+            ],
+        }
+        verdict, notes = force_reachability(payload)
+        self.assertIsNone(verdict)
+        self.assertIn("measurement, not a proof", " ".join(notes))
+
+    def test_no_force_leaves_the_field_null_and_asks_for_the_run(self) -> None:
+        lever = lever_for(
+            self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1")),
+            cdx_log=CdxLog(P2_LOG, name="capture.log"),
+            proc=0,
+        )
+        self.assertIsNone(lever.reachability)
+        self.assertTrue(any("CDX_FORCE" in item for item in lever.needs))
+
+    def test_the_rendered_block_prints_the_reachability_line(self) -> None:
+        lines = format_lever(
+            lever_for(
+                self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1")),
+                cdx_log=CdxLog(P2_LOG, name="capture.log"),
+                force_result=FORCE_PROVEN,
+                proc=0,
+            )
+        )
+        self.assertTrue(
+            any(item.startswith("  reachability: proven") for item in lines)
+        )
+
+
+class SweepRecordTests(unittest.TestCase):
+    def test_tie_groups_are_p1_only_and_keyed_by_save(self) -> None:
+        records = sweep_records(CdxLog(P1_TIED_LOG, name="capture.log"), proc=1)
+        self.assertEqual(tie_groups(records)[1.5], (48, 50))
+        self.assertEqual(tie_groups(records)[7.0], (146,))
+
+    def test_p2_records_carry_no_tie_group_because_p2_does_not_use_save(
+        self,
+    ) -> None:
+        records = sweep_records(CdxLog(P2_LOG, name="capture.log"), proc=0)
+        self.assertEqual(tie_groups(records), {})
+        self.assertEqual([item.phase for item in records], ["p2", "p2"])
+
+
 class ConstructClassificationTests(unittest.TestCase):
     """The precondition check the field test found missing.
 
@@ -916,3 +1264,104 @@ class ProofPromotionTests(unittest.TestCase):
     def test_an_unpromotable_proof_prints_its_precondition(self) -> None:
         lines = format_lever(lever_for(self.colour_view(3)))
         self.assertTrue(any(item.startswith("    applies when: ") for item in lines))
+
+
+#: A two-register transposition with equal pool lanes: the shape
+#: `overlay60ReassignChoiceSlots` presented, where both lanes are the same
+#: length and the whole residual is a v0/v1 substitution.
+ROTATION_TARGET = """
+00000000 <demo>:
+   0: 27bdffe8  addiu $sp,$sp,-24
+   4: afbf0014  sw $ra,20($sp)
+   8: 00808025  move $s0,$a0
+   c: 8e020000  lw $v0,0($s0)
+  10: 8e030004  lw $v1,4($s0)
+  14: 00431021  addu $v0,$v0,$v1
+  18: 03e00008  jr $ra
+  1c: 27bd0018  addiu $sp,$sp,24
+"""
+
+ROTATION_CANDIDATE = """
+00000000 <demo>:
+   0: 27bdffe8  addiu $sp,$sp,-24
+   4: afbf0014  sw $ra,20($sp)
+   8: 00808025  move $s0,$a0
+   c: 8e030000  lw $v1,0($s0)
+  10: 8e020004  lw $v0,4($s0)
+  14: 00621821  addu $v1,$v1,$v0
+  18: 03e00008  jr $ra
+  1c: 27bd0018  addiu $sp,$sp,24
+"""
+
+
+class PoolRotationCommandTests(unittest.TestCase):
+    """The block on the screen, from two real disassemblies and one capture.
+
+    Everything above builds its view by hand. This one does not: the pair
+    below diverges only in which of two registers holds which value, which is
+    what a rotation is, and it is the shape the command has to recognise
+    without being told.
+    """
+
+    def run_cli(self, arguments: list[str]) -> tuple[int, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            status = main(arguments)
+        return status, stdout.getvalue()
+
+    def dumps(self, root: Path) -> tuple[Path, Path]:
+        target = root / "target.objdump"
+        candidate = root / "candidate.objdump"
+        target.write_text(ROTATION_TARGET, encoding="utf-8")
+        candidate.write_text(ROTATION_CANDIDATE, encoding="utf-8")
+        return target, candidate
+
+    def test_an_uncaptured_rotation_asks_for_the_sweep(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target, candidate = self.dumps(Path(directory))
+            status, stdout = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "demo",
+                    "--json",
+                ]
+            )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)["lever"]
+        self.assertEqual(payload["lever_class"], LEVER_POOL_ROTATION)
+        self.assertIsNone(payload["reachability"])
+        self.assertTrue(any("CDX_LOG=1" in item for item in payload["needs"]))
+
+    def test_the_capture_and_the_force_reach_the_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, candidate = self.dumps(root)
+            log = root / "cdx.log"
+            log.write_text(P2_LOG, encoding="utf-8")
+            force = root / "force.json"
+            force.write_text(json.dumps(FORCE_PROVEN), encoding="utf-8")
+            status, stdout = self.run_cli(
+                [
+                    "diagnose-dumps",
+                    str(target),
+                    str(candidate),
+                    "--function",
+                    "demo",
+                    "--ladder",
+                    str(log),
+                    "--force-result",
+                    str(force),
+                    "--lever-proc",
+                    "0",
+                    "--json",
+                ]
+            )
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)["lever"]
+        self.assertEqual(payload["lever_class"], LEVER_POOL_ROTATION)
+        self.assertEqual(payload["reachability"], "proven")
+        self.assertEqual(payload["measurements"]["owning_sweep"], "p2")
+        self.assertEqual(payload["measurements"]["move_earlier"], 9)
