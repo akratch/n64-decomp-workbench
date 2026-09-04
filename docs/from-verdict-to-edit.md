@@ -14,6 +14,7 @@ compiler, no toolchain.
 - [3. Why a "fake" edit is not superstition](#3-why-a-fake-edit-is-not-superstition)
 - [4. The edit](#4-the-edit)
 - [5. When the screen names the edit for you](#5-when-the-screen-names-the-edit-for-you)
+- [5a. Ask whether the colours are legal before hunting for a spelling](#5a-ask-whether-the-colours-are-legal-before-hunting-for-a-spelling)
 - [6. Re-diagnose, and know when to stop](#6-re-diagnose-and-know-when-to-stop)
 
 ---
@@ -195,7 +196,7 @@ lever: stack-home -- the frames agree and one home is displaced at an unchanged
 The block prints under the mechanism view in the full report. `--terse`, which
 section 1 used, trims it along with the lanes.
 
-Four classes, and each one is a different question about where the evidence
+Six classes, and each one is a different question about where the evidence
 comes from:
 
 | `lever_class` | Read from | The edit family | Lever |
@@ -203,6 +204,8 @@ comes from:
 | `stack-home` | the two prologues, and `--ladder` for the declared count | drop a declaration, reuse a dead local as the carrier, or declare a pair later | [40](field-guide.md#40-de-declare-a-value-so-it-takes-a-compiler-temp-home) |
 | `temp-ring` | `--ring-trace` for the charged line, `--source` for the construct on it | read a field directly, scale an index twice, or split a fused accumulate | [41](field-guide.md#41-buy-or-sell-a-ring-pop-with-the-construct-that-costs-one) |
 | `line-order` | `--emit-trace`: the line-order conflicts | join the initialiser to the loop header's physical line, or change a hoist's birth order | [42](field-guide.md#42-join-an-initialiser-to-the-loop-headers-physical-line) |
+| `pool-population` | the two pool lanes' lengths, which disagree | none from colour — the surplus web is a declaration-list fact | [44](field-guide.md#44-read-the-pool-lanes-lengths-before-calling-anything-a-rotation) |
+| `pool-rotation` | the lanes' lengths, which agree, and `--ladder` for the sweep that coloured the webs | move a web's number (the store-site truncation), or its save cost when the pair is not tied | [44](field-guide.md#44-read-the-pool-lanes-lengths-before-calling-anything-a-rotation) |
 | `unreachable` | `--as1-trace`'s deciding key, or a catalogue proof whose precondition the residual already meets | none — read the proof and spend the builds elsewhere | [43](field-guide.md#43-read-the-proof-before-re-deriving-it) |
 
 **The rule that makes the block worth reading: there is no `edit (…)` line
@@ -232,8 +235,44 @@ decomp-workbench diagnose target.o build/candidate.o --function animStep \
   --ring-trace ugen.log --lever-proc 3
 ```
 
-`--ladder`, `--emit-trace` and `--as1-trace` supply the other three classes'
-inputs the same way.
+`--ladder`, `--emit-trace` and `--as1-trace` supply the other classes' inputs
+the same way. `--ladder` is read twice: as an itable for the declared-local
+count, and as a colouring log for the sweep that owns a colour-only residual.
+
+### 5a. Ask whether the colours are legal before hunting for a spelling
+
+A `pool-rotation` block names an edit family that has been measured on one
+function. It cannot tell you whether the target's assignment is available in
+*your* web graph at all — and that is a separate question with a direct
+answer. Pin the residual's webs and rebuild:
+
+```sh
+CDX_PROC=1 CDX_FORCE=p1:w13=c2,p1:w48=c3,p1:w50=c2 make build/candidate.o
+decomp-workbench diagnose target.o build/candidate.o --function step \
+  --ladder cdx.log --force-result sweep.json --lever-proc 1
+```
+
+```text
+lever: pool-rotation -- ...
+  reachability: proven -- a recorded force reached words=0, so the whole
+  residual is colours and every one of them is legal: what is missing is a
+  source spelling, not a different web graph
+```
+
+Three answers, and each one buys a different next hour:
+
+| `reachability` | What it says | What to do |
+|---|---|---|
+| `proven` | a force reached `words=0`: the pass accepted every colour and added no instruction | hunt for the spelling — [L85](compiler-laws/ido-5.3.md#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp) first, and confirm with a second capture |
+| `unreachable` | the pass declined the force, or bought it with extra instructions | a different web *structure* is needed; stop spending spellings and run the permuter |
+| null | no force was recorded, or one improved the count without closing it | run the sweep; an improvement is a measurement and not a proof |
+
+On `overlay4UpdateObjectMotion` three pinned colours took an 8-word residual to
+`words=0`. The function still does not match — the last of the three colours
+has no source lever, and
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number)
+says why — but one build separated "one spelling away" from "not available in
+this web graph", which is the distinction the rest of the section is spent on.
 
 ## 6. Re-diagnose, and know when to stop
 
@@ -285,7 +324,7 @@ is a good campaign.
 - [Start here](START_HERE.md) — the ten-minute tour of the screen this page
   acts on.
 - [Field guide](field-guide.md) — every lever, with the measured effect of
-  each; levers 40-43 are the four the `lever:` block names.
+  each; levers 40-44 are the five the `lever:` block names.
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — what the compiler does
   about each of them, and what it does about the ones no edit reaches.
 - [The `guide` command](guide-command.md) — those levers, in the terminal.

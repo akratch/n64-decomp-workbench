@@ -1069,6 +1069,83 @@ about *hand* levers. Run
 [L81](compiler-laws/ido-5.3.md#l81-address-reassociation-is-insensitive-to-where-the-definition-is-written),
 [L82](compiler-laws/ido-5.3.md#l82-an-argumentreturn-coalescing-tie-is-not-a-source-form).
 
+### 44. Read the pool lanes' lengths before calling anything a rotation
+
+**Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a
+colour-only residual with the same instructions on both sides.
+
+**Step one is arithmetic, not judgement.** Compare the two pool lanes'
+*lengths*. Equal lengths are the precondition for calling a residual a
+rotation. Unequal lengths are a **population** difference: one side colours a
+value the other leaves in the temp ring, and no colour reaches a web that does
+not exist. `overlay43FilterImage` was recorded as "one cyclic pool rotation"
+for as long as nobody compared them — 18 target slots against 15, with the
+temp lanes correspondingly 18 against 21. Forcing the rotation to the target's
+colours made the first five pool slots exact and improved 33 words to 26, and
+raised opcode mismatches from 8 to 10.
+
+**Step two needs a capture, and there is no reading it off the diff.** Two
+sweeps colour a procedure and they do not share an order
+([L83](compiler-laws/ido-5.3.md#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there),
+[L84](compiler-laws/ido-5.3.md#l84-p1-is-repeated-max-save-selection-the-web-number-breaks-ties-only)):
+
+```sh
+CDX_LOG=1 CDX_OUT=cdx.log CDX_PROC=1 make build/work.o     # the TU, once
+decomp-workbench diagnose target.o build/work.o --function step \
+  --ladder cdx.log --lever-proc 1
+```
+
+| Owning sweep | What it orders on | What the lever is |
+|---|---|---|
+| `p2` (caller-saved) | ascending web number, lowest free colour; the save is computed and ignored | renumbering, and nothing else |
+| `p1` (callee-saved), webs **tied** on save | the web number, inside the tie group | renumbering |
+| `p1`, webs across a save boundary | the save | the cost — use counts or loop depth, which moves the instruction stream, so rank it last |
+
+The block names the tie group, its save and its members, and which web must be
+visited earlier: between two contested colours, the web that must end up with
+the *lower* colour is the one that must be visited first.
+
+**Step three, the one spelling that has been measured to move a web number:**
+declare the truncated local at its narrow type and drop the explicit cast, so
+the truncation happens at the store
+([L85](compiler-laws/ido-5.3.md#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp)).
+Four that do not move one — declaration order, relational operand order, an
+added local, and a hoist that bought the interference and still lost the
+number — are in
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number),
+and the third of them costs a stack home.
+
+**Confirm with a second capture, always.** Both spellings tried from the
+numbering model on `overlay4UpdateObjectMotion` were plausible and neither
+moved a web number: cfe had already coalesced the store one of them depended
+on, and only an upstream web shifted. The capture costs nothing and would have
+saved both builds. The block refuses to name a renumbering edit without asking
+for it.
+
+**And ask the force oracle whether the colours are legal at all.** `words=0`
+under a recorded `CDX_FORCE` is the strongest verdict available for a register
+residual: it says the whole residual is colours, every one of them is legal,
+and what is missing is a spelling.
+
+```sh
+decomp-workbench diagnose target.o build/work.o --function step \
+  --ladder cdx.log --force-result sweep.json --lever-proc 1
+```
+
+On `overlay4UpdateObjectMotion` three pinned colours took an 8-word residual to
+`words=0`. That did not match the function — the source lever for the last of
+the three has not been found, and
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number)
+says why — but it separated "one spelling away" from "not available in this
+web graph" for the cost of one build.
+
+**Points here:** `lever_class=pool-rotation` or `pool-population` from
+`diagnose`, and
+[L83](compiler-laws/ido-5.3.md#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there),
+[L84](compiler-laws/ido-5.3.md#l84-p1-is-repeated-max-save-selection-the-web-number-breaks-ties-only),
+[L85](compiler-laws/ido-5.3.md#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp),
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number).
+
 ## When the compiler itself is the variable
 
 **Diff looks like:** a dispatch or convention the project compiler provably
@@ -1984,6 +2061,7 @@ Each of these was searched exhaustively at real cost; skip them.
 | `lever: stack-home` from `diagnose` | 40, then 26, 31, 32 |
 | `lever: temp-ring` from `diagnose --ring-trace` | 41, then 14, 15, 16 |
 | `lever: line-order` from `diagnose --emit-trace` | 42, then 33, 25 |
+| `lever: pool-rotation` / `pool-population` from `diagnose --ladder` | 44, then 7-13 |
 | `lever: unreachable`, or a `see_also` proof | 43, then the permuter |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
@@ -2001,8 +2079,8 @@ Each of these was searched exhaustively at real cost; skip them.
 - [Aligned mechanism view](view.md) — the command that names the mechanism.
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) and
   [IDO 7.1](compiler-laws/ido-7.1.md) — what the compiler does, as opposed to
-  what to do about it. Levers 34-43 each name their law there, L72-L82 are the
-  newest eleven, and `decomp-workbench guide laws ido-5.3 L80` prints one law
+  what to do about it. Levers 34-44 each name their law there, L83-L86 are the
+  newest four, and `decomp-workbench guide laws ido-5.3 L80` prints one law
   instead of the page.
 - [Permuter sweeps](permute-sweep.md) — when no hand lever is left:
   `permute-doctor` before the search, `permute-sweep` for it, `permute classify`

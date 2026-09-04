@@ -20,6 +20,13 @@ This module does that arithmetic, and only that arithmetic:
 * **`line-order`** reads the `DKWB-EMIT-V1` emit-provenance records and the
   line-order conflicts already computed from them, which name the pair as1's
   minimised line key decides and the join that removes the separation.
+* **`pool-rotation`** / **`pool-population`** read the two pool lanes'
+  *lengths* first. Equal lengths make a colour-only residual a rotation, and
+  a rotation is decided by web numbering under whichever sweep owns the webs
+  -- which the CDX colouring records name and two disassemblies cannot.
+  Unequal lengths make it a population difference, which no colour lever
+  reaches, and that gate is the one `overlay43FilterImage` spent a lane
+  proving is needed.
 * **`unreachable`** carries the four proofs that closed a target by ruling it
   out, so the next analyst does not spend a day re-deriving one. Three are
   catalogue entries keyed on the owning pass; the fourth, as1 readiness, is a
@@ -45,8 +52,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .as1_reorganize import Selection
+from .cascade import CdxLog
 from .emit_provenance import EmitEvent, line_order_conflicts
 from .frame_ladder import Ladder
+from .globalcolor import (
+    AllocatorWebDecision,
+    color_for_register,
+    optional_integer,
+)
 from .trace import TraceEvent, register_name
 from .view import (
     OWNING_PASS_CFE,
@@ -59,25 +72,35 @@ from .view import (
 
 __all__ = [
     "CONSTRUCT_VALUES",
+    "FORCE_REACHABILITY_VALUES",
     "LEVER_CLASS_VALUES",
     "LEVER_LINE_ORDER",
     "LEVER_NONE_KNOWN",
+    "LEVER_POOL_POPULATION",
+    "LEVER_POOL_ROTATION",
     "LEVER_SCHEMA",
     "LEVER_STACK_HOME",
     "LEVER_TEMP_RING",
     "LEVER_UNREACHABLE",
     "LINE_ORDER_FAMILIES",
+    "POOL_ROTATION_FAMILIES",
+    "REACHABILITY_PROVEN",
+    "REACHABILITY_UNREACHABLE",
     "STACK_HOME_FAMILIES",
     "TEMP_RING_FAMILIES",
     "UNREACHABLE_PROOFS",
     "EditFamily",
     "Lever",
+    "SweepRecord",
     "UnreachableProof",
     "classify_construct",
+    "force_reachability",
     "format_lever",
     "lever_for",
     "pops_by_line",
     "readiness_keys",
+    "sweep_records",
+    "tie_groups",
 ]
 
 #: The sub-document this module contributes. It is merged into a host report
@@ -87,6 +110,8 @@ LEVER_SCHEMA = "decomp-workbench-lever-v1"
 LEVER_STACK_HOME = "stack-home"
 LEVER_TEMP_RING = "temp-ring"
 LEVER_LINE_ORDER = "line-order"
+LEVER_POOL_ROTATION = "pool-rotation"
+LEVER_POOL_POPULATION = "pool-population"
 LEVER_UNREACHABLE = "unreachable"
 LEVER_NONE_KNOWN = "none-known"
 
@@ -96,7 +121,25 @@ LEVER_CLASS_VALUES: tuple[str, ...] = (
     LEVER_STACK_HOME,
     LEVER_TEMP_RING,
     LEVER_LINE_ORDER,
+    LEVER_POOL_POPULATION,
+    LEVER_POOL_ROTATION,
     LEVER_NONE_KNOWN,
+)
+
+#: What a recorded `CDX_FORCE` experiment says about the target's assignment.
+#:
+#: These are answers about the *web graph*, not about the source: `proven`
+#: says uopt accepted the forced colours and the object went to words=0, so
+#: every colour in the residual is legal and what is missing is a spelling;
+#: `unreachable` says the pass declined the force or paid for it in
+#: instructions, so no renumbering reaches it. Absent a recorded force there
+#: is no third value -- the field is null and the block asks for the run.
+REACHABILITY_PROVEN = "proven"
+REACHABILITY_UNREACHABLE = "unreachable"
+
+FORCE_REACHABILITY_VALUES: tuple[str, ...] = (
+    REACHABILITY_PROVEN,
+    REACHABILITY_UNREACHABLE,
 )
 
 
@@ -570,6 +613,284 @@ CAPTURE_AS1 = (
     "is byte-identical with -R on)"
 )
 
+#: The pool-rotation edits, in the order this module ranks them.
+#:
+#: Both are renumbering edits in the sense that matters: neither adds or
+#: removes an instruction, and both are aimed at *which web number* a value
+#: gets, because that is the only input either colouring sweep reads once the
+#: saves are equal. The second is ranked below the first and says so: changing
+#: a save means changing use counts or loop depth, which changes the
+#: instruction stream, and a rotation is by definition a residual in which the
+#: instruction stream is already right.
+POOL_ROTATION_FAMILIES: tuple[EditFamily, ...] = (
+    EditFamily(
+        name="store-site-truncation",
+        edit=(
+            "declare the truncated local at its narrow type and drop the "
+            "explicit cast, so the truncation happens at the STORE rather "
+            "than in the expression: uopt numbers the synthetic truncation "
+            "temp where the truncation is written, and a store is numbered "
+            "LHS before RHS. Preconditions, both required and both measured: "
+            "the value must not be passed on after the narrowing store (on "
+            "`overlay4UpdateObjectMotion` the else-branch store to the local "
+            "was dropped and the call result passed directly, an edit already "
+            "proved byte-identical, so the `s16` store "
+            "could not truncate a value the call still needed), and the "
+            "truncation must survive cfe -- confirm it with a second capture"
+        ),
+        discriminator=(
+            "one of the webs in the residual is the synthetic intermediate "
+            "of a two-step narrowing cast, which `CDX_DETAIL_WEB` reports as "
+            "a type=4 expression web with no symbol"
+        ),
+        citation=(
+            "overlay4UpdateObjectMotion, Mickey's Speedway USA, 2026-09-03: "
+            "8 differing words to 3, seven builds. Declaring `delta` as "
+            "`s16` renumbered the truncation temp 48 -> 49 and closed both "
+            "threshold webs, frame unchanged at -0x60, and the result "
+            "reproduced byte-identically under the stock toolchain "
+            "(sha1 8f11fe39ee5d)"
+        ),
+    ),
+    EditFamily(
+        name="change-the-save-cost",
+        edit=(
+            "change the web's use count or its loop depth so its save "
+            "crosses the boundary that orders it -- and expect the "
+            "instruction stream to move with it, which is why this is ranked "
+            "last"
+        ),
+        discriminator=(
+            "the two webs are NOT tied on save: p1 takes the largest save "
+            "first and reads the web number only inside a tie group, so "
+            "nothing that renumbers reorders them"
+        ),
+        citation=(
+            "overlay4UpdateObjectMotion, Mickey's Speedway USA, 2026-09-03: "
+            "the p1 selection order is saves 7.0, 4.0, 3.0, 2.0, 1.714 and "
+            "then five webs tied at 1.5 taken in ascending web number, so a "
+            "pair either side of a save boundary is out of numbering's reach"
+        ),
+    ),
+)
+
+#: Ranked below both, and stated because it is what the evidence shows: two
+#: spellings on this class moved no web number at all.
+POOL_ROTATION_INERT: tuple[str, ...] = (
+    "declaration order, for register-resident locals: swapping two `s32` "
+    "declarations on overlay4UpdateObjectMotion was byte-identical",
+    "relational operand order: cfe canonicalises it, so writing "
+    "`threshold >= delta` for `delta <= threshold` was byte-identical and "
+    "LHS-before-RHS does not apply at a comparison",
+    "an added local: it shifts every downstream web number by a constant "
+    "(22 -> 25, 48 -> 51, 50 -> 53) and never reorders a pair -- and it cost "
+    "a stack home, 8 words to 22",
+)
+
+CAPTURE_CDX = (
+    "the owning sweep: rebuild the TU with CDX_LOG=1 CDX_OUT=<file> on the "
+    "instrumented uopt, scoped with CDX_PROC=<ordinal>, and pass the log as "
+    "--ladder. p1 and p2 order their webs differently and take different "
+    "levers, and two disassemblies do not say which owns a colour"
+)
+CAPTURE_FORCE = (
+    "reachability: pin the residual's webs with "
+    "CDX_FORCE=p1:w<web>=c<colour> (comma-separated for a set) over the same "
+    "compile, compare with the project's own comparison, and pass the "
+    "resulting oracle sweep JSON as --force-result. words=0 proves every "
+    "colour in the residual is legal in this web graph"
+)
+CONFIRM_CAPTURE = (
+    "a CONFIRMING second capture after the edit: re-run CDX_LOG=1 and check "
+    "that the web numbers, or the saves, actually moved. Two spellings chosen "
+    "from the numbering "
+    "model on overlay4UpdateObjectMotion compiled byte-identically because "
+    "cfe had already coalesced the store the model depended on, and one "
+    "upstream web number shifted while none of the four in the residual did"
+)
+
+
+@dataclass(frozen=True)
+class SweepRecord:
+    """One coloured web, as the sweep that coloured it recorded it."""
+
+    #: `p1` (callee-saved, repeated max-save selection) or `p2` (caller-saved,
+    #: ascending web number). The distinction is the whole point of the
+    #: record: it decides which lever the rotation takes.
+    phase: str
+    web: int
+    save: float | None
+    color: int | None
+    register: str | None
+    interference: int | None
+    forbidden: tuple[int, ...]
+    #: `webdetail`'s `type`. 4 is an expression web: no symbol behind it, so
+    #: it is a compiler-minted intermediate -- which is what the synthetic
+    #: temp of a two-step narrowing cast is, and what tells the truncation
+    #: family its precondition is visibly met.
+    web_type: int | None = None
+    #: The web's basic block, from `webdetail`. The `line=` field reports the
+    #: same line for every web in a procedure and identifies nothing.
+    block: int | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "phase": self.phase,
+            "web": self.web,
+            "save": self.save,
+            "color": self.color,
+            "register": self.register,
+            "interference": self.interference,
+            "forbidden": list(self.forbidden),
+            "web_type": self.web_type,
+            "block": self.block,
+        }
+
+
+def _record_register(decision: AllocatorWebDecision) -> str | None:
+    """Name the register a decision landed on, preferring the log's own word.
+
+    `p1color`/`p2color` print the register the pass resolved, which is the
+    one to believe; the colour table is the fallback for a trace that carries
+    only a colour number. Reading the table first would report a colour the
+    log itself contradicts.
+    """
+
+    for key in ("actualreg", "bestreg"):
+        value = decision.fields.get(key)
+        if value and value not in {"?", "-"}:
+            return value.removeprefix("$")
+    return decision.assigned_register
+
+
+def _float_field(decision: AllocatorWebDecision, key: str) -> float | None:
+    value = decision.fields.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def sweep_records(log: CdxLog, *, proc: int | None = None) -> tuple[SweepRecord, ...]:
+    """Read every coloured web out of a CDX log, in decision order."""
+
+    records: list[SweepRecord] = []
+    for decision in log.trace.allocator_webs(proc=proc):
+        phase = decision.phase_tag
+        if phase not in {"p1", "p2"}:
+            continue
+        records.append(
+            SweepRecord(
+                phase=phase,
+                web=decision.web,
+                save=_float_field(decision, "save"),
+                color=decision.assigned_color,
+                register=_record_register(decision),
+                interference=optional_integer(decision.fields.get("numintf")),
+                forbidden=tuple(decision.forbidden_colors),
+                web_type=optional_integer(decision.detail.get("type")),
+                block=optional_integer(decision.detail.get("bb")),
+            )
+        )
+    return tuple(records)
+
+
+def tie_groups(records: Iterable[SweepRecord]) -> dict[float, tuple[int, ...]]:
+    """Group p1 webs by save, which is the only thing p1 orders on.
+
+    p1 re-scans every uncoloured web each round and takes the largest save,
+    with ascending web number as the tie-break, so webs sharing a save are
+    the webs a renumbering edit can reorder and no others.
+    """
+
+    groups: dict[float, list[int]] = {}
+    for record in records:
+        if record.phase != "p1" or record.save is None:
+            continue
+        groups.setdefault(record.save, []).append(record.web)
+    return {save: tuple(sorted(webs)) for save, webs in sorted(groups.items())}
+
+
+def force_reachability(payload: Mapping[str, Any]) -> tuple[str | None, list[str]]:
+    """Read a recorded force experiment as a statement about the web graph.
+
+    Three outcomes, and the middle one is why this is not a boolean. A row at
+    `words=0` proves the target's assignment is legal: the pass accepted
+    every forced colour and emitted the target's instruction words. A row the
+    pass declined, or one that bought its colour with extra instructions, is
+    the opposite proof -- the colour is not available in this web graph at
+    this cost. Anything else is a measurement and not a proof, and is
+    reported as evidence with the field left null.
+    """
+
+    rows = payload.get("results")
+    if not isinstance(rows, list) or not rows:
+        return None, []
+    baseline = payload.get("baseline")
+    baseline_instructions = None
+    if isinstance(baseline, dict) and isinstance(baseline.get("comparison"), dict):
+        baseline_instructions = baseline["comparison"].get("candidate_instructions")
+    notes: list[str] = []
+    best: int | None = None
+    declined = 0
+    added = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        force = row.get("force")
+        comparison = row.get("comparison")
+        if not isinstance(comparison, dict):
+            declined += 1
+            continue
+        words = comparison.get("words")
+        instructions = comparison.get("candidate_instructions")
+        if (
+            baseline_instructions is not None
+            and isinstance(instructions, int)
+            and instructions > baseline_instructions
+        ):
+            added += 1
+            continue
+        if isinstance(words, int):
+            if words == 0:
+                notes.append(
+                    f"force {force} reached words=0: every colour in the "
+                    "residual is legal in this web graph and the pass added "
+                    "no instruction"
+                )
+                return REACHABILITY_PROVEN, notes
+            best = words if best is None else min(best, words)
+    if declined or added:
+        notes.append(
+            f"{declined} force(s) declined by the pass and {added} paid for "
+            "in extra instructions, and none reached words=0"
+        )
+        return REACHABILITY_UNREACHABLE, notes
+    if best is not None:
+        notes.append(
+            f"{len(rows)} force(s) recorded, best residual {best} word(s): a "
+            "measurement, not a proof -- neither words=0 nor a declined force"
+        )
+    return None, notes
+
+
+#: What each reachability answer means for the next build.
+FORCE_REACHABILITY_ADVICE: dict[str, str] = {
+    REACHABILITY_PROVEN: (
+        "a recorded force reached words=0, so the whole residual is colours "
+        "and every one of them is legal: what is missing is a source "
+        "spelling, not a different web graph"
+    ),
+    REACHABILITY_UNREACHABLE: (
+        "the pass declined the force or paid for it in instructions, so the "
+        "target's assignment is not available in this web graph and no "
+        "renumbering reaches it -- a different web STRUCTURE is required"
+    ),
+}
+
+
 #: The keys of as1's selection chain that no source line can reach.
 #:
 #: `lineno` is the one key with a source lever attached. A selection decided
@@ -594,11 +915,18 @@ class Lever:
     measurements: Mapping[str, Any] = field(default_factory=dict)
     alternatives: tuple[EditFamily, ...] = ()
     see_also: tuple[UnreachableProof, ...] = ()
+    #: What a recorded force experiment proved about the *web graph*, one of
+    #: :data:`FORCE_REACHABILITY_VALUES`, or null when none was supplied. It
+    #: is deliberately separate from `edit_family`: a residual can be proved
+    #: reachable and still have no known spelling, which is the state
+    #: `overlay4UpdateObjectMotion` was left in.
+    reachability: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "lever_class": self.lever_class,
             "reason": self.reason,
+            "reachability": self.reachability,
             "edit_family": None if self.family is None else self.family.name,
             "edit": None if self.family is None else self.family.edit,
             "citation": None if self.family is None else self.family.citation,
@@ -1043,6 +1371,356 @@ def _temp_ring_lever(
     )
 
 
+CAPTURE_DETAIL = (
+    "which web carries the site: re-run with CDX_DETAIL_WEB=<web>, whose "
+    "records name each web's basic block. The block is what identifies a "
+    "web; the `line=` field reports the same line for every web in the "
+    "procedure and identifies nothing"
+)
+
+
+def _substitutions(view: MechanismView) -> dict[str, str]:
+    """The residual's register substitutions, candidate register to target."""
+
+    return {
+        web.candidate: web.target
+        for web in view.webs
+        if web.candidate and web.target and web.candidate != web.target
+    }
+
+
+def _rotation_direction(
+    records: Sequence[SweepRecord], substitutions: Mapping[str, str]
+) -> tuple[SweepRecord | None, SweepRecord | None, str]:
+    """Which web must be numbered earlier, under lowest-free-colour.
+
+    Both sweeps hand a web the lowest colour still free when they reach it,
+    so between two webs contesting two colours the one that must end up with
+    the LOWER colour is the one that must be visited first. That is the whole
+    derivation, and it holds only for a transposition -- two substitutions
+    that are each other's inverse -- with exactly one coloured web on each
+    side. Anything else is reported as what it is rather than resolved into a
+    direction the records do not carry.
+    """
+
+    pairs = sorted(substitutions.items())
+    if len(pairs) != 2 or pairs[0][1] != pairs[1][0] or pairs[1][1] != pairs[0][0]:
+        return (
+            None,
+            None,
+            "the residual is not a two-register transposition, so "
+            "lowest-free-colour does not name which web must move: it says "
+            "which of two contested colours is taken first, and that is a "
+            "statement about a pair",
+        )
+    holders: dict[str, list[SweepRecord]] = {}
+    for record in records:
+        register = record.register
+        if register is not None and register in substitutions:
+            holders.setdefault(register, []).append(record)
+    ambiguous = {
+        register: [item.web for item in found]
+        for register, found in holders.items()
+        if len(found) > 1
+    }
+    if ambiguous:
+        rendered = "; ".join(
+            f"{register} is held by webs " + ", ".join(str(web) for web in sorted(webs))
+            for register, webs in sorted(ambiguous.items())
+        )
+        return (
+            None,
+            None,
+            f"more than one coloured web holds a register in the residual "
+            f"({rendered}), so which of them carries these sites is not in "
+            "the decision records",
+        )
+    missing = sorted(set(substitutions) - set(holders))
+    if missing:
+        return (
+            None,
+            None,
+            "the log records no coloured web on "
+            + ", ".join(missing)
+            + ", so the sweep that owns the residual is not in this capture "
+            "-- check CDX_PROC selected the right procedure ordinal",
+        )
+    ranked: list[tuple[int, SweepRecord]] = []
+    for register, found in holders.items():
+        desired = color_for_register(substitutions[register])
+        if desired is None:
+            return (
+                None,
+                None,
+                f"the colour of {substitutions[register]} is not in the "
+                "pinned colour table, so the two sides cannot be ordered",
+            )
+        ranked.append((desired, found[0]))
+    ranked.sort(key=lambda item: item[0])
+    earlier, later = ranked[0][1], ranked[1][1]
+    return (
+        earlier,
+        later,
+        f"web {earlier.web} must take colour c{ranked[0][0]} and web "
+        f"{later.web} colour c{ranked[1][0]}; the lower colour is handed out "
+        f"first, so web {earlier.web} must be visited before web "
+        f"{later.web} -- today it is "
+        + ("already" if earlier.web < later.web else "not")
+        + " the lower-numbered of the two",
+    )
+
+
+def _pool_lever(
+    view: MechanismView,
+    log: CdxLog | None,
+    force: Mapping[str, Any] | None,
+    proc: int | None,
+) -> Lever:
+    """Name the class of a colour-only residual, gated on pool-lane length.
+
+    The gate is first and it is not a formality. `overlay43FilterImage` was
+    recorded as "one cyclic pool rotation" for as long as nobody compared the
+    lane lengths: 18 slots on the target against 15 on the candidate, with
+    the target's temp lane correspondingly shorter. Forcing the rotation to
+    the target's colours made the first five pool slots exact and improved 33
+    words to 26 -- and raised opcode mismatches from 8 to 10, because the
+    three values the target colours are in our temp ring and no colour
+    reaches them.
+    """
+
+    pool = _pool_lane(view)
+    target = tuple(pool.target) if pool is not None else ()
+    candidate = tuple(pool.candidate) if pool is not None else ()
+    delta = len(candidate) - len(target)
+    substitutions = _substitutions(view)
+    reachability, force_notes = (
+        force_reachability(force) if force is not None else (None, [])
+    )
+    measurements: dict[str, Any] = {
+        "target_pool_lane": list(target),
+        "candidate_pool_lane": list(candidate),
+        "target_pool_slots": len(target),
+        "candidate_pool_slots": len(candidate),
+        "pool_lane_length_delta": delta,
+        "substitutions": dict(sorted(substitutions.items())),
+        "owning_sweep": None,
+        "sweep_decisions": None,
+        "tie_group": None,
+        "move_earlier": None,
+        "move_later": None,
+        "reachability": reachability,
+    }
+
+    if delta:
+        surplus = "target" if delta < 0 else "candidate"
+        return Lever(
+            lever_class=LEVER_POOL_POPULATION,
+            reason=(
+                f"the pool lanes are {len(target)} and {len(candidate)} slots "
+                f"long, so this is a web population difference and not a "
+                f"rotation: the {surplus} colours "
+                f"{abs(delta)} value(s) the other side leaves in the temp "
+                "ring, and no colour lever reaches a web that does not exist"
+            ),
+            evidence=(
+                "equal pool-lane lengths are the precondition for calling a "
+                "residual a rotation, and this pair does not meet it",
+                "on overlay43FilterImage (Mickey's Speedway USA, "
+                "2026-09-03) the same shape -- 18 target slots against 15 -- "
+                "was recorded as a rotation; forcing the four-web rotation "
+                "to the target's colours improved 33 words to 26 and raised "
+                "opcode mismatches from 8 to 10",
+                *force_notes,
+            ),
+            needs=(CAPTURE_RING,),
+            measurements=measurements,
+            reachability=reachability,
+        )
+
+    if log is None:
+        return Lever(
+            lever_class=LEVER_POOL_ROTATION,
+            reason=(
+                f"the pool lanes are the same length ({len(target)} slots) "
+                "and their contents differ, which is a rotation; which sweep "
+                "coloured these webs is a property of the allocator's own "
+                "records and not of two disassemblies, and p1 and p2 take "
+                "different levers"
+            ),
+            evidence=(
+                "p2, the caller-saved sweep, visits webs in ascending web "
+                "number and gives each the lowest free colour; p1, the "
+                "callee-saved sweep, is repeated max-save selection with "
+                "ascending web number only as the tie-break",
+                *force_notes,
+            ),
+            needs=(CAPTURE_CDX,) + ((CAPTURE_FORCE,) if force is None else ()),
+            measurements=measurements,
+            alternatives=POOL_ROTATION_FAMILIES,
+            reachability=reachability,
+        )
+
+    records = sweep_records(log, proc=proc)
+    involved = [record for record in records if record.register in substitutions]
+    sweeps = sorted({record.phase for record in involved})
+    owning = sweeps[0] if len(sweeps) == 1 else ("mixed" if sweeps else None)
+    measurements["owning_sweep"] = owning
+    measurements["sweep_decisions"] = {
+        phase: sum(1 for record in records if record.phase == phase)
+        for phase in ("p1", "p2")
+    }
+    measurements["involved_webs"] = [record.as_dict() for record in involved]
+    earlier, later, note = _rotation_direction(involved, substitutions)
+    evidence: list[str] = [
+        f"pool lanes equal at {len(target)} slot(s), so the residual is a "
+        "rotation and not a population difference",
+        note,
+        *force_notes,
+    ]
+    needs: list[str] = []
+    family: EditFamily | None = None
+
+    if owning is None:
+        evidence.insert(
+            0,
+            "no coloured web in this capture holds a register the residual substitutes",
+        )
+        needs.append(CAPTURE_CDX)
+    elif owning == "mixed":
+        evidence.insert(
+            0,
+            "the residual's registers were coloured in BOTH sweeps, which "
+            "take different levers: p2 reads web number alone, p1 reads it "
+            "only inside a tie group",
+        )
+    else:
+        evidence.insert(
+            0,
+            f"the residual's registers were coloured in {owning}, "
+            + (
+                "which visits webs in ascending web number and gives each "
+                "the lowest free colour -- save cost is inert there, "
+                "measured as bestcost=0.000000 on every decision of "
+                "overlay43FilterImage and overlay60ReassignChoiceSlots while "
+                "the saves ranged 3.7 to 1400.0"
+                if owning == "p2"
+                else "which takes the largest save each round and reads the "
+                "web number only to break a tie"
+            ),
+        )
+
+    tied = False
+    if owning == "p1" and earlier is not None and later is not None:
+        groups = tie_groups(records)
+        for save, webs in groups.items():
+            if earlier.web in webs and later.web in webs:
+                tied = True
+                measurements["tie_group"] = {
+                    "save": save,
+                    "webs": list(webs),
+                }
+                evidence.append(
+                    f"webs {earlier.web} and {later.web} are in the same p1 "
+                    f"tie group: save {save}, members "
+                    + ", ".join(str(web) for web in webs)
+                    + ", ordered by web number alone"
+                )
+                break
+        if not tied:
+            evidence.append(
+                f"webs {earlier.web} and {later.web} are not tied on save "
+                f"({earlier.save} against {later.save}), so p1's max-save "
+                "selection orders them and no renumbering reorders them"
+            )
+
+    orderable = earlier is not None and later is not None and owning in {"p1", "p2"}
+    if earlier is not None and later is not None:
+        # The direction is a fact about the two colours whether or not a
+        # renumbering edit can act on it; a p1 pair across a save boundary
+        # still has an order the target wants, and the cost family is how it
+        # is reached.
+        measurements["move_earlier"] = earlier.web
+        measurements["move_later"] = later.web
+    if orderable and owning == "p1" and not tied:
+        family = POOL_ROTATION_FAMILIES[1]
+    elif orderable:
+        blocked = [
+            record
+            for record in (earlier, later)
+            if record is not None
+            and color_for_register(substitutions.get(record.register or "", ""))
+            in record.forbidden
+        ]
+        if blocked:
+            evidence.append(
+                "the colour the residual wants is in the interference mask "
+                "of web "
+                + ", ".join(str(record.web) for record in blocked)
+                + ", so the pass would decline it: this is not a numbering "
+                "residual"
+            )
+        elif any(
+            record is not None and record.web_type == 4 for record in (earlier, later)
+        ):
+            family = POOL_ROTATION_FAMILIES[0]
+        else:
+            evidence.append(
+                "neither web is a type=4 expression web, and the one "
+                "measured renumbering spelling was measured on the synthetic "
+                "temp of a narrowing cast; naming it here would apply a rule "
+                "to a shape it was never measured on"
+            )
+    if earlier is None:
+        needs.append(CAPTURE_DETAIL)
+    if force is None:
+        needs.append(CAPTURE_FORCE)
+    # A renumbering edit is never named without the capture that confirms it.
+    # Both spellings tried on `overlay4UpdateObjectMotion` were plausible from
+    # the numbering model and neither moved a web number: cfe had already
+    # coalesced the store one of them depended on, and the diff cannot show
+    # that. The capture would have cost nothing and saved both builds.
+    if family is not None:
+        needs.append(CONFIRM_CAPTURE)
+
+    if family is not None:
+        reason = (
+            f"the pool lanes are equal at {len(target)} slot(s) and the "
+            f"residual's webs were coloured in {owning}, where "
+            + (
+                "the visit order is the web number"
+                if owning == "p2"
+                else "a tie on save leaves the web number as the only order"
+                if tied
+                else "the saves differ, so only the cost reorders them"
+            )
+            + f"; {note}"
+        )
+    elif orderable:
+        reason = (
+            f"the rotation is real and the direction is named, but no "
+            f"measured source spelling applies to these webs; {note}"
+        )
+    else:
+        reason = (
+            "the pool lanes are equal in length, so the residual is a "
+            f"rotation, and {note}"
+        )
+    return Lever(
+        lever_class=LEVER_POOL_ROTATION,
+        reason=reason,
+        family=family,
+        evidence=tuple(evidence),
+        needs=tuple(dict.fromkeys(needs)),
+        measurements=measurements,
+        alternatives=tuple(
+            item
+            for item in POOL_ROTATION_FAMILIES
+            if family is None or item.name != family.name
+        ),
+        reachability=reachability,
+    )
+
+
 def _line_order_lever(
     view: MechanismView,
     emit_events: Sequence[EmitEvent] | None,
@@ -1155,6 +1833,8 @@ def lever_for(
     view: MechanismView,
     *,
     ladder: Ladder | None = None,
+    cdx_log: CdxLog | None = None,
+    force_result: Mapping[str, Any] | None = None,
     ring_events: Sequence[TraceEvent] | None = None,
     emit_events: Sequence[EmitEvent] | None = None,
     as1_selections: Sequence[Selection] | None = None,
@@ -1171,6 +1851,14 @@ def lever_for(
     `source` is the candidate's C, split into lines. It is not a trace and it
     decides nothing on its own: it is read only to check whether the line a
     ring trace charged holds the construct a pop-cost rule was measured on.
+
+    `cdx_log` is the same file `--ladder` reads, read for its colouring
+    records rather than its itable: a colour-only residual is owned by one of
+    two sweeps that order their webs differently, and nothing in two
+    disassemblies says which. `force_result` is a recorded `CDX_FORCE`
+    experiment, which answers a different question again -- whether the
+    target's assignment is legal at all -- and is never inferred from the
+    absence of one.
     """
 
     if as1_selections:
@@ -1192,6 +1880,15 @@ def lever_for(
         return _temp_ring_lever(view, ring_events, proc, source)
     if owning == OWNING_PASS_G0_SCHEDULER or emit_events is not None:
         return _line_order_lever(view, emit_events, proc)
+
+    pool = _pool_lane(view)
+    rotated = pool is not None and tuple(pool.target) != tuple(pool.candidate)
+    unequal = pool is not None and len(pool.target) != len(pool.candidate)
+    # The length gate runs before every catalogue proof, because a population
+    # difference wearing a rotation's clothes is what the gate exists for and
+    # a proof promoted over it would rule out the edit that actually applies.
+    if owning == OWNING_PASS_UOPT_COLOR and unequal:
+        return _pool_lever(view, cdx_log, force_result, proc)
 
     proofs = tuple(UNREACHABLE_PROOFS[name] for name in PASS_PROOFS.get(owning, ()))
     measurements = {
@@ -1224,6 +1921,8 @@ def lever_for(
             measurements=measurements,
             see_also=tuple(item for item in proofs if item is not settled),
         )
+    if owning == OWNING_PASS_UOPT_COLOR and rotated:
+        return _pool_lever(view, cdx_log, force_result, proc)
     return Lever(
         lever_class=LEVER_NONE_KNOWN,
         reason=(
@@ -1241,6 +1940,11 @@ def format_lever(lever: Lever) -> tuple[str, ...]:
     """Render the lever block as the lines `diagnose` prints under MECHANISM."""
 
     lines = [f"lever: {lever.lever_class} -- {lever.reason}"]
+    if lever.reachability is not None:
+        lines.append(
+            f"  reachability: {lever.reachability} -- "
+            + FORCE_REACHABILITY_ADVICE[lever.reachability]
+        )
     if lever.family is not None:
         lines.append(f"  edit ({lever.family.name}): {lever.family.edit}")
         lines.append(f"  proved on: {lever.family.citation}")

@@ -116,12 +116,14 @@ comparison has no residual to explain and carries neither key, so the presence
 of the block is itself the statement that something is left.
 
 `lever_class` is exactly one of `stack-home`, `temp-ring`, `line-order`,
-`unreachable`, and `none-known`. Beside it, `edit_family`, `edit` and
-`citation` name the concrete source edit and the function and date it was
-measured on; `evidence` is the lines that support the class; `measurements`
-carries the numbers it was computed from; `alternatives` lists the sibling
-families in the class, each with the `discriminator` that would select it
-instead; `see_also` lists catalogue proofs the owning pass points at.
+`pool-population`, `pool-rotation`, `unreachable`, and `none-known`. Beside
+it, `edit_family`, `edit` and `citation` name the concrete source edit and the
+function and date it was measured on; `evidence` is the lines that support the
+class; `measurements` carries the numbers it was computed from;
+`alternatives` lists the sibling families in the class, each with the
+`discriminator` that would select it instead; `see_also` lists catalogue
+proofs the owning pass points at; `reachability` reports a recorded force
+experiment and is null without one.
 
 **`edit_family` is null whenever the input that would name it is absent, and
 `needs` then names the capture that produces it.** That pairing is the
@@ -147,6 +149,35 @@ that line contains, and `measurements.constructs_by_line` reports it as
 line that holds none of the first three yields no family and a `reason` naming
 the construct it does hold. A pop count says which line to edit; it does not
 say which law reaches it.
+
+`pool-rotation` and `pool-population` are decided by comparing the two pool
+lanes' **lengths** before anything else. Unequal lengths are
+`pool-population`: one side colours a web the other leaves in the temp ring,
+and no colour lever reaches a web that does not exist. Equal lengths make the
+residual a rotation, and then `measurements.owning_sweep` names which sweep
+coloured its registers — `p1`, `p2`, `mixed`, or null when the capture holds
+no coloured web on any of them. That field is null without `--ladder`, because
+p1 and p2 order their webs differently and nothing in two disassemblies says
+which owns a colour.
+
+With a capture, `measurements` also carries `tie_group` (the save and the
+members, for a p1 pair ordered by web number alone), `move_earlier` and
+`move_later` (the web that must be visited first under lowest-free-colour,
+stated only for a two-register transposition with exactly one coloured web on
+each side), and `involved_webs`. A register held by two coloured webs names no
+direction and `needs` asks for `CDX_DETAIL_WEB` instead. **A named
+renumbering family always carries a `needs` entry demanding a confirming
+second capture**: an edit chosen from the numbering model can leave every web
+number where it was, and the source diff cannot show that.
+
+`reachability` is `proven`, `unreachable`, or null, and it is a statement
+about the web graph rather than about the source. `proven` means a recorded
+`CDX_FORCE` run in `--force-result` reached `words=0`: every colour in the
+residual is legal and the pass added no instruction, so what is missing is a
+spelling. `unreachable` means the pass declined a force or bought it with
+extra instructions. A run that neither closed nor failed leaves the field
+null and reports the best residual as evidence, because a force that improved
+the count proves nothing about the rest.
 
 `unreachable` is null unless the class is `unreachable`; when present it
 carries `unreachable_class` (`as1-readiness`, `uopt-address-folding`,

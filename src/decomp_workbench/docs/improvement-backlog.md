@@ -296,7 +296,10 @@ needed no trace at all (L72–L74). An eighth improved from 10 words to 6 on the
 line join. Four more closed in the other direction — proved unreachable, with
 the proof recorded so the builds are not spent again (L79, L81, L82, and the
 coalescing tie). The one residual class this item named and did not reach is
-item 15.
+item 15. A sixth class, the pool rotation, was separated from the pool
+*population* difference it had been confused with a lane later (L83-L86, and
+lever 44); the force experiment that proves such a residual reachable is item
+16.
 
 ### 4. Binary Ucode/Binasm capture streams
 - **Symptom.** `capture make` retains binary Ucode/Binasm pass-boundary streams;
@@ -782,3 +785,37 @@ the wrong sites; the table is an input, and a run without one says so.
   `aftercycles` differently relative to each other in the chain, and neither's
   recorded selections separate the orderings. Nothing shipped depends on the
   answer today, and L79 says why; a forward model does.
+
+### 16. Plan the force experiment, do not leave it to be typed
+
+- **Symptom.** `words=0` under `CDX_FORCE` is the strongest verdict the
+  workbench can produce for a register residual, and reaching it is still a
+  hand exercise. On `overlay4UpdateObjectMotion` (Mickey's Speedway USA,
+  2026-09-03) it took seven builds to find that three pinned colours closed
+  the object: one force on the switch selector took 8 differing words to 5, and
+  the selector plus the tied pair took it to 0. Every one of those forces was
+  derivable before the first build — the residual names the registers, the
+  colour table names their colours, and the CDX records name the webs holding
+  them. `diagnose --force-result` reads such a run and says what it proved;
+  nothing plans one.
+- **Proposed change.** Given the residual's web substitutions and a CDX
+  capture, emit the **minimal** force set and run it: for each substitution,
+  the web that holds the candidate's register and the colour of the target's,
+  skipping any colour already in that web's `forbidden0/1` mask (the pass
+  declines those, and `oracle_plan` already refuses to guess a colour
+  universe). Then the singletons first, the full set last, so a partial
+  closure is attributed to a force rather than to the set. `oracle_plan` and
+  `oracle_sweep` already compile a grid and compare it; what is missing is the
+  step that turns *this residual* into *these cells*.
+- **Payoff.** One command between a `pool-rotation` verdict and a reachability
+  proof, and the proof is what separates "one spelling away" from "not
+  available in this web graph" — the two states a lever block cannot tell
+  apart on its own, and the ones that decide whether the next hour is spent on
+  source or on the permuter.
+- **What it must not do.** Report a force set as a match. A forced object is a
+  statement about the allocator, never source-match evidence, and the
+  distinction is already load-bearing in `oracle`: the plan must keep saying
+  so. Nor may it widen a colour candidate list beyond what the capture and the
+  residual name; an incomplete honest plan is the existing contract.
+- **Blocked on nothing.** The inputs are the ones `diagnose --ladder
+  --force-result` already takes.

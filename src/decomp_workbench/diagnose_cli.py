@@ -152,12 +152,28 @@ def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
     if diagnosis.comparison.exact:
         return diagnosis
     ladder = None
+    cdx_log = None
     if getattr(args, "ladder", None):
-        log = CdxLog(
+        cdx_log = CdxLog(
             read_trace_text(Path(args.ladder).expanduser(), warn=warn_to_stderr),
             name=display_path(args.ladder),
         )
-        ladder = frame_ladder(log, proc=getattr(args, "lever_proc", None))
+        # One file, two readings. The itable records give the declared-local
+        # count the stack-home lever needs; the colouring records give the
+        # sweep that owns a colour-only residual. A capture carrying only one
+        # of them still answers its own question, so a log with no frame slot
+        # in it is reported and kept rather than refused: `CDX_LOG=1` alone is
+        # the capture the pool-rotation lever asks for, and refusing it here
+        # would make the block demand an itable it never reads.
+        try:
+            ladder = frame_ladder(cdx_log, proc=getattr(args, "lever_proc", None))
+        except CascadeError as error:
+            warn_to_stderr(f"{error} Reading its colouring records only.")
+    force_result = None
+    if getattr(args, "force_result", None):
+        force_result = json.loads(
+            Path(args.force_result).expanduser().read_text(encoding="utf-8")
+        )
     ring_events = None
     if getattr(args, "ring_trace", None):
         ring_events = parse_trace(
@@ -184,6 +200,8 @@ def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
     lever = lever_for(
         diagnosis.view,
         ladder=ladder,
+        cdx_log=cdx_log,
+        force_result=force_result,
         ring_events=ring_events,
         emit_events=emit_events,
         as1_selections=selections,
@@ -472,6 +490,17 @@ def _add_shared_arguments(
         help=(
             "a CDX log carrying CDX_SYMTAB=1 itable records; supplies the "
             "declared-local count the stack-home lever is measured against"
+        ),
+    )
+    parser.add_argument(
+        "--force-result",
+        metavar="PATH",
+        help=(
+            "a decomp-workbench-oracle-sweep-v1 JSON from a recorded "
+            "CDX_FORCE run. It answers a question no source evidence does: "
+            "words=0 under a force proves the target's colours are legal in "
+            "this web graph, and a declined or instruction-adding force "
+            "proves they are not"
         ),
     )
     parser.add_argument(
