@@ -5,6 +5,48 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### A pool-rotation lever, and the length gate in front of it
+
+- **`diagnose` names two new classes, `pool-rotation` and `pool-population`,
+  and reads the pool lanes' *lengths* before either.** Equal lengths are the
+  precondition for calling a colour-only residual a rotation; unequal lengths
+  are a web population difference no colour lever reaches.
+  `overlay43FilterImage` (Mickey's Speedway USA, 2026-09-03) was recorded as
+  "one cyclic pool rotation" while its lanes were 18 slots against 15, and
+  forcing the rotation to the target's colours raised opcode mismatches from 8
+  to 10. The block prints that counter-example where the gate fires.
+- **The owning sweep is named from the CDX colouring records, or not at all.**
+  p2 visits webs in ascending web number with the lowest free colour and its
+  save cost is inert; p1 is repeated max-save selection with the web number
+  only as a tie-break (**L83**, **L84**). Two disassemblies cannot say which
+  owns a colour, so with no capture the block asks for `CDX_LOG=1` instead of
+  guessing. `--ladder` is now read twice — as an itable for the declared-local
+  count, and as a colouring log for the sweep — and a capture carrying only
+  the colouring records is reported and kept rather than refused.
+- **For a p1 tie it names the tie group and the direction.** The save, the
+  members, and which web must be visited earlier, derived from
+  lowest-free-colour and stated only for a two-register transposition with one
+  coloured web on each side. A register two webs hold names no direction and
+  asks for `CDX_DETAIL_WEB`.
+- **`reachability` reports a recorded force experiment and never its
+  absence.** New `--force-result` takes an oracle sweep JSON: `proven` at
+  `words=0`, `unreachable` for a declined or instruction-adding force, null
+  for a run that neither closed nor failed. On `overlay4UpdateObjectMotion`
+  three pinned colours took an 8-word residual to `words=0` — a complete
+  reachability proof that the function still does not match, which is exactly
+  the distinction the field exists to draw.
+- **No renumbering edit is named without the capture that confirms it.** Both
+  spellings tried from the numbering model on that function were plausible and
+  neither moved a web number, because cfe had already coalesced the store one
+  of them depended on. The `needs` entry demanding a second capture is
+  structural, not advisory.
+- **Laws L83-L86**, the two sweeps' orders, the one spelling measured to move
+  a web number (declare the truncated local narrow so the truncation happens
+  at the store; 8 differing words to 3, reproduced byte-identically under the
+  stock toolchain) and three that move none. Field guide lever 44,
+  `from-verdict-to-edit` §5a, and backlog item 16: plan the force experiment
+  rather than leaving it to be typed.
+
 - `instrument-drop-in` passes `--in-place` when a plan rewrites a source in
   place; the generated script previously stopped at its first step, leaving
   the old drop-in installed (found rebuilding the Mickey toolchain,
