@@ -14,7 +14,7 @@ compiler, no toolchain.
 - [3. Why a "fake" edit is not superstition](#3-why-a-fake-edit-is-not-superstition)
 - [4. The edit](#4-the-edit)
 - [5. When the screen names the edit for you](#5-when-the-screen-names-the-edit-for-you)
-- [5a. Ask whether the colours are legal first](#5a-ask-whether-the-colours-are-legal-before-hunting-for-a-spelling)
+- [5a. Ask whether the colours are legal before hunting for a spelling](#5a-ask-whether-the-colours-are-legal-before-hunting-for-a-spelling)
 - [6. Re-diagnose, and know when to stop](#6-re-diagnose-and-know-when-to-stop)
 
 ---
@@ -270,7 +270,7 @@ Three answers, and each one buys a different next hour:
 On `overlay4UpdateObjectMotion` three pinned colours took an 8-word residual to
 `words=0`. The function still does not match — the last of the three colours
 has no source lever, and
-[L86](compiler-laws/ido-5.3.md#l86-three-spellings-that-move-no-web-number)
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number)
 says why — but one build separated "one spelling away" from "not available in
 this web graph", which is the distinction the rest of the section is spent on.
 

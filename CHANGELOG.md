@@ -43,7 +43,7 @@ in [design notes](docs/history/design-notes.md).
 - **Laws L83-L86**, the two sweeps' orders, the one spelling measured to move
   a web number (declare the truncated local narrow so the truncation happens
   at the store; 8 differing words to 3, reproduced byte-identically under the
-  stock toolchain) and three that move none. Field guide lever 44,
+  stock toolchain) and four that move none. Field guide lever 44,
   `from-verdict-to-edit` §5a, and backlog item 16: plan the force experiment
   rather than leaving it to be typed.
 

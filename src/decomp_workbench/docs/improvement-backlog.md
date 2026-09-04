@@ -791,8 +791,8 @@ the wrong sites; the table is an input, and a run without one says so.
 - **Symptom.** `words=0` under `CDX_FORCE` is the strongest verdict the
   workbench can produce for a register residual, and reaching it is still a
   hand exercise. On `overlay4UpdateObjectMotion` (Mickey's Speedway USA,
-  2026-09-03) it took six builds to find that three pinned colours closed the
-  object: one force on the switch selector took 8 differing words to 5, and
+  2026-09-03) it took seven builds to find that three pinned colours closed
+  the object: one force on the switch selector took 8 differing words to 5, and
   the selector plus the tied pair took it to 0. Every one of those forces was
   derivable before the first build — the residual names the registers, the
   colour table names their colours, and the CDX records name the webs holding

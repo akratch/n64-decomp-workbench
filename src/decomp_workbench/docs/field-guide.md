@@ -1109,9 +1109,10 @@ the *lower* colour is the one that must be visited first.
 declare the truncated local at its narrow type and drop the explicit cast, so
 the truncation happens at the store
 ([L85](compiler-laws/ido-5.3.md#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp)).
-Three that do not move one — declaration order, relational operand order, an
-added local — are in
-[L86](compiler-laws/ido-5.3.md#l86-three-spellings-that-move-no-web-number),
+Four that do not move one — declaration order, relational operand order, an
+added local, and a hoist that bought the interference and still lost the
+number — are in
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number),
 and the third of them costs a stack home.
 
 **Confirm with a second capture, always.** Both spellings tried from the
@@ -1134,7 +1135,7 @@ decomp-workbench diagnose target.o build/work.o --function step \
 On `overlay4UpdateObjectMotion` three pinned colours took an 8-word residual to
 `words=0`. That did not match the function — the source lever for the last of
 the three has not been found, and
-[L86](compiler-laws/ido-5.3.md#l86-three-spellings-that-move-no-web-number)
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number)
 says why — but it separated "one spelling away" from "not available in this
 web graph" for the cost of one build.
 
@@ -1143,7 +1144,7 @@ web graph" for the cost of one build.
 [L83](compiler-laws/ido-5.3.md#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there),
 [L84](compiler-laws/ido-5.3.md#l84-p1-is-repeated-max-save-selection-the-web-number-breaks-ties-only),
 [L85](compiler-laws/ido-5.3.md#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp),
-[L86](compiler-laws/ido-5.3.md#l86-three-spellings-that-move-no-web-number).
+[L86](compiler-laws/ido-5.3.md#l86-four-spellings-that-move-no-web-number).
 
 ## When the compiler itself is the variable
 

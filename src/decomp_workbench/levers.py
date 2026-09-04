@@ -632,8 +632,9 @@ POOL_ROTATION_FAMILIES: tuple[EditFamily, ...] = (
             "temp where the truncation is written, and a store is numbered "
             "LHS before RHS. Preconditions, both required and both measured: "
             "the value must not be passed on after the narrowing store (on "
-            "`overlay4UpdateObjectMotion` the else-branch call was inlined "
-            "first, an edit already proved byte-identical, so the `s16` store "
+            "`overlay4UpdateObjectMotion` the else-branch store to the local "
+            "was dropped and the call result passed directly, an edit already "
+            "proved byte-identical, so the `s16` store "
             "could not truncate a value the call still needed), and the "
             "truncation must survive cfe -- confirm it with a second capture"
         ),

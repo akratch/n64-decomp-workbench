@@ -54,7 +54,7 @@ Laws L83–L86 come from one lane of the same campaign (2026-09-03), thirteen
 builds on three overlay functions read with the instrumented uopt CDX
 colouring profile. They are what the two colouring sweeps actually order on
 (L83, L84), the one source spelling measured to move a web number (L85), and
-three that move none (L86). They are narrow on purpose: three functions, one
+four that move none (L86). They are narrow on purpose: three functions, one
 of which is the only one whose webs reached the callee-saved sweep at all.
 
 ## What a receipt may cite
@@ -949,12 +949,13 @@ Two preconditions, both measured, both required:
 
 * the value must not be passed on after the narrowing store, or the store
   truncates a value a later call still needs. On the function below the
-  else-branch call was inlined first — an edit already proved byte-identical
+  else-branch store to the local was dropped and the call result passed
+  directly first — an edit already proved byte-identical
   — so the narrow store could not reach it.
 * the truncation must survive cfe. A store cfe has already coalesced away
   cannot be numbered at a site that no longer exists, which is how two other
   spellings on this same function moved nothing
-  ([L86](#l86-three-spellings-that-move-no-web-number)).
+  ([L86](#l86-four-spellings-that-move-no-web-number)).
 
 > Therefore a renumbering edit is confirmed against a **second CDX capture**,
 > never against the source diff.
@@ -969,16 +970,17 @@ differing words to 3 with the frame unchanged at -0x60 and the instruction
 stream still exact. Reproduced byte-identically under the stock toolchain,
 sha1 `8f11fe39ee5d`, so the result is not an artifact of the profile. The same
 function's remaining three words are the reachability limit recorded in
-[L86](#l86-three-spellings-that-move-no-web-number).
+[L86](#l86-four-spellings-that-move-no-web-number).
 
 **Falsifies.** The belief that LHS-before-RHS is a property of the *statement*
 a value appears in. It is a property of the site the truncation is written at,
 and the same value written two ways is numbered in two places.
 
-**Provenance:** Mickey's Speedway USA decomp (2026-09-03), overlay pool-spike
-lane, `overlay4UpdateObjectMotion`, adopted as commit `cd2b9500`.
+**Provenance:** Mickey's Speedway USA decomp, overlay pool-spike lane
+(2026-09-03), `overlay4UpdateObjectMotion`, adopted as commit `cd2b9500`
+(2026-09-04).
 
-### L86. Three spellings that move no web number
+### L86. Four spellings that move no web number
 
 Measured on the function of
 [L85](#l85-a-truncation-written-at-the-store-renumbers-its-synthetic-temp),
@@ -989,6 +991,7 @@ against the same capture:
 | swap two `s32` declarations | **byte-identical**: declaration order is inert for register-resident locals. It is [L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever)'s lever only where a home is at stake |
 | swap the comparison operands | **byte-identical**: cfe canonicalises relational operand order, so LHS-before-RHS does not apply at a comparison |
 | read the value into an added local | shifts every downstream web number by a constant (22 → 25, 48 → 51, 50 → 53) and **reorders no pair** — and it bought a stack home, 8 differing words to 22, frame -0x60 to -0x68 |
+| hoist the timer read above the switch | 8 differing words to **209**. It did create the interference — the timer took the second colour — but the selector still numbered lower and took the first colour first |
 
 > Therefore an added local is not a renumbering lever. It translates the
 > numbering and a sweep that reads only the order is unmoved by a translation.
@@ -1005,7 +1008,10 @@ first-block web cannot reach. The pool populations are equal, so it is not a
 population difference either. A different web **structure** is required, and
 no spelling tried produced one without wrecking the instruction stream.
 
-**Receipt — T2**, four objects and one capture. Three of the four spellings
+**Receipt — T2**, four objects and one capture. The fourth spelling above is
+the only recorded attempt at the different web *structure* the floor paragraph
+calls for, and it is what "without wrecking the instruction stream" is measured
+against. Three of the four spellings
 above are byte-identical or measured objects; the numbering claims are read
 from `p1color` records, which also show that when a spelling did move a number
 it moved an upstream web (146 → 145) and left 13, 22, 48 and 50 exactly where
