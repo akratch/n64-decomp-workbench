@@ -162,9 +162,12 @@ which owns a colour.
 
 With a capture, `measurements` also carries `tie_group` (the save and the
 members, for a p1 pair ordered by web number alone), `move_earlier` and
-`move_later` (the web that must be visited first under lowest-free-colour,
-stated only for a two-register transposition with exactly one coloured web on
-each side), and `involved_webs`. A register held by two coloured webs names no
+`move_later`, and `involved_webs`. The direction is derived from the
+lowest-free-colour rule, which the records establish for **p2** only, so it is
+stated for a p2 pair and never for a p1 one, and only for a two-register
+transposition with exactly one coloured web on each side. It is a reading of
+the numbering rule rather than a measured lever: no recorded edit has yet
+reordered a pair. A register held by two coloured webs names no
 direction and `needs` asks for `CDX_DETAIL_WEB` instead. **A named
 renumbering family always carries a `needs` entry demanding a confirming
 second capture**: an edit chosen from the numbering model can leave every web

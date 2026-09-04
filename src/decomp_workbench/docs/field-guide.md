@@ -1098,12 +1098,18 @@ decomp-workbench diagnose target.o build/work.o --function step \
 | Owning sweep | What it orders on | What the lever is |
 |---|---|---|
 | `p2` (caller-saved) | ascending web number, lowest free colour; the save is computed and ignored | renumbering, and nothing else |
-| `p1` (callee-saved), webs **tied** on save | the web number, inside the tie group | renumbering |
+| `p1` (callee-saved), webs **tied** on save | the web number, inside the tie group | renumbering *if anything*; a tie alone does not make the pair separable |
 | `p1`, webs across a save boundary | the save | the cost — use counts or loop depth, which moves the instruction stream, so rank it last |
 
-The block names the tie group, its save and its members, and which web must be
-visited earlier: between two contested colours, the web that must end up with
-the *lower* colour is the one that must be visited first.
+The block names the tie group, its save and its members. For a **p2** pair it
+also reads a direction off the lowest-free-colour rule — between two contested
+colours, the web that must end up with the *lower* colour would have to be
+visited first — and offers it as a reading of the rule, not as a measured
+lever: no recorded edit has yet reordered a pair. For a p1 pair it names no
+direction at all, because lowest-free-colour is recorded for p2 and not for
+p1. And a tie is the tie-break, not a promise: webs 13 and 22 of
+`overlay4UpdateObjectMotion` tie at save 1.5 with identical interference
+records, do not interfere, and are not colour-reachable.
 
 **Step three, the one spelling that has been measured to move a web number:**
 declare the truncated local at its narrow type and drop the explicit cast, so

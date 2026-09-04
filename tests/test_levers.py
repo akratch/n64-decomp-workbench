@@ -862,11 +862,48 @@ class OwningSweepTests(PoolLaneGateTests):
         lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
         self.assertIn("bestcost=0.000000", " ".join(lever.evidence))
 
-    def test_the_direction_names_the_web_that_must_move_earlier(self) -> None:
+    def test_p2_reads_a_direction_off_the_lowest_free_colour_rule(self) -> None:
+        """Offered for p2, and offered as a reading rather than a lever.
+
+        No recorded edit has reordered a pair: the one that moved a number
+        took web 48 to 49 with 50 unmoved, so the pair kept its order and the
+        direction was never tested.
+        """
+
         lever = lever_for(self.rotation(), cdx_log=self.log(P2_LOG), proc=0)
         self.assertEqual(lever.measurements["move_earlier"], 9)
         self.assertEqual(lever.measurements["move_later"], 6)
-        self.assertIn("web 9 must be visited before web 6", lever.reason)
+        joined = " ".join(lever.evidence)
+        self.assertIn("web 9 would have to be visited first", joined)
+        self.assertIn("no recorded edit has yet reordered a pair", joined)
+
+    def test_p1_is_offered_no_direction_because_p1_never_measured_one(
+        self,
+    ) -> None:
+        """The direction follows from lowest-free-colour, which is p2's rule.
+
+        L83 measures it on p2's records; nothing measures it on p1. Carrying
+        it across would state a p2 finding about a different sweep.
+        """
+
+        lever = lever_for(self.rotation(), cdx_log=self.log(P1_TIED_LOG), proc=1)
+        self.assertEqual(lever.measurements["owning_sweep"], "p1")
+        self.assertIsNone(lever.measurements["move_earlier"])
+        self.assertIsNone(lever.measurements["move_later"])
+        self.assertIn("recorded for p2 and not for p1", " ".join(lever.evidence))
+
+    def test_a_p1_tie_is_the_tie_break_and_not_by_itself_a_lever(self) -> None:
+        """Webs 13 and 22 tie at save 1.5 and are not colour-reachable.
+
+        They are members of the very tie group L84 cites, with identical
+        interference records, and they do not interfere -- so a tie names the
+        order p1 uses and promises no edit.
+        """
+
+        lever = lever_for(self.rotation(), cdx_log=self.log(P1_TIED_LOG), proc=1)
+        joined = " ".join(lever.evidence)
+        self.assertIn("not by itself a lever", joined)
+        self.assertIn("webs 13 and 22", joined)
 
     def test_a_p1_tie_group_is_named_with_its_save_and_members(self) -> None:
         lever = lever_for(self.rotation(), cdx_log=self.log(P1_TIED_LOG), proc=1)

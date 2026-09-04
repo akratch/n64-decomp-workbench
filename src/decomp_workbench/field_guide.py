@@ -711,7 +711,9 @@ PASS_LAWS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "ido53",
             "L83",
             "p2 visits webs in ascending web number and ignores the save, so "
-            "a rotation there is renumbering or nothing",
+            "nothing that changes a use count or loop depth moves a web "
+            "there -- which is what it orders on, not that a rotation is "
+            "reachable",
         ),
         (
             "ido53",

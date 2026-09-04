@@ -18,16 +18,24 @@ in [design notes](docs/history/design-notes.md).
 - **The owning sweep is named from the CDX colouring records, or not at all.**
   p2 visits webs in ascending web number with the lowest free colour and its
   save cost is inert; p1 is repeated max-save selection with the web number
-  only as a tie-break (**L83**, **L84**). Two disassemblies cannot say which
-  owns a colour, so with no capture the block asks for `CDX_LOG=1` instead of
-  guessing. `--ladder` is now read twice — as an itable for the declared-local
+  only as a tie-break (**L83**, **L84**). Neither law says a rotation is
+  thereby reachable: `overlay40FadeRecords` is 21 p2 decisions with pool lanes
+  equal at 27 slots and is recorded unreachable, its load definition sitting in
+  a different web partition, which no visit order produces. Two disassemblies
+  cannot say which sweep owns a colour, so with no capture the block asks for
+  `CDX_LOG=1` instead of guessing. `--ladder` is now read twice — as an itable for the declared-local
   count, and as a colouring log for the sweep — and a capture carrying only
   the colouring records is reported and kept rather than refused.
-- **For a p1 tie it names the tie group and the direction.** The save, the
-  members, and which web must be visited earlier, derived from
-  lowest-free-colour and stated only for a two-register transposition with one
-  coloured web on each side. A register two webs hold names no direction and
-  asks for `CDX_DETAIL_WEB`.
+- **For a p1 tie it names the tie group; the direction is p2's, and is a
+  reading rather than a lever.** The save and the members are records. The
+  direction follows from lowest-free-colour, which the captures establish for
+  p2 alone, so it is offered for a p2 pair, withheld for a p1 one, and stated
+  only for a two-register transposition with one coloured web on each side —
+  and stated as a reading of the rule, because no recorded edit has reordered a
+  pair. A tie is p1's tie-break and not by itself a lever: webs 13 and 22 tie
+  at save 1.5 with identical interference records, do not interfere, and are
+  not colour-reachable. A register two webs hold names no pair and asks for
+  `CDX_DETAIL_WEB`.
 - **`reachability` reports a recorded force experiment and never its
   absence.** New `--force-result` takes an oracle sweep JSON: `proven` at
   `words=0`, `unreachable` for a declined or instruction-adding force, null
@@ -42,8 +50,11 @@ in [design notes](docs/history/design-notes.md).
   structural, not advisory.
 - **Laws L83-L86**, the two sweeps' orders, the one spelling measured to move
   a web number (declare the truncated local narrow so the truncation happens
-  at the store; 8 differing words to 3, reproduced byte-identically under the
-  stock toolchain) and four that move none. Field guide lever 44,
+  at the store: the synthetic temp went from web 48 to 49, both threshold webs
+  took the target's colours, 8 differing words to 3, reproduced
+  byte-identically under the stock toolchain — its partner stayed at web 50, so
+  the pair never reordered and the law claims no reordering) and four that move
+  none. Field guide lever 44,
   `from-verdict-to-edit` §5a, and backlog item 16: plan the force experiment
   rather than leaving it to be typed.
 

@@ -940,10 +940,17 @@ it where the truncation is written. Written as an *expression* cast the temp
 is numbered in the expression; written as a **store** into a narrow local it
 is numbered at the store, and a store is numbered LHS before RHS. Declaring
 the local at its narrow type and dropping the explicit cast therefore moves
-the temp one place later in the web numbering — which is the whole of the
-lever, because the sweeps read nothing else once the saves are equal
-([L83](#l83-p2-visits-webs-in-web-number-order-and-the-save-cost-is-inert-there),
-[L84](#l84-p1-is-repeated-max-save-selection-the-web-number-breaks-ties-only)).
+the temp: on the function below it went from web 48 to web 49, and both
+threshold webs took the target's colours, 8 differing words to 3.
+
+**What the numbers do and do not show.** The temp's partner stayed at web 50,
+so 49 is still the lower of the pair and their relative order never changed.
+The lever is therefore *not* a reordering of these two webs, and this law does
+not claim one: what is recorded is that moving the truncation site moves the
+synthetic temp's number, and that the colours came out right when it did. Which
+intervening web the renumbering displaced — and so why the colours changed — is
+not in the capture. Nothing here licenses reading a web-number change as a
+reordering of the pair on either side of it.
 
 Two preconditions, both measured, both required:
 
@@ -953,9 +960,12 @@ Two preconditions, both measured, both required:
   directly first — an edit already proved byte-identical
   — so the narrow store could not reach it.
 * the truncation must survive cfe. A store cfe has already coalesced away
-  cannot be numbered at a site that no longer exists, which is how two other
-  spellings on this same function moved nothing
-  ([L86](#l86-four-spellings-that-move-no-web-number)).
+  cannot be numbered at a site that no longer exists. That is how the
+  else-branch edit above moved nothing: it left webs 48 and 50 on their
+  numbers and shifted only an upstream web, 146 to 145. It is **not** why the
+  four spellings in [L86](#l86-four-spellings-that-move-no-web-number) moved
+  nothing — each of those failed for its own reason, none of them a coalesced
+  store.
 
 > Therefore a renumbering edit is confirmed against a **second CDX capture**,
 > never against the source diff.
@@ -1598,9 +1608,17 @@ of them and does not order on it: every `p2dec` in the two procedures below
 records `bestcost=0.000000`, and the largest save in the first is coloured
 sixth.
 
-> Therefore a rotation among p2 webs is reachable by renumbering alone, and
-> only by renumbering: nothing that changes a web's use count or loop depth
-> moves its position in this sweep.
+> Therefore nothing that changes a web's use count or loop depth moves its
+> position in this sweep: the visit order is the web number and the save is
+> computed and discarded. That is what the sweep orders on. It is **not** a
+> statement that a p2 rotation is reachable, and the record contains the
+> counter-example: `overlay40FadeRecords` is 21 p2 decisions with pool lanes
+> equal at 27 slots — a rotation by every test above — and is recorded not
+> colour-reachable, because the target's load definition sits in a different
+> web *partition*, which no visit order produces. Whether a given residual's
+> colours are legal at all is answered by a force experiment
+> ([the reachability field](../json-contracts.md#the-lever-block)), not by
+> this law.
 
 **Receipt — T1**, live records from the instrumented uopt CDX colouring
 profile. `overlay43FilterImage`: 9 decisions, all p2, every `bestcost` zero,
@@ -1627,11 +1645,17 @@ largest save, with **ascending web number as the tie-break**. The `p1cand`
 records make it explicit: each round re-lists every uncoloured web with its
 save and a running `best=`, and the winner is the maximum.
 
-> Therefore a rotation between two p1 webs **tied** on save is reachable by
-> renumbering, and a rotation across a save boundary is not: it needs the cost
-> changed, which means changing use counts or loop depth, which changes the
-> instruction stream — and a rotation is by definition a residual whose
-> instruction stream is already right.
+> Therefore a pair **tied** on save is ordered by web number and nothing
+> else, and a pair across a save boundary is ordered by the save: reordering
+> that one needs the cost changed, which means changing use counts or loop
+> depth, which changes the instruction stream — and a rotation is by
+> definition a residual whose instruction stream is already right.
+>
+> A tie is the tie-break, not a lever. Two webs can tie and still be
+> unreachable: webs 13 and 22 of the function below are members of the very
+> tie group named here, arrive with identical save, interference count and
+> masks, and do not interfere — so neither numbering nor priority separates
+> them ([L86](#l86-four-spellings-that-move-no-web-number)).
 
 **Receipt — T1**, live records. `overlay4UpdateObjectMotion` (proc ordinal 1)
 selects webs 146, 98, 0, 132, 6 at saves 7.0, 4.0, 3.0, 2.0 and 1.714, and

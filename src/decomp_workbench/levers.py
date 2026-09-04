@@ -1389,29 +1389,25 @@ def _substitutions(view: MechanismView) -> dict[str, str]:
     }
 
 
-def _rotation_direction(
+def _residual_pair(
     records: Sequence[SweepRecord], substitutions: Mapping[str, str]
-) -> tuple[SweepRecord | None, SweepRecord | None, str]:
-    """Which web must be numbered earlier, under lowest-free-colour.
+) -> tuple[tuple[SweepRecord, SweepRecord] | None, str]:
+    """The two coloured webs a two-register transposition is between.
 
-    Both sweeps hand a web the lowest colour still free when they reach it,
-    so between two webs contesting two colours the one that must end up with
-    the LOWER colour is the one that must be visited first. That is the whole
-    derivation, and it holds only for a transposition -- two substitutions
-    that are each other's inverse -- with exactly one coloured web on each
-    side. Anything else is reported as what it is rather than resolved into a
-    direction the records do not carry.
+    Unordered, and sweep-agnostic: identifying the pair is a lookup in the
+    decision records, and it is all the records support on their own. The
+    residual must be a transposition -- two substitutions that are each
+    other's inverse -- with exactly one coloured web holding each register.
+    Anything else is reported as what it is rather than resolved into a pair
+    the capture does not name.
     """
 
     pairs = sorted(substitutions.items())
     if len(pairs) != 2 or pairs[0][1] != pairs[1][0] or pairs[1][1] != pairs[0][0]:
         return (
             None,
-            None,
-            "the residual is not a two-register transposition, so "
-            "lowest-free-colour does not name which web must move: it says "
-            "which of two contested colours is taken first, and that is a "
-            "statement about a pair",
+            "the residual is not a two-register transposition, so the "
+            "records do not name a pair of contesting webs",
         )
     holders: dict[str, list[SweepRecord]] = {}
     for record in records:
@@ -1430,7 +1426,6 @@ def _rotation_direction(
         )
         return (
             None,
-            None,
             f"more than one coloured web holds a register in the residual "
             f"({rendered}), so which of them carries these sites is not in "
             "the decision records",
@@ -1439,34 +1434,60 @@ def _rotation_direction(
     if missing:
         return (
             None,
-            None,
             "the log records no coloured web on "
             + ", ".join(missing)
             + ", so the sweep that owns the residual is not in this capture "
             "-- check CDX_PROC selected the right procedure ordinal",
         )
+    first, second = (found[0] for _register, found in sorted(holders.items()))
+    return (
+        (first, second),
+        f"webs {first.web} and {second.web} hold the two registers the "
+        "residual exchanges",
+    )
+
+
+def _visit_direction(
+    pair: tuple[SweepRecord, SweepRecord], substitutions: Mapping[str, str]
+) -> tuple[SweepRecord | None, SweepRecord | None, str]:
+    """Which web must be visited earlier -- p2 only, and only as a model.
+
+    p2 gives each web the lowest colour still free when it reaches it (L83),
+    so between two webs contesting two colours the one that must end up with
+    the LOWER colour must be visited first. That derivation needs the
+    lowest-free-colour rule, which the records establish for p2 and not for
+    p1, so it is not offered for a p1 pair.
+
+    It is a model either way, and the record does not yet confirm it: on
+    `overlay4UpdateObjectMotion` the one edit that moved a number moved web
+    48 to 49 while 50 stayed, so the pair never reordered and the direction
+    was never tested. Reported as a reading of the numbering, not as a
+    measured lever.
+    """
+
     ranked: list[tuple[int, SweepRecord]] = []
-    for register, found in holders.items():
-        desired = color_for_register(substitutions[register])
+    for record in pair:
+        register = record.register or ""
+        desired = color_for_register(substitutions.get(register, ""))
         if desired is None:
             return (
                 None,
                 None,
-                f"the colour of {substitutions[register]} is not in the "
+                f"the colour of {substitutions.get(register)} is not in the "
                 "pinned colour table, so the two sides cannot be ordered",
             )
-        ranked.append((desired, found[0]))
+        ranked.append((desired, record))
     ranked.sort(key=lambda item: item[0])
     earlier, later = ranked[0][1], ranked[1][1]
     return (
         earlier,
         later,
-        f"web {earlier.web} must take colour c{ranked[0][0]} and web "
-        f"{later.web} colour c{ranked[1][0]}; the lower colour is handed out "
-        f"first, so web {earlier.web} must be visited before web "
-        f"{later.web} -- today it is "
+        f"under p2's lowest-free-colour rule web {earlier.web} must take "
+        f"colour c{ranked[0][0]} and web {later.web} colour c{ranked[1][0]}, "
+        f"so web {earlier.web} would have to be visited first -- today it is "
         + ("already" if earlier.web < later.web else "not")
-        + " the lower-numbered of the two",
+        + " the lower-numbered of the two. This is a reading of the "
+        "numbering rule and no recorded edit has yet reordered a pair",
     )
 
 
@@ -1570,7 +1591,7 @@ def _pool_lever(
         for phase in ("p1", "p2")
     }
     measurements["involved_webs"] = [record.as_dict() for record in involved]
-    earlier, later, note = _rotation_direction(involved, substitutions)
+    pair, note = _residual_pair(involved, substitutions)
     evidence: list[str] = [
         f"pool lanes equal at {len(target)} slot(s), so the residual is a "
         "rotation and not a population difference",
@@ -1590,8 +1611,8 @@ def _pool_lever(
         evidence.insert(
             0,
             "the residual's registers were coloured in BOTH sweeps, which "
-            "take different levers: p2 reads web number alone, p1 reads it "
-            "only inside a tie group",
+            "order on different things: p2 on the web number alone, p1 on "
+            "the save with the web number only as a tie-break",
         )
     else:
         evidence.insert(
@@ -1609,46 +1630,58 @@ def _pool_lever(
             ),
         )
 
+    # The direction is derived from the lowest-free-colour rule, which the
+    # records establish for p2 and not for p1. Naming it for a p1 pair would
+    # carry a p2 measurement onto a sweep that was never measured that way.
+    earlier: SweepRecord | None = None
+    later: SweepRecord | None = None
+    if pair is not None and owning == "p2":
+        earlier, later, direction_note = _visit_direction(pair, substitutions)
+        evidence.append(direction_note)
+        if earlier is not None and later is not None:
+            measurements["move_earlier"] = earlier.web
+            measurements["move_later"] = later.web
+    elif pair is not None and owning == "p1":
+        evidence.append(
+            "no direction is named: it would follow from lowest-free-colour, "
+            "which is recorded for p2 and not for p1"
+        )
+
     tied = False
-    if owning == "p1" and earlier is not None and later is not None:
+    if owning == "p1" and pair is not None:
         groups = tie_groups(records)
         for save, webs in groups.items():
-            if earlier.web in webs and later.web in webs:
+            if pair[0].web in webs and pair[1].web in webs:
                 tied = True
                 measurements["tie_group"] = {
                     "save": save,
                     "webs": list(webs),
                 }
                 evidence.append(
-                    f"webs {earlier.web} and {later.web} are in the same p1 "
+                    f"webs {pair[0].web} and {pair[1].web} are in the same p1 "
                     f"tie group: save {save}, members "
                     + ", ".join(str(web) for web in webs)
-                    + ", ordered by web number alone"
+                    + ", which p1 orders by web number. A tie is the "
+                    "tie-break and not by itself a lever: webs 13 and 22 of "
+                    "overlay4UpdateObjectMotion tie at save 1.5 with "
+                    "identical interference records, do not interfere, and "
+                    "are recorded not colour-reachable"
                 )
                 break
         if not tied:
             evidence.append(
-                f"webs {earlier.web} and {later.web} are not tied on save "
-                f"({earlier.save} against {later.save}), so p1's max-save "
+                f"webs {pair[0].web} and {pair[1].web} are not tied on save "
+                f"({pair[0].save} against {pair[1].save}), so p1's max-save "
                 "selection orders them and no renumbering reorders them"
             )
 
-    orderable = earlier is not None and later is not None and owning in {"p1", "p2"}
-    if earlier is not None and later is not None:
-        # The direction is a fact about the two colours whether or not a
-        # renumbering edit can act on it; a p1 pair across a save boundary
-        # still has an order the target wants, and the cost family is how it
-        # is reached.
-        measurements["move_earlier"] = earlier.web
-        measurements["move_later"] = later.web
-    if orderable and owning == "p1" and not tied:
+    if pair is not None and owning == "p1" and not tied:
         family = POOL_ROTATION_FAMILIES[1]
-    elif orderable:
+    elif pair is not None and owning in {"p1", "p2"}:
         blocked = [
             record
-            for record in (earlier, later)
-            if record is not None
-            and color_for_register(substitutions.get(record.register or "", ""))
+            for record in pair
+            if color_for_register(substitutions.get(record.register or "", ""))
             in record.forbidden
         ]
         if blocked:
@@ -1659,9 +1692,7 @@ def _pool_lever(
                 + ", so the pass would decline it: this is not a numbering "
                 "residual"
             )
-        elif any(
-            record is not None and record.web_type == 4 for record in (earlier, later)
-        ):
+        elif any(record.web_type == 4 for record in pair):
             family = POOL_ROTATION_FAMILIES[0]
         else:
             evidence.append(
@@ -1670,7 +1701,10 @@ def _pool_lever(
                 "temp of a narrowing cast; naming it here would apply a rule "
                 "to a shape it was never measured on"
             )
-    if earlier is None:
+    # The detail records are what name a pair, so they are asked for when no
+    # pair was identified -- not when no direction was, which is a separate
+    # question the records answer only for p2.
+    if pair is None:
         needs.append(CAPTURE_DETAIL)
     if force is None:
         needs.append(CAPTURE_FORCE)
@@ -1695,10 +1729,11 @@ def _pool_lever(
             )
             + f"; {note}"
         )
-    elif orderable:
+    elif pair is not None:
         reason = (
-            f"the rotation is real and the direction is named, but no "
-            f"measured source spelling applies to these webs; {note}"
+            "the rotation is real and the records name the pair it is "
+            f"between, but no measured source spelling applies to these "
+            f"webs; {note}"
         )
     else:
         reason = (
