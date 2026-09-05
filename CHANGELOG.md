@@ -5,6 +5,20 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Structural rankings retain extent and edit evidence
+
+- Automatic `rank`, `compile-rank`, and campaign ordering uses Pareto layers
+  over true extent difference and normalized/opcode edit distances when
+  aligned totals are unsafe. A smaller positional word count cannot outrank
+  a candidate that dominates it on every structural measurement.
+- Live and persisted campaigns share the ordering, recalculate cohort-relative
+  layers, and retain all nondominated sources. Incomplete legacy evidence
+  falls back explicitly to words; `--rank-by words` remains unchanged.
+- Comparison and two-object score reports expose geometry beside the existing
+  scalar scores. Exactness, windowed byte scoring, and relocation gates are
+  unchanged. Synthetic tests cover a 1,208-row target and 1,215/1,217-row
+  candidates whose positional ranking reverses their structural evidence.
+
 ### A pool-rotation lever, and the length gate in front of it
 
 - **`diagnose` names two new classes, `pool-rotation` and `pool-population`,

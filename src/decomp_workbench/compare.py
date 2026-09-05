@@ -1553,6 +1553,11 @@ def compare_instructions(
         unknown_relocations=unknown_relocations,
         opcode_mismatches=opcode_mismatches,
         normalized_distance=sequence_distance(target_normalized, candidate_normalized),
+        opcode_distance=(
+            0
+            if target_opcodes == candidate_opcodes
+            else sequence_distance(target_opcodes, candidate_opcodes)
+        ),
         register_mismatches=register_count,
         fp_register_mismatches=fp_count,
         register_mismatch_ranges=mismatch_ranges(register_bad),
@@ -1616,24 +1621,42 @@ def compare_instructions(
 #: a reader who does not know that is reading a different table than the one
 #: they ran yesterday.
 MIXED_ALIGNMENT_CAUTION = (
-    "caution: one or more candidates required alignment gaps -- ordered by "
-    "positional words, not aligned rows"
+    "caution: one or more candidates have incomparable aligned totals -- ordered by "
+    "geometry Pareto layers (true extent, normalized and opcode edits), then "
+    "positional words; tradeoffs within a layer are not proven improvements"
 )
 
 
 def rank_comparisons(items: Sequence[Comparison]) -> tuple[list[Comparison], bool]:
-    """Order candidates, and say whether positional ranking was required.
+    """Order candidates, and say whether aligned ranking was unsafe.
 
-    Aligned rows are the right ranking metric only while every candidate is
-    gap-free. Each gapped candidate may align against a different subsequence
+    Aligned rows rank only while every candidate's alignment is comparable.
+    Each gapped candidate may align against a different subsequence
     of the target; sharing the state "has gaps" does not put two such
-    candidates back on one scale. Any gapped input therefore moves the whole
-    set to positional word counts, and the caller is told so it can say so.
+    candidates back on one scale. A gapped input moves the whole set to
+    structural Pareto layers, then positional words. Exact verification is
+    still independent of all ranking metrics.
     """
 
     ordered = list(items)
     by_raw = any(not item.alignment_comparable for item in ordered)
-    ordered.sort(key=lambda item: item.raw_sort_key if by_raw else item.sort_key)
+    if by_raw:
+        from .geometry import pareto_layers
+
+        fronts = pareto_layers([item.geometry_vector for item in ordered])
+        for item, front in zip(ordered, fronts, strict=True):
+            item.geometry_front = front
+        ordered = [
+            item
+            for _, item in sorted(
+                zip(fronts, ordered, strict=True),
+                key=lambda pair: (not pair[1].exact, pair[0], pair[1].raw_sort_key),
+            )
+        ]
+    else:
+        for item in ordered:
+            item.geometry_front = None
+        ordered.sort(key=lambda item: item.sort_key)
     return ordered, by_raw
 
 

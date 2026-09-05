@@ -87,7 +87,7 @@ def register_campaign_run_commands(
         choices=("auto", "words", "temp-prefix"),
         default="auto",
         help=(
-            "candidate ordering: automatic aligned/positional safety, "
+            "candidate ordering: automatic aligned/geometry Pareto ranking, "
             "positional words, or latest exact temp-lane prefix"
         ),
     )
@@ -205,7 +205,7 @@ def register_campaign_run_commands(
         choices=("auto", "words", "temp-prefix"),
         default="auto",
         help=(
-            "candidate ordering: automatic aligned/positional safety, "
+            "candidate ordering: automatic aligned/geometry Pareto ranking, "
             "positional words, or latest exact temp-lane prefix"
         ),
     )

@@ -1077,7 +1077,7 @@ def campaign_ranking_label(results: list[CompileResult], *, requested: str) -> s
     if requested != "auto":
         return requested
     return (
-        "words"
+        "geometry-pareto"
         if any(
             item.comparison is not None and not item.comparison.alignment_comparable
             for item in results
@@ -1140,7 +1140,7 @@ def compile_rank_command(args: argparse.Namespace) -> int:
             )
         )
     else:
-        if ranked_by == "words" and args.rank_by == "auto":
+        if ranked_by == "geometry-pareto" and args.rank_by == "auto":
             print(MIXED_ALIGNMENT_CAUTION)
         for rank, (_, comparison) in enumerate(successes[: args.limit or None], 1):
             progress = (
@@ -1436,7 +1436,7 @@ def campaign_command(args: argparse.Namespace) -> int:
             )
         )
     else:
-        if ranked_by == "words" and args.rank_by == "auto":
+        if ranked_by == "geometry-pareto" and args.rank_by == "auto":
             print(MIXED_ALIGNMENT_CAUTION)
         if control_report["status"] != "NOT DECLARED":
             print(

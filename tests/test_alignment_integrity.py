@@ -306,7 +306,7 @@ class AlignmentReportSurfaceTests(unittest.TestCase):
             )
         payload = json.loads(stdout)
         self.assertTrue(payload["mixed_alignment"])
-        self.assertEqual(payload["ranked_by"], "words")
+        self.assertEqual(payload["ranked_by"], "geometry-pareto")
         self.assertTrue(payload["alignment_ranking_unsafe"])
         self.assertEqual(payload["results"][0]["candidate"], "renamed.o")
 

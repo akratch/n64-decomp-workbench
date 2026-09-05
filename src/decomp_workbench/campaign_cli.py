@@ -85,7 +85,13 @@ def _print_status(report: dict[str, Any]) -> None:
     )
     print(f"ranking: {ranked_by}{requested_note}")
     if bool(report.get("alignment_ranking_unsafe")) and requested_rank == "auto":
-        print(MIXED_ALIGNMENT_CAUTION)
+        if ranked_by == "geometry-pareto":
+            print(MIXED_ALIGNMENT_CAUTION)
+        else:
+            print(
+                "caution: incomplete legacy geometry evidence -- ordered by "
+                "positional words; remeasure to enable geometry ranking"
+            )
     retention = report.get("source_retention")
     if isinstance(retention, dict):
         print(

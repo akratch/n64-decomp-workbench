@@ -19,6 +19,7 @@ from .campaign import (
 )
 from .evidence import exclusive_file_lock, write_json_atomic
 from .experiment_signals import required_signals_pass
+from .geometry import GEOMETRY_RANKING, geometry_vector, pareto_layers
 from .model import display_path
 from .toolchain import MANIFEST_NAME as TOOLCHAIN_MANIFEST_NAME
 from .toolchain import toolchain_status
@@ -465,14 +466,32 @@ def _alignment_comparable(comparison: Mapping[str, Any]) -> bool:
 def _effective_rank_by(
     records: list[dict[str, Any]], *, requested: str
 ) -> tuple[str, bool]:
-    """Resolve ``auto`` once for the whole persisted candidate population."""
+    """Resolve ``auto`` and refresh cohort-relative layers in loaded records.
+
+    Stored layers came from an earlier population, so never trust them on a
+    resume. Incomplete legacy evidence falls back to the former words order.
+    This only changes in-memory records, not the append-only ledger.
+    """
 
     unsafe = any(
         not _alignment_comparable(comparison)
         for record in records
         if isinstance((comparison := record.get("comparison")), dict)
     )
+    comparisons = [
+        comparison
+        for record in records
+        if isinstance((comparison := record.get("comparison")), dict)
+    ]
+    for comparison in comparisons:
+        comparison["geometry_front"] = None
     if requested == "auto":
+        vectors = [geometry_vector(comparison) for comparison in comparisons]
+        if unsafe and all(vector is not None for vector in vectors):
+            fronts = pareto_layers([vector for vector in vectors if vector is not None])
+            for comparison, front in zip(comparisons, fronts, strict=True):
+                comparison["geometry_front"] = front
+            return GEOMETRY_RANKING, unsafe
         return ("words" if unsafe else "aligned_total"), unsafe
     return requested, unsafe
 
@@ -492,6 +511,12 @@ def _comparison_key(
     candidate = str(comparison.get("candidate", ""))
     if ranked_by == "temp-prefix":
         return _temp_prefix_key(comparison)
+    if ranked_by == GEOMETRY_RANKING:
+        return (
+            not bool(comparison.get("exact")),
+            int(comparison.get("geometry_front") or 0),
+            _comparison_key(comparison, ranked_by="words"),
+        )
     if ranked_by == "words":
         return (
             words,
@@ -557,6 +582,10 @@ def _retention_leaders(records: list[dict[str, Any]], *, ranked_by: str) -> set[
         key = str(record.get("cache_key", ""))
         comparison = record.get("comparison")
         if key and isinstance(comparison, dict):
+            # Positional ties within a Pareto layer are only a display order.
+            # Retain every nondominated source for subsequent compositions.
+            if ranked_by == GEOMETRY_RANKING and comparison.get("geometry_front") == 0:
+                leaders.add(key)
             rank = _record_key(record, ranked_by=ranked_by)
             if best is None or rank < best:
                 leaders.add(key)

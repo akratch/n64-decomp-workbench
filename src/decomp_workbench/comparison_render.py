@@ -26,6 +26,14 @@ def comparison_line(item: Comparison, painter: Painter | None = None) -> str:
     """
 
     line = summary_line(item)
+    if not item.alignment_comparable:
+        line += (
+            f" true_insn_delta={item.true_instruction_delta:+d}"
+            f" geometry_edit_distance={item.geometry_edit_distance}"
+            f" opcode_distance={item.opcode_distance}"
+        )
+        if item.geometry_front is not None:
+            line += f" geometry_front={item.geometry_front}"
     if painter is None or not painter.enabled:
         return line
     token = f"verdict={item.verdict}"

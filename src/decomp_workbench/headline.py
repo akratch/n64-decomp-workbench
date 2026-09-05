@@ -26,8 +26,8 @@ two appear beneath it labelled with what they are for. When they disagree,
 the disagreement is stated as a numbered fact with its cause, rather than left
 for the reader to notice.
 
-The rule this encodes, in one sentence: *rank on positional words; read
-aligned rows to understand one candidate; never rank on raw.*
+The score stays positional words. Structural search additionally needs extent
+and edit evidence; automatic campaign ranking considers their Pareto layers.
 """
 
 from __future__ import annotations
@@ -82,6 +82,8 @@ class Headline:
     metrics: tuple[MetricRow, ...]
     disagreements: tuple[str, ...]
     verdict: str
+    true_instruction_delta: int
+    geometry: dict[str, int]
 
     @property
     def instruction_delta(self) -> int:
@@ -102,6 +104,8 @@ class Headline:
             "metrics": [row.as_dict() for row in self.metrics],
             "metric_disagreements": list(self.disagreements),
             "verdict": self.verdict,
+            "true_instruction_delta": self.true_instruction_delta,
+            "geometry": self.geometry,
         }
 
 
@@ -210,6 +214,8 @@ def build_headline(item: Comparison) -> Headline:
         metrics=metric_rows(item),
         disagreements=disagreement_notes(item),
         verdict=item.verdict,
+        true_instruction_delta=item.true_instruction_delta,
+        geometry=item.geometry,
     )
 
 
@@ -235,6 +241,16 @@ def render_headline(report: Headline, *, verbose: bool = False) -> list[str]:
     scope = f" [{report.symbol}]" if report.symbol else ""
     lines.append(f"target:    {report.target}{scope}")
     lines.append(f"candidate: {report.candidate}")
+    if report.true_instruction_delta or report.verdict in {
+        "structure-mismatch",
+        "schedule-mismatch",
+    }:
+        lines.append(
+            f"geometry: extent={report.true_instruction_delta:+d} "
+            f"edit={report.geometry['edit_distance']} "
+            f"opcode-edits={report.geometry['opcode_distance']} "
+            "(search evidence; words remains the score)"
+        )
     lines.append("")
     width = max(len(row.key) for row in report.metrics)
     value_width = max(len(str(row.value)) for row in report.metrics)

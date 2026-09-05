@@ -24,6 +24,7 @@ from .command_line import split_command
 from .compare import TargetObject, compare_candidate, load_target
 from .experiment_signals import evaluate_signals, required_signals_pass
 from .experiments import RegionConstraint, SignalSpec
+from .geometry import pareto_layers
 from .ledger_redaction import load_or_create_salt, redact_record, warn_if_unredacted
 from .model import Comparison, CompileResult, display_path
 from .objdump import discover_objdump
@@ -982,8 +983,9 @@ def campaign_result_sort_key(
 ) -> tuple[object, ...]:
     """Rank region preservation before the ordinary whole-function metric.
 
-    ``by_raw`` swaps the whole-function metric for positional word counts. It
-    is set for a run containing any gapped candidate: see
+    ``by_raw`` means aligned counts are unsafe. Automatic ranking then uses
+    the cohort's geometry layer before positional words. It is set for a run
+    containing any gapped candidate: see
     :func:`~decomp_workbench.compare.rank_comparisons` for why aligned rows
     stop being a common scale there, even between two gapped candidates.
     """
@@ -1023,8 +1025,14 @@ def campaign_result_sort_key(
             )
         elif rank_by == "words":
             metric = comparison.raw_sort_key
+        elif by_raw:
+            metric = (
+                not comparison.exact,
+                comparison.geometry_front or 0,
+                comparison.raw_sort_key,
+            )
         else:
-            metric = comparison.raw_sort_key if by_raw else comparison.sort_key
+            metric = comparison.sort_key
     return (
         comparison is None,
         *signal_key,
@@ -1046,6 +1054,16 @@ def sort_campaign_results_key(
         for result in results
         if result.comparison is not None
     )
+    comparisons = [
+        result.comparison for result in results if result.comparison is not None
+    ]
+    if by_raw and rank_by == "auto":
+        fronts = pareto_layers([item.geometry_vector for item in comparisons])
+        for item, front in zip(comparisons, fronts, strict=True):
+            item.geometry_front = front
+    else:
+        for item in comparisons:
+            item.geometry_front = None
     return lambda result: campaign_result_sort_key(
         result,
         by_raw=by_raw,

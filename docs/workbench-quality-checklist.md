@@ -42,8 +42,9 @@ evidence and must not be implied by the UI.
 - [x] A cross-function symbol mismatch is a visible input warning.
 - [x] Alignment explains insertions and movement without turning shifted rows
   into cascaded noise.
-- [x] `aligned_total` ranks only a fully gap-free candidate set; any gap makes
-  ranking fall back to positional words with explicit human and JSON state.
+- [x] `aligned_total` ranks only a fully comparable candidate set; unsafe
+  alignment selects geometry Pareto layers and positional tiebreaks, with
+  explicit human/JSON state and consistent resumed/source-retention behavior.
 - [x] `next` emits a concrete argv, safety posture, and expected evidence—no
   `SRC.c`, `TRACE.log`, or guessed-row placeholders.
 - [x] Dump inputs lead only to dump-capable follow-up commands.

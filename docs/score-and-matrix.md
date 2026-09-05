@@ -23,7 +23,12 @@ candidate: candidate.o
 The headline is **`words`**: positional word differences after masking
 linker-controlled relocation fields. It is the function-level matching oracle
 (`words=0` is the match) and the only one of the three counts that means the
-same thing for two different candidates. Rank on it.
+same thing for two different candidates. Structural search also needs extent
+and edit evidence: the two-object form of `score` prints `geometry` beside the
+unchanged headline, and its JSON adds `geometry` and `true_instruction_delta`.
+Automatic campaign ranking uses [geometry Pareto layers](object-comparison.md#aligned-counts-and-why-they-rank)
+when alignment is unsafe. The windowed byte oracle and `matrix` remain
+positional; neither uses heuristic geometry to decide a match.
 
 The other two are printed because they are useful, and labelled because they
 are not the score:

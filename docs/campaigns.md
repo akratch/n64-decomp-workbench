@@ -438,12 +438,19 @@ gapped candidate, so their aligned totals are not on one scale — one has
 been observed reporting
 1435 aligned rows against a 1865-row base while holding 2918 mismatching words
 and 1807 opcode mismatches. When a result set contains any gapped candidate,
-`rank` and `campaign` order it on `words` instead; `rank --json` records
-`ranked_by: "words"` and `alignment_ranking_unsafe: true`, while
+`rank` and `campaign` order it by geometry Pareto layers, then `words`;
+`rank --json` records `ranked_by: "geometry-pareto"` and
+`alignment_ranking_unsafe: true`, while
 `mixed_alignment` separately says whether gap-free and gapped results were both
 present. Persisted campaign status, family winners, retained-source leaders,
 terminal trajectories, and HTML exports resolve the same whole-population rule;
 resuming or exporting a campaign cannot silently switch back to aligned totals.
+Layers use absolute true extent delta and normalized/opcode edit-script
+distances, and are recomputed for the current population. All nondominated
+sources are retained under `--retain-sources leaders`. Incomplete legacy
+records retain the former words ordering with a caution; `--rank-by words`
+explicitly requests it. See [structural ranking](object-comparison.md#aligned-counts-and-why-they-rank)
+for the measurements and limits.
 
 The reason is measured, not aesthetic: positional counting shifts on every
 insertion, and it misranked candidates in six recorded campaigns. In one, a

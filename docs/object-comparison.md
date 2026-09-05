@@ -501,13 +501,46 @@ for the whole comparison. Those are per-candidate costs against a compile, and
 in that same 1500-instruction case the positional count is 1106 and the aligned
 residual is 2 — which is the number the ranking needed.
 
-The sort order for `rank`, `campaign`, and `compile-rank` is the aligned
-residual first, then exact word mismatches, unknown and mismatched relocation
-metadata, normalized distance, register mismatches, instruction-count delta,
-then path. `words=` still decides between two candidates of the same aligned
-shape, where it is exactly the right question, and `words=0` with
-`exact=true` remains the only matching claim. This is a convenient default, not
-a claim that one scalar ordering captures every useful transition.
+For a fully comparable population, `rank`, `campaign`, and `compile-rank`
+retain the aligned-residual ordering. When any comparison is unsafe on that
+scale, automatic ranking uses **geometry Pareto layers**, then positional
+words. Three smaller-is-better measurements define the layers:
+
+- Absolute `true_instruction_delta`, using the existing padding-aware count
+  scoped to the selected symbol or section, never substituting a full TU's
+  section size for one symbol. `instruction_count_verified` still records
+  whether counts came from ELF bytes or the disassembly fallback.
+- The normalized edit-script distance already reported by `layout_summary`
+  (or `normalized_distance` for comparisons without a layout summary).
+- `opcode_distance`, a shift-tolerant opcode edit-script distance. Existing
+  `opcodes` remains the positional count; it can cascade after an insertion
+  just as `words` does.
+
+A candidate dominates another only if all three measurements are no worse and
+at least one is better. Nondominated candidates receive `geometry_front=0`;
+remove that layer and repeat. Exact comparisons precede nonexact ones.
+Positional words break ties within a layer. JSON names this order
+`ranked_by: "geometry-pareto"`, exposes each comparison's `geometry` vector
+and `geometry_front`, and retains all existing scalar metrics.
+
+For example, a synthetic 1,208-instruction target with seven early insertions
+has far more positional mismatches than one with nine late insertions. The
+1,215-instruction candidate has better extent and edit evidence and ranks
+ahead of the 1,217-instruction candidate. If one candidate instead improves
+extent while worsening edits, both can remain on the same front: the display
+order is not proof of progress. `--rank-by words` remains available on
+campaign commands for an explicitly positional experiment.
+
+The edit scripts use the existing `SequenceMatcher` heuristic, not an optimal
+edit-distance proof. Layers describe only the current population and are
+recomputed on resume. They do not establish semantic equivalence, source
+reachability, or that a dominated candidate cannot compose with another edit.
+Required signals and selected-region preservation remain ahead of geometry in
+campaign ranking. Source retention keeps every candidate on the first front,
+as well as prior leaders and exact results. Incomplete older ledger records
+fall back to positional ordering with an explicit caution until remeasured.
+`words=0` with `exact=true` remains the matching claim; linked-image and
+relocation verification requirements are unchanged.
 
 ## Ask a question and read the exit code: `--census`
 

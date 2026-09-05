@@ -148,6 +148,28 @@ METRICS: tuple[Metric, ...] = (
         kind="integer",
     ),
     Metric(
+        "opcode_distance",
+        "opcode_distance",
+        "shift-tolerant opcode edit-script distance; search evidence, not exactness",
+    ),
+    Metric(
+        "geometry_edit_distance",
+        "geometry_edit_distance",
+        "normalized edit-script distance used in structural Pareto ranking",
+    ),
+    Metric(
+        "geometry_front",
+        "geometry_front",
+        "cohort-relative structural Pareto layer; zero is nondominated, "
+        "None means this population did not use geometry ranking",
+    ),
+    Metric(
+        "geometry",
+        "geometry",
+        "structural evidence vector: absolute true extent delta, normalized "
+        "edit distance, and opcode edit distance",
+    ),
+    Metric(
         "opcodes",
         "opcode_mismatches",
         "positional mnemonic differences; the honest signal that two objects "

@@ -186,6 +186,12 @@ class Comparison:
     #: distance that survives the shift. See
     #: ``decomp_workbench.compare.layout_summary``.
     layout: dict[str, Any] | None = None
+    #: Cohort-relative Pareto layer, assigned by automatic structural ranking.
+    #: None means this comparison has not participated in that ranking.
+    geometry_front: int | None = None
+    #: Shift-tolerant opcode edit script distance. Positional opcode_mismatches
+    #: remains unchanged; it can cascade after an inserted instruction.
+    opcode_distance: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         """Return the report keyed by the schema registry.
@@ -197,7 +203,36 @@ class Comparison:
 
         payload = asdict(self)
         payload.update(canonical_fields(self))
+        payload["geometry"] = self.geometry
+        payload["geometry_edit_distance"] = self.geometry_edit_distance
         return payload
+
+    @property
+    def geometry_edit_distance(self) -> int:
+        return (
+            int(self.layout["edit_distance"])
+            if self.layout is not None
+            else self.normalized_distance
+        )
+
+    @property
+    def geometry(self) -> dict[str, int]:
+        """Expose structural evidence without changing the scalar word score."""
+
+        return {
+            "absolute_extent_delta": abs(self.true_instruction_delta),
+            "edit_distance": self.geometry_edit_distance,
+            "opcode_distance": self.opcode_distance,
+        }
+
+    @property
+    def geometry_vector(self) -> tuple[int, int, int]:
+        evidence = self.geometry
+        return (
+            evidence["absolute_extent_delta"],
+            evidence["edit_distance"],
+            evidence["opcode_distance"],
+        )
 
     @property
     def sort_key(self) -> tuple[int, int, int, int, int, int, int, str]:
@@ -206,8 +241,8 @@ class Comparison:
         For a fully gap-free result set, positional word counts misranked
         candidates in six recorded campaigns: an inserted instruction shifts
         everything after it. The aligned residual is then the ranking number;
-        callers must select :attr:`raw_sort_key` for the whole set when any
-        candidate required gaps.
+        callers must use the population-level geometry ranking when aligned
+        rows are unsafe, rather than sort each candidate on a different scale.
         """
 
         return (
@@ -225,8 +260,9 @@ class Comparison:
     def raw_sort_key(self) -> tuple[int, int, int, int, int, int, int, str]:
         """Rank on the positional word counts, with the aligned residual last.
 
-        This is the ordering used once a candidate set stops being comparable
-        on aligned rows -- see :func:`~decomp_workbench.compare.rank_comparisons`.
+        This is the explicit ``words`` ordering and the tiebreak inside a
+        structural Pareto layer; see
+        :func:`~decomp_workbench.compare.rank_comparisons`.
         A gap-heavy object realigns against a different subsequence of the
         target, so its aligned total measures a different alignment; ``words``
         measures the same thing for every candidate whatever the aligner did.

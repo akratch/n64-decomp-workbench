@@ -362,7 +362,9 @@ def rank_command(args: argparse.Namespace) -> int:
                     "results": results,
                     "errors": errors,
                     "ranked_by": (
-                        "words" if alignment_ranking_unsafe else "aligned_total"
+                        "geometry-pareto"
+                        if alignment_ranking_unsafe
+                        else "aligned_total"
                     ),
                     "mixed_alignment": mixed_alignment,
                     "alignment_ranking_unsafe": alignment_ranking_unsafe,
