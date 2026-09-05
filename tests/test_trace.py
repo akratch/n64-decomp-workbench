@@ -90,6 +90,22 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(parse_register("$t6"), 14)
         self.assertEqual(parse_register("14"), 14)
 
+    def test_summary_separates_in_range_descriptors_from_registers(self) -> None:
+        requests = parse_trace(
+            "DKWB-FREELIST ALLOC_GP proc=0 reg=14 emitted=1 line=2\n"
+            "DKWB-FREELIST ALLOC_FP proc=0 reg=14 emitted=2 line=2\n"
+            "DKWB-FREELIST ALLOC_FUTURE proc=0 reg=14 emitted=3 line=2\n"
+        )
+        summary = trace_summary(requests)
+        self.assertEqual(summary["registers"], {})
+        self.assertEqual(
+            summary["allocation_descriptors"],
+            {"ALLOC_GP:14": 1, "ALLOC_FP:14": 1, "ALLOC_FUTURE:14": 1},
+        )
+        legacy = parse_trace("CODEX-ALLOC reg=14\nDKWB-FREELIST ALLOC reg=14\n")
+        self.assertEqual(trace_summary(requests + legacy)["registers"], {"t6": 2})
+        self.assertEqual(trace_summary(legacy)["allocation_descriptors"], {})
+
     def test_summarizes_alias_profile(self) -> None:
         events = parse_trace(
             "DKWB-BASE ordinal=0 reg=16 kind=3 type=isvar sym=7 "

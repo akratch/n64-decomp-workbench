@@ -125,7 +125,11 @@ null rather than being inferred.
 
 Allocation request descriptors are diagnostic observations, not FIFO inputs.
 Modern `ALLOC_GP_RESULT` and `ALLOC_FP_RESULT` records report allocator returns;
-do not count the corresponding entry-side requests a second time. Select one
+do not count the corresponding entry-side requests a second time. Aggregate
+trace summaries exclude request
+and unsupported-allocation descriptors from `registers`; their raw numeric
+values remain in `allocation_descriptors`, keyed as `EVENT:value`. Legacy
+register events keep their existing histogram semantics. Select one
 register bank when replaying a queue. Missing returns and unsupported allocation
 events invalidate the replay, while shallow free-helper records may still
 produce violations even after requests are excluded. Never repair those

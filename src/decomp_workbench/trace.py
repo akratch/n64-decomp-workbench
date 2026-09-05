@@ -70,6 +70,7 @@ class TraceSummary(TypedDict):
     events: int
     actions: dict[str, int]
     registers: dict[str, int]
+    allocation_descriptors: dict[str, int]
     source_lines: dict[str, int]
     procedures: dict[str, int]
 
@@ -890,6 +891,13 @@ def trace_summary(events: Iterable[TraceEvent]) -> TraceSummary:
         register_name(event.register)
         for event in materialized
         if event.register is not None
+        and event.action not in {"allocation-request", "unsupported-allocation"}
+    )
+    descriptors = collections.Counter(
+        f"{event.fields.get('_event', event.action)}:{event.register}"
+        for event in materialized
+        if event.register is not None
+        and event.action in {"allocation-request", "unsupported-allocation"}
     )
     source_lines = collections.Counter(
         str(event.source_line)
@@ -903,6 +911,7 @@ def trace_summary(events: Iterable[TraceEvent]) -> TraceSummary:
         "events": len(materialized),
         "actions": dict(sorted(actions.items())),
         "registers": dict(sorted(registers.items())),
+        "allocation_descriptors": dict(sorted(descriptors.items())),
         "source_lines": dict(
             sorted(source_lines.items(), key=lambda item: int(item[0]))
         ),
