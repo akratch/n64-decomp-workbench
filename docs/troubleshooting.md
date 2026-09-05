@@ -159,6 +159,21 @@ every literal load differs in bits while reading the same slot. `pool_matches`
 and `pool_resolution` report that reading; `words = 0` remains the gate, and a
 byte-identical disassembly is not reachable on such a pair.
 
+## Local PC16 branches and diagnostic alignment
+
+When reading an ELF object with a bounded function, the aligned view can prove
+that an `R_MIPS_PC16` relocation reaches an instruction inside that same
+function. It uses the ELF symbol, the signed REL addend, and the branch opcode,
+not objdump's unresolved printed address. Such a branch can align with a
+candidate's already-resolved local branch as `displacement`, without a false
+structural hunk. Text-only input, external symbols, linking branches, malformed
+metadata, and destinations outside the owned function do not get this hint.
+
+This is diagnostic normalization only. Original words and relocation tuples
+remain unchanged: a relocated target versus a relocation-free candidate still
+has a relocation-layout difference and is not object-exact. Project-specific
+linked-byte and relocation-identity checks remain necessary for promotion.
+
 ## An unknown relocation prevents `exact=true`
 
 The comparator refuses to guess which instruction bits an unfamiliar

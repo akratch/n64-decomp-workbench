@@ -30,6 +30,7 @@ from pathlib import Path
 
 from .elf_instructions import MINIMUM_ELIDED_RUN
 from .elf_symbols import SymbolExtent, symbol_extent
+from .local_pc16 import annotate_local_pc16
 from .model import Instruction, Relocation
 
 #: How many symbol names an error lists before eliding the rest. Enough to
@@ -840,7 +841,7 @@ def dump_object(
     extent = symbol_extent(path, symbol, section=section) if symbol else None
     instructions = parse_disassembly(result.stdout, symbol=symbol, extent=extent)
     if instructions:
-        return result.stdout, instructions
+        return result.stdout, annotate_local_pc16(path, instructions, extent)
     evidence = result.stdout
     if symbol:
         # One unfiltered pass answers both "is this a case slip we can honour?"
@@ -849,7 +850,7 @@ def dump_object(
             executable, path, section=section, symbol=symbol, extent=extent
         )
         if retried:
-            return section_text, retried
+            return section_text, annotate_local_pc16(path, retried, extent)
         if section_text and anonymous_single_function(section_text, section=section):
             # The object cannot name this function because nothing in it names
             # any function. Refusing here sent readers to "produced no

@@ -28,6 +28,9 @@ class Instruction:
     word: str
     assembly: str
     relocations: tuple[Relocation, ...] = ()
+    # Diagnostic only: the ELF loader proved a local PC16 destination. The
+    # original word and relocation tuple remain the authority for exactness.
+    local_branch_destination: int | None = None
 
     @property
     def opcode(self) -> str:

@@ -1218,8 +1218,9 @@ def normalized_text(
     A symbolized operand is rewritten to the *aligned row* of its destination
     when it resolves inside this function, so inserting an instruction does not
     turn every later branch into a phantom difference.  Relocated operands are
-    never resolved that way: their address field is linker-supplied, and
-    ``jal 0 <helper>`` would otherwise resolve to row 0.
+    resolved that way only when the ELF loader has authenticated a local
+    non-linking PC16 destination. Other address fields are linker-supplied;
+    ``jal 0 <helper>`` must not resolve to row 0.
 
     Whether objdump printed a destination symbolically at all is a property of
     the *symbol table*, not of the code: a stripped, positional target renders
@@ -1232,6 +1233,7 @@ def normalized_text(
     relocated = bool(instruction.relocations)
     opcode = instruction.opcode
     self_branch = opcode in SELF_BRANCH_OPCODES or opcode.startswith("b")
+    local_destination = instruction.local_branch_destination if self_branch else None
 
     def resolved(address: int, name: str | None) -> str:
         index = address_index.get(address)
@@ -1246,6 +1248,8 @@ def normalized_text(
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(2)
+        if local_destination is not None:
+            return resolved(local_destination, None)
         if relocated:
             # Only a destination operand is renamed from the relocation. A
             # `lui`/`lw` pair also carries a relocation, and its printed
@@ -1262,7 +1266,9 @@ def normalized_text(
         bare = BARE_DESTINATION_RE.search(text)
         if bare is not None:
             token = (
-                relocation_name()
+                resolved(local_destination, None)
+                if local_destination is not None
+                else relocation_name()
                 if relocated
                 else resolved(int(bare.group(2), 16), None)
                 if self_branch
