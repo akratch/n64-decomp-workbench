@@ -155,8 +155,9 @@ class TraceTests(unittest.TestCase):
             [event.as_dict()["register_name"] for event in results],
             ["$f4", "$f6"],
         )
-        # Every ALLOC_FP/ALLOC_FP_RESULT record still normalizes to allocate.
-        self.assertTrue(all(event.action == "allocate" for event in events))
+        self.assertEqual(
+            [event.action for event in events], ["allocation-request", "allocate"] * 2
+        )
         # The entry hook's request descriptor is retained verbatim, unnamed.
         request = next(e for e in events if e.fields["_event"] == "ALLOC_FP")
         self.assertEqual(request.register, 96)
@@ -177,7 +178,10 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(
             [event.as_dict()["register_name"] for event in results], ["t6", "t7"]
         )
-        self.assertTrue(all(event.action == "allocate" for event in events))
+        self.assertEqual(
+            [event.action for event in events],
+            ["allocation-request", "allocate", "allocate"],
+        )
         # The source line stamped on the record ties each pop to the source
         # construct that consumed it (two pops on one line = a phantom pop).
         self.assertEqual([event.source_line for event in results], [42, 42])
@@ -195,6 +199,39 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(report.procedure, 1)
         self.assertEqual(report.allocations, [15])
         self.assertTrue(all(event.procedure == 1 for event in report.logical_events))
+
+    def test_modern_requests_are_not_fifo_allocations_even_for_register_values(
+        self,
+    ) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ADD proc=0 reg=14\n"
+            "DKWB-FREELIST ALLOC_GP proc=0 reg=8 emitted=1 line=2\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=0 reg=14 emitted=1 line=2\n"
+        )
+        self.assertEqual(events[1].as_dict()["register_name"], "8")
+        report = replay_fifo(events, procedure=0)
+        self.assertTrue(report.valid)
+        self.assertEqual(report.allocations, [14])
+        self.assertEqual(
+            report.as_dict()["allocation_event_counts"],
+            {"ALLOC_GP": 1, "ALLOC_GP_RESULT": 1},
+        )
+
+    def test_unsupported_and_incomplete_allocations_cannot_validate_fifo(self) -> None:
+        for bad in (
+            "ALLOC_FUTURE reg=14",
+            "ALLOC_GP_RESULT reg=96",
+            "ALLOC_FP_RESULT reg=14",
+            "ALLOC_GP reg=8",
+        ):
+            events = parse_trace(
+                "DKWB-FREELIST ADD proc=0 reg=14\n"
+                + "DKWB-FREELIST "
+                + bad
+                + " proc=0\n"
+            )
+            with self.subTest(bad=bad):
+                self.assertFalse(replay_fifo(events, procedure=0).valid)
 
     def test_scoped_and_unscoped_events_cannot_be_combined(self) -> None:
         events = parse_trace(

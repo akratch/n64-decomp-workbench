@@ -123,6 +123,23 @@ Each logical allocation/free event then carries `emitted_index`, `object_row`,
 coverage. Without a mapping, `calibration_required=true` and object rows remain
 null rather than being inferred.
 
+Allocation request descriptors are diagnostic observations, not FIFO inputs.
+Modern `ALLOC_GP_RESULT` and `ALLOC_FP_RESULT` records report allocator returns;
+do not count the corresponding entry-side requests a second time. Select one
+register bank when replaying a queue. Missing returns and unsupported allocation
+events invalidate the replay, while shallow free-helper records may still
+produce violations even after requests are excluded. Never repair those
+violations by changing the inferred queue without producer evidence.
+
+The ring lever's legacy pop-named metrics are bank-specific result counts,
+not proof of dequeues or source causality. A source-family recommendation
+requires supported GP queue evidence and measured `row` / `object_row` fields
+on the selected result events, as well as source lines and unambiguous procedure
+scope. `trace fifo --emission-map` can report a separate calibrated join; it
+does not automatically rewrite a raw `--ring-trace` or supply missing queue
+transitions. Without that evidence, diagnosis retains the counts but withholds
+the source edit family.
+
 ### Why logical identities matter
 
 A physical sequence such as `t6,t4,t8,...` is not necessarily the allocator’s

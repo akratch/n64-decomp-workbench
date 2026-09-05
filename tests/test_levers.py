@@ -94,11 +94,15 @@ FRAME_CANDIDATE = """
 #: current source line. Line 42 consumes two pops; every other line consumes
 #: one. That is the phantom pop, and the line is the statement to edit.
 RING_TRACE = """\
-DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=41 emitted=10
-DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=15 line=42 emitted=11
-DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=24 line=42 emitted=12
-DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=25 line=43 emitted=13
-DKWB-FREELIST REMOVE proc=3 reg=8 line=43 emitted=13
+DKWB-FREELIST ADD proc=3 reg=14
+DKWB-FREELIST ADD proc=3 reg=15
+DKWB-FREELIST ADD proc=3 reg=24
+DKWB-FREELIST ADD proc=3 reg=25
+DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=41 emitted=10 row=1
+DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=15 line=42 emitted=11 row=2
+DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=24 line=42 emitted=12 row=3
+DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=25 line=43 emitted=13 row=4
+DKWB-FREELIST REMOVE proc=3 reg=2 line=43 emitted=13
 """
 
 #: The `overlay40UpdateEntries` preheader shape: a loop-count initialiser at
@@ -225,6 +229,67 @@ class TempRingLeverTests(unittest.TestCase):
         events = parse_trace(RING_TRACE)
         self.assertEqual(pops_by_line(events, proc=4), {})
         self.assertEqual(pops_by_line(events, proc=3), {41: 1, 42: 2, 43: 1})
+
+    def test_modern_pairs_count_results_separately_by_bank(self) -> None:
+        events = parse_trace(
+            "DKWB-FREELIST ALLOC_GP proc=3 reg=8 line=42 emitted=1\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=42 emitted=1\n"
+            "DKWB-FREELIST ALLOC_FP proc=3 reg=14 line=42 emitted=2\n"
+            "DKWB-FREELIST ALLOC_FP_RESULT proc=3 reg=36 line=42 emitted=2\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=4 reg=15 line=42 emitted=3\n"
+        )
+        self.assertEqual(pops_by_line(events, proc=3), {42: 1})
+        self.assertEqual(pops_by_line(events, proc=3, bank="fp"), {42: 1})
+        lever = lever_for(self.rotation_view(), ring_events=events, proc=3)
+        self.assertEqual(lever.measurements["pop_total"], 1)
+        self.assertEqual(lever.measurements["ring_order"], ["t6"])
+        self.assertEqual(
+            lever.measurements["allocation_event_counts"],
+            {"ALLOC_GP": 1, "ALLOC_GP_RESULT": 1, "ALLOC_FP": 1, "ALLOC_FP_RESULT": 1},
+        )
+        self.assertIsNone(lever.family)
+
+    def test_incomplete_or_unscoped_ring_evidence_withholds_source_advice(self) -> None:
+        source = ["value = entry->field;" for _ in range(50)]
+        cases = {
+            "missing mapping": RING_TRACE.replace(" row=", " unused="),
+            "invalid queue": RING_TRACE + "DKWB-FREELIST FREE proc=3 reg=8\n",
+            "missing result": RING_TRACE
+            + "DKWB-FREELIST ALLOC_GP proc=3 reg=8 line=49\n",
+            "unknown event": RING_TRACE + "DKWB-FREELIST ALLOC_FUTURE proc=3 reg=14\n",
+            "queue control": RING_TRACE + "DKWB-FREELIST MOVE_END proc=3 reg=14\n",
+            "unscoped": RING_TRACE
+            + "DKWB-FREELIST ALLOC_GP_RESULT reg=14 line=42 row=9\n",
+            "empty": "",
+        }
+        for name, trace in cases.items():
+            with self.subTest(name=name):
+                lever = lever_for(
+                    self.rotation_view(),
+                    ring_events=parse_trace(trace),
+                    proc=3,
+                    source=source,
+                )
+                self.assertIsNone(lever.family)
+                self.assertTrue(lever.needs)
+                self.assertTrue(lever.measurements["trace_evidence_issues"])
+        unscoped = parse_trace("DKWB-FREELIST ALLOC_GP_RESULT reg=14 line=42\n")
+        self.assertEqual(pops_by_line(unscoped, proc=3), {})
+
+    def test_mixed_procedures_require_scope_and_legacy_events_stay_explicit(
+        self,
+    ) -> None:
+        events = parse_trace(
+            RING_TRACE + "DKWB-FREELIST ALLOC_GP_RESULT proc=4 reg=14 line=42 row=1\n"
+        )
+        lever = lever_for(self.rotation_view(), ring_events=events)
+        self.assertIsNone(lever.family)
+        self.assertIn("mixed procedure", lever.reason)
+        legacy = parse_trace(
+            "DKWB-FREELIST ALLOC reg=14 line=42\nCODEX-ALLOC reg=36 line=42\n"
+        )
+        self.assertEqual(pops_by_line(legacy), {42: 1})
+        self.assertEqual(pops_by_line(legacy, bank="fp"), {42: 1})
 
 
 class LineOrderLeverTests(unittest.TestCase):
@@ -1135,8 +1200,10 @@ class TempRingPreconditionTests(unittest.TestCase):
         """
 
         flat = (
-            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=41 emitted=10\n"
-            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=15 line=42 emitted=11\n"
+            "DKWB-FREELIST ADD proc=3 reg=14\n"
+            "DKWB-FREELIST ADD proc=3 reg=15\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=14 line=41 emitted=10 row=1\n"
+            "DKWB-FREELIST ALLOC_GP_RESULT proc=3 reg=15 line=42 emitted=11 row=2\n"
         )
         lines = ["" for _ in range(50)]
         lines[40] = "limit = 0x40;"

@@ -376,7 +376,11 @@ class TraceEvent:
     def as_dict(self) -> dict[str, object]:
         result = asdict(self)
         if self.register is not None:
-            result["register_name"] = register_name(self.register)
+            result["register_name"] = (
+                str(self.register)
+                if self.action == "allocation-request"
+                else register_name(self.register)
+            )
         return result
 
 
@@ -390,12 +394,14 @@ def normalize_action(tag: str, fields: dict[str, str]) -> str:
         return "base"
     if upper.endswith("FREELIST"):
         event = fields.get("_event")
-        # ALLOC, ALLOC_FP (the fp request), and ALLOC_FP_RESULT (the register
-        # the fp allocator returned) are all allocations; match the family by
-        # prefix so a new allocation event does not fall through to the raw
-        # tag name.
-        if event is not None and event.startswith("ALLOC"):
+        # Entry hooks carry descriptors, even when their numeric values happen
+        # to name real registers. Only return hooks describe allocated values.
+        if event in {"ALLOC_GP", "ALLOC_FP"}:
+            return "allocation-request"
+        if event in {"ALLOC", "ALLOC_GP_RESULT", "ALLOC_FP_RESULT"}:
             return "allocate"
+        if event is not None and event.startswith("ALLOC"):
+            return "unsupported-allocation"
         if event in {"ADD", "FREE", "FORCE_FREE"}:
             return "append"
         if event == "REMOVE":
@@ -523,6 +529,7 @@ class FifoReplay:
     max_live: int
     ignored_events: int
     procedure: int | None = None
+    allocation_event_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def valid(self) -> bool:
@@ -543,6 +550,7 @@ class FifoReplay:
             "final_queue_names": [register_name(item) for item in self.final_queue],
             "allocations": self.allocations,
             "allocation_names": [register_name(item) for item in self.allocations],
+            "allocation_event_counts": self.allocation_event_counts,
             "logical_events": [event.as_dict() for event in self.logical_events],
             "violations": self.violations,
             "max_live": self.max_live,
@@ -638,6 +646,47 @@ def infer_initial_queue(events: Iterable[TraceEvent]) -> list[int]:
     return queue
 
 
+def allocation_bank(event: TraceEvent) -> str | None:
+    """Decode actual allocations, preserving explicit legacy register events."""
+    if event.action != "allocate" or event.register is None:
+        return None
+    bank = (
+        "gp"
+        if 0 <= event.register < 32
+        else "fp"
+        if 32 <= event.register < 64
+        else None
+    )
+    kind = event.fields.get("_event")
+    if kind == "ALLOC_GP_RESULT" and bank != "gp":
+        return None
+    if kind == "ALLOC_FP_RESULT" and bank != "fp":
+        return None
+    return bank
+
+
+def allocation_issues(events: Iterable[TraceEvent]) -> list[str]:
+    """Identify unsupported or incomplete allocation records, not queue state."""
+    requests: collections.Counter[tuple[object, ...]] = collections.Counter()
+    results: collections.Counter[tuple[object, ...]] = collections.Counter()
+    issues: list[str] = []
+    for event in events:
+        kind = event.fields.get("_event", "")
+        if event.action == "unsupported-allocation":
+            issues.append(
+                f"trace line {event.index}: unsupported allocation event {kind}"
+            )
+        if event.action == "allocate" and allocation_bank(event) is None:
+            issues.append(f"trace line {event.index}: invalid allocated register")
+        if kind in {"ALLOC_GP", "ALLOC_FP", "ALLOC_GP_RESULT", "ALLOC_FP_RESULT"}:
+            bank = "gp" if kind.startswith("ALLOC_GP") else "fp"
+            key = (event.procedure, bank, event.emitted_index, event.source_line)
+            (results if kind.endswith("_RESULT") else requests)[key] += 1
+    if requests - results:
+        issues.append("allocation requests lack corresponding result evidence")
+    return issues
+
+
 def replay_fifo(
     events: Iterable[TraceEvent],
     *,
@@ -695,7 +744,11 @@ def replay_fifo(
     live: dict[int, int] = {}
     logical: list[LogicalEvent] = []
     allocations: list[int] = []
-    violations: list[str] = []
+    violations = allocation_issues(
+        event
+        for event in all_events
+        if selected_procedure is None or event.procedure == selected_procedure
+    )
     next_value = 1
     max_live = 0
     seen_allocation = False
@@ -816,6 +869,15 @@ def replay_fifo(
         max_live=max_live,
         ignored_events=len(all_events) - len(relevant),
         procedure=selected_procedure,
+        allocation_event_counts=dict(
+            collections.Counter(
+                event.fields.get("_event", event.action)
+                for event in all_events
+                if (selected_procedure is None or event.procedure == selected_procedure)
+                and event.action
+                in {"allocate", "allocation-request", "unsupported-allocation"}
+            )
+        ),
     )
 
 

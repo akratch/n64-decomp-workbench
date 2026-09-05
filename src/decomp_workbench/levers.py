@@ -47,6 +47,7 @@ answering a question the evidence had not been asked.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -60,7 +61,13 @@ from .globalcolor import (
     color_for_register,
     optional_integer,
 )
-from .trace import TraceEvent, register_name
+from .trace import (
+    TraceEvent,
+    allocation_bank,
+    allocation_issues,
+    register_name,
+    replay_fifo,
+)
 from .view import (
     OWNING_PASS_CFE,
     OWNING_PASS_G0_SCHEDULER,
@@ -943,21 +950,21 @@ class Lever:
 
 
 def pops_by_line(
-    events: Iterable[TraceEvent], *, proc: int | None = None
+    events: Iterable[TraceEvent], *, proc: int | None = None, bank: str = "gp"
 ) -> dict[int, int]:
-    """Count ring pops per ugen source line.
+    """Count allocation results by line and bank; not proof of FIFO dequeues.
 
-    A pop is an allocation off the free list. The line is ugen's own current
-    source line, stamped on the record, which is what ties one pop to one
-    construct: the line consuming two pops where the target's ring advances
-    once is the statement to edit, and there is no other way to find it.
+    The historical name is retained for callers. Requests are diagnostic
+    descriptors, never results, even when they resemble register numbers.
     """
+    if bank not in {"gp", "fp"}:
+        raise ValueError("allocation bank must be gp or fp")
 
     counts: dict[int, int] = {}
     for event in events:
-        if event.action != "allocate" or event.source_line is None:
+        if allocation_bank(event) != bank or event.source_line is None:
             continue
-        if proc is not None and event.procedure is not None and event.procedure != proc:
+        if proc is not None and event.procedure != proc:
             continue
         counts[event.source_line] = counts.get(event.source_line, 0) + 1
     return dict(sorted(counts.items()))
@@ -968,9 +975,9 @@ def _ring_order(events: Iterable[TraceEvent], *, proc: int | None = None) -> lis
 
     order: list[str] = []
     for event in events:
-        if event.action != "allocate" or event.register is None:
+        if allocation_bank(event) != "gp" or event.register is None:
             continue
-        if proc is not None and event.procedure is not None and event.procedure != proc:
+        if proc is not None and event.procedure != proc:
             continue
         order.append(register_name(event.register))
     return order
@@ -1221,8 +1228,8 @@ def _temp_ring_lever(
     if temp is not None and temp.rotation is not None:
         evidence.append(
             f"temp lane rotates by {temp.rotation:+d} from slot "
-            f"{temp.divergence}, which is one pop and not "
-            f"{len(temp.target)} decisions"
+            f"{temp.divergence}; this is an observed register-lane difference, "
+            "not an independently measured queue-pop count"
         )
     lengths = measurements["pool_lane_length_delta"]
     if lengths:
@@ -1246,11 +1253,82 @@ def _temp_ring_lever(
             alternatives=TEMP_RING_FAMILIES,
         )
 
-    counts = pops_by_line(ring_events, proc=proc)
-    order = _ring_order(ring_events, proc=proc)
+    all_ring_events = list(ring_events)
+    scoped = [
+        event for event in all_ring_events if proc is None or event.procedure == proc
+    ]
+    counts = pops_by_line(scoped, proc=proc)
+    order = _ring_order(scoped, proc=proc)
     measurements["pops_by_line"] = {str(line): count for line, count in counts.items()}
     measurements["pop_total"] = sum(counts.values())
     measurements["ring_order"] = order
+    measurements["allocation_event_counts"] = dict(
+        Counter(
+            event.fields.get("_event", event.action)
+            for event in scoped
+            if event.action
+            in {"allocate", "allocation-request", "unsupported-allocation"}
+        )
+    )
+    measurements["fp_results_by_line"] = {
+        str(line): count for line, count in pops_by_line(scoped, bank="fp").items()
+    }
+    measurements["pop_metric_basis"] = (
+        "GP allocation result events, not proven FIFO dequeues"
+    )
+    issues = allocation_issues(scoped)
+    allocation_events = [
+        event
+        for event in all_ring_events
+        if event.action in {"allocate", "allocation-request", "unsupported-allocation"}
+    ]
+    if proc is None and len({event.procedure for event in allocation_events}) > 1:
+        issues.append("mixed procedure evidence requires an explicit procedure")
+    if proc is not None and any(event.procedure is None for event in allocation_events):
+        issues.append(
+            "unscoped allocation evidence cannot be assigned to the selected procedure"
+        )
+    gp_events = [event for event in scoped if allocation_bank(event) == "gp"]
+    gp_ring = {8, 9, 10, 11, 12, 13, 14, 15, 24, 25}
+    if any(event.register not in gp_ring for event in gp_events):
+        issues.append(
+            "GP results include registers outside the supported temporary ring"
+        )
+    if any(
+        event.action in {"remove", "move-end"} and event.register in gp_ring
+        for event in scoped
+    ):
+        issues.append("GP queue controls require a richer replay model")
+    if not gp_events:
+        issues.append("no GP allocation result evidence for the selected procedure")
+    if any(event.source_line is None for event in gp_events):
+        issues.append("GP results lack source-line evidence")
+    if any(event.object_row is None for event in gp_events):
+        issues.append("GP results lack a measured emitted-index/object-row calibration")
+    try:
+        replay = replay_fifo(scoped, procedure=proc, registers=gp_ring)
+        measurements["gp_fifo_valid"] = replay.valid
+        measurements["gp_fifo_violations"] = len(replay.violations)
+        if not replay.valid:
+            issues.append(
+                "GP FIFO replay is invalid; shallow helper events do not prove "
+                "queue transitions"
+            )
+    except ValueError as error:
+        issues.append(str(error))
+    if issues:
+        measurements["trace_evidence_issues"] = issues
+        return Lever(
+            lever_class=LEVER_TEMP_RING,
+            reason="allocation results are diagnostic only: " + "; ".join(issues),
+            evidence=tuple(evidence),
+            measurements=measurements,
+            needs=(
+                "capture supported GP queue transitions and a measured "
+                "source/object emission join",
+            ),
+            alternatives=TEMP_RING_FAMILIES,
+        )
     doubled = [line for line, count in counts.items() if count > 1]
     if doubled:
         evidence.append(

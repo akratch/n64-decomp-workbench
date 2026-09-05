@@ -83,7 +83,23 @@ that no object uses as that register. A second hook injected before the
 function's return emits `ALLOC_GP_RESULT` / `ALLOC_FP_RESULT` carrying `v0`,
 the register actually allocated. Read the two together: the same ordinal with a
 request that resolves to an already-live register is a **phantom pop**, and the
-`*_RESULT` stream alone is the temp ring in dequeue order.
+`*_RESULT` stream alone is the allocated-register return sequence.
+
+The parser labels `ALLOC_GP` / `ALLOC_FP` as `allocation-request`, retaining
+the numeric descriptor without giving it a register name. Known result events
+and the explicit legacy `ALLOC` spelling remain `allocate`; unknown allocation
+families are unsupported, not guessed from a prefix. A result is an observed
+allocator return, not independently proven queue movement: same-live returns
+and incomplete helper traces require separate queue-model validation.
+
+Ring diagnosis counts GP and FP results separately. Its historical `pop_total`
+and `pops_by_line` fields now count GP result events only; `pop_metric_basis`
+states that limitation, `fp_results_by_line` exposes the other bank, and
+`allocation_event_counts` retains request/result counts by event spelling.
+Source-family advice is withheld for missing results, unknown events,
+ambiguous procedure scope, unsupported queue controls, invalid GP FIFO replay,
+or absent measured object-row calibration. These checks do not turn this
+shallow instrumentation into a complete allocator profile.
 
 The integer allocator returns a register directly (`0`–`31`), so an
 `ALLOC_GP_RESULT` reads back as its conventional name (`reg=14` → `t6`). ugen
