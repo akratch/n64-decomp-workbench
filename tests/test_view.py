@@ -10,6 +10,7 @@ byte-identical prefix whose state had already diverged.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -27,6 +28,7 @@ from decomp_workbench.compare import compare_instructions
 from decomp_workbench.force_spec import force_specification
 from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
+from decomp_workbench.register_state import RegisterReservations
 from decomp_workbench.view import (
     REGISTER_CLASS_PROFILES,
     AlignedRow,
@@ -460,7 +462,9 @@ class ColorabilityTests(unittest.TestCase):
         colorable = colorable_registers("ido53")
         for register in ("v0", "a0", "s0", "s8", "f0", "f12", "f18"):
             self.assertIn(register, colorable)
-        for register in ("t0", "t5", "t6", "t9", "f4", "f6", "f8", "f10"):
+        for register in ("t0", "t5"):
+            self.assertIn(register, colorable)
+        for register in ("t6", "t9", "f4", "f6", "f8", "f10"):
             self.assertNotIn(register, colorable)
 
     def test_a_ring_only_residual_is_not_routed_to_a_color_playbook(self) -> None:
@@ -469,7 +473,7 @@ class ColorabilityTests(unittest.TestCase):
         self.assertEqual(view.verdict, "register-ring-only")
         self.assertNotEqual(view.playbook, "forced-color-oracle")
         self.assertNotEqual(view.playbook, "pool-position")
-        self.assertEqual(view.playbook, "temp-fifo-phase")
+        self.assertEqual(view.playbook, "register-role-audit")
 
     def test_the_verdict_says_why_rather_than_leaving_it_to_be_derived(
         self,
@@ -477,9 +481,9 @@ class ColorabilityTests(unittest.TestCase):
         view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
         guidance = " ".join(view.guidance)
 
-        self.assertIn("ring-only", guidance)
-        self.assertIn("web-existence problem, not a color problem", guidance)
-        self.assertIn("dead families", guidance)
+        self.assertIn("reservations", guidance)
+        self.assertIn("does not establish a changed demand", guidance)
+        self.assertNotIn("dead families", guidance)
         self.assertEqual(view.as_dict()["ring_only_targets"], ["t6"])
 
     def test_a_colorable_target_keeps_the_permutation_verdict(self) -> None:
@@ -499,7 +503,7 @@ class ColorabilityTests(unittest.TestCase):
 
         self.assertEqual(sorted(view.as_dict()["ring_only_targets"]), ["t6"])
         guidance = " ".join(view.guidance)
-        self.assertIn("1 of 2 substitutions want a ring-only target", guidance)
+        self.assertIn("per-procedure reservations", guidance)
 
     def test_a_force_spec_refuses_a_residual_no_force_can_reach(self) -> None:
         view = view_of(body("lw t6,0(s0)"), body("lw t7,0(s0)"))
@@ -508,8 +512,8 @@ class ColorabilityTests(unittest.TestCase):
             force_specification(view)
 
         message = str(caught.exception)
-        self.assertIn("dead on arrival", message)
-        self.assertIn("guide temp-fifo-phase", message)
+        self.assertIn("direct forced color", message)
+        self.assertIn("does not exclude upstream", message)
 
     def test_an_unmeasured_register_is_not_called_unreachable(self) -> None:
         """Absence of a register from the era table is not evidence that the
@@ -583,12 +587,12 @@ class ClassificationTests(unittest.TestCase):
                 "sw t9,12(s0)",
             ),
         )
-        self.assertEqual(view.verdict, "phase-shift")
-        self.assertEqual(view.playbook, "temp-fifo-phase")
+        self.assertEqual(view.verdict, "register-permutation")
+        self.assertEqual(view.playbook, "register-role-audit")
         temp = next(lane for lane in view.lanes if lane.classification == "temp")
         self.assertEqual(temp.divergence, 4)
         self.assertEqual(temp.rotation, 1)
-        self.assertIn("PRECEDING block", " ".join(view.guidance))
+        self.assertIn("reservations", " ".join(view.guidance))
 
     def test_constant_difference_is_not_an_allocation_verdict(self) -> None:
         view = view_of(
@@ -905,6 +909,11 @@ class RenderingTests(unittest.TestCase):
             body("li v0,49", "lw t6,0(s0)", "sw t6,4(s0)"),
         )
         emitted = emitted_keys(view)
+        emitted |= emitted_keys(
+            dataclasses.replace(
+                view, target_reservations=RegisterReservations(("t0",), "synthetic")
+            )
+        )
         self.assertEqual(emitted - schema_keys(), set(), "printed but unregistered")
         self.assertEqual(schema_keys() - emitted, set(), "registered but never printed")
 
@@ -1160,14 +1169,14 @@ class ViewCommandTests(unittest.TestCase):
             ]
         )
         self.assertEqual(status, 0)
-        self.assertIn("verdict: phase-shift", stdout)
+        self.assertIn("verdict: register-permutation", stdout)
         self.assertIn("signature: prefix-exact@12", stdout)
         self.assertIn("register-first-divergence", stdout)
         self.assertIn("REGISTER LANES", stdout)
         self.assertIn("rotation=+1", stdout)
         self.assertIn("HUNK 1", stdout)
         self.assertIn("WEBS", stdout)
-        self.assertIn("next: one upstream event", stdout)
+        self.assertIn("next: owning pass: unknown", stdout)
 
     def test_documented_contrast_with_positional_counting_holds(self) -> None:
         """The README claim that alignment collapses a cascade must stay true."""
@@ -1219,8 +1228,8 @@ class ViewCommandTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertEqual(payload["schema"], "decomp-workbench-view-v3")
         self.assertLessEqual(set(payload) - {"schema"}, schema_keys())
-        self.assertEqual(payload["verdict"], "phase-shift")
-        self.assertEqual(payload["playbook"], "temp-fifo-phase")
+        self.assertEqual(payload["verdict"], "register-permutation")
+        self.assertEqual(payload["playbook"], "register-role-audit")
         self.assertEqual(payload["prefix_exact"], 12)
         self.assertEqual(payload["register"], 6)
         self.assertEqual(payload["structural"], 0)

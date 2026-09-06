@@ -1242,19 +1242,14 @@ def _comparison_guidance(
                 *mixed_site_callouts(site_classes),
                 allocation_lead,
                 *frame_gate,
-                # `compare` reports exactness; it cannot tell a temp-FIFO
-                # phase from a pool position, and sending the reader to a
-                # trace first inverted the documented order of work on the
-                # command the README puts in front of every new user. `view`
-                # answers the question this verdict raises, with no
-                # instrumented toolchain, from the same two inputs.
-                "Run `view` or `diagnose` on this pair next: it names the "
-                "family - temp-FIFO phase, pool position, or coalescing - and "
-                "the field-guide lever for it, with no instrumented toolchain "
-                "required.",
-                "Capture a globalcolor/UGEN trace only once the field-guide "
-                "levers are exhausted AND an instrumented toolchain is already "
-                "configured; it is the last step, not the first.",
+                # The aligned view adds evidence, not guaranteed ownership.
+                "Run `view` or `diagnose` on this pair next; no instrumented "
+                "toolchain is needed to inspect the alignment. It may leave "
+                "the register family and per-function ownership unresolved "
+                "instead of prescribing an unsupported source lever.",
+                "Use an already configured globalcolor/UGEN trace when "
+                "reservation or demand evidence is needed to choose a lever; "
+                "neither trace-first nor exhausting every family is universal.",
             ],
         )
     if structural_exact:

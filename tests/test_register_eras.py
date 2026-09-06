@@ -1,20 +1,7 @@
-"""Which pass owns a register is per-compiler-era data, and it is now probed.
+"""Era capabilities are not per-function register ownership.
 
-Before this, `view` classed `t0`-`t5` as uopt coloring-pool registers and
-`t6`-`t9` plus `s8` as ugen temps, under the single profile name `ido53`. That
-table was inherited from earlier campaigns and had never been measured against
-a named release. On IDO 5.3 at `-O2 -mips2` it is wrong in both directions:
-nine forced-color experiments, confirmed against an instrumented ugen, show
-uopt handing out only `v0`/`v1`/`a0-a3`/`s0-s8` and `f0`/`f2`/`f12-f24`, with
-`t0-t9` and `f4/f6/f8/f10` *always* ugen block-local temps.
-
-The cost of the old table was three campaign agents reading a `t`-register
-difference as a coloring-priority question and spending variants on levers
-7-13, when the mechanism was the ugen ring and the levers were 14-16.
-
-The pre-probe table is still shipped, under the honest name `unverified`, and
-is still what an unmeasured compiler gets: correcting `ido53` must not silently
-relabel evidence recorded for a release nobody probed.
+The legacy/unverified classification remains available unchanged. IDO 5.3
+shared GP registers must not be called exclusively colored or temporary.
 """
 
 from __future__ import annotations
@@ -86,11 +73,16 @@ def candidate_lane_of(view: MechanismView, register: str) -> str | None:
 class VerifiedEraTests(unittest.TestCase):
     """IDO 5.3 -O2 -mips2, the one release with a probe behind it."""
 
-    def test_t_registers_are_ugen_temps_never_pool_colors(self) -> None:
+    def test_shared_registers_are_not_assigned_an_unproved_role(self) -> None:
         for register in ("t0", "t1", "t2", "t3", "t4", "t5", "t6", "t9"):
             with self.subTest(register=register):
                 view = view_of([f"lw {register},0(s0)"])
-                self.assertEqual(lane_of(view, register), "temp")
+                expected = (
+                    "shared"
+                    if register in ("t0", "t1", "t2", "t3", "t4", "t5")
+                    else "temp"
+                )
+                self.assertEqual(lane_of(view, register), expected)
 
     def test_saved_registers_are_uopt_colors(self) -> None:
         for register in ("s1", "s2", "s7", "s8"):
@@ -146,7 +138,7 @@ class VerifiedEraTests(unittest.TestCase):
         profile = REGISTER_CLASS_PROFILES["ido53"]
         self.assertEqual(
             profile["temp"],
-            ("t6", "t7", "t8", "t9", "t0", "t1", "t2", "t3", "t4", "t5"),
+            ("t6", "t7", "t8", "t9"),
         )
         self.assertEqual(profile["fp-temp"], ("f4", "f6", "f8", "f10"))
 
@@ -180,7 +172,7 @@ class UnverifiedEraTests(unittest.TestCase):
     def test_the_two_eras_disagree_about_the_same_register(self) -> None:
         """The whole point of the switch, in one assertion."""
 
-        self.assertEqual(lane_of(view_of(["lw t0,0(s0)"]), "t0"), "temp")
+        self.assertEqual(lane_of(view_of(["lw t0,0(s0)"]), "t0"), "shared")
         self.assertEqual(
             lane_of(view_of(["lw t0,0(s0)"], profile="unverified"), "t0"), "pool"
         )
@@ -260,7 +252,7 @@ class DocumentationTests(unittest.TestCase):
             / "ido-late-stage-patterns.md"
         ).read_text(encoding="utf-8")
         self.assertIn("always", text)
-        self.assertIn("`t0-t9`", text)
+        self.assertIn("`t0-t5`", text)
         self.assertIn("unverified", text)
 
 

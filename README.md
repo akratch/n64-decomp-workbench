@@ -98,7 +98,7 @@ decomp-workbench diagnose-dumps \
 ```
 
 ```text
-verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
+verdict: register-permutation  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=register-role-audit
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 ```
 

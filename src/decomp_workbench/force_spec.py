@@ -21,10 +21,9 @@ def force_specification(view: MechanismView) -> dict[str, Any]:
         raise ValueError(
             "--emit-force-spec cannot address this residual: every target "
             f"register in it ({named}) is outside the era's colorable set, so "
-            "no forced color reaches one. A forced-color campaign here is "
-            "dead on arrival. This is a web-existence question -- which "
-            "values became block-local temps -- so start from "
-            "`decomp-workbench guide temp-fifo-phase`."
+            "no supported direct forced color reaches one. This does not "
+            "exclude upstream coloring/reservation effects on temporary "
+            "allocation. Establish per-procedure register roles first."
         )
     if view.verdict != "register-permutation":
         raise ValueError("--emit-force-spec requires a register-permutation verdict")
@@ -40,8 +39,8 @@ def force_specification(view: MechanismView) -> dict[str, Any]:
             "trace before constructing CDX_FORCE controls."
             + (
                 " Entries marked ring_only_target want a register the era's "
-                "coloring pass never hands out: no force reaches those, and a "
-                "probe can close only the rest."
+                "supported palette cannot force directly. Indirect reservation "
+                "effects on those temporary sites remain possible."
                 if ring_only
                 else ""
             )

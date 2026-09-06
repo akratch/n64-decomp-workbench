@@ -213,24 +213,23 @@ class HeuristicOwnershipTests(unittest.TestCase):
             FIXTURES / "phase-shift-candidate.objdump",
             symbol="animStep",
         )
-        self.assertEqual(diagnosis.view.verdict, "phase-shift")
-        self.assertEqual(diagnosis.ownership.owning_pass, OWNING_PASS_UGEN_RING)
-        self.assertEqual(diagnosis.ownership.reachability, REACHABILITY_SOURCE)
+        self.assertEqual(diagnosis.view.verdict, "register-permutation")
+        self.assertEqual(diagnosis.ownership.owning_pass, OWNING_PASS_UNKNOWN)
+        self.assertEqual(diagnosis.ownership.reachability, REACHABILITY_UNKNOWN)
 
     def test_a_colourable_substitution_belongs_to_the_colouring_pass(self) -> None:
         view = view_of(["move s0,s1"], ["move s0,s2"])
         self.assertEqual(view.owning_pass, OWNING_PASS_UOPT_COLOR)
         self.assertEqual(view.reachability, REACHABILITY_PERMUTER)
 
-    def test_a_ring_only_target_with_no_rotation_is_pass_owned(self) -> None:
-        """No colouring reaches a `t` register, and no phase explains it."""
+    def test_a_ring_only_target_does_not_rule_out_reservation_effects(self) -> None:
 
         view = view_of(
             ["lw t8,0(s0)", "sw t8,4(s0)"],
             ["lw t6,0(s0)", "sw t6,4(s0)"],
         )
-        self.assertEqual(view.owning_pass, OWNING_PASS_UGEN_RING)
-        self.assertEqual(view.reachability, REACHABILITY_PASS_OWNED)
+        self.assertEqual(view.owning_pass, OWNING_PASS_UNKNOWN)
+        self.assertEqual(view.reachability, REACHABILITY_UNKNOWN)
 
     def test_a_heuristic_answer_is_labelled_a_heuristic(self) -> None:
         for target, candidate in (
@@ -399,16 +398,16 @@ class RoutingTests(unittest.TestCase):
             ROUTING_PERMUTER_FIRST,
         )
 
-    def test_a_pass_owned_residual_carries_the_routing_sentence(self) -> None:
+    def test_unknown_gp_roles_request_evidence_before_search(self) -> None:
         view = view_of(
             ["lw t8,0(s0)", "sw t8,4(s0)"],
             ["lw t6,0(s0)", "sw t6,4(s0)"],
         )
-        self.assertEqual(view.reachability, REACHABILITY_PASS_OWNED)
-        self.assertEqual(view.routing, ROUTING_PERMUTER_FIRST)
+        self.assertEqual(view.reachability, REACHABILITY_UNKNOWN)
+        self.assertEqual(view.routing, "evidence-first")
         footer = " ".join(view.guidance)
-        self.assertIn("permute-doctor", footer)
-        self.assertIn("NOT a wall", footer)
+        self.assertIn("reservation", footer)
+        self.assertNotIn("permute-doctor", footer)
 
     def test_incomparable_inputs_still_outrank_ownership(self) -> None:
         self.assertEqual(
@@ -490,13 +489,13 @@ class DiagnosisTests(unittest.TestCase):
         payload = json.loads(stdout)
         self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v3")
         self.assertEqual(payload["schema"], DIAGNOSIS_SCHEMA)
-        self.assertEqual(payload["owning_pass"], OWNING_PASS_UGEN_RING)
-        self.assertEqual(payload["reachability"], REACHABILITY_SOURCE)
+        self.assertEqual(payload["owning_pass"], OWNING_PASS_UNKNOWN)
+        self.assertEqual(payload["reachability"], REACHABILITY_UNKNOWN)
         self.assertEqual(payload["ownership_basis"], BASIS_HEURISTIC)
         # Additive: every key an older consumer read is still where it was.
         for key in ("comparison", "view", "routing"):
             self.assertIn(key, payload)
-        self.assertEqual(payload["view"]["verdict"], "phase-shift")
+        self.assertEqual(payload["view"]["verdict"], "register-permutation")
         self.assertEqual(payload["view"]["owning_pass"], payload["owning_pass"])
 
     def test_the_screen_carries_the_line(self) -> None:
@@ -511,8 +510,8 @@ class DiagnosisTests(unittest.TestCase):
             ]
         )
         self.assertEqual(status, 0)
-        self.assertIn(f"owning_pass={OWNING_PASS_UGEN_RING}", stdout)
-        self.assertIn(f"reachability={REACHABILITY_SOURCE}", stdout)
+        self.assertIn(f"owning_pass={OWNING_PASS_UNKNOWN}", stdout)
+        self.assertIn(f"reachability={REACHABILITY_UNKNOWN}", stdout)
 
     def test_a_relocation_naming_another_symbol_has_no_owning_pass(self) -> None:
         """The one correction the comparison can make and the view cannot.
@@ -537,7 +536,7 @@ class DiagnosisTests(unittest.TestCase):
         self.assertEqual(disagreeing.routing, ROUTING_IMPORT_FIX)
         self.assertEqual(disagreeing.as_dict()["owning_pass"], OWNING_PASS_UNKNOWN)
         # The view still reports the mechanism it measured.
-        self.assertEqual(disagreeing.view.owning_pass, OWNING_PASS_UGEN_RING)
+        self.assertEqual(disagreeing.view.owning_pass, OWNING_PASS_UNKNOWN)
 
 
 if __name__ == "__main__":

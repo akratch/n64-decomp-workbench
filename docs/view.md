@@ -33,8 +33,8 @@ decomp-workbench view-dumps \
 
 ```text
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18 target_frame_size=-32 candidate_frame_size=-32 register_profile=ido53
-verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase routing=permuter-first
-ownership: owning_pass=ugen-temp-ring reachability=source-reachable ownership_basis=heuristic
+verdict: register-permutation  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=register-role-audit routing=evidence-first
+ownership: owning_pass=unknown reachability=unknown ownership_basis=heuristic
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
@@ -65,14 +65,14 @@ WEBS (one consistent substitution may explain many sites)
   w3  t9->t6  count=2 rows=14,15
   w4  t6->t7  count=2 rows=16,17
 
-next: one upstream event, not 6 sites (temp lane, slot 5, aligned row 12, rotation +1).
-      perturb the PRECEDING block: hoist a call-argument expression into a named local, which reorders value deaths.
-      or materialize a phantom pool get with `(x == C) != 0` inside a real `if`; a bare discarded expression is dropped with no codegen effect.
-      do not fix the divergent sites individually; declaration-order permutation is a dead family here.
+next: owning pass: unknown (heuristic) -- GP register substitutions do not distinguish UOPT reservations from UGEN demand/lifetime changes. A possible color is not an actual colored use, and a lane rotation does not prove a changed pop
+      reachability: unknown -- nothing here settles which pass owns this; fix the inputs, or supply a trace
+      read the capability/role distinction: decomp-workbench guide register-role-audit
 ```
 
-Four register substitutions, four webs, one mechanism: the temp lane runs one
-slot ahead from slot 5. The fix is upstream of every printed site.
+Four register substitutions form a visible cyclic pattern from slot 5. This
+alone does not distinguish changed reservations from demand or lifetime changes;
+no source prescription follows without the missing evidence.
 
 The `webs:` header line is that conclusion in one line, printed before the
 hunks rather than after them, because a reader who stops at the first
@@ -119,6 +119,7 @@ The `routing=` token beside it names the **tool**, which the playbook does not:
 
 | `routing` | what it means | what to run |
 |---|---|---|
+| `evidence-first` | GP assignments do not distinguish reservation and temporary roles | authenticate each input's state and transitions; no source edit is prescribed |
 | `permuter-first` | an allocation, colour, or schedule tie | the levers, then `permute-doctor` and a sweep |
 | `structural` | a constant, hunk, pool slot or frame the diff already shows | the source edit the footer names |
 | `import-fix` | the two inputs were not comparable, or read different symbols | fix the scratch, context or selection first |
@@ -322,15 +323,28 @@ experiments and confirmed against instrumented ugen:
 | Class | Pass | Registers |
 |---|---|---|
 | `pool` | uopt coloring | `v0 v1 a0 a1 a2 a3 s0 s1 s2 s3 s4 s5 s6 s7 s8` |
-| `temp` | ugen ring | `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` |
+| `temp` | ugen scratch candidates | `t6 t7 t8 t9` |
+| `shared` | unknown actual role | `t0 t1 t2 t3 t4 t5` |
 | `fp-pool` | uopt coloring | `f0 f2 f12 f14 f16 f18 f20 f22 f24` |
 | `fp-temp` | ugen ring | `f4 f6 f8 f10` |
 
-`t0`–`t9` and `f4/f6/f8/f10` are **always** ugen block-local temps under 5.3 and
-never uopt colors — a `t`-register difference is a ring-phase question, not a
-coloring-priority one. The temp tables are stored in ugen free-list *ring*
-order rather than register-number order, so a phase rotation is a contiguous run
-of the table.
+`t0`–`t5` are possible UOPT colors and possible UGEN temporaries. Actual roles
+depend on per-procedure reservations, not register spelling. GP substitutions
+route to `register-role-audit` / `evidence-first` with unknown causal ownership.
+A register rotation does not prove changed demand order or one extra pop.
+The startup order is `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5`, but removals can change
+the effective pool. A reserved register need not survive in emitted instructions.
+
+`--target-reservations FILE` and `--candidate-reservations FILE` independently
+project conditional GP lanes. Each JSON file uses schema
+`decomp-workbench-register-reservations-v1`, an `input_sha256` matching its
+object/dump, the exact `symbol`, a `reserved` list drawn from t0–t5, and a
+nonempty `evidence` description. The list describes only shared GP withdrawals.
+It is an operator-supplied assumption, not automatically authenticated trace
+proof; output retains that basis and causal ownership stays unknown. Missing
+target state remains unknown and is never copied from the candidate. Duplicate,
+unsupported-register, stale-input and wrong-symbol sidecars refuse. This
+projection is available only for `ido53`; legacy/unverified profiles stay intact.
 
 The float ring is four registers wide even though ugen initializes `ffree` with
 six. `f16`/`f18` are withdrawn before the first allocation and never handed out
@@ -452,11 +466,11 @@ filter without a JSON parser in it:
 decomp-workbench view-dumps \
   examples/fixtures/phase-shift-target.objdump \
   examples/fixtures/phase-shift-candidate.objdump \
-  --function animStep --census verdict=phase-shift,register=6
+  --function animStep --census verdict=register-permutation,register=6
 ```
 
 ```text
-census: PASS verdict=phase-shift
+census: PASS verdict=register-permutation
 census: PASS register=6
 ```
 

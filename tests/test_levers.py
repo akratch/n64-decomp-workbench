@@ -190,6 +190,7 @@ class TempRingLeverTests(unittest.TestCase):
             (
                 ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
             ).read_text(encoding="utf-8"),
+            register_profile="unverified",  # Legacy lane-specific lever controls.
         )
 
     def test_a_rotation_without_a_trace_refuses_to_name_a_family(self) -> None:
@@ -301,6 +302,7 @@ class LineOrderLeverTests(unittest.TestCase):
             (
                 ROOT / "examples" / "fixtures" / "loc-boundary-candidate.objdump"
             ).read_text(encoding="utf-8"),
+            register_profile="unverified",  # Legacy lane-specific lever controls.
         )
 
     def test_an_emit_trace_names_the_join_and_the_conflicting_pair(self) -> None:
@@ -472,6 +474,7 @@ class RenderingTests(unittest.TestCase):
             (
                 ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
             ).read_text(encoding="utf-8"),
+            register_profile="unverified",  # Legacy lane-specific lever controls.
         )
         selections, _events, _ignored = parse_as1_reorganize_trace(
             (ROOT / "examples" / "traces" / "as1-reorganize.log").read_text(
@@ -530,7 +533,7 @@ class RenderingTests(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
             )
         )
-        self.assertEqual(untraced.lever_class, LEVER_TEMP_RING)
+        self.assertEqual(untraced.lever_class, LEVER_NONE_KNOWN)
         self.assertIsNone(untraced.family)
         self.assertTrue(untraced.needs)
 
@@ -635,14 +638,14 @@ class DiagnoseCommandTests(unittest.TestCase):
             )
         payload = json.loads(stdout)
         self.assertEqual(
-            payload["lever"]["measurements"]["pops_by_line"],
-            {"41": 1, "42": 2, "43": 1},
+            payload["lever"]["measurements"]["observed_gp_results"],
+            [14, 15, 24, 25],
         )
-        # A trace alone names the line and not the rule: the construct on it
-        # is what says which pop-cost law applies, so the block asks for the
-        # source rather than naming the nearest family.
+        # Candidate returns alone do not prove target membership or demand order.
         self.assertIsNone(payload["lever"]["edit_family"])
-        self.assertTrue(any("--source" in item for item in payload["lever"]["needs"]))
+        self.assertTrue(
+            any("reservation" in item for item in payload["lever"]["needs"])
+        )
 
     def test_an_unreadable_trace_is_an_error_document_not_a_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -879,7 +882,8 @@ class PoolLaneGateTests(unittest.TestCase):
                 target_pool=("v0", "v1"), candidate_pool=("v0", "v1", "a0")
             )
         )
-        self.assertIn("the candidate colours 1 value", lever.reason)
+        self.assertIn("the candidate has 1 additional emitted", lever.reason)
+        self.assertIn("not a count of distinct colored webs", lever.reason)
 
     def test_the_counter_example_is_cited_where_the_gate_fires(self) -> None:
         lever = lever_for(
@@ -1146,6 +1150,7 @@ class TempRingPreconditionTests(unittest.TestCase):
             (
                 ROOT / "examples" / "fixtures" / "phase-shift-candidate.objdump"
             ).read_text(encoding="utf-8"),
+            register_profile="unverified",  # Legacy lane-specific lever controls.
         )
 
     def source(self, line42: str) -> list[str]:

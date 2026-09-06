@@ -547,6 +547,15 @@ CAMPAIGN_METRICS: tuple[Metric, ...] = (
 # must not be read through one name. Every key here is already its own printed
 # label, so none of them carries a deprecated alias.
 VIEW_METRICS: tuple[Metric, ...] = (
+    Metric("basis", "basis", "supplied reservation basis, not inferred trace proof"),
+    Metric("reserved", "reserved", "conditionally withdrawn shared GP registers"),
+    Metric("temp_ring", "temp_ring", "conditional GP ring after supplied withdrawals"),
+    Metric("evidence", "evidence", "operator's reservation evidence description"),
+    Metric(
+        "register_reservations",
+        "register_reservations",
+        "per-input supplied conditional reservations; not an inferred target trace",
+    ),
     Metric("symbol", "symbol", "function selected from both inputs"),
     Metric("target", "target", "reference input name"),
     Metric("candidate", "candidate", "candidate input name"),
@@ -564,10 +573,9 @@ VIEW_METRICS: tuple[Metric, ...] = (
     Metric(
         "ring_only_targets",
         "ring_only_targets",
-        "target registers no coloring pass in this era can hand out, so no "
-        "reweighting, tie-break, or forced-color lever can reach them; a "
-        "register residual made entirely of these is a web-existence "
-        "question, not a color question",
+        "target registers outside the supported possible-color palette; "
+        "this restricts direct forcing, not indirect effects of reservations "
+        "on temporary allocation",
     ),
     Metric(
         "target_instructions",

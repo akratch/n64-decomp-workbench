@@ -26,7 +26,6 @@ from decomp_workbench.diagnosis import DIAGNOSIS_SCHEMA, diagnose_dumps
 from decomp_workbench.objdump import parse_disassembly
 from decomp_workbench.view import (
     PERMUTER_ROUTING_SENTENCE,
-    PERMUTER_ROUTING_STEPS,
     ROUTING_IMPORT_FIX,
     ROUTING_NONE,
     ROUTING_PERMUTER_FIRST,
@@ -155,19 +154,14 @@ class RoutingVocabularyTests(unittest.TestCase):
 
 
 class RoutedGuidanceTests(unittest.TestCase):
-    def test_a_register_verdict_ends_by_naming_the_permuter(self) -> None:
+    def test_unknown_gp_roles_request_evidence_not_a_speculative_sweep(self) -> None:
         view = view_of(
             ["lw t8,0(s0)", "sw t8,4(s0)"],
             ["lw t6,0(s0)", "sw t6,4(s0)"],
         )
-        self.assertEqual(view.routing, ROUTING_PERMUTER_FIRST)
-        self.assertIn(PERMUTER_ROUTING_SENTENCE, view.guidance)
-        self.assertIn("permute-doctor", " ".join(view.guidance))
-        # Last, because the levers above it are what to try first: the whole
-        # routing block is the tail of the footer, in order.
-        self.assertEqual(
-            view.guidance[-len(PERMUTER_ROUTING_STEPS) :], PERMUTER_ROUTING_STEPS
-        )
+        self.assertEqual(view.routing, "evidence-first")
+        self.assertNotIn(PERMUTER_ROUTING_SENTENCE, view.guidance)
+        self.assertIn("reservations", " ".join(view.guidance))
 
     def test_the_sentence_corrects_the_scope_of_the_claim(self) -> None:
         """`HAND` is the whole correction, so it is not decoration."""
@@ -192,7 +186,7 @@ class RoutedGuidanceTests(unittest.TestCase):
             ["lw t6,0(s0)", "sw t6,4(s0)"],
         )
         header = next(line for line in render_view(view) if line.startswith("verdict:"))
-        self.assertIn(f"routing={ROUTING_PERMUTER_FIRST}", header)
+        self.assertIn("routing=evidence-first", header)
 
     def test_the_payload_carries_the_same_answer_as_the_screen(self) -> None:
         view = view_of(
@@ -229,12 +223,12 @@ class DiagnosisRoutingTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertEqual(payload["schema"], "decomp-workbench-diagnosis-v3")
         self.assertEqual(payload["schema"], DIAGNOSIS_SCHEMA)
-        self.assertEqual(payload["routing"], ROUTING_PERMUTER_FIRST)
-        self.assertEqual(payload["view"]["routing"], ROUTING_PERMUTER_FIRST)
+        self.assertEqual(payload["routing"], "evidence-first")
+        self.assertEqual(payload["view"]["routing"], "evidence-first")
         # Additive: every v1 key a consumer read is still where it was.
         self.assertIn("comparison", payload)
         self.assertIn("view", payload)
-        self.assertEqual(payload["view"]["verdict"], "phase-shift")
+        self.assertEqual(payload["view"]["verdict"], "register-permutation")
 
     def test_the_screen_routes_a_tie_instead_of_ending_it(self) -> None:
         status, stdout, _ = self.run_cli(
@@ -248,8 +242,8 @@ class DiagnosisRoutingTests(unittest.TestCase):
             ]
         )
         self.assertEqual(status, 0)
-        self.assertIn(PERMUTER_ROUTING_SENTENCE, stdout)
-        self.assertIn(f"routing={ROUTING_PERMUTER_FIRST}", stdout)
+        self.assertNotIn(PERMUTER_ROUTING_SENTENCE, stdout)
+        self.assertIn("routing=evidence-first", stdout)
 
     def test_a_relocation_naming_a_different_symbol_routes_to_the_import(
         self,
@@ -266,7 +260,7 @@ class DiagnosisRoutingTests(unittest.TestCase):
             FIXTURES / "phase-shift-candidate.objdump",
             symbol="animStep",
         )
-        self.assertEqual(diagnosis.routing, ROUTING_PERMUTER_FIRST)
+        self.assertEqual(diagnosis.routing, "evidence-first")
         disagreeing = dataclasses.replace(
             diagnosis,
             comparison=dataclasses.replace(
@@ -277,7 +271,7 @@ class DiagnosisRoutingTests(unittest.TestCase):
         self.assertEqual(disagreeing.as_dict()["routing"], ROUTING_IMPORT_FIX)
         # The view still reports the mechanism it measured; only the routing
         # changes, because only the routing is a claim about what to do next.
-        self.assertEqual(disagreeing.view.routing, ROUTING_PERMUTER_FIRST)
+        self.assertEqual(disagreeing.view.routing, "evidence-first")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from .objdump import (
     selection_warnings,
     symbol_selection_error,
 )
+from .register_state import RegisterReservations
 from .view import (
     BASIS_NONE,
     DEFAULT_REGISTER_PROFILE,
@@ -138,6 +139,8 @@ def diagnose_instructions(
     candidate_true_instructions: int | None = None,
     instruction_count_verified: bool = False,
     evidence: PassEvidence | None = None,
+    target_reservations: RegisterReservations | None = None,
+    candidate_reservations: RegisterReservations | None = None,
 ) -> Diagnosis:
     """Build both reports from two already-parsed instruction streams.
 
@@ -168,6 +171,8 @@ def diagnose_instructions(
         register_profile=register_profile,
         warnings=warnings,
         evidence=evidence,
+        target_reservations=target_reservations,
+        candidate_reservations=candidate_reservations,
     )
     return Diagnosis(comparison=comparison, view=view)
 
@@ -181,6 +186,8 @@ def diagnose_objects(
     section: str = ".text",
     register_profile: str = DEFAULT_REGISTER_PROFILE,
     evidence: PassEvidence | None = None,
+    target_reservations: RegisterReservations | None = None,
+    candidate_reservations: RegisterReservations | None = None,
 ) -> Diagnosis:
     """Disassemble each object once, then build both reports in process."""
 
@@ -225,6 +232,8 @@ def diagnose_objects(
             and candidate_true_instructions is not None
         ),
         evidence=evidence,
+        target_reservations=target_reservations,
+        candidate_reservations=candidate_reservations,
     )
 
 
@@ -235,6 +244,8 @@ def diagnose_dumps(
     symbol: str | None = None,
     register_profile: str = DEFAULT_REGISTER_PROFILE,
     evidence: PassEvidence | None = None,
+    target_reservations: RegisterReservations | None = None,
+    candidate_reservations: RegisterReservations | None = None,
 ) -> Diagnosis:
     """Load each retained dump once, then build both reports."""
 
@@ -267,4 +278,6 @@ def diagnose_dumps(
             candidate_name=display_path(candidate),
         ),
         evidence=evidence,
+        target_reservations=target_reservations,
+        candidate_reservations=candidate_reservations,
     )

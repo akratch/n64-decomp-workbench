@@ -60,9 +60,11 @@ When opcode shape stabilizes but registers differ:
 0. Decide which *population* the differing registers belong to, because the two
    are allocated by different passes and answer to different levers. This is
    per-compiler-era data, not a constant. Under IDO 5.3 at `-O2 -mips2`
-   (probed): uopt colors `v0 v1 a0-a3 s0-s8` and `f0 f2 f12-f24`, while
-   `t0-t9` and `f4/f6/f8/f10` are **always** ugen block-local temps and never
-   uopt colors. Any other release is unverified — `view --register-profile
+   (probed): uopt's possible colors include `v0 v1 a0-a3 t0-t5 s0-s8`.
+   The shared `t0-t5` registers may instead be UGEN temporaries when not
+   reserved. A visible rotation is not always changed demand order: compare
+   per-procedure reservation evidence first. Do not infer a target pool from
+   candidate returns. Any other release is unverified — `view --register-profile
    unverified` is the pre-probe table and a lane it produces is a hypothesis.
    `view --json` reports `register_profile` and `register_profile_evidence` so
    the claim travels with its provenance. The float ring is four wide:

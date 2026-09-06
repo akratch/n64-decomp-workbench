@@ -2158,13 +2158,14 @@ integer free list is re-seeded once per procedure in the order
 t6 t7 t8 t9 t0 t1 t2 t3 t4 t5
 ```
 
-so the first block-local temp of a procedure is `t6`, not `t0`, and a
-one-pop phase error rotates the whole downstream lane by that seeded order
-rather than by register number.
+This is the startup order, not proof that every entry remains available.
+Per-procedure reservations can remove shared registers before the first
+allocation. UOPT's possible colors include t0–t5; a register-name-only lane
+must not treat them as universally temporary or universally colored.
 
-> Therefore a lane view that reads `t6 t7 t8 t9 t6 ...` is the ring running
-> from its seed, not evidence of anything; and a candidate whose lane starts
-> at `t7` has already spent one pop before the first visible temp.
+> Compare initialization/removal state before attributing a visible rotation
+> to an extra pop. Observed return subsets alone do not prove the complete
+> pool, and an instruction may disappear while its allocation still matters.
 
 **Receipt — T1**, from an instrumented ugen. Return-site hooks on the
 free-list helper (`f_get_free_reg` — the entry-side `ALLOC` hook logs the
@@ -2179,8 +2180,8 @@ correctly-diagnosed one-pop phase error is attributed to the wrong lever,
 because the register the candidate "should" have is computed from the wrong
 seed.
 
-**Scope.** A driver startup constant for this configuration, and per
-procedure: the list is re-seeded at procedure entry and does not carry
+**Scope.** A startup constant, distinct from effective available membership,
+and per procedure: the list is re-seeded at procedure entry and does not carry
 across, which is why levers placed in a preceding procedure are inert.
 
 **Provenance:** Mickey's Speedway USA decomp (2026-08), instrumented-ugen

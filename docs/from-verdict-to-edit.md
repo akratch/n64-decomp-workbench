@@ -10,7 +10,7 @@ command runs right now against fixtures in this repository — no ROM, no
 compiler, no toolchain.
 
 - [1. Run it](#1-run-it)
-- [2. Six differences, one cause](#2-six-differences-one-cause)
+- [2. Six differences, a causal hypothesis](#2-six-differences-a-causal-hypothesis)
 - [3. Why a "fake" edit is not superstition](#3-why-a-fake-edit-is-not-superstition)
 - [4. The edit](#4-the-edit)
 - [5. When the screen names the edit for you](#5-when-the-screen-names-the-edit-for-you)
@@ -29,8 +29,8 @@ decomp-workbench diagnose-dumps \
 ```
 
 ```text
-verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
-ownership: owning_pass=ugen-temp-ring reachability=source-reachable ownership_basis=heuristic
+verdict: register-permutation  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=register-role-audit
+ownership: owning_pass=unknown reachability=unknown ownership_basis=heuristic
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 ```
@@ -39,7 +39,13 @@ Six differing instructions. The temptation is to open the C, find the six
 places, and start changing them. That is the mistake this page exists to
 prevent.
 
-## 2. Six differences, one cause
+## 2. Six differences, a causal hypothesis
+
+The current default profile reports this fixture as `register-role-audit`:
+the following historical FIFO interpretation is a hypothesis, not a conclusion
+from the disassembly. Independently establish each input's reservations and
+complete queue transitions before using the later pop-edit examples. A target
+ROM has no compiler trace merely because the candidate does.
 
 Read the three header lines in the order they print, because that is the order
 the facts happened in.

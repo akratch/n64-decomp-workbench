@@ -52,6 +52,7 @@ from .literal_pool import (
     pool_accesses,
 )
 from .model import Instruction
+from .register_state import IDO53_GP_SEED, IDO53_SHARED_GP, RegisterReservations
 from .schema import VIEW_METRICS_BY_KEY
 
 #: The four verdict vocabularies are exported whole -- every member beside
@@ -85,6 +86,7 @@ __all__ = [
     "REACHABILITY_VALUES",
     "REGISTER_CLASS_PROFILES",
     "REGISTER_PROFILE_EVIDENCE",
+    "ROUTING_EVIDENCE_FIRST",
     "ROUTING_IMPORT_FIX",
     "ROUTING_NONE",
     "ROUTING_PERMUTER_FIRST",
@@ -147,10 +149,9 @@ UNVERIFIED_CLASSES: dict[str, tuple[str, ...]] = {
 #: IDO 5.3 at ``-O2 -mips2``, probed with nine forced-color experiments during
 #: the `object_interaction` campaign and confirmed against instrumented ugen.
 #:
-#: uopt hands out only ``v0``/``v1``/``a0-a3``/``s0-s8`` and
-#: ``f0``/``f2``/``f12-f24``.  ``t0-t9`` and ``f4/f6/f8/f10`` are *always* ugen
-#: block-local temps -- never pool colors -- which is the fact three campaign
-#: agents assumed the other way round.
+#: This is a default *role* classification, not the possible-color palette.
+#: t0-t5 are shared: UOPT can reserve them, and UGEN can use the remainder.
+#: Without per-function reservation evidence their actual role is unknown.
 #:
 #: The temp tables are in *ring order*, not register-number order, because
 #: ugen's free list is a least-recently-freed FIFO seeded ``t6 t7 t8 t9 t0 ..
@@ -186,7 +187,8 @@ IDO53_CLASSES: dict[str, tuple[str, ...]] = {
         "s7",
         "s8",
     ),
-    "temp": ("t6", "t7", "t8", "t9", "t0", "t1", "t2", "t3", "t4", "t5"),
+    "temp": ("t6", "t7", "t8", "t9"),
+    "shared": IDO53_SHARED_GP,
     "fp-pool": ("f0", "f2", "f12", "f14", "f16", "f18", "f20", "f22", "f24"),
     "fp-temp": ("f4", "f6", "f8", "f10"),
 }
@@ -201,9 +203,10 @@ REGISTER_CLASS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
 #: finding from an assumption.
 REGISTER_PROFILE_EVIDENCE: dict[str, str] = {
     "ido53": (
-        "IDO 5.3 -O2 -mips2, probed (nine forced-color experiments) and "
-        "confirmed against instrumented ugen; temp tables are in ugen "
-        "free-list ring order, and the float ring is the four registers ugen "
+        "IDO 5.3 -O2 -mips2, probed color map and instrumented ugen; "
+        "t0-t5 have shared possible roles, with per-procedure reservations "
+        "required to identify the effective GP ring. The float ring is the "
+        "four registers ugen "
         "actually hands out (f16/f18 are initialized into ffree, withdrawn "
         "before the first allocation, and are uopt colors)"
     ),
@@ -381,9 +384,11 @@ ROUTING_PERMUTER_FIRST = "permuter-first"
 ROUTING_STRUCTURAL = "structural"
 ROUTING_IMPORT_FIX = "import-fix"
 ROUTING_NONE = "none"
+ROUTING_EVIDENCE_FIRST = "evidence-first"
 
 #: Every value the `routing` field may take, for a consumer switching on it.
 ROUTING_VALUES: tuple[str, ...] = (
+    ROUTING_EVIDENCE_FIRST,
     ROUTING_PERMUTER_FIRST,
     ROUTING_STRUCTURAL,
     ROUTING_IMPORT_FIX,
@@ -466,6 +471,8 @@ def routing_for(
         return ROUTING_IMPORT_FIX
     if verdict in ("exact", "words-identical"):
         return ROUTING_NONE
+    if reachability == REACHABILITY_UNKNOWN and counts.get(REGISTER):
+        return ROUTING_EVIDENCE_FIRST
     if reachability == REACHABILITY_PASS_OWNED:
         return ROUTING_PERMUTER_FIRST
     if verdict in PERMUTER_ROUTED_VERDICTS:
@@ -760,6 +767,19 @@ def ownership_for(
     if evidence is not None and evidence.decisive:
         return _ownership_from_evidence(evidence)
 
+    if (
+        _gp_role_uncertain(webs, register_profile)
+        and _primary_class(dict(_counts_of(rows))) == REGISTER
+    ):
+        return Ownership(
+            OWNING_PASS_UNKNOWN,
+            REACHABILITY_UNKNOWN,
+            BASIS_HEURISTIC,
+            "GP register substitutions do not distinguish UOPT reservations "
+            "from UGEN demand/lifetime changes. A possible color is not an "
+            "actual colored use, and a lane rotation does not prove a changed pop",
+        )
+
     if verdict == "frame-layout":
         return Ownership(
             OWNING_PASS_STACK_HOME,
@@ -1052,6 +1072,8 @@ class MechanismView:
     #: ``None`` is the ordinary case and downgrades the ownership answer to a
     #: labelled heuristic rather than removing it.
     evidence: PassEvidence | None = None
+    target_reservations: RegisterReservations | None = None
+    candidate_reservations: RegisterReservations | None = None
 
     @property
     def aligned_rows(self) -> int:
@@ -1142,6 +1164,16 @@ class MechanismView:
             "target": self.target,
             "candidate": self.candidate,
             "register_profile": self.register_profile,
+            "register_reservations": {
+                "target": self.target_reservations.as_dict()
+                if self.target_reservations is not None
+                else None,
+                "candidate": self.candidate_reservations.as_dict()
+                if self.candidate_reservations is not None
+                else None,
+                "ownership_basis": "conditional lane projection only; "
+                "no inferred reservations or target trace",
+            },
             # What that table is made of. A reader who cannot tell a probed
             # split from an inherited one cannot tell a finding from an
             # assumption, and the pool/temp attribution is exactly where that
@@ -1613,21 +1645,36 @@ def _lane_rotation(
 
 
 def _build_lanes(
-    rows: Sequence[AlignedRow], profile: dict[str, tuple[str, ...]]
+    rows: Sequence[AlignedRow],
+    profile: dict[str, tuple[str, ...]],
+    target_reservations: RegisterReservations | None = None,
+    candidate_reservations: RegisterReservations | None = None,
 ) -> tuple[Lane, ...]:
+    def projection(state: RegisterReservations | None) -> dict[str, tuple[str, ...]]:
+        if state is None:
+            return profile
+        return {
+            **profile,
+            "pool": (*profile["pool"], *state.reserved),
+            "temp": state.temp_ring,
+            "shared": (),
+        }
+
+    target_profile = projection(target_reservations)
+    candidate_profile = projection(candidate_reservations)
     target_lanes: dict[str, list[tuple[str, int]]] = {name: [] for name in profile}
     candidate_lanes: dict[str, list[tuple[str, int]]] = {name: [] for name in profile}
     for row in rows:
-        for assembly, bucket in (
-            (row.target, target_lanes),
-            (row.candidate, candidate_lanes),
+        for assembly, bucket, side_profile in (
+            (row.target, target_lanes, target_profile),
+            (row.candidate, candidate_lanes, candidate_profile),
         ):
             if assembly is None:
                 continue
             register = destination_register(assembly)
             if register is None:
                 continue
-            name = _register_class(register, profile)
+            name = _register_class(register, side_profile)
             if name is not None:
                 bucket[name].append((register, row.index))
 
@@ -1654,7 +1701,14 @@ def _build_lanes(
                 if divergence < len(rows_)
             ]
             divergence_row = min(candidates_rows) if candidates_rows else None
-        cycle = _rotation_cycle(profile[name], set(target_slots) | set(candidate_slots))
+        cycle = (
+            _rotation_cycle(
+                target_profile[name], set(target_slots) | set(candidate_slots)
+            )
+            if (name in {"temp", "fp-temp"} or profile is UNVERIFIED_CLASSES)
+            and target_profile[name] == candidate_profile[name]
+            else None
+        )
         rotation = (
             None
             if divergence is None or cycle is None
@@ -1710,16 +1764,31 @@ COLORABLE_CLASSES = ("pool", "fp-pool")
 def colorable_registers(register_profile: str = DEFAULT_REGISTER_PROFILE) -> set[str]:
     """Return every register the era's coloring pass can hand out.
 
-    The complement within the profile is the allocator ring: for IDO 5.3 that
-    is ``t0-t9`` and ``f4/f6/f8/f10``, which uopt never colors.
+    This is a possible palette, not this procedure's actual reserved registers.
+    Shared registers may also be used as temporaries when not reserved.
     """
 
     profile = REGISTER_CLASS_PROFILES.get(
         register_profile, REGISTER_CLASS_PROFILES[DEFAULT_REGISTER_PROFILE]
     )
-    return {
+    result = {
         register for name in COLORABLE_CLASSES for register in profile.get(name, ())
     }
+    if register_profile == "ido53":
+        # Imported lazily: globalcolor's evidence adapter imports PassEvidence.
+        # Keep the decoded palette authoritative rather than a second t-register map.
+        from .globalcolor import COLOR_REGISTERS
+
+        result.update(COLOR_REGISTERS.values())
+    return result
+
+
+def _gp_role_uncertain(webs: Sequence[Web], profile: str) -> bool:
+    """An object pattern cannot prove the cause of a GP scratch substitution."""
+
+    return profile == "ido53" and any(
+        web.target in IDO53_GP_SEED or web.candidate in IDO53_GP_SEED for web in webs
+    )
 
 
 def uncolorable_targets(
@@ -2427,6 +2496,8 @@ def build_view(
     register_profile: str = DEFAULT_REGISTER_PROFILE,
     warnings: Sequence[str] = (),
     evidence: PassEvidence | None = None,
+    target_reservations: RegisterReservations | None = None,
+    candidate_reservations: RegisterReservations | None = None,
 ) -> MechanismView:
     """Align two instruction streams and classify the residual by mechanism.
 
@@ -2442,6 +2513,10 @@ def build_view(
         raise ValueError(
             f"unknown register profile {register_profile!r}; known profiles: {known}"
         ) from None
+    if register_profile != "ido53" and (
+        target_reservations is not None or candidate_reservations is not None
+    ):
+        raise ValueError("per-function reservations are supported only for ido53")
     if not target or not candidate:
         missing = "target" if not target else "candidate"
         raise ValueError(
@@ -2551,13 +2626,26 @@ def build_view(
         )
         counts[classification] = counts.get(classification, 0) + 1
 
-    lanes = _build_lanes(rows, profile)
+    lanes = _build_lanes(rows, profile, target_reservations, candidate_reservations)
     webs = _build_webs(rows)
     hunks = _hunks(rows)
     prefix_exact = _prefix_exact(rows)
     target_frame = frame_size(_joined(target))
     candidate_frame = frame_size(_joined(candidate))
     verdict, playbook = _verdict(counts, lanes, webs, register_profile)
+    if (
+        _gp_role_uncertain(webs, register_profile)
+        and _primary_class(counts) == REGISTER
+    ):
+        # Preserve the scalar residual and observable permutation, not a causal
+        # phase claim inferred from an unknown effective queue.
+        if verdict == "phase-shift":
+            verdict = (
+                "register-permutation"
+                if _consistent_permutation(webs)
+                else "allocation"
+            )
+        playbook = "register-role-audit"
     if _frame_layout_only(rows, target_frame, candidate_frame):
         verdict, playbook = "frame-layout", "stack-frame-recovery"
     ownership = ownership_for(
@@ -2587,13 +2675,25 @@ def build_view(
         lanes=lanes,
         webs=webs,
         guidance=(
-            _guidance(verdict, counts, lanes, webs, hunks, register_profile)
+            (
+                ()
+                if playbook == "register-role-audit"
+                else _guidance(verdict, counts, lanes, webs, hunks, register_profile)
+            )
             # Before the levers: which pass took the decision they are aimed
             # at, and whether a source edit reaches it at all. A reader who
             # spent minutes probing a force that was always going to decline
             # was missing exactly this line.
             + ownership.steps
             + next_steps(playbook)
+            + (
+                (
+                    "lane roles are conditional on supplied per-input reservations; "
+                    "they do not establish actual colored uses or causal ownership",
+                )
+                if target_reservations is not None or candidate_reservations is not None
+                else ()
+            )
             # Last, on purpose: the levers above are what to try, and this is
             # what to do when they run out. A reader who stops at the end of
             # the footer used to stop at "no source lever".
@@ -2607,6 +2707,8 @@ def build_view(
         warnings=tuple(warnings),
         pool=pool,
         evidence=evidence,
+        target_reservations=target_reservations,
+        candidate_reservations=candidate_reservations,
     )
 
 

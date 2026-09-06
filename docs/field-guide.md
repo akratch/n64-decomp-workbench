@@ -274,16 +274,19 @@ ugen. `view --register-profile ido53` (the default) uses exactly this table.
 | Population | Pass | Registers |
 |---|---|---|
 | `pool` | uopt coloring | `v0 v1 a0 a1 a2 a3 s0 s1 s2 s3 s4 s5 s6 s7 s8` |
-| `temp` | ugen ring | `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5` (ring order) |
+| `temp` | ugen scratch candidates | `t6 t7 t8 t9` |
+| `shared` | actual role unknown | `t0 t1 t2 t3 t4 t5` |
 | `fp-pool` | uopt coloring | `f0 f2 f12 f14 f16 f18 f20 f22 f24` |
 | `fp-temp` | ugen ring | `f4 f6 f8 f10` (ring order) |
 
 Two facts to hold on to, because three campaign agents assumed the opposite of
 both:
 
-* **`t0`–`t9` are never uopt colors under 5.3.** They are always ugen
-  block-local temps. A `t`-register difference is a temp-ring question, never a
-  coloring-priority one, and the levers are 14–16 rather than 7–13.
+* **`t0`–`t5` have shared possible roles under 5.3.** Colors c7–c12
+  can reserve them; unreserved entries may become UGEN temporaries. The
+  default `shared` lane means unknown actual role, not actual coloring.
+  Register substitutions alone cannot distinguish reservation changes from
+  expression-demand or lifetime changes. Diagnose those inputs before a lever.
 * **`f4/f6/f8/f10` are never uopt colors either.** They are the whole float
   ring: it is four wide, not six.
 
@@ -305,30 +308,31 @@ is why a forced-color probe on 5.3 must not assume a dense index space.
 
 ### The colorability gate — ask this before any color lever
 
-The table above decides something stronger than which pass to read: whether a
-color lever can work **at all**.
+The possible-color palette is distinct from these default role lanes. It
+includes t0–t5. A reservation need not survive as an emitted colored use.
+The ten-entry startup order is `t6 t7 t8 t9 t0 t1 t2 t3 t4 t5`; removals
+before allocation can change the available pool.
 
 A coloring pass can only put a value in a register it hands out. For IDO 5.3
-that is `pool` + `fp-pool`. Every other register in the table is reachable only
+that includes `pool` + `fp-pool` + the shared t0–t5 entries. A confirmed
+register outside that possible palette can be reached directly only
 by ugen's block-local ring. So when the *target* register at a divergence is
 ring-only, no reweighting, no tie-break, and no `CDX_FORCE` colour reaches it:
-the value has to become a different kind of value first. The residual is a
-**web-existence** question — which values became ring temps — not a colour
-question.
+This restricts direct forcing, not indirect coloring effects: a changed
+reservation can move temporary assignments without changing early demand order.
+Do not infer an unreachable source family from a temporary register name.
 
-`view` and `diagnose` now ask this before naming a playbook:
+`view` and `diagnose` separate direct palette limits from causal ownership:
 
-* every diverging target register ring-only → `verdict: register-ring-only`,
-  `playbook=temp-fifo-phase`, and the guidance names the registers;
-* some of them → the colour playbook still applies to the rest, with a `NOTE:`
-  counting the sites no colour can move;
-* none of them → unchanged.
+* GP scratch/shared substitutions → `playbook=register-role-audit`, unknown
+  ownership and `routing=evidence-first` until deciding evidence is available;
+* `ring_only_targets` describes only supported direct color limits;
+* possible-color membership does not prove actual colored ownership.
 
 `--json` carries the same fact as `ring_only_targets`, and
 `--emit-force-spec` refuses a wholly ring-only residual rather than writing a
-handoff for a probe that cannot fire. A forced-colour campaign against a `t6`
-target is dead on arrival, and one campaign found that out only by reading raw
-cost lines out of an instrumented compiler.
+handoff for an unsupported direct force. Indirect reservation effects remain
+possible. Candidate-only traces never establish the original target's pool.
 
 ### Any other release — unverified
 

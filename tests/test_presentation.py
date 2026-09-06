@@ -360,8 +360,8 @@ class GuidanceFooterTests(unittest.TestCase):
         self.assertLessEqual(max(len(line) for line in footer.splitlines()), 60)
 
     def test_the_dead_family_warning_survives_a_narrow_terminal(self) -> None:
-        self.assertIn("dead family here", self.footer("--width", "60"))
-        self.assertIn("dead family here", self.footer())
+        self.assertIn("does not establish", self.footer("--width", "60"))
+        self.assertIn("does not establish", self.footer())
 
     def test_wrapped_continuations_cannot_be_read_as_new_entries(self) -> None:
         footer = self.footer("--width", "60")
@@ -372,8 +372,7 @@ class GuidanceFooterTests(unittest.TestCase):
     def test_an_unbounded_width_leaves_the_footer_alone(self) -> None:
         footer = self.footer()
         self.assertIn(
-            "perturb the PRECEDING block: hoist a call-argument expression "
-            "into a named local, which reorders value deaths.",
+            "a rotation of visible registers does not establish a changed demand order",
             footer,
         )
 
@@ -407,7 +406,13 @@ class OrientationNoteTests(unittest.TestCase):
         self.assertNotIn("signature reads left to right", terse)
         self.assertNotIn("pool = uopt's colored", terse)
         self.assertNotIn("labels defined:", terse)
-        for kept in ("verdict: phase-shift", "REGISTER LANES", "WEBS", "[w1]", "next:"):
+        for kept in (
+            "verdict: register-permutation",
+            "REGISTER LANES",
+            "WEBS",
+            "[w1]",
+            "next:",
+        ):
             self.assertIn(kept, terse)
         self.assertLess(len(terse), len(full))
 
@@ -432,12 +437,14 @@ class HtmlGuidanceTests(unittest.TestCase):
     def test_a_lever_entry_renders_its_own_command(self) -> None:
         document = render_diagnosis_html(phase_view())
         self.assertIn(
-            '<li class="lever"><code>decomp-workbench guide 14</code>', document
+            "<code>decomp-workbench guide register-role-audit</code>", document
         )
 
     def test_commands_in_prose_entries_are_marked_up_too(self) -> None:
         document = render_diagnosis_html(phase_view())
-        self.assertIn("<code>decomp-workbench guide temp-fifo-phase</code>", document)
+        self.assertIn(
+            "<code>decomp-workbench guide register-role-audit</code>", document
+        )
 
     def test_the_snippets_need_no_network(self) -> None:
         document = render_diagnosis_html(phase_view())

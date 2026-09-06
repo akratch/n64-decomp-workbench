@@ -221,7 +221,7 @@ sections. Read the mechanism in this order.
 
 ```text
 view animStep  target_instructions=24 candidate_instructions=24 aligned_rows=24 match=18
-verdict: phase-shift  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=temp-fifo-phase
+verdict: register-permutation  structural=0 schedule=0 register=6 constant=0 hunks=1 playbook=register-role-audit
 signature: prefix-exact@12 state-divergence@temp:5 register-first-divergence
 webs: w1 t7->t8 x2, w2 t8->t9 x2, w3 t9->t6 x2, w4 t6->t7 x2
 the FIRST divergence is a register-class divergence, not a structural one: the decision was made upstream of hunk 1 even though it surfaces there.
@@ -298,17 +298,16 @@ consequences of the same rotation.
 ### 4. The `next:` footer — this is your instruction
 
 ```text
-next: one upstream event, not 6 sites (temp lane, slot 5, aligned row 12, rotation +1).
-      perturb the PRECEDING block: hoist a call-argument expression into a named local, which reorders value deaths.
-      or materialize a phantom pool get with `(x == C) != 0` inside a real `if`; a bare discarded expression is dropped with no codegen effect.
-      do not fix the divergent sites individually; declaration-order permutation is a dead family here.
+next: owning pass: unknown (heuristic) -- GP register substitutions do not distinguish UOPT reservations from UGEN demand/lifetime changes. A possible color is not an actual colored use, and a lane rotation does not prove a changed pop
+      reachability: unknown -- nothing here settles which pass owns this; fix the inputs, or supply a trace
+      read the capability/role distinction: decomp-workbench guide register-role-audit
 ```
 
 *(your terminal also prints the matching field-guide levers here — this page trims them for space)*
 
-Four lines: what happened, two levers to try, and one family explicitly ruled
-out. It also tells you what *not* to do — the dead families are as valuable as
-the live ones, because each one is a day you do not spend.
+This footer deliberately withholds a source prescription. A visible rotation
+does not distinguish changed demand from changed reservations; obtain that
+evidence before spending builds on a proposed pop or coloring intervention.
 
 ### Aside: why the alignment matters
 

@@ -5,6 +5,20 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Register capability is not per-function ownership
+
+- IDO 5.3 t0–t5 are possible UOPT colors and possible UGEN temporaries.
+  Register-only GP patterns now request ownership evidence instead of claiming
+  a FIFO phase cause or an unreachable color family. Scalar match counts and
+  exactness are unchanged; explicit legacy profiles remain diagnostic.
+- Separate, input-hash/symbol-bound reservation sidecars can project each
+  input's lanes conditionally. They never create a target trace, surviving
+  colored use, or proof from a subset of observed return registers.
+- FIFO initialization honors ordered ADD/REMOVE operations. Modern FREE and
+  FORCE_FREE entry hooks are requests, not successful appends; unresolved
+  requests and unscoped controls prevent a complete replay claim. Producers
+  must witness successful conditional list transitions for dynamic proof.
+
 ### Structural rankings retain extent and edit evidence
 
 - Automatic `rank`, `compile-rank`, and campaign ordering uses Pareto layers

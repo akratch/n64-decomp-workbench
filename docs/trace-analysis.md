@@ -1,5 +1,22 @@
 # Trace analysis
 
+## Register membership is not a register-name class
+
+IDO 5.3 t0–t5 can be UOPT colors or UGEN temporaries depending on procedure
+reservations. `trace-fifo` replays ordered leading ADD/REMOVE events before
+the first allocation, rather than treating all startup ADDs as the effective
+pool. A removal of an absent register is a no-op. Modern FREE/FORCE_FREE entry
+hooks are requests, not witnessed appends: their successful paths can append
+directly without an ADD hook. Such requests keep a full FIFO replay incomplete
+until successful-transition evidence exists. Legacy explicit APPEND traces
+retain their strict event meaning; unsupported queue controls remain errors.
+
+`--registers` and `--initial` express a conditional replay, not independent
+proof of membership. In particular, filtering to the observed allocation
+returns cannot authenticate the complete pool. Do not infer a target queue
+from candidate-only evidence or prescribe a demand/pop edit from a register
+rotation before separating these possibilities.
+
 Trace analysis answers a narrower question than disassembly: which compiler
 events produced an otherwise-correct register or scheduling pattern?
 

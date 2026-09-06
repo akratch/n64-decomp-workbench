@@ -349,7 +349,7 @@ decomp-workbench view-dumps \
 ```
 
 ```text
-"playbook": "temp-fifo-phase",
+"playbook": "register-role-audit",
 ```
 
 Compare the two `verdict` values and the two `words`/`register` counts. That

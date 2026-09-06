@@ -830,14 +830,8 @@ class CompareTests(unittest.TestCase):
         self.assertIn("separate acceptance gate", result.guidance[1])
         self.assertIn("cannot compensate", result.guidance[1])
 
-    def test_allocation_guidance_sends_the_reader_to_view_before_a_trace(self) -> None:
-        """Trace last is the doctrine everywhere else; this verdict said first.
-
-        `compare` cannot tell a temp-FIFO phase from a pool position, and it is
-        the command the README puts in front of every new reader. Naming a
-        globalcolor trace as the next step taught the opposite of `START_HERE`
-        on the busiest path in the tool.
-        """
+    def test_allocation_guidance_allows_unresolved_ownership(self) -> None:
+        """Inspect alignment first without promising it can identify a lever."""
 
         result = self.compare_text(
             "   0: 012a4021  addu $t0,$t1,$t2\n",
@@ -854,8 +848,11 @@ class CompareTests(unittest.TestCase):
         )
         self.assertLess(view_step, trace_step)
         self.assertIn("no instrumented toolchain", guidance[view_step])
-        self.assertIn("field-guide levers are exhausted", guidance[trace_step])
-        self.assertIn("last step, not the first", guidance[trace_step])
+        self.assertIn("ownership unresolved", guidance[view_step])
+        self.assertIn("neither trace-first", guidance[trace_step])
+        joined = " ".join(guidance)
+        self.assertNotIn("start with the one `view` names", joined)
+        self.assertNotIn("every lever in all three families", joined)
 
     def test_literal_only_difference_is_a_constant_verdict(self) -> None:
         result = self.compare_text(

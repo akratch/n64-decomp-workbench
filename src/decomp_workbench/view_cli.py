@@ -39,6 +39,7 @@ from .objdump import (
     selection_warnings,
     symbol_selection_error,
 )
+from .register_state import load_reservations
 from .schema import VIEW_CENSUS_KEYS
 from .terminal import (
     WEB_COLORS,
@@ -113,8 +114,9 @@ SIGNATURE_NOTE = (
 LANE_NOTE = (
     "pool = uopt's colored variable webs (lowest free index wins); "
     "temp = ugen's block-local least-recently-freed ring - two independent "
-    "register populations that diverge independently. Which registers are in "
-    "which population is per-compiler-era data: see --register-profile."
+    "register populations. shared = possible color or temp, actual role "
+    "unknown. Per-input supplied reservations project conditional lanes; "
+    "register-profile alone cannot prove the effective temporary pool."
 )
 KEY_NOTE = "labels defined: decomp-workbench --explain-keys"
 
@@ -917,6 +919,12 @@ def view_command(args: argparse.Namespace) -> int:
             symbol=symbol,
             register_profile=args.register_profile,
             warnings=warnings,
+            target_reservations=load_reservations(
+                args.target_reservations, args.target, symbol
+            ),
+            candidate_reservations=load_reservations(
+                args.candidate_reservations, args.candidate, symbol
+            ),
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -972,8 +980,14 @@ def view_dumps_command(args: argparse.Namespace) -> int:
             symbol=symbol,
             register_profile=args.register_profile,
             warnings=warnings,
+            target_reservations=load_reservations(
+                args.target_reservations, args.target, symbol
+            ),
+            candidate_reservations=load_reservations(
+                args.candidate_reservations, args.candidate, symbol
+            ),
         )
-    except ValueError as error:
+    except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     return _emit(view, args, predicates)
@@ -1076,6 +1090,12 @@ def add_view_render_arguments(
             )
         ),
     )
+    for side in ("target", "candidate"):
+        parser.add_argument(
+            f"--{side}-reservations",
+            help="input-hash/symbol-bound JSON with supplied conditional IDO 5.3 "
+            "shared GP reservations (not automatic trace proof)",
+        )
     add_color_argument(parser)
 
 

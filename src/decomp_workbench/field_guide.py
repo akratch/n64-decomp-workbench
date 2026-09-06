@@ -320,6 +320,7 @@ LEVER_ACTIONS: dict[int, str] = {
 #:
 #: Order is priority order, exactly as the document reads it.
 PLAYBOOK_LEVERS: dict[str, tuple[int, ...]] = {
+    "register-role-audit": (),
     "constant-audit": (1,),
     "ast-shape": (2,),
     # Lever 23 joins this family rather than replacing it: the -g0 probe is
@@ -403,6 +404,21 @@ VERDICT_PLAYBOOKS: dict[str, str] = {
 #: or an oracle therefore owes both branches, and the source-only branch comes
 #: with a cost ("one variant each") so it can be chosen honestly.
 PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
+    "register-role-audit": (
+        "read the capability/role distinction: "
+        "decomp-workbench guide register-role-audit",
+        "separate possible colors, per-procedure reservations, and actual "
+        "temporary returns before choosing a register lever; t0-t5 can serve "
+        "either role under IDO 5.3, not both at an inferred fixed boundary.",
+        "a rotation of visible registers does not establish a changed demand "
+        "order or one extra pop. Compare independently authenticated reservation "
+        "state first; identical demands can emit different registers when the "
+        "available pool changes.",
+        "trace-fifo --registers/--initial is a conditional replay: a subset of "
+        "observed returns is not proof of the complete available pool. Preserve "
+        "excluded events and unknown target state; do not manufacture a target "
+        "trace from the candidate or prescribe a buy/sell-pop edit from this view.",
+    ),
     "constant-audit": (
         "see every differing immediate side by side: "
         "decomp-workbench diagnose TARGET.o CANDIDATE.o --show-diff",
@@ -455,8 +471,9 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "don't have an instrumented toolchain? levers 14-16 are pure source "
         "and are the first move; the lane rotation above already locates the "
         "preceding block to perturb.",
-        "the register at a site is a pure function of the alloc/free event "
-        "sequence before it (ugen pops the head of a per-class free list and "
+        "given independently established available-pool membership, the "
+        "register at a site follows the alloc/free event sequence before it "
+        "(ugen pops the head of a per-class free list and "
         "frees to its tail - a least-recently-freed ring, re-seeded once per "
         "procedure). So do not chase the phase: chase the CLASS-CROSSING "
         "sites, where one side leaves as a ugen temp what the other colored. "
@@ -464,9 +481,9 @@ PLAYBOOK_ONRAMPS: dict[str, tuple[str, ...]] = {
         "score on the site count, not on raw words: partial closure is not "
         "monotone (a recorded run went 1416 -> 1413 -> 1445 -> 1477 -> 572 as "
         "sites closed). Confirm on words only at full closure.",
-        "which registers are temps at all is per-compiler-era data. Under IDO "
-        "5.3 -O2 -mips2 (probed) t0-t9 and f4/f6/f8/f10 are ALWAYS ugen "
-        "temps and never uopt colors; other releases are unverified. "
+        "which registers are available temps also depends on per-procedure "
+        "reservations. Under IDO 5.3 -O2 -mips2, t0-t5 are possible UOPT "
+        "colors and possible UGEN temps; other releases are unverified. "
         "decomp-workbench guide temp-fifo-phase carries the table.",
         "the float ring is FOUR wide. ugen's ffree initializer also lists "
         "f16/f18, but both are withdrawn before the first allocation and "
@@ -618,10 +635,11 @@ AMBIGUOUS_PLAYBOOK_FAMILIES: dict[str, tuple[tuple[str, str], ...]] = {
 #: over-commitment in a different sentence, so the neutral block gets a neutral
 #: pair.
 AMBIGUOUS_ONRAMPS: tuple[str, ...] = (
-    "don't have an instrumented toolchain? every lever in all three families "
-    "is source-only except lever 19 - start with the one `view` names, none "
-    "of them need a trace.",
-    "have one? it is still the last step: docs/compiler-instrumentation.md, "
+    "don't have an instrumented toolchain? inspect `view` first, but it may "
+    "leave the family unresolved. A source-only edit still needs evidence "
+    "that its mechanism applies; do not try every family by default.",
+    "have one? use it when the missing ownership evidence requires it: "
+    "docs/compiler-instrumentation.md, "
     "then decomp-workbench instrument-uopt-globalcolor and "
     "decomp-workbench trace-globalcolor TRACE.log --proc N.",
     # Gated on trace evidence, not on the verdict: this block deliberately
@@ -637,7 +655,7 @@ AMBIGUOUS_ONRAMPS: tuple[str, ...] = (
 #: less than `view` does and should not sound like it saw more.
 COARSE_ALLOCATION_LEAD_IN = (
     "(compare cannot see which of the three it is - run `view` first to "
-    "confirm the family before spending a variant.)"
+    "inspect the pattern; ownership may remain unresolved before spending a variant.)"
 )
 
 

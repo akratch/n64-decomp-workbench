@@ -49,6 +49,7 @@ from .loc_boundaries import (
     schedule_class_count,
 )
 from .model import display_path
+from .register_state import load_reservations
 from .schema import COMPARISON_CENSUS_KEYS
 from .staleness_cli import (
     add_freshness_arguments,
@@ -405,6 +406,12 @@ def diagnose_command(args: argparse.Namespace) -> int:
                 section=args.section,
                 register_profile=args.register_profile,
                 evidence=evidence,
+                target_reservations=load_reservations(
+                    args.target_reservations, args.target, args.symbol
+                ),
+                candidate_reservations=load_reservations(
+                    args.candidate_reservations, args.candidate, args.symbol
+                ),
             ),
             args,
             evidence,
@@ -431,6 +438,12 @@ def diagnose_dumps_command(args: argparse.Namespace) -> int:
                 symbol=args.symbol,
                 register_profile=args.register_profile,
                 evidence=evidence,
+                target_reservations=load_reservations(
+                    args.target_reservations, args.target, args.symbol
+                ),
+                candidate_reservations=load_reservations(
+                    args.candidate_reservations, args.candidate, args.symbol
+                ),
             ),
             args,
             evidence,

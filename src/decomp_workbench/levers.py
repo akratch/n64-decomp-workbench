@@ -20,13 +20,11 @@ This module does that arithmetic, and only that arithmetic:
 * **`line-order`** reads the `DKWB-EMIT-V1` emit-provenance records and the
   line-order conflicts already computed from them, which name the pair as1's
   minimised line key decides and the join that removes the separation.
-* **`pool-rotation`** / **`pool-population`** read the two pool lanes'
-  *lengths* first. Equal lengths make a colour-only residual a rotation, and
-  a rotation is decided by web numbering under whichever sweep owns the webs
-  -- which the CDX colouring records name and two disassemblies cannot.
-  Unequal lengths make it a population difference, which no colour lever
-  reaches, and that gate is the one `overlay43FilterImage` spent a lane
-  proving is needed.
+* **`pool-rotation`** / **`pool-population`** retain historical diagnostic
+  labels for the two pool lanes' assignment sequences. Their lengths count
+  emitted definitions, not distinct allocator webs. Neither equal nor unequal
+  lengths prove coloring population or source reachability; that needs CDX
+  records and per-input reservation evidence.
 * **`unreachable`** carries the four proofs that closed a target by ruling it
   out, so the next analyst does not spend a day re-deriving one. Three are
   catalogue entries keyed on the owning pass; the fourth, as1 readiness, is a
@@ -1234,9 +1232,8 @@ def _temp_ring_lever(
     lengths = measurements["pool_lane_length_delta"]
     if lengths:
         evidence.append(
-            f"pool lane differs in length by {lengths:+d}: a web population "
-            "difference, so a construct is carried in a coloured web on one "
-            "side and in a ring temp on the other"
+            f"pool lane differs in length by {lengths:+d} emitted definitions; "
+            "this does not count allocator webs or prove a class crossing"
         )
 
     if ring_events is None:
@@ -1289,14 +1286,14 @@ def _temp_ring_lever(
             "unscoped allocation evidence cannot be assigned to the selected procedure"
         )
     gp_events = [event for event in scoped if allocation_bank(event) == "gp"]
+    # The initializer's universe, not an inferred per-procedure available pool.
     gp_ring = {8, 9, 10, 11, 12, 13, 14, 15, 24, 25}
     if any(event.register not in gp_ring for event in gp_events):
         issues.append(
             "GP results include registers outside the supported temporary ring"
         )
     if any(
-        event.action in {"remove", "move-end"} and event.register in gp_ring
-        for event in scoped
+        event.action == "move-end" and event.register in gp_ring for event in scoped
     ):
         issues.append("GP queue controls require a richer replay model")
     if not gp_events:
@@ -1616,14 +1613,14 @@ def _pool_lever(
             lever_class=LEVER_POOL_POPULATION,
             reason=(
                 f"the pool lanes are {len(target)} and {len(candidate)} slots "
-                f"long, so this is a web population difference and not a "
-                f"rotation: the {surplus} colours "
-                f"{abs(delta)} value(s) the other side leaves in the temp "
-                "ring, and no colour lever reaches a web that does not exist"
+                f"long: the {surplus} has {abs(delta)} additional emitted "
+                "definition(s), not a rotation of equal sequences. This is "
+                "not a count of distinct colored webs and does not prove "
+                "which values cross into temporary allocation"
             ),
             evidence=(
-                "equal pool-lane lengths are the precondition for calling a "
-                "residual a rotation, and this pair does not meet it",
+                "lane lengths describe emitted assignments; authenticate "
+                "allocator webs and reservations before claiming a population change",
                 "on overlay43FilterImage (Mickey's Speedway USA, "
                 "2026-09-03) the same shape -- 18 target slots against 15 -- "
                 "was recorded as a rotation; forcing the four-web rotation "
@@ -1641,7 +1638,8 @@ def _pool_lever(
             lever_class=LEVER_POOL_ROTATION,
             reason=(
                 f"the pool lanes are the same length ({len(target)} slots) "
-                "and their contents differ, which is a rotation; which sweep "
+                "and their contents differ; equal lengths alone do not prove "
+                "a cyclic rotation or equal web populations. Which sweep "
                 "coloured these webs is a property of the allocator's own "
                 "records and not of two disassemblies, and p1 and p2 take "
                 "different levers"
@@ -1671,8 +1669,8 @@ def _pool_lever(
     measurements["involved_webs"] = [record.as_dict() for record in involved]
     pair, note = _residual_pair(involved, substitutions)
     evidence: list[str] = [
-        f"pool lanes equal at {len(target)} slot(s), so the residual is a "
-        "rotation and not a population difference",
+        f"pool lanes equal at {len(target)} emitted definition(s); this does "
+        "not by itself prove equal allocator-web populations",
         note,
         *force_notes,
     ]
@@ -1989,6 +1987,29 @@ def lever_for(
 
     if frames_differ or rows or owning == OWNING_PASS_STACK_HOME:
         return _stack_home_lever(view, ladder, rows, homes)
+    if view.playbook == "register-role-audit":
+        observed = [
+            event.register
+            for event in (ring_events or ())
+            if allocation_bank(event) == "gp"
+            and (proc is None or event.procedure == proc)
+        ]
+        return Lever(
+            lever_class=LEVER_NONE_KNOWN,
+            reason="possible-color and temporary roles overlap; neither a lane "
+            "rotation nor a filtered replay proves reservation or "
+            "demand-order causality",
+            measurements={
+                "observed_gp_results": observed,
+                "observation_scope_proc": proc,
+                "complete_reservation_state": None,
+                "target_reservation_state_proved": False,
+            },
+            needs=(
+                "authenticate per-side reservation metadata and complete GP "
+                "events before choosing a pop or coloring intervention",
+            ),
+        )
     if owning == OWNING_PASS_UGEN_RING:
         return _temp_ring_lever(view, ring_events, proc, source)
     if owning == OWNING_PASS_G0_SCHEDULER or emit_events is not None:

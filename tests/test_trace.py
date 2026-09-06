@@ -134,8 +134,8 @@ class TraceTests(unittest.TestCase):
             [
                 "allocate",
                 "append",
-                "append",
-                "append",
+                "free-request",
+                "free-request",
                 "remove",
                 "move-end",
             ],
@@ -279,7 +279,7 @@ class TraceTests(unittest.TestCase):
         events = parse_trace(
             "DKWB-FREELIST ADD reg=14 emitted=257\n"
             "DKWB-FREELIST ALLOC reg=14 emitted=258\n"
-            "DKWB-FREELIST FREE reg=14 emitted=259\n"
+            "DKWB-FREELIST ADD reg=14 emitted=259\n"
         )
         emission_map = parse_emission_map(
             {

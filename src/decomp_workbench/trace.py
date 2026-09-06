@@ -403,8 +403,13 @@ def normalize_action(tag: str, fields: dict[str, str]) -> str:
             return "allocate"
         if event is not None and event.startswith("ALLOC"):
             return "unsupported-allocation"
-        if event in {"ADD", "FREE", "FORCE_FREE"}:
+        if event == "ADD":
             return "append"
+        if event in {"FREE", "FORCE_FREE"}:
+            # Entry-side requests can be rejected by usage/membership checks.
+            # Successful FREE paths can append directly, without an ADD hook.
+            # Do not pretend this entry hook witnesses that conditional action.
+            return "free-request"
         if event == "REMOVE":
             return "remove"
         if event == "MOVE_END":
@@ -531,6 +536,8 @@ class FifoReplay:
     ignored_events: int
     procedure: int | None = None
     allocation_event_counts: dict[str, int] = field(default_factory=dict)
+    initialization_basis: str = "unknown"
+    unresolved_free_requests: int = 0
 
     @property
     def valid(self) -> bool:
@@ -547,6 +554,8 @@ class FifoReplay:
             "valid": self.valid,
             "initial_queue": self.initial_queue,
             "initial_queue_names": [register_name(item) for item in self.initial_queue],
+            "initialization_basis": self.initialization_basis,
+            "unresolved_free_requests": self.unresolved_free_requests,
             "final_queue": self.final_queue,
             "final_queue_names": [register_name(item) for item in self.final_queue],
             "allocations": self.allocations,
@@ -632,7 +641,13 @@ def parse_emission_map(value: object) -> dict[int, EmissionLocation]:
 
 
 def infer_initial_queue(events: Iterable[TraceEvent]) -> list[int]:
-    """Use unique leading appends before the first allocation as the seed."""
+    """Replay leading ADD/REMOVE membership before the first allocation.
+
+    The ten-entry initializer is not necessarily the effective pool: UOPT
+    reservations withdraw entries before UGEN's first returned allocation.
+    REMOVE is a no-op when the register is absent, matching the membership gate.
+    Free requests are not successful transitions and do not seed this queue.
+    """
 
     queue: list[int] = []
     for event in events:
@@ -644,6 +659,8 @@ def infer_initial_queue(events: Iterable[TraceEvent]) -> list[int]:
             and event.register not in queue
         ):
             queue.append(event.register)
+        elif event.action == "remove" and event.register in queue:
+            queue.remove(event.register)
     return queue
 
 
@@ -699,15 +716,17 @@ def replay_fifo(
 ) -> FifoReplay:
     """Replay allocation and append events as a strict FIFO.
 
-    If no initial queue is supplied, unique appends before the first allocation
-    seed it. Those seed events are not replayed as frees.
+    If no initial queue is supplied, leading ADD/REMOVE transitions seed it.
+    Those initialization events are not replayed twice. Modern FREE requests
+    are not ADDs; legacy explicit APPEND records retain their strict meaning.
     """
 
     all_events = list(events)
     fifo_events = [
         event
         for event in all_events
-        if event.action in {"allocate", "append"} and event.register is not None
+        if event.action in {"allocate", "append", "remove", "move-end"}
+        and event.register is not None
     ]
     procedures = {
         event.procedure for event in fifo_events if event.procedure is not None
@@ -720,7 +739,11 @@ def replay_fifo(
             "trace contains multiple procedures; pass --proc to prevent FIFO "
             "events from different functions being combined"
         )
-    if procedure is None and procedures and unscoped:
+    unscoped_requests = any(
+        event.action == "free-request" and event.procedure is None
+        for event in all_events
+    )
+    if procedures and (unscoped or unscoped_requests):
         raise ValueError(
             "trace mixes procedure-scoped and unscoped events; recapture with one "
             "procedure-aware instrument rather than guessing ownership"
@@ -739,6 +762,13 @@ def replay_fifo(
         )
         and (selected_procedure is None or event.procedure == selected_procedure)
     ]
+    unresolved_requests = [
+        event
+        for event in all_events
+        if event.action == "free-request"
+        and (selected_procedure is None or event.procedure == selected_procedure)
+        and (registers is None or event.register in registers)
+    ]
     inferred = initial_queue is None
     seed = infer_initial_queue(relevant) if inferred else list(initial_queue or [])
     queue = list(seed)
@@ -750,6 +780,31 @@ def replay_fifo(
         for event in all_events
         if selected_procedure is None or event.procedure == selected_procedure
     )
+    if any(
+        event.action in {"append", "remove", "free-request", "move-end"}
+        and event.register is None
+        and (selected_procedure is None or event.procedure == selected_procedure)
+        for event in all_events
+    ):
+        violations.append("queue control lacks a physical register")
+    if inferred:
+        prefix: set[int] = set()
+        for event in relevant:
+            if event.action == "allocate":
+                break
+            if event.action == "append" and event.register is not None:
+                if event.register in prefix:
+                    violations.append("initialization contains a duplicate ADD")
+                prefix.add(event.register)
+            elif event.action == "remove" and event.register is not None:
+                prefix.discard(event.register)
+    if any(event.action == "move-end" for event in relevant):
+        violations.append("MOVE_END queue controls are not supported by this replay")
+    if unresolved_requests:
+        violations.append(
+            "FREE/FORCE_FREE entry requests do not witness successful appends; "
+            "complete FIFO replay requires transition evidence"
+        )
     next_value = 1
     max_live = 0
     seen_allocation = False
@@ -790,7 +845,28 @@ def replay_fifo(
         register = event.register
         if register is None:  # Guard the invariant established by filtering.
             continue
-        if event.action == "append" and inferred and not seen_allocation:
+        if event.action in {"append", "remove"} and inferred and not seen_allocation:
+            continue
+        if event.action == "move-end":
+            continue
+        if event.action == "remove":
+            if register in queue:
+                queue.remove(register)
+            object_row, source_line, source_file, instruction = joined(event)
+            logical.append(
+                LogicalEvent(
+                    action="remove",
+                    value=0,
+                    register=register,
+                    source_line=source_line,
+                    trace_line=event.index,
+                    emitted_index=event.emitted_index,
+                    object_row=object_row,
+                    source_file=source_file,
+                    instruction=instruction,
+                    procedure=event.procedure,
+                )
+            )
             continue
         if event.action == "allocate":
             seen_allocation = True
@@ -833,11 +909,12 @@ def replay_fifo(
             max_live = max(max_live, len(live))
         else:
             value = live.pop(register, None)
-            if value is None:
+            if value is None and event.fields.get("_event") != "ADD":
                 violations.append(
                     f"trace line {event.index}: appended "
                     f"{register_name(register)} without a live allocation"
                 )
+            if value is None:
                 value = 0
             if register in queue:
                 violations.append(
@@ -862,6 +939,21 @@ def replay_fifo(
             )
 
     return FifoReplay(
+        initialization_basis=(
+            "supplied-initial-state"
+            if not inferred
+            else "unresolved-prefix"
+            if any(
+                event.index
+                < next(
+                    (item.index for item in relevant if item.action == "allocate"),
+                    float("inf"),
+                )
+                for event in unresolved_requests
+            )
+            else "replayed-add-remove-prefix; trace completeness not inferred"
+        ),
+        unresolved_free_requests=len(unresolved_requests),
         initial_queue=seed,
         final_queue=queue,
         allocations=allocations,
