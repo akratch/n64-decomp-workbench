@@ -10,6 +10,10 @@ hooks are requests, not witnessed appends: their successful paths can append
 directly without an ADD hook. Such requests keep a full FIFO replay incomplete
 until successful-transition evidence exists. Legacy explicit APPEND traces
 retain their strict event meaning; unsupported queue controls remain errors.
+The authenticated `DKWB-FREELIST MOVE_END` hook is a request affecting the USED
+list, not the free FIFO. It remains visible as `used-list-request` in parsed
+events but cannot change or invalidate the separate free queue. Other producers'
+unknown move controls are not silently granted that contract.
 
 `--registers` and `--initial` express a conditional replay, not independent
 proof of membership. In particular, filtering to the observed allocation

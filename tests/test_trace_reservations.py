@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from decomp_workbench.trace import (
     TraceEvent,
@@ -118,17 +119,36 @@ class InitializationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replay_fifo(trace, procedure=3)
 
-    def test_unknown_used_list_control_is_not_silent(self) -> None:
-        report = replay_fifo(
-            events(
-                [
-                    "ADD proc=1 reg=14",
-                    "MOVE_END proc=1 reg=14",
-                    "ALLOC_GP_RESULT proc=1 reg=14",
-                ]
-            )
+    def test_unknown_queue_control_is_not_silent(self) -> None:
+        trace = events(
+            [
+                "ADD proc=1 reg=14",
+                "MOVE_END proc=1 reg=14",
+                "ALLOC_GP_RESULT proc=1 reg=14",
+            ]
         )
+        # Only the authenticated producer's known used-list operation is exempt.
+        trace[1] = replace(trace[1], action="move-end")
+        report = replay_fifo(trace)
         self.assertFalse(report.valid)
+
+    def test_known_used_list_request_leaves_free_fifo_unchanged(self) -> None:
+        for scope in ("proc=1", "proc=2", ""):
+            with self.subTest(scope=scope):
+                trace = parse_trace(
+                    "CODEX-UGEN-APPEND proc=1 reg=14\n"
+                    "CODEX-UGEN-ALLOC proc=1 reg=14\n"
+                    f"DKWB-FREELIST MOVE_END {scope} reg=14\n"
+                    "CODEX-UGEN-APPEND proc=1 reg=14\n"
+                )
+                report = replay_fifo(trace, procedure=1)
+                self.assertTrue(report.valid, report.violations)
+                self.assertEqual(report.initial_queue, [14])
+                self.assertEqual(report.final_queue, [14])
+                self.assertEqual(report.allocations, [14])
+                self.assertEqual(trace[2].action, "used-list-request")
+                with self.assertRaises(ValueError):
+                    replay_fifo(trace, procedure=2)
 
     def test_explicit_procedure_does_not_discard_unscoped_controls(self) -> None:
         for control in ("REMOVE", "FREE", "FORCE_FREE"):

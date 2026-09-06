@@ -20,7 +20,12 @@ from decomp_workbench.register_state import (
     RegisterReservations,
     load_reservations,
 )
-from decomp_workbench.view import MechanismView, build_view, colorable_registers
+from decomp_workbench.view import (
+    MechanismView,
+    PassEvidence,
+    build_view,
+    colorable_registers,
+)
 
 
 def make_view(
@@ -28,6 +33,7 @@ def make_view(
     candidate: list[str],
     target_state: RegisterReservations | None = None,
     candidate_state: RegisterReservations | None = None,
+    evidence: PassEvidence | None = None,
 ) -> MechanismView:
     return build_view(
         parse_disassembly(assemble(target, symbol="demo"), symbol="demo"),
@@ -37,6 +43,7 @@ def make_view(
         symbol="demo",
         target_reservations=target_state,
         candidate_reservations=candidate_state,
+        evidence=evidence,
     )
 
 
@@ -69,6 +76,48 @@ class ReservationTests(unittest.TestCase):
         lever = lever_for(view)
         self.assertIsNone(lever.measurements["complete_reservation_state"])
         self.assertIsNone(lever.family)
+
+    def test_decisive_evidence_keeps_dispatch_consistent(self) -> None:
+        cases = (
+            (
+                PassEvidence(contested_allocation=True),
+                "uopt-globalcolor",
+                "forced-color-oracle",
+                None,
+            ),
+            (
+                PassEvidence(force_declined=True),
+                "uopt-globalcolor",
+                "forced-color-oracle",
+                None,
+            ),
+            (
+                PassEvidence(ring_pop_divergence=True),
+                "ugen-temp-ring",
+                "temp-fifo-phase",
+                "temp-ring",
+            ),
+            (
+                PassEvidence(schedule_slot_divergence=True),
+                "g0-scheduler",
+                "g0-schedule-probe",
+                "line-order",
+            ),
+        )
+        for evidence, owner, playbook, lever_class in cases:
+            with self.subTest(owner=owner, evidence=evidence):
+                view = make_view(["lw t0,0(a0)"], ["lw t2,0(a0)"], evidence=evidence)
+                self.assertEqual(view.owning_pass, owner)
+                self.assertEqual(view.ownership.basis, "trace")
+                self.assertEqual(view.playbook, playbook)
+                self.assertNotEqual(view.routing, "evidence-first")
+                self.assertNotIn("ownership: unknown", " ".join(view.guidance))
+                lever = lever_for(view)
+                self.assertNotIn(
+                    "possible-color and temporary roles overlap", lever.reason
+                )
+                if lever_class is not None:
+                    self.assertEqual(lever.lever_class, lever_class)
 
     def test_supplied_sides_do_not_leak_and_remain_conditional(self) -> None:
         five = RegisterReservations(

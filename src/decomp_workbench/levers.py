@@ -1987,7 +1987,9 @@ def lever_for(
 
     if frames_differ or rows or owning == OWNING_PASS_STACK_HOME:
         return _stack_home_lever(view, ladder, rows, homes)
-    if view.playbook == "register-role-audit":
+    if view.playbook == "register-role-audit" and not (
+        view.evidence is not None and view.evidence.decisive
+    ):
         observed = [
             event.register
             for event in (ring_events or ())

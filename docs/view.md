@@ -345,6 +345,10 @@ proof; output retains that basis and causal ownership stays unknown. Missing
 target state remains unknown and is never copied from the candidate. Duplicate,
 unsupported-register, stale-input and wrong-symbol sidecars refuse. This
 projection is available only for `ido53`; legacy/unverified profiles stay intact.
+Existing decisive `PassEvidence` remains authoritative for its supported
+globalcolor, ring-pop or scheduler decision: ownership, playbook and lever
+dispatch follow that evidence. Conditional reservation sidecars alone do not
+activate those paths or turn unknown ownership into proof.
 
 The float ring is four registers wide even though ugen initializes `ffree` with
 six. `f16`/`f18` are withdrawn before the first allocation and never handed out

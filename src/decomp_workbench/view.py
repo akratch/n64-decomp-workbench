@@ -2633,9 +2633,16 @@ def build_view(
     target_frame = frame_size(_joined(target))
     candidate_frame = frame_size(_joined(candidate))
     verdict, playbook = _verdict(counts, lanes, webs, register_profile)
+    decisive_gp_evidence = bool(
+        evidence is not None
+        and evidence.decisive
+        and _gp_role_uncertain(webs, register_profile)
+        and _primary_class(counts) == REGISTER
+    )
     if (
         _gp_role_uncertain(webs, register_profile)
         and _primary_class(counts) == REGISTER
+        and not decisive_gp_evidence
     ):
         # Preserve the scalar residual and observable permutation, not a causal
         # phase claim inferred from an unknown effective queue.
@@ -2651,6 +2658,14 @@ def build_view(
     ownership = ownership_for(
         verdict, rows, lanes, webs, register_profile, warnings, evidence
     )
+    if decisive_gp_evidence:
+        # Explicit existing trace evidence remains authoritative. Conditional
+        # reservation sidecars never settle causal ownership.
+        playbook = {
+            OWNING_PASS_UOPT_COLOR: "forced-color-oracle",
+            OWNING_PASS_UGEN_RING: "temp-fifo-phase",
+            OWNING_PASS_G0_SCHEDULER: "g0-schedule-probe",
+        }.get(ownership.owning_pass, playbook)
     return MechanismView(
         symbol=symbol,
         target=target_name,
@@ -2677,7 +2692,7 @@ def build_view(
         guidance=(
             (
                 ()
-                if playbook == "register-role-audit"
+                if playbook == "register-role-audit" or decisive_gp_evidence
                 else _guidance(verdict, counts, lanes, webs, hunks, register_profile)
             )
             # Before the levers: which pass took the decision they are aimed

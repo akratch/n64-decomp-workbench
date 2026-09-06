@@ -137,7 +137,7 @@ class TraceTests(unittest.TestCase):
                 "free-request",
                 "free-request",
                 "remove",
-                "move-end",
+                "used-list-request",
             ],
         )
 

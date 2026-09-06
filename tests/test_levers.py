@@ -265,9 +265,13 @@ class TempRingLeverTests(unittest.TestCase):
         }
         for name, trace in cases.items():
             with self.subTest(name=name):
+                events = parse_trace(trace)
+                if name == "queue control":
+                    # Unknown free-queue control, not authenticated used-list MOVE_END.
+                    events[-1] = dataclasses.replace(events[-1], action="move-end")
                 lever = lever_for(
                     self.rotation_view(),
-                    ring_events=parse_trace(trace),
+                    ring_events=events,
                     proc=3,
                     source=source,
                 )

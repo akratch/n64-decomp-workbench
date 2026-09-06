@@ -413,7 +413,9 @@ def normalize_action(tag: str, fields: dict[str, str]) -> str:
         if event == "REMOVE":
             return "remove"
         if event == "MOVE_END":
-            return "move-end"
+            # This authenticated producer reorders the USED list only.
+            # Other producers' generic queue controls retain refusal semantics.
+            return "used-list-request" if upper == "DKWB-FREELIST" else "move-end"
     if "ALLOC" in upper:
         return "allocate"
     if "APPEND" in upper:
