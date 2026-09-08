@@ -341,6 +341,24 @@ LEVER_ACTIONS: dict[int, str] = {
         "equal lengths are the precondition for a rotation, unequal lengths are "
         "a population difference and no colour reaches a web that does not exist"
     ),
+    45: (
+        "where the target loads a field into a scratch register and copies it "
+        "into a saved one, spell the later use as the field access again: uopt "
+        "commons it but keeps two live carriers and emits the copy, which a "
+        "single cached local never produces"
+    ),
+    46: (
+        "count the declared locals before reading the frame as an allocation "
+        "defect: the list's length sizes the local block in 8-byte steps and "
+        "its order fixes every home at frame_top - 4k, so census the target's "
+        "displacements and order the declarations to match"
+    ),
+    47: (
+        "screen the per-TU compiler flag off the target's own codegen "
+        "signature before searching the flag lattice by compiling, then decide "
+        "it by measurement: a signature that appears in every unit cannot "
+        "discriminate, and half of one such screen's predictions were wrong"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.

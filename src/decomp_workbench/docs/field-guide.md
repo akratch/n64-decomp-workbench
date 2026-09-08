@@ -1073,6 +1073,109 @@ about *hand* levers. Run
 [L81](compiler-laws/ido-5.3.md#l81-address-reassociation-is-insensitive-to-where-the-definition-is-written),
 [L82](compiler-laws/ido-5.3.md#l82-an-argumentreturn-coalescing-tie-is-not-a-source-form).
 
+### 45. Repeat the field read to buy the register-to-register copy
+
+**Diff looks like:** `lever: carrier-count` — the target loads a field into a
+scratch register and copies it into a saved one; the candidate loads it once
+into the saved register and never emits the copy. Instruction counts differ by
+exactly the copies, and every later relocation is shifted by that index.
+
+[Lever 40](#40-de-declare-a-value-so-it-takes-a-compiler-temp-home) repeats an
+*expression* to move its home out of the declared block. This is the sibling
+edit with a different effect: repeat the **field access** and uopt commons it
+as a CSE but keeps *two live carriers*, and materialising the second carrier is
+the copy.
+
+```c
+/* before — one carrier, no copy */
+s32 phase = state->phase;
+seed(phase);
+advance(entity, phase);
+
+/* after — the second spelling commons to the same value but leaves the
+   scratch load live, so the copy into the saved register is emitted */
+seed(state->phase);
+advance(entity, state->phase);
+```
+
+A cached local is exactly what suppresses this, which is why the intuitive
+"avoid the redundant load" edit moves the residual the wrong way. Measured on
+Mickey's `func_8001D960`: **196 to 27 differing words** on this edit alone,
+because the one missing instruction had been shifting every later relocation
+by an index. The function matched from there.
+
+**Do not confuse it with a dead read.** Levers 8 and 9 cover a genuinely dead
+load placed to move priority; this one's value is consumed twice and the
+second read is not dead at all.
+
+**Points here:** `lever_class=carrier-count`, and a relocation count that
+matches while the instruction count does not.
+
+### 46. Census the declarations before reading the frame as an allocation defect
+
+**Diff looks like:** `lever: frame-size` or `lever: stack-home` with the frame
+off by a multiple of 8 and several homes displaced together.
+
+The declared-local list is a frame instrument twice over. Its **length** sizes
+the local block in 8-byte steps; its **order** fixes every home at
+`frame_top - 4k`. So a frame delta is a declaration-count question before it is
+an allocation question, and displaced homes are an ordering question.
+
+The procedure is mechanical, and beats searching:
+
+1. Census the target's stack displacements for call-crossing values.
+2. Count them. That is the local block's size, and therefore the number of
+   declarations the source needs.
+3. Order the declarations so each lands on its measured displacement.
+
+Dropping one m2c-only local moves the frame while the instruction count barely
+changes — which is the signature that tells you the frame, not the body, is the
+defect. On Mickey this closed five homes in one function and the entire frame
+of another (`0x120` to `0x108`, four m2c-only locals), and it was the dominant
+lever across two whole translation units.
+
+Every declared `f32` or pointer local reserves a stack home whether or not it
+is register-coloured, so an unused declaration still costs frame.
+
+**Points here:** `lever_class=frame-size` with the instruction counts close,
+and [lever 26](#26-recover-stack-homes-without-losing-the-live-range-topology)
+having already been spent.
+
+### 47. Screen a per-TU flag off the target, then decide it by measurement
+
+**Diff looks like:** a residual that will not converge however good the C is,
+across *several* functions in one translation unit.
+
+A per-TU compiler flag makes every candidate in the unit wrong by a constant,
+so it reads as many separate function-level walls. Some flags have a local,
+recognisable codegen signature and can be screened straight off the
+disassembly, with no compilation: IDO under `-Wab,-r4300_mul` separates two
+adjacent single-precision multiplies with a scheduler nop, and counting those
+takes seconds where searching the flag lattice by compiling takes hours.
+
+**But a screen is not a verdict, and this one is the cautionary case.** Every
+translation unit in Mickey that has such a pair shows the nop — 51 of 51 — so
+the signature is necessary and cannot discriminate. Setting the flag on the six
+units the screen named split them exactly evenly: three improved (−15, −23, −27
+masked words) and three regressed (+28, +13, +8), and the unit with the
+*strongest* signature in the tree was the worst regression, driving one
+function backwards out of its class.
+
+So screen with the signature and decide with measurement:
+
+1. Set the flag on **one** unit.
+2. Rebuild and confirm the ROM is still byte-identical. That proves no
+   already-matched function in the unit moved, and it is cheap.
+3. Re-measure the queue and keep the flag only if the unit's masked words fall.
+
+Step 3 has a trap of its own: a ranking tool that caches per-function scores
+will republish them unchanged after a flag edit unless you ask it to
+*re-measure*. A real change looking like no change is usually this.
+
+**Points here:** several functions in one unit stalled together, and
+[lever 3](#3-rebuild-the-same-candidate-with--g0-and-compare-again) already
+falsified.
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a
