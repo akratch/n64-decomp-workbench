@@ -861,3 +861,34 @@ the wrong sites; the table is an input, and a run without one says so.
   a force proof (items 8 and 16).
 - **Blocked on nothing.** The inputs are counts the host already records to
   file a plateau.
+
+### 18. A forced result and a stock result score identically
+
+- **Symptom.** Every comparison reports the same shape of score whether the
+  object came from the stock compiler or from a run with allocator forcing on.
+  `oracle` states the rule -- "web IDs and forced objects are never source-match
+  evidence" -- but states it as prose inside a `proof` string, so a consumer
+  reading `exact` and a differing-word count has nothing structural telling it
+  which kind of run produced them. During a Mickey's Speedway USA campaign on
+  2026-09-08 a supervising agent read `0/403`, `0/146`, `0/131` and `0/22` from
+  forced diagnostic runs and reported four exact matches to its operator. None
+  were matches; all four lanes went on to file plateaus. The scores were
+  correct and the reading was wrong, and nothing in the data could have
+  corrected it.
+- **Proposed change.** Classify the build environment and say what the result
+  supports, in the data-in/verdict-out shape `next_steps` and `read_series`
+  already use. Landed as `provenance.py`: `classify_environment` maps a build
+  environment to `stock`, `forced`, or `unknown`, and `read_result` turns an
+  exact-or-not result plus that provenance into `match`,
+  `reachability-proof`, `unverified`, or `no-claim`.
+- **Payoff.** The one failure mode that costs an operator trust -- a confident
+  false match -- becomes unrepresentable in the reading rather than a rule the
+  reader has to remember.
+- **What it must not do.** Guess. A caller that cannot say how the object was
+  built gets `unknown`, which is never promotable; defaulting to `stock` would
+  recreate the false positive. It also does not inspect objects or run
+  compilers: only the project knows how its build was invoked, the same
+  boundary the staleness work (item 1) and the stall reading (item 17) hold.
+- **Still open.** Nothing calls it yet. Wiring it into the comparison and score
+  outputs, so a forced run's own report carries the classification, is the
+  follow-up.
