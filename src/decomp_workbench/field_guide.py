@@ -314,6 +314,33 @@ LEVER_ACTIONS: dict[int, str] = {
         "statement, and an empty-body `if` folds AFTER compute_save; three "
         "refs in ONE statement is the step, four collapses codegen"
     ),
+    40: (
+        "de-declare a value so it takes a compiler-temp home: the frame is "
+        "[declared locals][cfe temps][uopt temps] and reordering declarations "
+        "only permutes slots inside the first region, so a value the target "
+        "homes among the temps can never be reached by declaration order"
+    ),
+    41: (
+        "buy or sell a ring pop with a construct that costs one; levers 15 and "
+        "16 buy a pop with a mask, and three ordinary-code constructs move the "
+        "same counter when a mask is not available"
+    ),
+    42: (
+        "join an initialiser to the loop header's physical line: a "
+        "loop-invariant hoisted into the preheader is stamped with the loop "
+        "header's line, not its use site's, which is the recurring case behind "
+        "an initialiser/loop-invariant line-order conflict"
+    ),
+    43: (
+        "read the proof before re-deriving it: four residual classes are closed "
+        "by recorded rulings, each of which cost a day and a dozen builds; they "
+        "are levers in the sense that matters most, telling you what not to spend"
+    ),
+    44: (
+        "read the pool lanes' lengths before calling a residual a rotation: "
+        "equal lengths are the precondition for a rotation, unequal lengths are "
+        "a population difference and no colour reaches a web that does not exist"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.
@@ -1190,8 +1217,14 @@ def sections() -> dict[int, GuideSection]:
 def topic_names() -> tuple[str, ...]:
     """Return every accepted topic, in the order the index prints them."""
 
+    # A playbook with an on-ramp but no levers is still a real topic: three
+    # relocation verdicts route to `relocation-only`, whose whole answer is the
+    # on-ramp command rather than a source lever. Leaving it out of this tuple
+    # made `guide relocation-only` an error for the verdict class that gates
+    # the most bytes in a real campaign.
     return (
         *PLAYBOOK_LEVERS,
+        *(name for name in PLAYBOOK_ONRAMPS if name not in PLAYBOOK_LEVERS),
         *sorted(VERDICT_PLAYBOOKS),
         *(str(number) for number in sorted(LEVER_ACTIONS)),
     )
@@ -1214,6 +1247,9 @@ def resolve_topic(topic: str) -> Topic:
             levers=PLAYBOOK_LEVERS[name],
             playbook=name,
         )
+    if name in PLAYBOOK_ONRAMPS:
+        # Levers are optional; the on-ramp is the guidance.
+        return Topic(name=name, kind="playbook", levers=(), playbook=name)
     playbook = VERDICT_PLAYBOOKS.get(name)
     if playbook is not None:
         return Topic(
