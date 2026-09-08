@@ -819,3 +819,45 @@ the wrong sites; the table is an input, and a run without one says so.
   residual name; an incomplete honest plan is the existing contract.
 - **Blocked on nothing.** The inputs are the ones `diagnose --ladder
   --force-result` already takes.
+
+### 17. Stopping evidence: read the attempt *series*, not one comparison
+
+- **Symptom.** Every workbench verdict describes a single comparison. Nothing
+  reads a *series*, so "should the next attempt happen at all?" is left to the
+  host project, and every host reaches for the same proxy: a fixed attempt
+  count. On Mickey's Speedway USA (2026-09-08) that proxy failed in both
+  directions inside one wave. `func_8000590C`, a 719-word structural
+  reconstruction, improved monotonically across its series -- 692, then 619,
+  then 538 differing words, with extent and frame proved correct along the way
+  -- and was stopped at the count while still gaining; the plateau it filed
+  names an untested lever. In the same wave
+  `func_overlay_092_F0000068_18D5F88` had a committed handoff already recording
+  the flag lattice exhausted, donor scans negative, and the adjacent
+  explicit-dereference mechanism flat in three isolated forms; the correct
+  number of further attempts was zero, and a count would have granted nine
+  attempts of headroom whose only possible result was re-deriving a known-flat
+  answer. One proxy, two opposite failures, same day.
+- **Proposed change.** A `stall` reading, shaped like `next_steps`: data in,
+  verdict out. Given a series of already-measured attempts -- best residual per
+  attempt, and what each attempt *eliminated* -- return `improving`,
+  `stalled(n)` after n consecutive attempts that moved neither the residual nor
+  the hypothesis set, or `closed-by-evidence` when the target's own recorded
+  history already rules out the mechanisms still available. The host supplies
+  the series; the workbench supplies the reading.
+- **Payoff.** Replaces an arbitrary constant with measured stopping evidence,
+  in both directions: it keeps a working search alive and it ends a search that
+  has stopped learning. It also gives a plateau record something better than a
+  count -- the last attempt that moved anything, and what the following ones
+  failed to move.
+- **What it must not do.** Own or schedule attempts; only the project runs
+  those, and a workbench that guessed the loop would be guessing the chain the
+  staleness work deliberately refused to guess (item 1). Nor may it read a bare
+  score improvement as progress: a nonexact candidate that merely scores better
+  is not evidence, and `oracle`'s existing rule -- a forced or nonexact result
+  is never adopted because its number improved -- has to hold here too, or the
+  reading would license exactly the grinding it exists to stop. A stall is also
+  not a reachability claim: "this search stopped learning" and "no source
+  reaches this" are different statements, and the second needs the permuter or
+  a force proof (items 8 and 16).
+- **Blocked on nothing.** The inputs are counts the host already records to
+  file a plateau.
