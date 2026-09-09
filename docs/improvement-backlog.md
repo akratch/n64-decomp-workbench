@@ -1110,3 +1110,17 @@ and a score-0 there would be a false ceiling.
 Where the scratch word count differs from the real object, the importer should
 carry the whole TU. Until then the wrapper should compare the two and refuse to
 report a score when they disagree.
+
+## Teach the donor-claim guard about split translation units
+
+`check_donor_claims.py` maps our TU to the donor's by basename, which is right
+for the common case and wrong for a TU this project has split. `src/main/menu.c`
+and `src/main/menu_3B1A0.c` are two halves of what JFG keeps as one `src/menu.c`,
+so a perfectly valid donor claim on the second half is refused with "donor has
+no counterpart file".
+
+It caught a real mistake of mine the first time it fired, so the fail-closed
+behaviour is right. But it should accept a declared split mapping — a small
+table of `ours -> theirs` overrides consulted before the basename rule — rather
+than forcing the claim to be restated under a weaker mechanism than the one
+that is actually true.
