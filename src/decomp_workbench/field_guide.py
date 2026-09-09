@@ -366,6 +366,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    49: (
+        "capture ugen's textual output with -l and re-assemble it under the "
+        "compiler path's own as1 flags: the round trip is byte-exact, which "
+        "makes the assembler phase directly searchable and settles whether a "
+        "residual is reachable from C at all"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.

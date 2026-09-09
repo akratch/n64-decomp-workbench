@@ -1219,6 +1219,57 @@ to be a register-naming problem with 93%+ mnemonic agreement.
 and any verdict of `structure-mismatch` on a function whose mnemonic census is
 close.
 
+### 49. Replay the assembler phase to find out whether C can reach the residual
+
+**Diff looks like:** a small, stubborn residual that survives every source form
+you can think of — and, in particular, one you suspect is decided after the
+compiler proper has finished.
+
+`ugen` accepts `-l <file>` and writes its output as **text**; that is what
+`cc -S` uses. Re-assembling that text with `acpp` + `as0` + `as1` reproduces
+the compiler's own object **byte for byte** — but only under the *compiler
+path's* `as1` flags. The driver's own `.s` path is not equivalent: it adds
+`-pic0 -noglobal`. Drop those two and the round trip is exact.
+
+That turns the last phase from an opaque step into a searchable space: edit the
+listing, re-assemble, score. Combined with a direct `cc` loop
+([lever 47](#47-screen-a-per-tu-flag-off-the-target-then-decide-it-by-measurement)'s
+companion technique) one campaign measured **~500 scored candidates per
+second** — 720 declaration orders in 3.5 s, a 3,840-cell lattice in 17 s.
+
+**Its most valuable use is the negative.** Feed `as1` the candidate's own
+listing with one hand edit applied — on Mickey's `overlay11UpdateMenu`, two
+spill stores exchanged — and if the result reproduces the target exactly, you
+have positively proved that the rest of the C is already correct and that this
+one difference *is* the whole residual. Then ask whether any C could produce
+it. There the answer was no:
+
+- `ugen` already emitted the pair in the target's order; `as1` exchanged them.
+- `ugen` orders caller-save spills strictly ascending by register — **73 of 73**
+  comparable sites in that tree, including 38 where register order and home
+  offset disagree. The target needed descending.
+- The only barrier that blocks the exchange is a `.loc` naming a *greater* line
+  between the two stores, and `ugen` emits at most one `.loc` per statement
+  while both spills belong to the same call statement.
+
+So the function is not source-reachable at those flags, and twenty further
+source forms would have held at the same score. **Recording that is worth more
+than a match on a different function**, because it stops every future worker
+from re-searching a space that provably contains no answer. Reopening such a
+target needs a new *input* — a compile mode that changes the assembler's memory
+disambiguation or debug context — not another spelling.
+
+A second reading falls out of the same replay: an operand appearing in `$at`
+outside a `.set noat` sequence is an **`as1` constant-multiply expansion**, not
+anything `ugen` chose. It tells you the source multiplies where you may have
+written a shift.
+
+**Caution:** `cc -S` writes `<basename>.s` into the *current* directory and
+ignores `-o`, so any parallel harness must run it in a private cwd.
+
+**Points here:** a residual under ~5 words that survives a wide source sweep,
+and any question of the form "can C even express this?".
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a
