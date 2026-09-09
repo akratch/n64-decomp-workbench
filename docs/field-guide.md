@@ -1381,6 +1381,55 @@ line code with no loop has no induction variable to recover.
 **Points here:** `lever_class` register-only or colour-only on a loop, with
 the instruction count already exact and the ordering family already spent.
 
+### 52. A colour tie is decided by rule, not by spelling
+
+**Diff looks like:** a residual of two or three register words that survives
+every source lattice you can build — declaration orders, dead stores, inert
+operations, restructurings — all flat, on functions whose instruction stream
+is already exact.
+
+That flatness is not bad luck and it is not evidence the target is
+unreachable. **uopt walks a web's admissible colours in ascending order and
+keeps the first strict minimum.** When two registers both cost `0.0` the lower
+one wins every time, and *no spelling can move a tie the allocator never
+re-examines*. Three functions in one translation unit each differed by a single
+`a0`-versus-`a1` choice and were written off as "proved not source-level" after
+132 declaration permutations, ten dead-store spellings, six selection
+restructurings and a full flag lattice. Every one of those was searching a
+space that could not contain the answer.
+
+The instrumented compiler settles it in one capture. Two readings matter:
+
+- `forbidden0` decodes as **bit `31 − colour`** and holds exactly the colours
+  of *interfering coloured webs* plus registers pinned by calls or parameters
+  the web spans. If nothing pins the register you want, no amount of
+  rearranging will forbid the one you are getting.
+- Priority is `references / bucket(references + spanning statements)`, buckets
+  2 for raw 3–5, 3 for 6–9, 4 for 10–13, ties broken by **ascending web
+  index**.
+
+**The lever is to create one more interfering caller-saved web that emits no
+instruction.** A *tested dead expression* does it, and three constraints each
+kill it alone:
+
+1. **Two references.** A single mention is folded before web numbering — which
+   is exactly why every earlier single-site probe read as flat.
+2. **The value must be tested.** `if (E);` and `if (!(E));` work; `E;`,
+   `(void)(E);` and `while (0) { E; }` are discarded first. `E && E` costs
+   branches, and repeating `E` inside one statement is CSE'd back to one.
+3. **It must out-rank the target web.** Placement changes the bucket: a
+   reservation set after a selection block spans two statements too many,
+   drops a priority tier, and colours *behind* the web you meant to displace.
+
+[Lever 46](#46-census-the-declarations-before-reading-the-frame-as-an-allocation-defect)
+then prices it — the reservation costs a frame step unless an already-declared
+local carries the value.
+
+**Points here:** `lever_class` register-only or colour-only, instruction census
+already zero, and an ordering lattice that has come back flat. Flatness across
+an entire source family is the signature of a rule, and the answer is to read
+the rule rather than widen the search.
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a

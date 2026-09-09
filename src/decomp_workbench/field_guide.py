@@ -366,6 +366,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    52: (
+        "read the allocator's own rule before respelling a colour: uopt walks "
+        "a web's admissible colours ascending and keeps the FIRST STRICT "
+        "minimum, so a tie between two zero-cost registers is never "
+        "re-examined and no source form moves it -- the lever is an extra "
+        "interfering web, not a different spelling"
+    ),
     51: (
         "replace a hand-written pointer cursor with an index over the "
         "parallel arrays: the emitted cursors are uopt's own strength-reduced "
