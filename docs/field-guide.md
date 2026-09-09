@@ -1277,6 +1277,16 @@ written a shift.
 **Caution:** `cc -S` writes `<basename>.s` into the *current* directory and
 ignores `-o`, so any parallel harness must run it in a private cwd.
 
+**Take the instruction census over the function symbol's `st_size`, never over
+the section.** IDO pads `.text` to a 16-byte boundary with `nop`s, and
+`objdump -d -z` prints padding as instructions — so a section-wide count can
+report a candidate as size-exact when it is two instructions short, which is
+exactly the reading a reconstruction pass is trying to make. One lane's first
+"delta 0" was really −2. This sits beside the companion trap that **without**
+`-z` a run of zero words is *elided* instead: one direction invents
+instructions, the other loses them, and only a symbol-scoped extract with `-z`
+is right.
+
 **Points here:** a residual under ~5 words that survives a wide source sweep,
 and any question of the form "can C even express this?".
 

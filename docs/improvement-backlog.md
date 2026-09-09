@@ -1172,3 +1172,23 @@ Two cheap guards would have caught all of it: have the link failure suggest
 `gmake overlay-syms` by name when the undefined symbols are resident
 addresses, and have the promotion path check that every resident call the new
 object makes has a matching rename in `mk/overlays.mk` before the commit.
+
+## Whole-file authorization validation turns one bad row into a queue-wide outage
+
+`reopen_authorizations` validates the entire authorization document eagerly and
+raises on the first invalid row, so **every** symbol any lane queries fails with
+a reason naming a function that lane never asked about. It has now happened
+twice on Mickey with different defects: a ledger commit whose handoff shard
+named a different source path, and a source/ledger pair on divergent branches
+where neither commit was an ancestor of the other. Each time, every lane's
+queue screen went dark until a coordinator dropped the row.
+
+Failing closed is right — a half-validated authorization file is worse than
+none. But the blast radius is wrong. Validate lazily per symbol, or validate
+eagerly and report the bad rows while still answering for the good ones. A lane
+asking about `func_X` should not be told about `func_Y`.
+
+Both times the lane diagnosed it correctly and declined to edit the shared
+config, which is the right instinct and also why the outage persisted until a
+human-equivalent noticed. That argues for the tool surfacing it loudly rather
+than relying on the reader.
