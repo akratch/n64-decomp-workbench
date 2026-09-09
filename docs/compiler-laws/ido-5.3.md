@@ -306,6 +306,29 @@ in the frame" are different claims.
 **Provenance:** ge007 `mp_watch_menu_display` (2026-08), stages `symdump`,
 `finalframe` (`L-ff-1`/`L-ff-2`), `birthorder`.
 
+**A measured boundary, not yet reconciled (T2, Mickey 2026-09-10).** On
+Mickey's `func_8005A7A0` (`src/main/models_5B300.c`, `-O2 -mips2 -32`) three
+carrier facts were measured by score delta, and one of them sits awkwardly
+against the sentence above:
+
+- A live scalar carrier costs **4 bytes rounded to 8**. Adding two used locals
+  moved the frame `0x50` -> `0x58` with the score unchanged.
+- A **wholly unreferenced** declaration measured **frame-inert**. L53 above says
+  a home is reserved "whether or not it is ever *coloured*", which is a claim
+  about colouring, not about referencing; a local that cfe discards before the
+  symbol block is never a declared local in L53's sense. The two readings are
+  compatible, but nothing here has proved which one applies, and L53's receipt
+  is T1 from a different title while this is T2 from build outcomes. Do not
+  cite either as settling the other.
+- Removing a **used** declaration does **not** always remove a carrier.
+  Dropping `lastAnimation` left the frame at `0x50` and regressed the score to
+  27 words.
+
+The practical consequence is that "drop a declared local" is not a sufficient
+statement of the lever. On that function the requirement was **six fewer live
+carriers at the same instruction count**, which no single declaration edit
+reaches. Count carriers, not declarations.
+
 ### L54. An array's unaddressed interior is spendable frame
 
 An array whose **base only** is ever addressed can be shrunk, and the freed
@@ -2849,3 +2872,38 @@ redundant integer mask still costs a ring pop, which makes it a lever. The
 floating-point equivalent does not exist: under IDO 5.3 at `-O2`, `x * 1.0f`
 on an `f32` folds to **no instruction at all** and is allocation-inert. It buys
 nothing and cannot be used to move an FP web.
+
+### L90. uopt normalizes a *basic* induction variable's exit test, not a derived one
+
+uopt rewrites a **basic** induction variable's `i < K` loop-exit test into
+`i != K`, hoisting `K` into a register. This is unconditional normalization,
+not a proof-guarded transform: it fires for every test spelling, for every
+statement-order and initializer-order permutation, and — decisively — for
+steps that do **not** divide the range, so no divisibility proof guards it.
+`-O1` keeps the immediate compare, which places the rewrite in uopt rather
+than in cfe or ugen; the `-Wo,-loopunroll` settings are inert to it.
+
+uopt does **not** rewrite a **derived** induction variable. Spelling the exit
+test as a pointer difference against the row base is therefore the
+source-reachable way to keep an `slti`, and it reproduces the target's inner
+loop instruction for instruction.
+
+**The two behaviours cannot be had at once.** The derived form pays one
+structural word: uopt synthesizes the derived initializer as a self-subtraction
+where the target has a zero move. uopt *does* fold `p - p` to `0` in the scalar
+path — but folding makes the variable **basic** again, and the exit test is
+then rewritten. Closing either half reopens the other, so a residual that is
+exactly this pair is not a spelling problem and should not be swept as one.
+
+**Receipt — T2, probe ladders and score deltas; the pass source was not read.**
+Mickey's Speedway USA `func_8003A754` (`src/main/menu_3B1A0.c`, `-O2 -mips2
+-32`, no `-Wo,-loopunroll`), 2026-09-10. Measured with a direct IDO compile at
+the TU's recovered flags, confirmed to reproduce the build's own object.
+Baseline holds at 12 differing words across 9 test spellings and all 12
+statement-order × initializer-order permutations. The derived-pointer form
+scores 16, of which exactly one word is structural (the self-subtraction
+above); it restores the outer branch displacement and is the first
+source-reachable `slti` on this function. Retired in the same sweep: counter
+types `u32`, `long`, `char *`, `u8 *` and `s32 *` are inert; `s8` keeps the
+compare but pays for it in sign extension; every `do`/`while`/`for` form
+unrolls.
