@@ -987,3 +987,22 @@ nothing is currently at risk — but wiring the gate before those are resolved
 would fail every merge.
 
 Resolve the three, then add `--check` beside `--check-redefines`.
+
+### The concrete fix for the address-scoring item above: mask the UNION
+
+A lane solved this by measurement rather than design. The defect is that the
+comparator masks a word when *the candidate* carries a relocation there. splat
+sometimes emits an address as an unrelocated literal `%hi`/`%lo` split, so the
+target side has no relocation at that word and the mask does not apply.
+
+**Mask a word if EITHER side carries a relocation at that offset.** The lane
+built exactly that and its scorer then reproduced `wb_compare.sh --summary-json`
+on all four of its TUs (4 / 19 / 24 / 39) — where the one-sided mask miscounts
+one of them by 3. That is the whole change, and it is verifiable against the
+existing tool on any function.
+
+Also worth carrying over: `objdump -d -r` prints relocation offsets in *section*
+coordinates while a home-grown scorer indexes instructions from the function's
+base. Not rebasing them silently unmasks relocated words — it produced a false
+4-word residual on a function that was actually exact, and inflated another from
+15 to 18.
