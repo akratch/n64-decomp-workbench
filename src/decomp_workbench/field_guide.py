@@ -371,7 +371,9 @@ LEVER_ACTIONS: dict[int, str] = {
         "yours emits the scaled index first, cast the BASE to s32 before "
         "adding the byte offset -- &a[i], a + i, &i[a] and (u8*)a + (i<<3) "
         "all emit index-first, and the integer cast is the one form that "
-        "reverses the operands"
+        "reverses the operands -- it changes what the operand WEIGHS (L92), "
+        "which is why the spelling lattice is flat; commutative arithmetic "
+        "only, it does not reach comparison operand order"
     ),
     55: (
         "solve the frame for a cell COUNT before respelling: with N frame "

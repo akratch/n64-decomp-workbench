@@ -1406,8 +1406,20 @@ scaled index first; the integer cast emits the base first.
 **Do not** expect the pointer-arithmetic lattice to reach it. That lattice is
 the obvious thing to sweep and it is uniformly flat here — the operand order
 is decided after the address expression has been normalised, so respelling the
-address does not touch it. The cast works because it changes the *type* of the
-left operand, not its form.
+address does not touch it.
+
+**The mechanism is now known:**
+[L92](compiler-laws/ido-5.3.md#l92-a-commutative-operands-weight-not-its-written-order-decides-which-side-it-lands-on).
+IDO canonicalizes a commutative operation so the *heavier* operand is the left
+one; the cast works because it changes what the operand **weighs**, not how it
+is spelled. That also explains the flat lattice: respelling an address does not
+change its weight. Where you can reach the same word through a struct member
+rather than an index, that is the other way to choose a side — a member
+reference is light, an indexed array reference is heavy.
+
+**Scope: commutative arithmetic only.** An `(s32)` cast does **not** reach
+comparison evaluation order — measured directly, casts left compare operand
+order unmoved. Do not carry this lever across to a compare.
 
 **In context:** on that function the cast was one of three edits that only
 worked composed — each was inert or a regression alone. The other two were

@@ -2701,6 +2701,13 @@ concluded from it.
   `before`/`aftercycles`/`maxhazard`/successor latencies and one record per
   selection. Byte-inert, no patched binary, no profile to pin
   ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)).
+* **`cc -g3` + `.mdebug`** — an exact frame *home census* with no patched
+  compiler: `-g3` keeps `.text` unchanged while emitting `.mdebug` home
+  offsets, which decompose the frame into argument area, saved registers,
+  declared block and temps. That turns "the frame is 16 bytes too big" into a
+  statement about which of the four regions carries the excess
+  ([L53](#l53-the-frame-is-a-byte-map-and-every-declared-local-has-a-home-in-it)).
+  Confirm `.text` inertness on the function in hand before concluding from it.
 * **`uopt -Wo,-zdbug:2`** — stock uopt writes `./uoptlist`: flow graph, unroll
   trace, and the full itable in `printitab` form. No instrumented compiler
   needed.
@@ -2964,3 +2971,67 @@ declined**: an initialisation in an argument slot is not plausible original
 source. Recorded because the *inert comma* form of the same idea scores 27, so
 the two are not the same mutation and the earlier rejection of the comma form
 does not cover this one.
+
+### L92. A commutative operand's weight, not its written order, decides which side it lands on
+
+IDO canonicalizes a commutative operation so the **heavier** operand becomes
+the left one, and emits the *right* operand's load first. Source order does not
+survive: `a[k] * x` and `x * a[k]` compile byte-identically.
+
+Weight is a property of the reference shape, and the boundary is sharp:
+
+- an **indexed array reference** is heavy;
+- a **struct-member reference is not**.
+
+So reaching the identical word through a member (`s.field`) instead of an index
+(`a[k]`) keeps the order as written, and is the reachable way to choose a side.
+This is not a relocation artifact — across the measured pair the relocation is
+unchanged (`HI16`/`LO16` on the same symbol, same addend).
+
+**This is the mechanism under
+[field-guide lever 54](../field-guide.md#54-cast-the-base-to-s32-to-make-ugen-sum-an-address-base-first).**
+Casting a base to `s32` reverses an address sum because the cast changes the
+operand's *weight*, which is also why the whole pointer-arithmetic lattice is
+flat: respelling an address does not change what the operands weigh.
+
+**Scope — it governs commutative arithmetic only.** An `(s32)` cast does **not**
+reach comparison evaluation order; measured directly, casts left comparison
+operand order unmoved. Do not carry this law across to a compare.
+
+**Receipt — T2, build outcomes; the pass source was not read.** Mickey's
+Speedway USA `overlay41AddSlot` (`func_overlay_041_F0001650_1888988`),
+2026-09-10, one of two mechanisms that took the function to a byte-identical
+match promoted through `gmake verify`. The byte-identity of the two written
+orders, and the difference under the member spelling, were each measured by
+compiling the alternatives at the TU's own flags. The `(s32)` half was
+independently reproduced on `overlay33InitializeBuffers` (the `addu` at
+`+0xDC`) and the comparison-order negative on `overlay19ClassifyEdge`.
+
+### L93. A top-tested loop numbers the exit copy below the counter; a bottom-tested one does not
+
+`do { } while (n--)` and `while (n--) { }` can be made to run the same
+iterations, but they do not colour the same. Only the **top-tested** form gives
+the loop-exit copy a **lower uopt web number** than the counter. Web number
+breaks the colouring tie, so the two forms hand the counter and its dead copy
+opposite registers.
+
+The conversion is not free and the cost is the trap: preserving the iteration
+count across the rewrite requires bumping the initial value by one (11 -> 12 in
+the measured case). A rewrite that changes the shape without adjusting the
+bound changes the behaviour, and a rewrite that adjusts it without checking the
+web numbers changes nothing.
+
+**Reach for it only on a counter/dead-copy pair.** It moves *that* pair. On a
+loop whose residual is a limit-and-cursor ordering it does not apply: measured
+on `overlay20RemoveEntry`, the top-tested compaction shifts limit and cursor
+*down* one colour each, where the target *inverts* their order, and giving the
+marker loop its own counter swapped only that loop's pair and left the limit
+where it was.
+
+**Receipt — T2, build outcomes; the pass source was not read.** Mickey's
+Speedway USA `overlay41AddSlot`, 2026-09-10, the second of the two mechanisms
+behind that function's promoted, `gmake verify`-confirmed match: the top-tested
+form colours the counter `a1` and its dead copy `v1`, the bottom-tested form
+the reverse. The negative on `overlay20RemoveEntry` was measured in the same
+lane and falsifies the reading that that function's dead `move v0,v1` is an
+invisible web blocking its colouring.
