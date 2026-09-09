@@ -2742,3 +2742,88 @@ The field guide answers "what do I change". This page answers "what will the
 compiler do about it". When they disagree, the guide is the one that gets
 edited: a lever is a hypothesis about mechanism, and mechanism is measured
 here.
+
+### L87. The carrier-colour law: schedule and pool colour are one decision
+
+**Receipt — T2, three measurements on one translation unit.** Measured on
+`src/overlays/o001/overlay_001_tail.c` in Mickey's Speedway USA from build
+outcomes: the colouring order was read off compiled objects and the spelling
+table below is a set of byte comparisons against the same base. The pass
+records were not read, so the *mechanism* is inferred rather than logged; what
+is directly measured is that reordering statements never separates the two
+effects, and that the `^ 0` at the use separates them every time.
+
+uopt colours pool webs in the order of each web's **first surviving
+definition, in source statement order**, and ugen emits them in that same
+order. So the schedule and the colouring are not two knobs — they are one, and
+**reordering statements to fix a colour always moves the schedule with it.**
+A residual that is "right schedule, wrong colours" cannot be closed by any
+permutation of the statements that produce those values.
+
+What decides whether a value gets a pool colour at all:
+
+| Spelling | Effect |
+|---|---|
+| a named local | takes a **pool colour**, numbered in statement order |
+| the same value spelled as the field or global access again | becomes a **CSE temp**, numbered after *every* named local — see [L76](#l76-a-struct-field-read-through-a-local-costs-one-ring-pop-a-direct-read-does-not) |
+| declaration order, and `register` | **inert**, reconfirming [L63](#l63-declaration-order-places-a-call-crossing-spill--reconfirmed-and-usable-as-a-lever) outside the stack-home case |
+| a genuinely dead store | reserves **no** colour — uopt kills it before web numbering |
+| `value = 0`, likewise never read | **does** reserve one |
+
+That last pair is the sharp edge: two stores that a reader would both call dead
+differ by whether uopt eliminates them *before* web numbering runs.
+
+**The lock breaks at the use, not at the definition.** An inert operation
+written where the value is *consumed* keeps the schedule exactly and still
+moves the colouring:
+
+```c
+/* schedule exact, two colours exchanged */
+if (record->group == group) { ... }
+
+/* same schedule, both colours restored */
+if (record->group == (group ^ 0)) { ... }
+```
+
+Operand order matters here, and [L67](#l67-a-comparison-prints-its-copy-propagated-variable-first) says why:
+`(group ^ 0) == record->group` costs one further word.
+
+### L88. A colour residual with an identical ring order is a site, not a phase
+
+**Receipt — T2, with a byte-identity corroboration.** The ring-order comparison
+and the two half-edits are build-outcome measurements on Mickey's
+`func_8001D960`. The composition claim is stronger than T2 on its own: the
+composed edit produced a byte-identical ROM rebuild, so the pair is confirmed
+by identity even though the ring mechanism behind it was inferred.
+
+When both objects pop the temp ring in the *same* order — for the integer ring,
+[L64](#l64-the-integer-temp-ring-is-seeded-t6-t7-t8-t9-t0--t5)'s seed — and
+differ only in which source site draws which ordinal, the residual is **not** a
+ring phase and chasing the phase is wasted effort.
+
+Find instead the one site where one side spends a **ugen ring temp** and the
+other a **uopt pool colour**. Naming a value adds the colour; inlining it
+removes it; and which direction is correct is per function, readable from the
+target. On `func_8001D960` the site was a call result the candidate had named
+and the target drew from the ring — and the neighbouring case in the same
+`switch` already spelled the identical expression inline, so the asymmetry was
+visible in the source before any measurement.
+
+**The edits compose, and neither half is a signal.** Inlining that value alone
+was a *regression* (103 differing words, one instruction too many). Inlining it
+**and** sinking an unrelated `|=` below the whole product was exact. No search
+over single edits finds that, and a single-edit accept rule rejects both halves.
+
+### L89. `x * 1.0f` on an `f32` is not the FP phantom pop
+
+**Receipt — T3, one observation, not swept.** Seen once on Mickey's
+`src/main/charControl.c` while looking for an FP analogue of L65. Treat as a
+lead: it says the obvious spelling buys nothing on that function, not that no
+FP identity anywhere can move a web.
+
+Negative result, worth recording because the analogy is tempting.
+[L65](#l65-a-redundant-mask-still-costs-one-ring-pop--the-phantom-pop) says a
+redundant integer mask still costs a ring pop, which makes it a lever. The
+floating-point equivalent does not exist: under IDO 5.3 at `-O2`, `x * 1.0f`
+on an `f32` folds to **no instruction at all** and is allocation-inert. It buys
+nothing and cannot be used to move an FP web.
