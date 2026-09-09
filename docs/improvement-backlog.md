@@ -1124,3 +1124,51 @@ behaviour is right. But it should accept a declared split mapping — a small
 table of `ours -> theirs` overrides consulted before the basename rule — rather
 than forcing the claim to be restated under a weaker mechanism than the one
 that is actually true.
+
+## Merge policy: single-writer artifacts where two correct edits do not compose
+
+A recurring integration failure class, now seen three times on Mickey with
+three different file types. The lane merge driver keeps both sides of a
+conflicting hunk, which is right for prose and for a Makefile gaining two
+different per-file flags, and wrong whenever the file is a **list with
+uniqueness semantics**:
+
+- **JSON.** A keep-both hunk spliced two records together without a delimiter
+  and produced a file no reader could parse. Fixed by matching `.json` by
+  suffix and parse-checking before staging.
+- **A `POSTPROCESS` recipe.** Two lanes independently restored overlay 60's
+  missing resident-call renames; the merge kept both, giving 110
+  `--redefine-sym` entries for 59 unique symbols. `objcopy` refuses a duplicate
+  outright, so the object stopped building, `reloc_surface` then read a *stale*
+  object and silently dropped nine aliases, and the ROM stopped verifying --
+  four steps from the cause, with an error naming none of them. Fixed with a
+  per-recipe duplicate check that fails at resolution time.
+- **A plateau shard.** Regenerated after the merge commit rather than in it,
+  so the next merge refuses with "tracked changes present". Already queued
+  above.
+
+The general rule worth building into the tool: **classify each conflicting
+path as prose, list, or generated, and pick the policy from the class** rather
+than from a hardcoded filename set. A list takes one side whole and is then
+validated; a generated file is regenerated; only prose keeps both. Every one of
+these three was found by a downstream symptom rather than at the merge, which
+is the expensive way.
+
+## `reloc_surface.py` failure modes are indistinguishable from source defects
+
+Three separate lanes lost cycles to the same thing, so it is worth tooling
+rather than documenting again. It rewrites resident-call symbol names *inside
+the compiled overlay objects*, and only `gmake overlay-syms` applies it. So:
+
+- A fresh worktree does not link -- `R_MIPS_26 relocation truncated to fit`
+  against resident symbols, which reads exactly like a real relocation bug.
+- The renames are silently discarded by anything that rebuilds objects,
+  including `gmake extract` and any edit to `symbol_addrs.us.txt`.
+- Worst: a promotion's own `gmake verify` can pass in a worktree holding
+  renames the *commit* does not carry, so the tree stops linking for everyone
+  else. Overlay 60 shipped 8 of its 51 resident renames that way.
+
+Two cheap guards would have caught all of it: have the link failure suggest
+`gmake overlay-syms` by name when the undefined symbols are resident
+addresses, and have the promotion path check that every resident call the new
+object makes has a matching rename in `mk/overlays.mk` before the commit.
