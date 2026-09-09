@@ -1192,3 +1192,58 @@ Both times the lane diagnosed it correctly and declined to edit the shared
 config, which is the right instinct and also why the outage persisted until a
 human-equivalent noticed. That argues for the tool surfacing it loudly rather
 than relying on the reader.
+
+## A falling similarity count after masking is `autojunk`, not the greedy-vs-LCS gap
+
+A Mickey reconstruction lane reported that `difflib.SequenceMatcher` "is a
+greedy longest-block heuristic, not an LCS, and collapses on
+relocation-masked instruction streams (398 → 302 identical rows when masking
+made the streams *more* similar)", and concluded that **any** scorer built on
+it under-reports. The observation is real and the direction is right. The
+named mechanism is wrong, and acting on it would have sent someone to replace
+a matcher that was not the problem.
+
+Measured, seeded, reproducible:
+
+- **Greedy-vs-LCS is real but inert at scale.** It is trivial to exhibit
+  (`abcabba` vs `cbabac`: matcher 3, true LCS 4). At realistic stream sizes it
+  effectively vanishes — 400-row streams with 40 edits, 60 trials per arm:
+  wide alphabet **0 of 60** trials under-reported, narrow alphabet 3 of 60,
+  worst single trial **1 row**, aggregate **0.01%** low. It cannot produce a
+  96-row drop, and reaching for it as the explanation is a dead end.
+- **`autojunk` is the mechanism, and it keys on exactly what masking does.**
+  It engages once `b` reaches 200 rows and then refuses to anchor a match on
+  any row occurring in more than 1% of `b`. Masking collapses distinct
+  operands onto a few shared keys, which is precisely how a row becomes
+  "popular". Same heavily-diverged 400-row pair, one arm masked: unmasked the
+  heuristic costs **1 row of 352**; masked it costs **21 of 356 (6%)**. So the
+  score falls *because* the streams got more similar — the reported paradox,
+  from the right knob.
+- **It only bites on heavily-diverged pairs.** On near-identical streams the
+  cost is zero, because `find_longest_match` extends blocks across junk and
+  recovers what the heuristic skipped. Two attempts to reproduce an output
+  difference on a real near-identical path produced byte-identical reports.
+  That regime split is why this hides: it is invisible exactly where people
+  test it and active exactly where they rank on it.
+
+**Audit result: the workbench is clean.** Every `SequenceMatcher` call in
+`compare.py`, `shift_align.py`, `streams.py`, `regions.py`, `composition.py`,
+`loc_boundaries.py` and `view.py` already passes `autojunk=False`, including
+the one scored value (`streams.py`'s `similarity`). The single site that did
+not was in the host project (Mickey's `candidate_context.py`), now fixed.
+
+**Proposed change.** Two cheap ones. First, a test that fails if any
+`SequenceMatcher` in the package is constructed without an explicit
+`autojunk=False` — the property is currently maintained by convention across
+seven files and one careless addition silently breaks a scored number.
+Second, a line in [Metric traps](metric-traps.md): a similarity score that
+*falls* when you make two streams more alike is a signature, and it points at
+the popularity heuristic, not at the matcher's optimality.
+
+The broader lesson: a lane's observation is usually worth more than its
+diagnosis. The 398 → 302 number was a genuine finding. Everything the lane
+concluded *about* it was wrong — and the conclusion is the part that would
+have been acted on. Treat a reported mechanism as a hypothesis with a
+measurement attached, and check the magnitude before rewriting anything: the
+gap between "this effect exists" and "this effect explains 96 rows" is where
+the wasted work lives.

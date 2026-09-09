@@ -1183,7 +1183,7 @@ will republish them unchanged after a flag edit unless you ask it to
 *re-measure*. A real change looking like no change is usually this.
 
 **Points here:** several functions in one unit stalled together, and
-[lever 3](#3-rebuild-the-same-candidate-with--g0-and-compare-again) already
+[lever 3](#3-the--g0-diagnostic) already
 falsified.
 
 ### 48. Cross-check a positional score against a shift-tolerant one
