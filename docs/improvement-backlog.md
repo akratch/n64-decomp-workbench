@@ -1023,3 +1023,90 @@ something different from the game.
 Worth a check in the permuter wrapper: diff the candidate against the base for
 deleted statements and assignments to loop-carried variables, and warn loudly
 before a non-matching candidate is adopted.
+
+## Measurement cost: `wb_compare.sh` is 25–60× slower than it needs to be
+
+Every `wb_compare.sh` call re-invokes `gmake`, costing ~6 s. Scoring a
+pre-assembled target object against a directly-compiled candidate gives the
+*same numbers* at 0.1–0.3 s. Six independent lanes measured this and every one
+of them wrote its own scorer to get around it; throughput went from roughly one
+candidate per 6 s to **200–500 scored candidates per second**, which is the
+difference between a sampled lattice and an exhaustive one.
+
+That speed is what produced most of today's matches: a 3,992-point declaration
+census in 17 s, 720 declaration orders in 3.5 s, 46,080 order × grouping
+candidates, and a 344,946-evaluation local search. The tool should offer this
+path directly rather than making each lane rediscover it.
+
+Two conditions the lanes established for the fast path being sound:
+- The direct `tools/ido/cc` compile is `.text`-identical to the asm-processor
+  `NON_MATCHING` object **only at the TU's real flags**, recovered from
+  `gmake -n <object>`. At `-mips1`, or with `-DVERSION_US` instead of
+  `-DVERSION_us`, it silently emits a plausible but different `.text` — one
+  function came out 0x168 against the real object's 0x13c. The tool must
+  recover the flags itself and verify the identity before reporting a number.
+- Any home-grown scorer must rebase `objdump -d -r` relocation offsets from
+  *section* to *function* coordinates. Not doing so silently unmasks relocated
+  words: it produced a false 4-word residual on a function that was exact, and
+  inflated another from 15 to 18.
+
+## `wb_compare.sh --summary-json` refuses on several TUs, blocking measurement
+
+Recurring and now blocking on at least four functions:
+
+- "candidate relocation symbol `D_8007C1A0` / `D_8007C11C` has conflicting
+  runtime identity" (`reloc_surface.py`) — `_stable_symbol_identities` yields
+  the resident address while `_stable_overlay_data_identities` yields a
+  different one for the same name. The raw `decomp-workbench compare` path is
+  unaffected, so the canonical proof pipeline is unusable on those TUs while
+  the underlying comparison is fine.
+- "candidate function escapes TU ownership" — a *correct* change that
+  temporarily grows the function blocks all measurement.
+- `--diagnose` writes its refusal to **stdout with exit 2**, so a `grep`/`sed`
+  pipeline silently yields empty output instead of an error. Two lanes lost a
+  round trip to this. Refusals belong on stderr.
+
+## Smaller friction, each measured by a lane
+
+- **`finalize_plateau.py` refuses to run with any unrelated file dirty**, so a
+  pass that updates several plateaus must commit between each one, and a change
+  spanning a header plus a source needs throwaway commits that are later
+  squashed. Scope the cleanliness check to the paths it writes.
+- **`lane_status.py --symbols` never returns a "matched/done" verdict** — it
+  reports `active` for symbols that have been matched and committed, so it
+  cannot be used to confirm completion.
+- **`reloc_surface.py` rewrites built objects in place.** A poisoned object
+  links once and then fails `R_MIPS_26 relocation truncated` on the *next*
+  rebuild, which means `gmake verify` can pass on it. Write to a new path.
+- **Overlay objects do not depend on `mk/overlays.mk`**, so editing a
+  POSTPROCESS rule triggers no rebuild and the stale object's link failure
+  looks as though the rule is wrong when it is already correct.
+- **`MIXED_TU_EXACT_C_RANGES` in `tools/overlay_atlas.py` is hand-maintained**
+  and gates `promotion_proof.py`; `overlay-atlas-write` reports "current" and
+  adds nothing. It must also stay sorted by offset within each overlay or the
+  splat stamp dies with a `ValueError` naming neither the entry nor the rule.
+- **`gmake overlay-donors-write` cannot run here**: the JFG reference checkout
+  is at `efd5abb1` while the pin expects `c82afff`. Lanes work around it by
+  refreshing the atlas digest by hand. Re-pin the reference farm.
+- **`cc -S` writes `<basename>.s` into the current directory, ignoring `-o`** —
+  any parallel harness must run in a private cwd. One lane dropped a file into
+  the repo root.
+- A scratch file named `dis.py` on `sys.path` shadows the stdlib `dis` module
+  and breaks `concurrent.futures` with an unrelated `IndexError`.
+- A parallel measurement harness must not share `cand_text.bin` / `target.o`
+  across workers; one lane hit a race and fixed it with per-object, per-pid
+  paths.
+
+## The permuter's scratch is unfaithful for a reason worth fixing
+
+A lane isolated the cause and it is **not** the importer's reformatting:
+splicing the permuter's own reformatted function text back into the full TU
+scores identically to the real object. It is **TU isolation** — the importer's
+single-function unit (correct struct and extern declarations, 191 lines)
+compiles to different code than the real 8-function unit, 296 words against
+282. Base scores of 5–36× the measured residual have been recorded on six TUs,
+and a score-0 there would be a false ceiling.
+
+Where the scratch word count differs from the real object, the importer should
+carry the whole TU. Until then the wrapper should compare the two and refuse to
+report a score when they disagree.
