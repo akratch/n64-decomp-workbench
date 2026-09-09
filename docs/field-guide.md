@@ -1270,6 +1270,52 @@ ignores `-o`, so any parallel harness must run it in a private cwd.
 **Points here:** a residual under ~5 words that survives a wide source sweep,
 and any question of the form "can C even express this?".
 
+### 50. Resolve addresses to link-time values before believing a residual
+
+**Diff looks like:** a small register-only or operand-only residual on a
+function whose logic you are confident about — especially one that has survived
+several work packets unchanged.
+
+**It may not be in the code at all.** splat spells an address as a `%hi`/`%lo`
+pair of a *named symbol* only when it has a symbol to name and the two halves
+sit together. Otherwise it emits the literal form:
+
+```
+    lui   $v0, (0x800C9464 >> 16)
+    addiu $v0, $v0, (0x800C9464 & 0xFFFF)
+```
+
+which carries **no ELF relocation**. A comparator that masks relocation words —
+which is what "relocation-masked differing words" means — sees a relocated word
+on the candidate side and a literal on the target side, and reports a
+difference that will not exist after linking.
+
+Two independent measurements on the same campaign day, by different routes:
+
+- **The halves straddled a branch.** The `lui` was hoisted above an early-return
+  test and the load sat after it, so splat could not pair them. The candidate
+  spelled the address back as `(s32 **)0x800C9464`, and *every* object-level
+  scorer in the project — workbench, permuter, and the ranking's masked words —
+  reported the register difference a literal-address load makes and a global
+  load does not. That phantom two-word residual survived **three work
+  packets**. Writing it as `&D_800C9460[1]` gave IDO the one-register global
+  idiom and the linked words were identical.
+- **splat minted no symbol** for an overlay-local address. That accounted for
+  the *entire* reported residual of one function and 4 of another's 10.
+
+So before working a small residual: resolve every address materialization on
+both sides to its link-time value and compare those. If the residual
+disappears, it was bookkeeping.
+
+**The mirror trap, which is why you cannot simply mask every `>> 16`:** the
+identical syntax with a full 32-bit constant — `0x41F00000 >> 16` — is a
+**float immediate**, not an address. Masking it hides a real difference. Tell
+them apart by whether the value resolves to a mapped address in the linked
+image.
+
+**Points here:** any residual under about 10 words that has outlived more than
+one attempt, and any `lui` whose operand is a literal rather than a symbol.
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a

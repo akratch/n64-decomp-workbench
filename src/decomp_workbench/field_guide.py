@@ -366,6 +366,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    50: (
+        "resolve both sides' address materializations to linked addresses "
+        "before scoring: splat spells an address as a literal hi/lo pair "
+        "whenever it minted no symbol or the halves straddle a branch, that "
+        "form carries no ELF relocation, and a comparator masking only "
+        "relocations reports the difference as a real residual"
+    ),
     49: (
         "capture ugen's textual output with -l and re-assemble it under the "
         "compiler path's own as1 flags: the round trip is byte-exact, which "

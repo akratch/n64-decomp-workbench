@@ -939,3 +939,35 @@ briefed on the nm_ranking label, told to look for a localized 12-byte hole, and
 found instead 45 insertions against 48 deletions over 93 sites -- the -12 was a
 net, not a gap. Both labels were defensible and they routed to different work.
 Name them differently, or derive one from the other.
+
+## Score against link-resolved addresses, not relocation-masked words (highest priority)
+
+The "relocation-masked differing words" metric masks words carrying an ELF
+relocation. splat emits an address as a `%hi`/`%lo` pair of a named symbol only
+when it has a symbol and the halves sit together; otherwise it writes the
+literal form, `lui $v0, (0x800C9464 >> 16)`, which carries **no relocation**.
+The comparator then sees a relocated word against a literal one and reports a
+difference that does not survive linking.
+
+Found twice in one day by different lanes, on different causes:
+
+- The two halves straddled a branch, so splat could not pair them. The phantom
+  two-word residual survived **three work packets** on that function before a
+  lane noticed the candidate object carried two relocations the fallback did
+  not.
+- splat minted no symbol for an overlay-local address. That was the *entire*
+  reported residual of one function and 4 of another's 10.
+
+This is not a niche case: it silently inflates residuals, it routes work at
+functions that are already correct, and it is invisible to every existing gate
+because both sides of `--check` read the same comparator.
+
+**The fix:** resolve every address materialization on both sides against the
+canonical linked ELF and compare resolved values. One lane wrote a
+`score.py` doing exactly this in its scratch and offered it for promotion.
+
+**The trap in implementing it:** the same `>> 16` syntax with a full 32-bit
+constant (`0x41F00000 >> 16`) is a float immediate and must NOT be masked or
+resolved. Discriminate by whether the value lands in a mapped address range.
+
+Ranking is affected too — `nm_ranking` orders the whole queue by this number.
