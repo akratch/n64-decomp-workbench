@@ -1391,6 +1391,32 @@ line code with no loop has no induction variable to recover.
 **Points here:** `lever_class` register-only or colour-only on a loop, with
 the instruction count already exact and the ordering family already spent.
 
+### 53. Probe `(*p).field` against `p->field`, one site at a time
+
+**Diff looks like:** a small residual right after a member access, where the
+opcodes are correct and the difference is which temporary carries an
+intermediate — typically the operand order of a multiply or shift that consumes
+the loaded field.
+
+**Do:** at the single site feeding the divergent operation, rewrite
+`p->field` as `(*p).field` (or the reverse) and re-measure. The two spell the
+same access and produce the same value, but cfe walks them in a different
+order, so the expression-temp sequence it emits for the *following* operation
+differs.
+
+**Do not** apply it as a sweep across the function. Measured on Mickey's
+`func_80007C68`: the swap at one site was worth a word (26 -> 25) and is
+reproducible, while the same rewrite at each of the other **20** member
+accesses in that function was neutral or a regression, and composing the
+winning site with any of the others gained nothing. It is a probe with a
+one-site blast radius, so treat a win as local evidence about that expression
+rather than as a rule about the file.
+
+**Why it is worth trying anyway:** it is one of the few edits that moves a
+cfe-owned temp ordering without changing the statement structure, the
+declaration list, or the instruction count — so it costs nothing if it fails
+and does not disturb an allocation state you have already gotten right.
+
 ### 52. A colour tie is decided by rule, not by spelling
 
 **Diff looks like:** a residual of two or three register words that survives

@@ -1753,6 +1753,17 @@ function did not move under any of a dozen line layouts.
 (`L-st-1`…`L-st-3`), re-confirmed inert on two later bases by stages
 `wordsaudit` (`L-wa-2`) and `finalframe`.
 
+**Re-gated on a second title (2026-09-10).** An independent lane read the
+selection chain off `cc -Wa,-R` on Mickey's Speedway USA
+`src/overlays/o001/overlay_001_head.c` and recovered the same ordering —
+highest `aftercycles` first, ties to the lowest ugen emission index, `lineno`
+last — over **2272** recorded selections, of which **25** were decided by
+`lineno`. That is the same rule and the same shape of margin as the ge007
+figures above (2688 selections, 59 by `lineno`), from a different title, a
+different compiler invocation and a different base, so the rule is not an
+artifact of one build. It also independently reproduced the byte-inertness of
+`-R` on this tree's flags.
+
 ### L79. A selection decided above `lineno` has no source lever
 
 `lineno` is the **last** key in as1's selection chain, so a selection decided
@@ -2907,3 +2918,49 @@ source-reachable `slti` on this function. Retired in the same sweep: counter
 types `u32`, `long`, `char *`, `u8 *` and `s32 *` are inert; `s8` keeps the
 compare but pays for it in sign extension; every `do`/`while`/`for` form
 unrolls.
+
+### L91. `.set volatile` is a hard scheduling barrier, so volatile order is emission order
+
+Within a `.set volatile` region, as1 chains **every** volatile reference to the
+next by an explicit dependence edge. It does this even between `sp`-relative
+slots it could trivially prove disjoint, so the barrier is categorical rather
+than alias-analytic: no disjointness argument reaches it.
+
+The consequence is the useful half. Because the chain admits no reordering,
+**the order of volatile references in the object is ugen's emission order**,
+unmediated by the scheduler. That makes a volatile reference a precise
+instrument — it pins a position that `aftercycles` would otherwise decide
+([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)) — and it makes an
+*unwanted* volatile a hard obstacle, because no line layout or readiness edit
+can move a schedule that the barrier has already fixed.
+
+Read the barrier before spending a schedule sweep: if the rows you are trying
+to reorder sit in a volatile chain, the sweep cannot succeed, and the residual
+is a statement-order question in the source rather than a scheduling question
+in as1.
+
+**Receipt — T1, from the compiler's own trace.** Mickey's Speedway USA
+`overlay1MeasureCurves` (`src/overlays/o001/overlay_001_head.c`), 2026-09-10,
+read off `cc -Wa,-R` at the TU's own flags, with `-R` confirmed byte-inert on
+`.text` for this tree. The dependence edges are explicit in the trace, including
+between `sp`-relative slots. A same-lane hypothesis that as1 *reorders* volatile
+references was raised, briefly committed, and then **falsified by this trace**
+and amended.
+
+**What it cost on that function, which is the honest scope.** The barrier
+converted the residual into a contradiction rather than a match: the target's
+placement of the call-result copy is reachable only if the four argument loads
+carry no volatile edges, but unqualifying the parameters promotes the four
+integer controls into saved registers and grows the frame to `0x80`. The
+prologue's load order says the same from the other side. So the finding
+redirected the work — the parameter model is wrong, not the statement shape —
+and explicitly retires the earlier "resume with a statement-line or grouping
+model" advice on it. The function is still 27 words out.
+
+A separate reachable form scores 25 and makes the four words before the call
+exact, by moving the volatile initialisation into the first call's fifth
+argument so that store lands last in the volatile chain. It was **proved and
+declined**: an initialisation in an argument slot is not plausible original
+source. Recorded because the *inert comma* form of the same idea scores 27, so
+the two are not the same mutation and the earlier rejection of the comma form
+does not cover this one.

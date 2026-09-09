@@ -366,6 +366,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    53: (
+        "probe `(*p).field` against `p->field` at ONE site: the two spell the "
+        "same access but cfe walks them in a different order, so the "
+        "expression-temp sequence for the operation that follows differs -- a "
+        "per-site probe, not a rewrite, since the same swap at 20 sibling "
+        "accesses was neutral or worse and composing winners gained nothing"
+    ),
     52: (
         "read the allocator's own rule before respelling a colour: uopt walks "
         "a web's admissible colours ascending and keeps the FIRST STRICT "
