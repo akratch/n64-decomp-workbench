@@ -2788,6 +2788,28 @@ if (record->group == (group ^ 0)) { ... }
 Operand order matters here, and [L67](#l67-a-comparison-prints-its-copy-propagated-variable-first) says why:
 `(group ^ 0) == record->group` costs one further word.
 
+**The `^ 0` is not free, and on one function it *was* the plateau.** It splits
+the `%hi`/`%lo` pair of the value it is applied to across two registers. On
+Mickey's `overlay1FindBestRecord` that split was the entire reported two-word
+residual: the trick restored both pool colours and introduced exactly one new
+defect in doing so. A split pair is a readable signal rather than noise — in
+that unit's already-matched code, 45 of 51 `lui`+load pairs use the same
+register and all six exceptions are `$at` float loads.
+
+The function matched on a **third degree of freedom** instead: *physical line
+grouping*. Statement order fixes the colour (this law); line grouping moves the
+schedule without moving the colour. Writing `remaining = 31; group = D_1D88;`
+on one physical line gives both — `remaining` first so it takes the colour, and
+joined so ugen emits the group load ahead of the countdown. Splitting the line
+costs the instruction swap; reversing the statements costs the colours. So when
+the colour and the schedule both need to move, reach for the line before
+reaching for an inert operation.
+
+A related per-variable rule fell out of the same unit: **a pool colour belongs
+to the variable, not the assignment.** Storing into a local that is already dead
+reuses its colour and spends no new one, which is how a second function there
+closed.
+
 ### L88. A colour residual with an identical ring order is a site, not a phase
 
 **Receipt — T2, with a byte-identity corroboration.** The ring-order comparison
