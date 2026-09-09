@@ -366,6 +366,19 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    54: (
+        "when the target sums an address base-first and every spelling of "
+        "yours emits the scaled index first, cast the BASE to s32 before "
+        "adding the byte offset -- &a[i], a + i, &i[a] and (u8*)a + (i<<3) "
+        "all emit index-first, and the integer cast is the one form that "
+        "reverses the operands"
+    ),
+    55: (
+        "solve the frame for a cell COUNT before respelling: with N frame "
+        "cells the frame is align8(4N) and the last cell's home is "
+        "align8(4N) - 4N, so a target home fixes N's parity and tells you "
+        "how many declarations to reach rather than which order to try"
+    ),
     53: (
         "probe `(*p).field` against `p->field` at ONE site: the two spell the "
         "same access but cfe walks them in a different order, so the "

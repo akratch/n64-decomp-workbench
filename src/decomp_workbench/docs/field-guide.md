@@ -1391,6 +1391,64 @@ line code with no loop has no induction variable to recover.
 **Points here:** `lever_class` register-only or colour-only on a loop, with
 the instruction count already exact and the ordering family already spent.
 
+### 54. Cast the base to `s32` to make ugen sum an address base-first
+
+**Diff looks like:** the target computes an address as `base + offset` and
+your candidate computes `offset + base`, with the same opcodes and the same
+value. The operand order propagates: the register that ends up holding the
+sum differs, and every temp after it shifts a lane.
+
+**Do:** cast the *base* to `s32` before adding the byte offset. Measured on
+Mickey's `func_8003484C`, this is the **only** spelling that reverses the
+operands. All of `&a[i]`, `a + i`, `&i[a]` and `(u8 *)a + (i << 3)` emit the
+scaled index first; the integer cast emits the base first.
+
+**Do not** expect the pointer-arithmetic lattice to reach it. That lattice is
+the obvious thing to sweep and it is uniformly flat here — the operand order
+is decided after the address expression has been normalised, so respelling the
+address does not touch it. The cast works because it changes the *type* of the
+left operand, not its form.
+
+**In context:** on that function the cast was one of three edits that only
+worked composed — each was inert or a regression alone. The other two were
+copying the parameter into a named local (the entry-pointer web outranks the
+parameter web on uopt's priority and was stealing its incoming register) and
+hoisting the cache base into a local **assigned inside the guard**, since a
+top-of-function assignment cost 20 words. Together: 10 -> 5 differing words.
+
+**A limit worth knowing.** The residual left behind was a uniform +1 rotation
+of ugen's temp ring, and the recorded "an index scaled twice costs one more
+pop" rule is the right family for it — double-scaling does buy the pop and
+rotates the ring to the target's exact slots. But only in spellings where IDO
+keeps *both* shifts (23 words). Every folding spelling folds the pop away too,
+and every strength-reducing one loses the shift: **the pop and the folded
+shift are mutually exclusive in this construct**, so that residual is not
+reachable by scaling alone.
+
+### 55. Solve the frame for a cell count before respelling anything
+
+**Diff looks like:** a frame-size or stack-home residual on a function whose
+instruction stream is close, where the obvious move is to permute declarations
+and watch the homes move.
+
+**Do:** count cells and solve instead. With *N* frame cells the frame is
+`align8(4N)` and the last cell's home is `align8(4N) - 4N`. A target home
+therefore fixes N's **parity**, which turns "which declaration order?" into
+"how many declarations?" — a search over one integer rather than over
+orderings.
+
+Worked example, Mickey's `func_8005716C`: a home at `4(sp)` requires N odd, so
+N = 9 (frame `0x28`, which matches) or N = 11 (frame `0x30`, two frame words
+wrong). Dropping one declaration and inlining its doubling reached seven
+declarations, and the sum temp then homed at the target's `4(sp)`. 5 -> 3
+differing words.
+
+**Why this beats permuting:** a home residual that reads flat under reordering
+is a census question, not an ordering one, and reordering lattices on these
+functions are routinely 90 cells wide and uniformly flat. Solving the closed
+form costs one arithmetic step and tells you whether any declaration count can
+reach the target at all.
+
 ### 53. Probe `(*p).field` against `p->field`, one site at a time
 
 **Diff looks like:** a small residual right after a member access, where the
