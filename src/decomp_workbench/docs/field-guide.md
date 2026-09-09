@@ -1137,6 +1137,16 @@ lever across two whole translation units.
 Every declared `f32` or pointer local reserves a stack home whether or not it
 is register-coloured, so an unused declaration still costs frame.
 
+At `-O2` the whole thing is an equation:
+`frame = roundup8(outgoing + saved + 4*temps + locals)`, locals top-aligned —
+**but an `s16` local takes two bytes, not four.** That single exception is what
+makes a missing narrow local invisible and makes every add-a-local probe grow
+the frame by the wrong amount.
+
+The displaceable compiler temporaries are loop-invariant CSEs in a loop's
+*controlling condition*, and there is a cheap detector for them: delete the
+loop. If the aggregate's home drops by 8, that condition owns two temps.
+
 **Points here:** `lever_class=frame-size` with the instruction counts close,
 and [lever 26](#26-recover-stack-homes-without-losing-the-live-range-topology)
 having already been spent.
