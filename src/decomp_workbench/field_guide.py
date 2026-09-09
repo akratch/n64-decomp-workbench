@@ -359,6 +359,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "it by measurement: a signature that appears in every unit cannot "
         "discriminate, and half of one such screen's predictions were wrong"
     ),
+    48: (
+        "cross-check a positional differing-word score against a "
+        "shift-tolerant identical-row count before believing it: one "
+        "insertion renumbers every row after it, so the positional metric "
+        "reads a pure alignment shift as hundreds of words and can invert "
+        "the true ordering of two candidates or two flag sets"
+    ),
 }
 
 #: The verdict-to-lever index of the field guide, keyed by playbook.

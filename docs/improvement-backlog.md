@@ -909,3 +909,33 @@ The content is independently verified — `plateau_handoff_audit --check` runs i
 shard directory to the transaction's allowed set does not weaken review the way
 a blanket "generated" exemption would. Scope it to shards the merge actually
 touched, as the transaction already does for `src/` and `include/` paths.
+
+## Report a shift-tolerant count beside the positional differing-word score
+
+`wb_compare` and `nm_ranking` report a positional differing-word count: row *n*
+against row *n*. One inserted instruction renumbers every row after it, so the
+metric reads a pure alignment shift as hundreds of words. Measured twice in one
+day on Mickey: a shift moved the score by 173 while the exactly-identical row
+count did not move, and `flag_sweep` ranked `-O2 -g3` first on positional words
+(2507 vs 2511) when alignment-aware counts put it clearly last (1752 non-exact
+rows vs 1674; 338 structural vs 255). **A flag decision taken on the positional
+score alone would have been backwards.**
+
+Both agents had to write their own shift-tolerant scorer to get an honest
+answer. The tool should report, beside the positional count: exactly-identical
+rows under an insertion-tolerant alignment, structural rows (insertions plus
+deletions), and the running shift. The third also answers "does the residual
+re-converge", which is what separates a dense local defect from a real
+structural mismatch — three whale-sized functions were reclassified that way in
+one day, each turning out to be register naming at 93%+ mnemonic agreement.
+
+Ranking is affected too: `nm_ranking` orders the whole queue by this number.
+
+## Reconcile the two size taxonomies
+
+`nm_ranking` labels a row `size-mismatch` from `size_delta != 0`, while the
+workbench verdict for the same function can be `structure-mismatch`. A lane was
+briefed on the nm_ranking label, told to look for a localized 12-byte hole, and
+found instead 45 insertions against 48 deletions over 93 sites -- the -12 was a
+net, not a gap. Both labels were defensible and they routed to different work.
+Name them differently, or derive one from the other.

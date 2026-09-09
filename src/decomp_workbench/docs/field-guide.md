@@ -1176,6 +1176,49 @@ will republish them unchanged after a flag edit unless you ask it to
 [lever 3](#3-rebuild-the-same-candidate-with--g0-and-compare-again) already
 falsified.
 
+### 48. Cross-check a positional score against a shift-tolerant one
+
+**Diff looks like:** a large differing-word count on a function whose
+instruction selection is obviously close, and especially any *comparison*
+between two candidates or two flag sets on such a function.
+
+The differing-word metric is positional: it compares row *n* against row *n*.
+A single inserted or deleted instruction renumbers every row after it, so a
+candidate that is correct everywhere except for one early insertion scores as
+though it were wrong everywhere. The metric is honest about identity and
+misleading about magnitude, and it is **actively wrong for ranking**.
+
+Two measurements from one campaign day, on different functions:
+
+- On a 6300-byte overlay function a pure alignment shift moved the positional
+  score by **173 words** while the count of exactly-identical rows did not move
+  at all.
+- On an 11 KB function `flag_sweep` ranked `-O2 -g3` first on positional words
+  (2507 against 2511) when the alignment-aware counts put it clearly last —
+  1752 non-exact rows against 1674, and 338 structural rows against 255. **A
+  flag decision taken on the positional score alone would have been backwards.**
+
+So before any comparison on a function with alignment shifts, get a
+shift-tolerant number:
+
+1. Align the two instruction streams under a diff that tolerates insertions,
+   rather than by index.
+2. Count **exactly-identical rows** and **structural rows** (insertions plus
+   deletions). Those two move for real reasons; the positional count moves for
+   bookkeeping reasons too.
+3. Report the running shift. If it stays within a few words across the body and
+   keeps returning to zero, the residual **re-converges** and the function is a
+   dense local defect, not a structural mismatch — whatever the verdict says.
+
+That last reading is worth having on its own: `structure-mismatch` is often an
+artefact of positional comparison across an early insertion. Three separate
+whale-sized functions were reclassified this way in one day, each turning out
+to be a register-naming problem with 93%+ mnemonic agreement.
+
+**Points here:** any residual over a few hundred words, any flag comparison,
+and any verdict of `structure-mismatch` on a function whose mnemonic census is
+close.
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a
