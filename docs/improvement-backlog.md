@@ -971,3 +971,19 @@ constant (`0x41F00000 >> 16`) is a float immediate and must NOT be masked or
 resolved. Discriminate by whether the value lands in a mapped address range.
 
 Ranking is affected too — `nm_ranking` orders the whole queue by this number.
+
+## Wire the postprocess audit's --check into the docs gate
+
+`tools/postprocess_audit.py --check` detects both a stale committed audit and
+the presence of review-required helpers, and exits 1 on either. `check-docs`
+runs only `--check-redefines`, so the audit drifted from 625 to 640 objects
+unnoticed until a lane happened to regenerate it.
+
+Blocked on triage, not on code: two objects classify `review-required`
+(`o009/overlay_009.c.o`, `libultra/block_6F3E0.c.o`) and one `altered`
+(`o059/overlay59Advance.c.o`). All three are NON_MATCHING candidates and the
+audit's own headline is "altered bytes: 0 of 123796 matched-C bytes", so
+nothing is currently at risk — but wiring the gate before those are resolved
+would fail every merge.
+
+Resolve the three, then add `--check` beside `--check-redefines`.
