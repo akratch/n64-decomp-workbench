@@ -366,6 +366,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "reads a pure alignment shift as hundreds of words and can invert "
         "the true ordering of two candidates or two flag sets"
     ),
+    51: (
+        "replace a hand-written pointer cursor with an index over the "
+        "parallel arrays: the emitted cursors are uopt's own strength-reduced "
+        "induction variables, and while the source spells them out no "
+        "ordering, grouping or declaration lattice can reach the register "
+        "names they produce"
+    ),
     50: (
         "resolve both sides' address materializations to linked addresses "
         "before scoring: splat spells an address as a literal hi/lo pair "

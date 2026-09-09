@@ -1316,6 +1316,61 @@ image.
 **Points here:** any residual under about 10 words that has outlived more than
 one attempt, and any `lui` whose operand is a literal rather than a symbol.
 
+### 51. Give the loop an index, not a hand-written cursor
+
+**Diff looks like:** a register-name residual on a loop that no lattice moves —
+declaration order flat, line grouping flat, placement flat. The instruction
+count is often already exact.
+
+The cursors IDO emits are **uopt's own strength-reduced induction variables**,
+derived from an index. While the source spells the cursors out by hand, the
+allocator sees a different set of webs than the target had, and no permutation
+of that source can reach the target's register names. The lattice is flat
+because you are searching the wrong space.
+
+```c
+/* before — four hand-written cursors, floors at 11 differing words */
+u8 *flags = &state->flags[0];
+Entry *entry = &state->entries[0];
+s32 *timer = &state->timers[0];
+while (count--) { ... *flags++ ... entry++ ... *timer++ ... }
+
+/* after — one index over the parallel arrays, exact */
+s32 i = count;
+while (i--) { ... state->flags[i] ... state->entries[i] ... }
+```
+
+Measured on Mickey's `src/main/fx.c`, where this closed **three functions in
+one pass**: 11 → 0, 15 → 0, and (as `p += 0x28` → `i * 0x28`) 20 → 0. On the
+first of those the hand-cursor form was proved to floor at 11 exhaustively —
+all 720 orderings of its six setup assignments against all 32 physical-line
+groupings.
+
+Rewriting it also produces, in one step, effects a plateau may have recorded as
+several separate walls: the loop index's now-dead copy taking the *first* pool
+colour, the synthesised trip counter taking the second, a byte offset shared
+between two arrays, and a base materialised inside the loop rather than before
+it.
+
+**The converse is a real reading too.** If every indexed form is dramatically
+worse — one block measured 96 words against 5 — the cursor genuinely is in the
+source, and that is positive evidence rather than a failed attempt. Straight-
+line code with no loop has no induction variable to recover.
+
+**Two neighbours found with it:**
+
+- **A local's integer width reorders the ugen temp ring.** Two texture extents
+  as `s16` against `s32` were sixteen of one function's twenty words, and
+  nothing about placement or inlining reaches it.
+- **An extra *coalesced* named web costs no instruction and moves FP colours.**
+  Naming both results of a rotation, not just the one the next statement
+  consumes, fixed a six-word f2/f14 swap. It is a web-*count* fact, which is
+  exactly why the whole ordering lattice was flat. FP webs ignore declaration
+  order just as integer webs do — 6,000 random permutations, none better.
+
+**Points here:** `lever_class` register-only or colour-only on a loop, with
+the instruction count already exact and the ordering family already spent.
+
 ### 44. Read the pool lanes' lengths before calling anything a rotation
 
 **Diff looks like:** `lever: pool-rotation` or `lever: pool-population` — a
