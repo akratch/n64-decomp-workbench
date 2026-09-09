@@ -1006,3 +1006,20 @@ coordinates while a home-grown scorer indexes instructions from the function's
 base. Not rebasing them silently unmasks relocated words — it produced a false
 4-word residual on a function that was actually exact, and inflated another from
 15 to 18.
+
+## Warn when a permuter candidate changes semantics
+
+The permuter optimises a score, not correctness. On Mickey's overlay 47 two of
+its top-scoring candidates silently dropped a loop initialisation; on other
+functions lanes have kept improvements that did not survive re-derivation as a
+semantics-preserving edit.
+
+Byte-identity with the target is self-validating — such a candidate *is* the
+function however it was reached. The hazard is the retained NON_MATCHING body:
+a candidate that improves the score without matching becomes the committed
+source, and if it is not semantics-preserving the tree now carries C that does
+something different from the game.
+
+Worth a check in the permuter wrapper: diff the candidate against the base for
+deleted statements and assignments to loop-carried variables, and warn loudly
+before a non-matching candidate is adopted.
