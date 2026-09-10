@@ -2393,6 +2393,20 @@ took the function to exact. In the other direction, on
 typing the pair table so the index scales twice — **visible instructions
 unchanged** — and the function went to exact at 165/171 → 0.
 
+**Boundary — only the *type's* scale is free (T2, Mickey `func_8003484C`,
+2026-09-10).** The extra scale must be the one the array type performs, not one
+written out in the expression. Indexing a typed array so the element size
+scales an already-shifted index — `((CacheWord *)base)[PTR(i)]`, where `PTR`
+yields `i << 1` and the union's element size scales it again — is one extra
+ring pop and **no instruction**. Doing the same arithmetic by hand on a
+struct-typed cache, `(s32)cache + (i << 3)`, costs **two** instructions, which
+is why a prior pass recorded "the pop and the folded shift are mutually
+exclusive" and closed the function. That closure was right about the shape it
+tested and wrong about the law: the free form was never tried, and the
+function's own neighbour twenty lines above already indexed the cache that way.
+When this lever reads as unavailable, check whether the double scale was
+written or *typed*.
+
 **Falsifies.** The reading of a same-length register permutation as
 necessarily schedule-owned. Both functions above presented as same-length
 `t`-register substitutions, which the current verdict vocabulary routes to the
@@ -3413,6 +3427,13 @@ carried through a whole body, or a web that must be demoted rather than
 permuted, this lever has nothing to reach. Try it early because it is cheap and
 size-neutral; abandon it after a handful of placements rather than sweeping.
 
+**Scope — a region boundary does not re-order the ugen ring (T2, 2026-09-10).**
+The lever moves *allocation*: which values are register-resident, and in the fp
+case ring membership. It does not permute the order in which ugen hands out
+ring temps. 119 cells including region wrappers no prior lane had tried left a
+two-word ring-order residual untouched. If the residual is "the same temps in a
+different order", this is not the lever.
+
 ### L98. The induction zero-fold barrier is a call, and it is not constant propagation
 
 When a loop's index is initialised to zero, uopt folds that zero into the
@@ -3494,6 +3515,13 @@ declarations" is right but incomplete — the carrier count is itself a function
 of the order, and a frame that is short by one carrier can sometimes be fixed
 by permuting rather than by declaring.
 
+**Scope — a frameless function retires this axis entirely.** With no frame
+there are no homes to order, and declaration order becomes byte-inert: all
+**40,320** permutations of one frameless function's eight declarations compiled
+byte-identically. That is a useful negative to record rather than a failed
+probe, because it converts "declaration order untried" into "declaration order
+retired" for that function, and it costs one sweep to establish.
+
 **Refinement — which locals are in the list at all (2026-09-10).** IDO gives a
 four-byte home only to a local it leaves **memory-class**; a local uopt colours
 owns no slot. So the declaration list that decides homes is the list of
@@ -3545,7 +3573,17 @@ search.
 
 globalcolor ranks webs by `save = totalsave / nocs` and colours them in
 descending order, so the question "which web takes the low colour" is decided
-by a ratio. Both of its terms are moved by **where a symbol begins and ends**,
+by a ratio.
+
+> **Scope, corrected the same day it was written (2026-09-10): this describes
+> phase one only.** The **caller-saved sweep colours in ascending web number,
+> not by `save`**, and there `save` is only the `color`/`no-color` gate. All
+> twelve of one function's p2 records reproduce their logged `forbidden0` under
+> ascending web number and under no other order, while another function's
+> nineteen p1 records are strictly descending `save`. So before applying the
+> ratio, establish which sweep owns the residual: for a caller-saved residual
+> the lever is the web *numbering*, not the ratio, and a lane that searches for
+> a `save` edit there is searching the wrong axis. Both of its terms are moved by **where a symbol begins and ends**,
 and that is a source decision with no width cost:
 
 - **Merging raises the save.** A variable declared once inside each arm of a
@@ -3629,6 +3667,16 @@ candidate*, and the source question is what put the value where it is, not how
 to pay for a better colour. Here the answer was to move the test to the
 target's position: the value then takes a1 and the a1 census goes 6 → 9
 exactly.
+
+**Third receipt — T2, and the first controlled one** (Mickey `func_80028FCC`,
+2026-09-10). Two probes demonstrate the mechanism directly rather than
+inferring it from a decline: make **one** operand of the expression a non-call
+and the value normalises into `v0`; make **all three** non-calls and *both*
+operands take `v0`. So the gate is the call-result span itself and nothing
+about the expression's shape — a 1,440-cell cross product and fifteen
+written-out expansions never reach the target's instruction count, because none
+of them removes the span. This is the cheapest way to test the law on a new
+function: swap one call for a non-call and watch whether `v0` appears.
 
 **Corollary — a force sweep is a verdict, not only a lever.** Because a colour
 that is reachable can be *proved* reachable, a sweep answers "is this residual
@@ -3743,3 +3791,38 @@ redefinition that keeps the copy alive.
 
 **Provenance:** Mickey's Speedway USA decomp, `debug_text_width`, 2026-09-10.
 
+### L105. uopt forwards a call's return register into every use in the call's own block
+
+A value assigned in the same basic block as a call is reached through the
+call's **return register** at every use inside that block, whatever the source
+says. Move the assignment into a later block and the same expression is reached
+through the callee-saved copy instead. So the decision variable is not the
+statement's spelling, its type, its carrier, or its declaration position — it
+is **which basic block the statement is in**.
+
+**Therefore a "reads the return register where the target reads the saved copy"
+residual is a control-flow question.** No amount of respelling reaches it while
+block membership is held fixed, which is exactly what a spelling lattice does
+by construction.
+
+**Receipt — T2** (Mickey `overlay1ResolvePathPoint`, 2026-09-10, promoted).
+Three lanes attacked this residual as colouring or copy propagation and every
+lattice came back flat: 720 declaration orders, 48 branch-arm cells, 76
+discarded expressions, 140 inert placements. The assignment sat before the
+`if`, sharing the call's block. Deleting it along with the two per-arm
+assignments and writing a single assignment *after* the if/else put the only
+definition in the join block, and the function matched — the index variable
+already carried the right value on both paths, so nothing else moved.
+
+**Falsifies.** "Every source form has been tried." Every source form *within
+one block partition* had been tried. This is the concrete instance of the
+metric-traps rule that a flat lattice is not evidence of unreachability: the
+lattice was flat because it held the deciding variable constant.
+
+**How to reach it.** When a residual names a register class rather than a
+value, list the basic blocks first and ask which one each contested assignment
+lives in. Moving a statement across a block boundary is cheap to try and is
+usually absent from a lane's lattice.
+
+**Provenance:** Mickey's Speedway USA decomp, `overlay1ResolvePathPoint`,
+2026-09-10.
