@@ -3260,3 +3260,51 @@ the block rather than import it. Declaring the block `static` keeps the sharing
 and additionally makes local accesses section-relative with the module-relative
 offset already in the addend, which the project's relocation filter then drops
 without any instruction word being edited.
+
+### L97. A uopt region boundary is an allocation lever, and only control flow opens one
+
+uopt allocates within *regions*, and a region boundary is a first-class lever:
+introducing one redraws the colouring of the statements it encloses without
+touching instruction count, frame size, or store order.
+
+**Only a control-flow construct opens a region.** This is the part that makes
+it usable, and the part that is easy to get wrong:
+
+- `if (1) { ... }` around three statements: **38 -> 10** masked words, with
+  size, frame and store order all unchanged. It reproduced the target's entire
+  `a0..a3` argument colouring.
+- `do { ... } while (0)` around the same statements: **10**, identical.
+- A **bare compound statement** `{ ... }` around the same statements: **38** --
+  byte-identical to no block at all.
+
+So the lever is region structure, not lexical scope. A bare brace block creates
+a C scope and no uopt region, which is why declaration-scope experiments come
+back flat while an `if (1)` on the same statements moves 28 words.
+
+**A boundary at a join point does different work.** An *empty* marker placed
+between two reads of an escaped non-volatile local stops uopt folding them into
+one load. That is a distinct use of the same construct: the first kind redraws
+colouring inside a region, this kind breaks a fold across one. On the measured
+function it is why one colour local needed no `volatile` at all, while its
+sibling -- whose read pair has no join between them -- still did, and dropping
+that sibling's `volatile` cost an instruction.
+
+**Receipt -- T2, build outcomes.** Mickey's Speedway USA
+`overlay101BuildBorder` (316 bytes), 2026-09-10, taken 38 masked words to a
+byte-identical match promoted through `gmake verify` and `promotion-proof`
+(79 words, frame `0x88`, relocations 3/3). The bare-brace control is the
+load-bearing negative: without it the finding reads as "add a scope", which
+does nothing. A permuter found the first boundary; sweeps then localised it.
+
+**Scope, measured on the same function.** The construct is not a general
+score-improver. Re-tested on the *new* 7-word baseline rather than the old 38,
+all sixteen commutative operand orders of the geometry sums measure exactly 7,
+so [L92](#l92-a-commutative-operands-weight-not-its-written-order-decides-which-side-it-lands-on)
+remains inert there; and 1,888 sampled statement orders crossed with region
+spans plateau at 10 without the join marker. The boundary is one decision, not
+a search direction.
+
+**And the volatile verdict inverts between functions.** On a sibling in the
+same overlay, dropping `volatile` from two locals cost 52 and 16 words --
+neither pair has a join to break. Do not carry a volatile conclusion across
+functions; carry the question of whether the read pair has a join.

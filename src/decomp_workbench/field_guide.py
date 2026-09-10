@@ -375,6 +375,13 @@ LEVER_ACTIONS: dict[int, str] = {
         "which is why the spelling lattice is flat; commutative arithmetic "
         "only, it does not reach comparison operand order"
     ),
+    57: (
+        "open a uopt REGION around the statements whose colouring is wrong: "
+        "`if (1) { ... }` or `do { ... } while (0)`, never a bare `{ ... }` "
+        "block, which creates a C scope and no region and measures "
+        "byte-identical to nothing -- worth 28 words on the function it was "
+        "found on, at unchanged size, frame and store order"
+    ),
     56: (
         "write a read-modify-write of a global as a compound assignment "
         "THROUGH the global (`x = (g = g - d)`), not as a local computed then "

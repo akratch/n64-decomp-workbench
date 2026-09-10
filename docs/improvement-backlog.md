@@ -1079,6 +1079,14 @@ consequently gained 1 word where its siblings gained 44 and 89 -- so the
 correctness cost was visible in the results and could easily have been read as
 the function being harder rather than the proposals being wrong.
 
+**Fourth and fifth occurrences (2026-09-10).** An unguarded statement-move
+search produced two more invalid candidates on overlay 101 -- a `cursor++`
+hoisted out of its loop, and a store sunk below its reader -- and a permuter
+run elsewhere proposed a `(-4) & 0xFF` mask. Both lanes rejected them by
+reading every move, and both said in their reports that anyone reusing the
+harness must gate the moves. Three separate lanes have now hit this in one
+day.
+
 Both occurrences involve **loop-carried state**, which makes the proposed check
 concrete rather than open-ended: a statement move that crosses a loop boundary,
 or that leaves a guarded block, is the whole hazard class seen so far. The lane

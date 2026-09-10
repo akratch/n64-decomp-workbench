@@ -1437,6 +1437,42 @@ and every strength-reducing one loses the shift: **the pop and the folded
 shift are mutually exclusive in this construct**, so that residual is not
 reachable by scaling alone.
 
+### 57. Open a uopt region, and note that a bare brace block is not one
+
+**Diff looks like:** a block of statements whose instruction selection, frame
+and store order all agree with the target, and whose *registers* do not --
+argument registers in particular. Declaration and statement-order lattices
+come back flat.
+
+**Do:** wrap the statements whose colouring is wrong in `if (1) { ... }` or
+`do { ... } while (0)`. That opens a uopt region and redraws the colouring
+inside it.
+
+**The negative control is the whole point.** A bare compound statement
+`{ ... }` around the same statements measures **byte-identical to no block**.
+It creates a C scope and no uopt region. So if you have been moving
+declarations in and out of nested braces and finding nothing, that is why --
+you were changing scope, not region structure. Measured on Mickey's
+`overlay101BuildBorder`: `if (1)` and `do/while(0)` each took 38 masked words
+to 10, a bare block stayed at 38, and size, frame and store order were
+untouched throughout. The function then matched.
+
+**A second, empty marker at a join does different work.** Placed between two
+reads of an escaped non-volatile local, it stops uopt folding them into one
+load. The first use redraws colouring *inside* a region; this one breaks a fold
+*across* one. On that function it is why one local needed no `volatile` while
+its sibling still did.
+
+**Do not carry a `volatile` verdict between functions.** On a sibling in the
+same overlay, dropping `volatile` from two locals cost 52 and 16 words --
+neither read pair had a join to break. Carry the question, not the answer.
+
+**Scope:** this is one decision, not a search direction. On the same function,
+1,888 sampled statement orders crossed with region spans plateaued at 10
+without the join marker, and all sixteen commutative operand orders measured
+identically. See
+[L97](compiler-laws/ido-5.3.md#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one).
+
 ### 56. Compound-assign through the global, do not stage it in a local
 
 **Diff looks like:** a read-modify-write of a global where the value is
