@@ -3208,3 +3208,34 @@ spill group". That barrier is real but it is one of at least three, and the
 closure had reasoned from the only one it found. Enumerating the barrier space
 rather than accepting the first is what reopened it — see the backlog note on
 closures being evidence about a lever set, not about a function.
+
+### L96. IDO 4-aligns a `.bss` scalar and 8-aligns a `.bss` array
+
+Within one `.bss` block IDO gives a scalar 4-byte alignment and an array
+8-byte alignment. The two are not interchangeable as padding, and the
+difference is load-bearing whenever a reconstruction has to reproduce a
+block's exact offsets: a pad declared as an array silently 8-aligns
+everything after it, so any following offset that is not itself 8-aligned
+becomes unreachable.
+
+**The practical form.** When rebuilding a BSS block to fixed offsets, interior
+pads must be **scalars** wherever a subsequent member sits at a 4-aligned but
+not 8-aligned address. Getting this wrong shifts the whole tail of the block by
+4 and reads as a diffuse relocation-value mismatch rather than as an alignment
+fault.
+
+**Receipt — T2, build outcomes.** Mickey's Speedway USA overlay 57's BSS block,
+2026-09-10, reconstructed while matching `overlay57UpdateModeTrigger`. Three of
+its members sit at addresses that are 4- but not 8-aligned, and the block's
+offsets came out 4 bytes low from one pad onward until the interior pads were
+respelled as scalars. An independent value from `reloc_surface.py` confirmed
+the intended offsets.
+
+**Adjacent, from the same reconstruction:** IDO shares one `lui $at` across two
+constant-index setup stores **only for a locally-defined symbol**. An `extern`
+declaration costs one instruction and, on that function, 74 masked words. That
+sharing is in the shipped bytes, so a TU that must reproduce it has to *define*
+the block rather than import it. Declaring the block `static` keeps the sharing
+and additionally makes local accesses section-relative with the module-relative
+offset already in the addend, which the project's relocation filter then drops
+without any instruction word being edited.

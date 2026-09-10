@@ -375,6 +375,12 @@ LEVER_ACTIONS: dict[int, str] = {
         "which is why the spelling lattice is flat; commutative arithmetic "
         "only, it does not reach comparison operand order"
     ),
+    56: (
+        "write a read-modify-write of a global as a compound assignment "
+        "THROUGH the global (`x = (g = g - d)`), not as a local computed then "
+        "stored: the local-then-store form makes uopt materialise the value "
+        "twice, and each duplicate rotates the whole temp ring behind it"
+    ),
     55: (
         "solve the frame for a cell COUNT before respelling: with N frame "
         "cells the frame is align8(4N) and the last cell's home is "

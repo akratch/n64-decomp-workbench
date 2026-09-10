@@ -1437,6 +1437,29 @@ and every strength-reducing one loses the shift: **the pop and the folded
 shift are mutually exclusive in this construct**, so that residual is not
 reachable by scaling alone.
 
+### 56. Compound-assign through the global, do not stage it in a local
+
+**Diff looks like:** a read-modify-write of a global where the value is
+correct but the temp ring is rotated from that point on, and the rotation has
+no obvious onset in the surrounding statements.
+
+**Do:** write it as a compound assignment through the global itself,
+`envelope = (gEnv = gEnv - x)`, rather than computing into a local and storing
+that local back. Staging it makes uopt **materialise the value twice**, and
+each duplicate consumes a ring position, so everything behind it shifts.
+
+**Why it hides:** the two forms are semantically identical and the extra
+materialisation emits no instruction you would notice reading the diff. What
+you see is a rotation with no cause at its onset, which invites a search of
+the loop or the declarations rather than of the assignment itself.
+
+**Measured** on Mickey's `overlay57Draw32A0`: found by hand on one arm of a
+saturating update, after which decomp-permuter independently found the same
+shape on the decay arm in 40 seconds and took the function to zero. That is a
+useful signal about the class — a permuter finds this one quickly once a
+candidate is close, so it is worth reaching for the permuter rather than a
+hand sweep when the residual is a causeless rotation inside roughly 50 words.
+
 ### 55. Solve the frame for a cell count before respelling anything
 
 **Diff looks like:** a frame-size or stack-home residual on a function whose
