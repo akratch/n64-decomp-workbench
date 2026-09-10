@@ -1803,6 +1803,16 @@ retires a tie; inversion trades one for another. Where a lane reports that
 "reordering made it worse", that is the expected outcome, not evidence against
 the law.
 
+**A structural way to make two lines equal — T2** (Mickey
+`func_overlay_060_F0000000_18B9DD8`, 2026-09-10, 21 → 19). Folding statements
+onto one line is the direct move, but a `for` header does it structurally:
+putting **both** loop initialisations into one header makes them share a source
+line, and the two hoisted address materialisations then complete before the
+counter is zeroed, as the target has it. Note what this is *not* — it is not
+the counted-`for` rewrite a prior pass measured at 28, which moved the loop
+bound. This moves only the line. The controls: the same comma initialisation
+before an unchanged `do` scores 22, and a cursor-first header 27.
+
 ### L79. A selection decided above `lineno` has no source lever
 
 `lineno` is the **last** key in as1's selection chain, so a selection decided
@@ -3484,6 +3494,31 @@ declarations" is right but incomplete — the carrier count is itself a function
 of the order, and a frame that is short by one carrier can sometimes be fixed
 by permuting rather than by declaring.
 
+**Refinement — which locals are in the list at all (2026-09-10).** IDO gives a
+four-byte home only to a local it leaves **memory-class**; a local uopt colours
+owns no slot. So the declaration list that decides homes is the list of
+*memory-class* locals, and the position that matters is a local's index within
+that shorter list, not among all declarations.
+
+Three consequences, each of which has produced a false negative:
+
+- **The home offset is a linear readout, so sweep it rather than guess.**
+  Sweeping one declaration over every slot and reading its home out of each
+  object gave `home = 78 − 4·index` exactly, with every other home and the
+  frame size unmoved. That turns a displaced-home residual into arithmetic:
+  read the target's offset, solve for the index, declare it there. It closed
+  the last four words of one function.
+- **An unused `s32` is inert, an unused `f32` or pointer is not.** The `s32` is
+  eliminated before the frame is sized, so padding a frame with dummy `s32`
+  locals measures as flat and reads as "declarations do not reach the frame".
+  They do; that type does not. This qualifies the field guide's blanket
+  statement that an unused declaration still costs frame.
+- **`align8(4N)` hides a one-slot change.** Removing a single declaration left a
+  0x40 frame unmoved because N = 8 and N = 7 both round to 32 bytes. A probe
+  that changes the count by one and reads no frame change has measured the
+  rounding, not the law. Change the count by two, or read the homes rather than
+  the frame size.
+
 **Receipt — T2, build outcomes.** Mickey's Speedway USA, 2026-09-10, four
 resident functions worked in one lane:
 
@@ -3635,3 +3670,76 @@ its own statement ahead of a base-first address, which no arrangement produced.
 
 **Provenance:** Mickey's Speedway USA decomp, `levelInit` and `levelFreeAll`,
 2026-09-10.
+
+### L103. The float constant pool is keyed on the constant's spelling, not its value
+
+Two occurrences of the same float value in one translation unit share a
+`.rodata` pool entry only when they are **written the same way**. Respelling one
+of them emits a *second* entry holding the identical bit pattern, and every
+later entry in that pool shifts by four bytes.
+
+Measured on one value: `0.1f` folds into an existing `0x3DCCCCCD` entry, while
+`.1f`, `0.10f`, `1e-1f` and `1.0f/10.0f` each emit a second one. The shipped TU
+this was recovered from carries `0x3DCCCCCD` **twice**, at `+0x30` and `+0x4C`,
+with `0.65f` at `+0x50`.
+
+**Therefore a pool-layout residual is a spelling problem, and it is invisible in
+the function's own words.** The candidate deduplicated the two entries, put
+`0.65f` at `+0x4C`, and differed from the ROM in twelve halfwords of `.rodata`
+while the function itself scored clean. Writing the second constant as `.1f`
+restored `+0x50` and retired the placeholder symbol standing in for that pool
+word.
+
+**This is a different axis from [L62](#l62-a-float-scalars-load-form-is-decided-by-its-value-and-the-form-decides-the-schedule),** which says the *form* — inline `lui`/`mtc1`
+versus a `.rodata` word — is a property of the value and not the spelling. That
+still holds. This law is about *which entry* a pooled constant is given once the
+value has already chosen `.rodata`, and there the spelling is what decides.
+It is also the opposite of the recorded case-label behaviour, where nine
+spellings all dedup by value.
+
+**Falsifies.** "The two constants are the same value, so the pool is the same."
+And, operationally, the habit of normalising float literals to one house style
+while reconstructing a TU: that is a codegen edit.
+
+**How to reach it.** Compare the candidate's `.rodata` against the target's by
+*offset*, not by content — identical multisets of words at shifted offsets is
+this law's signature. A repeated bit pattern in the target's pool is direct
+evidence that the shipped source spelled the same value two ways.
+
+**Receipt — T2** (Mickey `func_overlay_009_F0000CE4_186735C`, 2026-09-10). Found
+while closing a promotion whose function words were already exact and whose
+first ROM build still differed. Build-side consequence worth knowing: with the
+pool module-relative the object needed no externalise base, so the payload
+digest routes to the no-offset branch and `.rodata` stays 0 for every overlay
+object sharing it.
+
+**Provenance:** Mickey's Speedway USA decomp, overlay 9 promotion, 2026-09-10.
+
+### L104. A copy survives when its source is redefined after it
+
+A copy that uopt would otherwise fold away survives as its own web when the
+variable it copied **from** is redefined later in the same region. The copy is
+then not a redundant name for one value; it holds the value the source had
+before the redefinition, and the two need separate webs.
+
+**Therefore "the target has a copy my candidate folds away" is a reachable
+condition, not a dead end.** The construction is: read the raw value into a
+name, copy it into a second name, then redefine the first later in the loop.
+
+**Receipt — T2** (Mickey `debug_text_width`, 2026-09-10). A prior closure
+recorded that the target's classification copy "cannot be bought". It can:
+taking the raw byte into `charIndex`, copying that into a second local, and
+redefining `charIndex` further down the loop produces the copy — and the
+resulting body is an **exact v0/v1 transposition of the target**, 20 words,
+`register-only`, at size delta 0. It was not adopted only because the tree's
+one-web body scores 7 and 7 < 20, so it is a worse *number* while being a
+structurally closer object — see
+[Trap 12](../metric-traps.md) — and the two-web form is where the next attempt
+on this function should start.
+
+**Falsifies.** "uopt folds every copy, so a copy in the target implies a
+construct I have not identified." The construct is ordinary; it is the *later*
+redefinition that keeps the copy alive.
+
+**Provenance:** Mickey's Speedway USA decomp, `debug_text_width`, 2026-09-10.
+
