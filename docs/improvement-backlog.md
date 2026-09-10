@@ -940,7 +940,56 @@ found instead 45 insertions against 48 deletions over 93 sites -- the -12 was a
 net, not a gap. Both labels were defensible and they routed to different work.
 Name them differently, or derive one from the other.
 
-## Score against link-resolved addresses, not relocation-masked words (highest priority)
+## RESOLVED (2026-09-10): the union mask is implemented in both trees
+
+The "concrete fix" below -- mask a word if EITHER side carries a relocation --
+**is already in the code**, in both this package and the Mickey host, and has
+been for long enough that nobody noticed the entry was stale. Verified by
+reading each site and then by measurement:
+
+- `src/decomp_workbench/compare.py:relocation_aware_words` computes
+  `keep = (~(expected_mask | actual_mask)) & 0xFFFFFFFF`.
+- Mickey's `tools/nm_ranking.py` ORs `RELOC_VALUE_MASKS` over
+  `(base_reloc.get(offset), target_reloc.get(offset))` at each differing word.
+- Empirical, both directions: splat's unrelocated literal `lui $v0, 0x800C`
+  against the C build's relocated `lui $v0, %hi(sym)` masks **equal**, while a
+  genuine register difference (`lui $v0` vs `lui $v1`) still **differs**. So
+  the mask erases the artifact without erasing codegen evidence.
+
+**So why do lanes keep reporting this?** Because they hand-roll raw-word
+scorers in their fast direct-`cc` loops and never reach the project's
+comparator. On 2026-09-10 a lane reported "six false residuals on
+`overlay1ResolvePathPoint`" from exactly that. The defect is real, the cause
+was misattributed to the comparator, and the entry below sent the project's
+stated top priority at code that was already correct.
+
+**And the effect is small where it does occur.** Raw against union-masked on
+the six largest campaign targets: 73/73, 295/295, 1338/1337, 225/222,
+1841/1834, 3229/3215. Artifacts are 0, 0, 1, 3, 7 and 14 words -- at most
+**0.4%** of a residual. Any plan that budgets a phase for "partition out the
+relocation artifacts" is budgeting for a rounding error.
+
+**What is actually still open**, and it is a different item: lanes hand-roll
+scorers *because the correct one is impractical in a loop* -- see
+"`wb_compare.sh` is 25-60x slower than it needs to be" and
+"`--summary-json` refuses on several TUs" below. Ship a fast, correct,
+lane-facing scorer and the recurring misdiagnosis stops at the source. The
+broader idea below -- resolving addresses against the linked ELF rather than
+masking -- remains unimplemented, but the measurements above say its payoff is
+bounded by those same fractions of a percent, so it should not be carrying the
+"highest priority" label.
+
+Two implementation notes worth keeping from the original entry: the same
+`>> 16` syntax with a full 32-bit constant (`0x41F00000 >> 16`) is a float
+immediate and must NOT be masked or resolved; and `objdump -d -r` prints
+relocation offsets in *section* coordinates while a home-grown scorer indexes
+from the function's base, so not rebasing silently unmasks relocated words --
+it produced a false 4-word residual on a function that was exact, and inflated
+another from 15 to 18.
+
+## Original entry (superseded above, kept for its evidence)
+
+### Score against link-resolved addresses, not relocation-masked words
 
 The "relocation-masked differing words" metric masks words carrying an ELF
 relocation. splat emits an address as a `%hi`/`%lo` pair of a named symbol only
@@ -988,7 +1037,7 @@ would fail every merge.
 
 Resolve the three, then add `--check` beside `--check-redefines`.
 
-### The concrete fix for the address-scoring item above: mask the UNION
+#### The concrete fix for the address-scoring item above: mask the UNION (DONE)
 
 A lane solved this by measurement rather than design. The defect is that the
 comparator masks a word when *the candidate* carries a relocation there. splat
