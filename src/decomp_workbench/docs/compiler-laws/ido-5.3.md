@@ -2713,6 +2713,13 @@ concluded from it.
   `before`/`aftercycles`/`maxhazard`/successor latencies and one record per
   selection. Byte-inert, no patched binary, no profile to pin
   ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)).
+* **`cc -S`** — ugen's output *before* as1 schedules it, carrying source-line
+  annotations and the real register allocation. It answers "why did this
+  register change" by reading rather than inferring, and it is the only
+  instrument here that separates an allocation decision from the scheduling
+  that follows it: `-Wa,-R` shows the schedule as1 chose, `-S` shows what as1
+  was handed. Run it in a scratch directory — `-o` is ignored and it writes
+  `<base>.s` beside the input.
 * **`cc -g3` + `.mdebug`** — an exact frame *home census* with no patched
   compiler: `-g3` keeps `.text` unchanged while emitting `.mdebug` home
   offsets, which decompose the frame into argument area, saved registers,
