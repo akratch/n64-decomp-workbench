@@ -2274,6 +2274,18 @@ instruction and is not this lever.
 (field-guide lever 16) and `func_8001A154` (instrumented free-list line
 provenance).
 
+
+**Scope: free at a ring-temp site, priced at a call-argument site (T2, Mickey
+`levelInit`, 2026-09-10).** The doubled mask `(x & M) & M` folds to no
+instruction and still pops the ring, but only where the value stays in the
+ring. Measured on one function: free at two later masked tests and inside a
+table index, and **8 bytes** at a call-argument site where the value goes
+straight to `a0`. So the lever's price is a property of the site, not of the
+construct, and it must be re-measured per site rather than adopted across a
+function. On that function the doubled masks bought 113 masked words down to
+38, and are marked in-source as phantom-pop carriers rather than as evidence:
+72 natural alternatives were measured and none buys the pop.
+
 ### L76. A struct field read through a local costs one ring pop a direct read does not
 
 Naming a struct field in a local and using the local costs **one extra ring

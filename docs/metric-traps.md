@@ -396,3 +396,31 @@ by construction rather than by review.
 - [L18, positional words are the honest metric](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric) and
   [L19, partial closure is not monotone](compiler-laws/ido-5.3.md#l19-partial-closure-is-not-monotone) —
   the two measurement laws this page's traps extend.
+
+## Trap 11: a forced-colour receipt is numbered against the variant it ran on
+
+**The trap:** a `CDX_FORCE` result is cited as "forcing web N reaches score S",
+and the web number is carried forward into a later brief. Web numbers are
+assigned per compilation. A receipt taken against a candidate that carried one
+extra carrier numbers its webs differently from the candidate you are holding,
+so the number names a different web, and the score it promises is a score the
+current source cannot reach.
+
+**The incident.** A receipt recorded "forcing web 105 takes 113 to 99" and was
+put into the next lane's brief as its starting point. Re-derived on the current
+source: the web is **104**, not 105 — the original ran against a variant
+carrying an extra carrier — and the colouring decision is worth **14** words,
+not the 113 the brief implied. A full sweep, 57 webs across c1–c8 with 258
+forces applied, established both. The function then went 113 to 22 on entirely
+different levers.
+
+**Why it survives review.** The receipt is *true of the run that produced it*
+and reproduces exactly if you rebuild that variant, so it does not read as
+stale. Nothing about a bare web number says which source it was numbered
+against.
+
+**The rule:** cite a forced-colour receipt with the source it was taken on, and
+re-derive the web number before spending a lane on it. A force is a causal
+probe -- it identifies a decision worth explaining -- and its *number* is an
+artifact of one compilation, not a property of the function.
+
