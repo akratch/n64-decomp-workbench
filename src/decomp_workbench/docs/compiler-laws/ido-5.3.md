@@ -3176,6 +3176,22 @@ A fourth form produces it for a different register: a walking user pointer with
 any incidental named-static reference elsewhere in the body emitted
 `.noalias $19,$sp`, at the cost of one extra saved register.
 
+**The producer does not require strength reduction, and the phrase "uopt's own
+strength-reduced induction pointer" above overstates it.** A *constant* index
+(`&gNamedNodes[7]`) and a variable index outside any loop both emit the fact.
+So it rides on indexing a named array, not on the induction machinery. The
+first reading of this law guessed otherwise, and a probe falsified the guess.
+
+**One negative that is not yet explained.** On `overlay11UpdateMenu` the source
+reaches its pointer as array-decay-plus-offset, `(s32 *)(D_menuBase + 0x1C4)`,
+which is a non-producing form. Rewriting it to the producing form,
+`(s32 *)&D_menuBase[0x1C4]`, is **byte-identical** -- the residual stays at 2
+words. Either the fact was already present from another indexed reference in
+that body, or the fact it produces names a register other than the one the
+argument load uses. Reading the function's actual `.noalias` state would settle
+it; a scratch `-S` compile of that TU fails on include resolution, so it is
+open. Do not read this negative as the construct failing.
+
 So the search space on the measured function is not closed. What is established
 is that its temp cost came from its own expression shape rather than from the
 indexed spelling, and the forms above are worth re-trying there individually.
