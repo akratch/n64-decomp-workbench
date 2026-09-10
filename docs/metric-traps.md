@@ -352,6 +352,32 @@ policy repairs it.
 count disagrees with the project's comparator while its deltas agree, suspect
 this before suspecting the comparator.
 
+## Trap 10: a stale candidate object reads as a plausible residual
+
+**The trap:** a scorer compares against a candidate object left over from an
+earlier state of the source. Nothing in the resulting diff says so. It is not
+noise and it does not look broken — it looks like a large, coherent, workable
+residual, and a lane will happily plan against it.
+
+**The incident.** A handoff recorded that a specific arithmetic regrouping made
+rows 19-59 exact and moved a function's first mismatch from `+0x4C` to `+0xF0`.
+Re-measured against a freshly compiled object: **107 masked words, first
+mismatch still `+0x4C`**, and three other groupings of the same shift all
+within one word of each other. The filed claim does not reproduce, and the
+function's recorded "next lever" rested entirely on it. The stale reading had
+been 430 words at size delta `+48` against a true 36 at delta `0`.
+
+**The tell is the size delta.** A stale object is usually stale because the
+source changed shape, so its instruction count disagrees with the target's in a
+way the current source does not. A residual whose delta is large while the
+current source is known to be extent-exact is stale until proven otherwise.
+Check the delta before reading the word count, always.
+
+**The structural fix** is to recompile rather than to find the object: a scorer
+that owns its own compile cannot serve a stale one. `score_symbol.py` in the
+Mickey host does exactly that, and it is why its numbers agree with the ranking
+by construction rather than by review.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries

@@ -3040,6 +3040,17 @@ compiling the alternatives at the TU's own flags. The `(s32)` half was
 independently reproduced on `overlay33InitializeBuffers` (the `addu` at
 `+0xDC`) and the comparison-order negative on `overlay19ClassifyEdge`.
 
+**It reaches floating-point multiplies too (T2, Mickey `func_8005716C`,
+2026-09-10).** The law was written from integer and pointer arithmetic, and
+[lever 54](../field-guide.md#54-cast-the-base-to-s32-to-make-ugen-sum-an-address-base-first)
+with it. On a float product whose residual had been filed as "not
+source-spellable, both operand orders emit the same word" — which is precisely
+this law's signature rather than a dead end — an explicit `(f32)` cast on one
+operand, a **no-op on a value already `f32`**, changes that operand's weight
+and moves it left. It closed the function's last word. The cast on the *right*
+operand is inert, and so is unary `+`: only the side whose weight you are
+trying to raise responds.
+
 ### L93. A top-tested loop numbers the exit copy below the counter; a bottom-tested one does not
 
 `do { } while (n--)` and `while (n--) { }` can be made to run the same
@@ -3102,3 +3113,54 @@ are zero in the image and no read's identity is visible in the bytes. The
 grouping that the reconstruction picked is one of several byte-identical
 choices. Any name attached to the split is a placeholder, and the adopting
 source says so inline at Tier D.
+
+### L95. as1 fills a delay slot by memory disambiguation against `$sp`, not by liveness
+
+[L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers) gives
+the selection chain among nodes that are *ready*. It says nothing about what
+makes a memory node ready in the first place, and on a store pair that turns
+out to be the whole question: as1 decides whether a load may move across a
+store by whether it can prove them disjoint from `$sp`.
+
+The fact reaches as1 as a `.noalias` directive naming the load's base register.
+Where the fact is present the move happens; where it is absent as1 refuses, and
+no amount of statement placement, line grouping or liveness annotation
+substitutes for it.
+
+**Measured, on a function this took from 2 words to 0.** Three byte-inert
+perturbations each reach zero: `.noalias <reg>,$sp` naming the argument-load's
+base register — placed anywhere from the loop preheader through between the two
+stores — a `.loc` between the stores, and `.set volatile` around the **first**
+store alone. Each of these is inert: `.noalias` on any other register,
+`.noalias` after both stores, `.noalias` opened and then closed with `.alias`
+before the second store, `.set volatile` on the second store alone, and
+`.livereg` moved, deleted or remasked. Liveness is not the axis. Position
+relative to the second store is.
+
+**Where the fact comes from, which decides whether it is source-reachable.**
+ugen emits `.noalias` for a **named-static** reference — including uopt's own
+strength-reduced induction pointer over a named array — and **never** for a
+walking user pointer. Confirmed on a six-point standalone probe. So the
+array-index spelling produces the fact, and on the measured function it also
+reproduced the target's exact spill order and argument-load form.
+
+**And it was still excluded, provably.** `cc -g3`'s `.mdebug` local table
+decomposes that target's `0x48` frame as 28 bytes of outgoing args plus return
+save and 44 bytes of declared block — **zero compiler temp cells**, with the
+candidate's declared block already matching name for name. Every indexed
+spelling adds 3 temp cells (`0x50`) or 4 (`0x58`). The open question is
+therefore narrow and mechanical: a zero-temp producer of the disambiguation
+fact for a walking pointer.
+
+**Receipt — T2, byte-inert assembler perturbations over a phase-replay
+harness.** Mickey's Speedway USA `overlay11UpdateMenu` (1,204 bytes),
+2026-09-10, `cc -S` re-assembled through `as0`+`as1` without `-pic0`, round
+trip confirmed byte-exact before any perturbation was believed.
+
+**It also falsified a standing closure.** That function's handoff had recorded
+the residual as not source-reachable, naming a single barrier: "a debug line
+entry between the two stores, which ugen cannot emit inside one statement's
+spill group". That barrier is real but it is one of at least three, and the
+closure had reasoned from the only one it found. Enumerating the barrier space
+rather than accepting the first is what reopened it — see the backlog note on
+closures being evidence about a lever set, not about a function.
