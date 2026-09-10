@@ -41,3 +41,21 @@
 15. **Give humans and automation one truth.** Terminal labels, JSON keys,
     census predicates, ledger fields, and docs share vocabulary. `--json`
     errors are documents, not mixed streams.
+16. **A flat spelling lattice is not evidence that a residual is unreachable.**
+    The compiler never reads a spelling. It reads a *decision variable* --
+    operand weight, uopt web number, a `$sp` disambiguation fact, a temp count,
+    a live range. Source forms map onto those variables **many-to-one and not
+    onto**, so an exhausted lattice bounds the sampling and says nothing about
+    reachability. Write closures as "N forms left variable X untouched", never
+    as "not source-reachable", and name the variable you believe is stuck.
+    A closure that cannot name one has not finished its diagnosis.
+
+    The base rate is not marginal. Of five closures re-tested on Mickey's
+    Speedway USA on 2026-09-10, **none survived**: two functions matched on the
+    first attempt afterwards, one had its stated mechanism falsified with three
+    independent routes to zero, one carried a measurement that did not
+    reproduce at all, and one law's cost claim was falsified by a probe. Every
+    one of those closures had exhausted a spelling space; every recovery came
+    from naming the variable instead. "Both operand orders emit the same word"
+    was read as a wall when it is the signature of the weight law, and the fix
+    was a cast that is a no-op on the value's own type.
