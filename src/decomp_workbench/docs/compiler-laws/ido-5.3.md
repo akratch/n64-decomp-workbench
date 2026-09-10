@@ -3407,14 +3407,30 @@ which holds where a loop walks parallel arrays.
 costs an extra compare and `!=` gives the target's branch — the converse of
 what the indexed form wants, refining [L90](#l90-uopt-normalizes-a-basic-induction-variables-exit-test-not-a-derived-one).
 
+**Reproduction requires a call in the loop body, and a naive probe misses it
+(re-verified from scratch, 2026-09-10).** Rebuilt in a fresh nine-line
+translation unit rather than trusted: a call between `i = 0` and a guarded
+`do`/`while` over `A[i]` costs 4 bytes, and an adjacent second definition
+restores the fold. **But the loop body must itself contain a call** — without
+one IDO unrolls the loop and the effect vanishes entirely. Anyone probing this
+law with a minimal loop will conclude it is not real.
+
+Further negatives from the same rebuild: a copy through a second local restores
+the fold but still emits the move in the preheader; keeping the first variable
+live past the loop does not help, because uopt constant-folds its later uses; a
+redundant guard does not help; and a `for` header does not help.
+
 **Receipt — T2, `cc -S` reading ugen's allocation directly.** Mickey's Speedway
 USA `func_overlay_058_F000138C_18B0574` (14,456 bytes), 2026-09-10. Applied to
 the two loops that qualify it took the function 996 → 895 masked words at size
-delta 0. Six further sites are **census-blocked rather than unreachable**: four
-subscript two or three distinct arrays with one index and need that many
-pointer cells where the frame has one spare, one also strength-reduces a
-non-power-of-two multiply so the cursor costs 16 bytes, and one reaches the
-target's shape but costs 8 bytes in its own tail.
+delta 0. Six further sites were first recorded as **census-blocked**; that is retracted.
+A later pass measured an `s32` scalar carrying a pointer through casts as
+**byte-identical** to a `void **` local, so a carrier costs no census at all and
+one case alone has seventeen dead scalars to spend. All four multi-array sites
+were then measured with free carriers, with and without the definition moved:
+**every one regresses**. The cursor pays only where the loop subscripts exactly
+one array *and* has no other surviving induction variable. Those sites are
+**body-blocked, not census-blocked**, and that line of attack is closed.
 
 ### L99. A displaced stack home is a position in the declaration list, and carrier count is emergent from order
 

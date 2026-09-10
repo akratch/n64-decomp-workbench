@@ -378,6 +378,33 @@ that owns its own compile cannot serve a stale one. `score_symbol.py` in the
 Mickey host does exactly that, and it is why its numbers agree with the ranking
 by construction rather than by review.
 
+## Trap 12: the positional score can prefer the structurally worse spelling
+
+**The trap:** two spellings are compared on the positional differing-word count
+and the better number is adopted. On a function still far from matching, that
+number is dominated by *displacement* — one instruction emitted in a different
+place makes every word after it differ, although the two streams are the same
+instructions. A spelling that is structurally closer can therefore score worse.
+
+**The incident.** On a 14,456-byte body, one exit-test spelling measures 894
+positional words and the natural alternative measures 988. Under
+shape-tolerant alignment, with register names erased, the ranking inverts: the
+*natural* form gives 2,905 byte-exact rows against 2,872, and 633 register-only
+rows against 692. It loses only positionally, and only because of a single
+register eviction that displaces the tail.
+
+**Why it matters more the further you are from a match.** Near zero the two
+metrics agree, because there is no displacement left to amplify. At several
+hundred words they routinely disagree, and the positional number is the one
+that misleads: it rewards keeping instructions in place over getting them
+right, which is exactly backwards while the residual is still structural.
+
+**The rule:** on a residual above roughly a hundred words, read the
+shape-tolerant counts beside the positional one before adopting a spelling.
+Adopt on the positional score only once displacement is closed. Record both
+when you file a plateau, because the next lane inherits whichever you wrote
+down.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
