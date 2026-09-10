@@ -1069,6 +1069,25 @@ a candidate that improves the score without matching becomes the committed
 source, and if it is not semantics-preserving the tree now carries C that does
 something different from the game.
 
+**Second occurrence, and the signature is consistent (2026-09-10).** On
+Mickey's `func_overlay_058_F0000000_18AF1E8` a hill climber returned three
+proposals and **two were semantically invalid**: one hoisted a loop-carried
+read (`entry = *orderCursor;`) out of its loop and above the cursor's own
+initialisation, the other hoisted a store out of the `if` that guarded it.
+Together they scored 11 words. Both were rejected, and that function
+consequently gained 1 word where its siblings gained 44 and 89 -- so the
+correctness cost was visible in the results and could easily have been read as
+the function being harder rather than the proposals being wrong.
+
+Both occurrences involve **loop-carried state**, which makes the proposed check
+concrete rather than open-ended: a statement move that crosses a loop boundary,
+or that leaves a guarded block, is the whole hazard class seen so far. The lane
+only caught it because it read and argued every accepted move individually,
+which is not a control that scales.
+
+This is now recurring rather than anecdotal, and it is the one defect on this
+page that can put *wrong code* in the tree rather than merely waste time.
+
 Worth a check in the permuter wrapper: diff the candidate against the base for
 deleted statements and assignments to loop-carried variables, and warn loudly
 before a non-matching candidate is adopted.
@@ -1345,3 +1364,36 @@ Two cheap changes would carry this:
 Relates to entry 17 (read the attempt *series*, not one comparison): both are
 about a stopping decision being recorded without the context that makes it
 re-checkable.
+
+## Sibling transfer works, but the unit is the construct, not the overlay
+
+Two campaigns were run on the thesis that a mechanism found on one function
+transfers to its siblings in the same overlay. The thesis holds and has paid
+for itself, but it was briefed too loosely and the correction is worth stating
+before the next campaign repeats it.
+
+What actually transfers is a **construct**, and whether a sibling contains that
+construct is an empirical question, not a property of the overlay:
+
+- An argument-affinity edit on a point-quad pair ported **verbatim** to its
+  twin: 70 masked words to 26, identical score. That twin was a clone -- the
+  same candidate source over different data -- so transfer was guaranteed
+  rather than demonstrated.
+- The same edit applied to a genuine sibling in the same overlay **regressed
+  it**, 102 to 152. The mechanism was a property of the call site, not of the
+  overlay.
+- A discarded-expression probe transferred to four of seven members of that
+  cluster, at a different price each time: 44, 44, 89, 34 and 13 words. The
+  spread is itself the useful measure of how much of each residual is
+  colouring order.
+- Reading an `s16` field in place rather than copying it to an `s32` local
+  transferred across an overlay 57 pair in one mechanical edit, 92 to 0.
+
+So: batching by overlay is a good way to *find* candidates for transfer,
+because siblings share idioms. It is not a reason to assume a mechanism
+applies. Every port must be re-measured on the sibling, and a regression on
+one sibling says nothing about the next -- three of the four cases above are
+positive and the fourth is a clean regression.
+
+The brief should say "try this on each sibling and record the price" rather
+than "this should transfer".
