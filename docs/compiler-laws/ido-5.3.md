@@ -2015,6 +2015,14 @@ unnamed loop-carried web cannot be minted from source, because there is no pass
 to mint it. Stated as measured-absent in this translation unit, not
 proven-absent in the pass.
 
+**Counter-observation, and the hedge above was right (Mickey overlay 58,
+2026-09-10).** Strength reduction is plainly *present* in that TU: cursors,
+test replacement and base folding are all in evidence. A lane reported this as
+"L15 is false"; it is not, because this law never claimed absence in the pass —
+only in the TU it was measured on. Treat L15 as a per-TU observation and
+re-measure before relying on it: where reduction is present, an unnamed
+loop-carried web can be minted, and the cursor form is the way in.
+
 ### L16. Register claims are advisory
 
 Forcing a claim to a different register produces a **byte-identical object**
@@ -3342,3 +3350,68 @@ a search direction.
 same overlay, dropping `volatile` from two locals cost 52 and 16 words --
 neither pair has a join to break. Do not carry a volatile conclusion across
 functions; carry the question of whether the read pair has a join.
+
+**Scope: it is inert on many functions, and inert means byte-identical.**
+Measured on three in one campaign — two mid-size overlay bodies at five and
+three placements each, and a 14,456-byte body at five placements covering
+`if (1)`, `do { } while (0)` and a bare block — every one produced an object
+**identical to the base**, not merely no better. On a fourth, every boundary
+*inside* the loop cost exactly +10 words and every placement outside was inert,
+because the boundary permuted two webs without demoting the one that needed to
+move.
+
+So a region boundary redraws colouring *within* a region and cannot reorder a
+web against one it does not enclose. When the residual is a colour ladder step
+carried through a whole body, or a web that must be demoted rather than
+permuted, this lever has nothing to reach. Try it early because it is cheap and
+size-neutral; abandon it after a handful of placements rather than sweeping.
+
+### L98. The induction zero-fold barrier is a call, and it is not constant propagation
+
+When a loop's index is initialised to zero, uopt folds that zero into the
+strength-reduced cursor base and emits a bare address load. **A call between
+the definition and the loop breaks the fold**, and the emitted form becomes a
+multiply plus an address load plus an add — 8 bytes.
+
+The barrier is the call itself. Within one basic block the definition moves
+freely; a single call anywhere between definition and loop breaks it; distance
+alone does not, and neither does a join.
+
+**It is a distinct analysis from constant propagation.** With the only
+definition three calls earlier, a shift-assign of that index still compiles to
+a move of zero — uopt propagated the constant across all three calls. So the
+induction-variable *initial-value* analysis is separate and block-local, and
+does not consult the propagated value. Two passes reading the same zero, one
+of which cannot see across a call.
+
+**A duplicate definition cannot buy it.** A second definition at the top of the
+case is dead-code-eliminated and the object is byte-identical to no probe at
+all. Forms that survive as definitions (`i *= 1`, `i <<= 0`) emit the same move
+and change nothing; forms that are deleted outright (`i += 0`, `i -= 0`,
+or-with-zero, self-assignment) break the fold exactly as having no definition
+does.
+
+**The exit is to remove what has to be folded.** Where a loop subscripts
+exactly one array with the index, spelling that subscript as an explicit
+pointer cursor leaves nothing to strength-reduce, and the definition is then
+free to sit where the target has it.
+
+**The diagnostic runs the other way, and is the useful half:** when the
+target's index initialisation sits at the **top of a case, ahead of calls**,
+the cursor is in the original source — because the indexed form cannot both
+fold and place the definition there. That is the positive-evidence converse of
+the field guide's "give the loop an index, not a hand-written cursor" rule,
+which holds where a loop walks parallel arrays.
+
+**It also flips the exit test.** With the cursor carrying the subscript, `<`
+costs an extra compare and `!=` gives the target's branch — the converse of
+what the indexed form wants, refining [L90](#l90-uopt-normalizes-a-basic-induction-variable-s-exit-test-not-a-derived-one).
+
+**Receipt — T2, `cc -S` reading ugen's allocation directly.** Mickey's Speedway
+USA `func_overlay_058_F000138C_18B0574` (14,456 bytes), 2026-09-10. Applied to
+the two loops that qualify it took the function 996 → 895 masked words at size
+delta 0. Six further sites are **census-blocked rather than unreachable**: four
+subscript two or three distinct arrays with one index and need that many
+pointer cells where the frame has one spare, one also strength-reduces a
+non-power-of-two multiply so the cursor costs 16 bytes, and one reaches the
+target's shape but costs 8 bytes in its own tail.
