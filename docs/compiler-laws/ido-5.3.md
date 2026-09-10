@@ -3203,7 +3203,13 @@ region before the second store leaves 2.
 
 So the open question is not "which register" and not "can the fact be
 produced" -- it is **emit the fact for the right pointer, with a region that
-covers the pair, at zero temp cells**. The lane that established this said
+covers the pair, at zero temp cells**.
+
+One approach to that is already falsified: deriving the pair's pointer from
+the one that *does* carry the fact, so a single region might cover both, leaves
+the masked count at 2 and costs a raw word (16 -> 17). Sharing a base is
+therefore not the route, and the layout assumption it requires is not worth
+carrying for no gain. The lane that established this said
 plainly that three replay controls and one C remeasurement demonstrate the
 mechanism and *do not* prove C unreachability, which is the right reading.
 
