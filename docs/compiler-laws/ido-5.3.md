@@ -3931,9 +3931,12 @@ that function, 165 recorded forms varying declaration order, statement order and
 definition position had come back flat across three separate attempts. They were
 all measuring an axis the function does not have.
 
-**Corollary — p1 ties keep the incumbent.** When two colours are offered at
-exactly equal cost the first-scanned one wins, so a tie is decided by scan order
-and not by anything in the source. The lever is then the *ratio* that orders the
+**Corollary — p1 ties keep the incumbent, and the scan order is ascending web
+number.** When two colours are offered at exactly equal cost the first-scanned
+one wins, so a tie is decided by scan order and not by anything in the source.
+Independently measured on a second function: the p1 sweep runs in strictly
+descending `save` with **ties broken on ascending web number**, which is the
+same statement seen from the other side. The lever is then the *ratio* that orders the
 two webs, never the cost. On the same function a 187-slot register rotation hung
 entirely on one such tie: the address temp for a 24-byte buffer (`nocs` 53,
 `totalsave` 849, `save` 16.0189) was selected ahead of the loop counter (`nocs`
@@ -3984,3 +3987,76 @@ a number, and the number is set by where you put it.
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_058_F000138C_18B0574`, 2026-09-10.
+
+### L110. uopt never merges an address constant across a basic-block boundary
+
+Two reads of one import in a single basic block share one materialisation; the
+same two reads in different blocks are materialised separately, and **no number
+of reads produces a stack temporary**. Measured directly on a standalone probe:
+three reads in three blocks give three materialisations, two reads in one block
+give one.
+
+**Therefore "spilled web versus rematerialised temp" is not a decision uopt
+makes**, and a closure that names it as the residual's decision variable has
+named something that does not exist. The variable is block structure, which is
+a source decision — see
+[L105](#l105-uopt-forwards-a-calls-return-register-into-every-use-in-the-calls-own-block).
+
+This sharpens [L94](#l94-two-reads-of-one-import-in-a-single-region-open-a-global-address-web): the *region* in that law is a **basic block**, not a
+syntactic scope and not a uopt region.
+
+**Receipt — T2** (Mickey `func_overlay_022_F0000000_1878108`, 2026-09-10),
+measured on a standalone probe rather than inferred from the function, so it
+holds independently of that residual.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-10.
+
+### L111. as1 fills a delay slot when the block holds a third node, not merely a dependence successor
+
+The condition for as1 to fill a branch's delay slot from its own block is that
+the block contains **a third node** — not, as the trace's framing suggests, that
+the store has a dependence successor. Supplying one more node in the block lets
+the last pick land in the slot.
+
+**Receipt — T2** (Mickey `overlay33InitializeBuffers`, 2026-09-10, matched and
+promoted). Hoisting a copy above a null test supplies the third node and gives
+the target's order. That alone costs a word, because uopt then deletes the else
+arm's join copy; wrapping the hoisted copy in `if (1) { }` blocks the
+propagation and emits nothing. A bare brace block is byte-identical to no block
+at all, which reproduces
+[L97](#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one)'s own control on this function.
+
+Note the shape: **two halves of an inherited closure were each correct and
+compose only with a region boundary between them.** Neither half alone is an
+improvement, which is why a search over single edits found nothing.
+
+**Provenance:** Mickey's Speedway USA decomp, `overlay33InitializeBuffers`,
+2026-09-10.
+
+### L112. In a reconstruction, an unobservable array length is a free parameter the frame identity solves for
+
+A local array's declared element count is not recoverable from the ROM when
+nothing reads past the last element the code touches. It is a guess the
+reconstruction made, it sits in the frame arithmetic, and **the frame identity
+solves for it**: write `frame = round8(fixed + block + temps)` with
+`block = base + element_size × count`, put the target's frame in, and read the
+count out.
+
+**Therefore a frame residual is not always short of a lever.** Before hunting
+for something that removes a compiler temp, check every dimension in the block
+that the ROM does not observe — array lengths first, then aggregate sizes
+([L107](#l107-a-uopt-region-boundary-blocks-address-reassociation-and-costs-exactly-8-bytes-of-temp)) — and solve rather than search.
+
+**Receipt — T2** (Mickey `func_overlay_036_F0000818_1883CD0`, 2026-09-10,
+matched and promoted). The inherited closure had proved that the residual was
+the frame size alone and that a six-scalar source could not reach `0x70` in any
+order, then went looking for a temp-removing lever. It was holding the results
+array's own length fixed at 13, a reconstruction's guess; nothing reads past
+`results[remaining - 1]`. `block = 60` means a 36-byte array, so **9 elements**.
+Lengths 8 through 13 score 7, **0**, 4, 3, 7, 3.
+
+**Falsifies.** "The frame is N bytes too large and the source has no cell to
+give." It has every cell the ROM cannot see.
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_036_F0000818_1883CD0`, 2026-09-10.
