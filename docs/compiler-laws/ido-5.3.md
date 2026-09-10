@@ -4025,6 +4025,12 @@ score unmoved. **uopt counts references after copy propagation**, so a form it
 propagates away contributes nothing. Only the form measured in the receipt above
 reached the count.
 
+**Second bound, same day — the probe needs a *definition* to attach to.** A
+discarded expression that merely *reads* a global the loop already reads is
+CSE'd into that existing read and adds no occurrence at all. Together with the
+copy-propagation bound above, the scope is: a probe only counts when it
+introduces a reference uopt can neither propagate away nor common up.
+
 So the lever is real but narrow: verify that a probe moves `totalsave` in the
 decision records *before* building anything on it. A probe that does not move
 the number is not a weak lever, it is not a lever.
@@ -4108,3 +4114,33 @@ give." It has every cell the ROM cannot see.
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_036_F0000818_1883CD0`, 2026-09-10.
+
+### L113. A loop whose index dies at strength reduction emits no preheader move — so give the loop its own index
+
+When a loop's induction variable is dead after the loop, strength reduction
+consumes it entirely: the loop counts on the address it is already forming and
+the preheader emits **no `move` at all**. An index that is read after the loop
+cannot die that way, so the preheader keeps a copy and the loop body keeps a
+separate counter — `addiu i,i,1 / slt / bne` where the target has
+`addiu <ptr>,<ptr>,4 / sltu / bnel`.
+
+**Therefore "the target's preheader has no move" is a readable signal with a
+direct source fix: give the loop an index of its own**, so the shared one is no
+longer live past it. Any local dead across that region will do; the loop's own
+index does not have to be a new declaration.
+
+**Receipt — T2** (Mickey `func_overlay_058_F000138C_18B0574`, 2026-09-10,
+894 → 755 → 733 at delta 0). The function's index was read by a later case's
+draw loop, which is why it could not die. Of sixteen carriers dead in that case
+**only one reaches delta 0**; carrier identity is the whole lever
+([L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)),
+and a second application on another loop site paid a further 22 words.
+Saved-register agreement moved 610 → 631 of 848 with it.
+
+**Interacts with [L98](#l98-the-induction-zero-fold-barrier-is-a-call-and-it-is-not-constant-propagation).** On the same function, supplying a missing
+top-of-case definition put a call between the only reaching definition and the
+loop, so the zero was not folded and the preheader kept its counter — 489 words.
+The two are the same preheader, reached from opposite directions.
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_058_F000138C_18B0574`, 2026-09-10.

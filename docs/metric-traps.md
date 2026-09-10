@@ -484,6 +484,33 @@ selector, which is semantic.
 **Report all three numbers** for anything you adopt or reject. Two of the three
 whales above had adoption decisions that reverse depending on which you read.
 
+## Trap 14: an unguarded carrier sweep will offer you a semantically wrong candidate that scores better
+
+**The trap:** a sweep that reassigns a construct to each candidate carrier in
+turn, ranked by score. Nothing in the ranking knows what the names *mean*, so
+if one candidate name is live in the region being rewritten, the sweep will
+happily alias two distinct values onto one variable — and because that removes
+a web, it can score **better** than every correct candidate.
+
+**The incident.** A carrier sweep offered a loop's index carried by a variable
+that is the x cursor *inside that same loop*, scoring five words better than the
+correct answer. Adopting it would have compiled, verified against nothing, and
+silently changed what the function computes.
+
+**The guard, in two parts:**
+
+1. **Mechanical** — require the candidate name to be absent from the text of
+   the region being rewritten. This is cheap and catches the aliasing case.
+2. **By hand** — read the winner against the whole enclosing scope before
+   adopting. The mechanical guard only sees the region you named; a value can
+   be live across it without appearing in it.
+
+**Why this trap earns its own entry.** Every other trap here costs time. This
+one costs correctness, and it does so *while improving the number you are
+steering by* — the failure mode is a candidate that looks like progress. Five
+semantically invalid candidates were produced across three lanes in one day by
+generators with no such guard.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
