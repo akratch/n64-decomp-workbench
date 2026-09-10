@@ -2926,6 +2926,20 @@ types `u32`, `long`, `char *`, `u8 *` and `s32 *` are inert; `s8` keeps the
 compare but pays for it in sign extension; every `do`/`while`/`for` form
 unrolls.
 
+**Scope limit found the same day (T2, Mickey `func_overlay_058_F000138C`).**
+"Unconditional" above is measured against a **memory-resident** bound. Where
+`K` is a **register-resident local**, the two spellings are *not*
+interchangeable: writing `i != K` yourself gets uopt's **test replacement**
+instead -- it drops the counter entirely and tests a *cursor* against a
+computed limit -- while `i < K` does not. On the measured case the `<` form
+was worth **-16 bytes and 515 newly exact rows** against the `!=` form.
+
+So the normalization above says what uopt does to a `<` you wrote; it does not
+license writing `!=` in its place and expecting the same object. Check where
+the bound lives before treating the two as the same edit. Whether the original
+`func_8003A754` receipt would also split this way under a register-resident
+bound was not re-tested, so treat the boundary as located but not surveyed.
+
 ### L91. `.set volatile` is a hard scheduling barrier, so volatile order is emission order
 
 Within a `.set volatile` region, as1 chains **every** volatile reference to the
@@ -3035,3 +3049,37 @@ form colours the counter `a1` and its dead copy `v1`, the bottom-tested form
 the reverse. The negative on `overlay20RemoveEntry` was measured in the same
 lane and falsifies the reading that that function's dead `move v0,v1` is an
 invisible web blocking its colouring.
+
+### L94. Two reads of one import in a single region open a global address web
+
+IDO opens a **global address web** for a symbol as soon as **two** of its
+reads land in the same region, and then spends an extra instruction
+materialising that web at the symbol's **single-read** sites too. The cost is
+therefore paid away from the site that caused it, which is what makes it hard
+to see: adding a second read in one region lengthens code elsewhere.
+
+**The trigger is co-region pairing, not use count.** A standalone probe held
+the short form at 2, 3, 4, 5, 6 and 8 reads and only webbed at 10 -- so a
+use-count threshold is the wrong model. Two reads inside one region is the
+whole condition.
+
+**It is not reachable by spelling.** An array-typed extern, a dropped cast, an
+explicit dereference and a `volatile` qualifier all produced a byte-identical
+object. The only thing that moves it is which *object* the reads belong to.
+
+**Receipt — T2, exhaustive.** Mickey's Speedway USA
+`func_overlay_058_F000138C_18B0574` (14,456 bytes), 2026-09-10. All **203 set
+partitions** of the function's six reads were compiled and scored. Every
+partition that separates the two same-region pairs reaches size delta 0, and
+all of those emit a **byte-identical** object; every partition leaving either
+pair together does not. Worth -8 bytes on that function, and one of the three
+levers that took its size delta from +56 to 0.
+
+**What that receipt does and does not evidence.** It evidences that the two
+reads inside one case are not the same object -- at "the target cannot have
+been compiled otherwise" strength. It evidences nothing about *which* objects
+they are: the ROM relocates these reads at load time, so their address fields
+are zero in the image and no read's identity is visible in the bytes. The
+grouping that the reconstruction picked is one of several byte-identical
+choices. Any name attached to the split is a placeholder, and the adopting
+source says so inline at Tier D.

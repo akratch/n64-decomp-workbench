@@ -318,6 +318,40 @@ See
 failed or was missing" item 5, for both halves of this trap in their original
 form. The objects are not redistributable and are not in this repository.
 
+## Trap 9: splat's listing carries the *linked* word; the assembled object does not
+
+**The trap:** a fast scorer reads the target's words out of the disassembly
+listing instead of assembling it. The listing annotates each line with the
+word as it sits **in the ROM** -- fully linked, every address resolved. The
+object you get by assembling that same listing is **unlinked**: the address
+fields are zero and the information lives in relocations instead. Comparing an
+unlinked candidate against linked target words reports differences at every
+site where the linker supplied a value, and none of them are real.
+
+**The incident.** A lane building a direct-`cc` iteration loop scored its
+target this way and carried two phantom rows the whole time: a link-time
+resolved internal call, and an import whose addend is stored in the image.
+Both differ by construction, neither survives linking. Switching to the
+assembled target object made its numbers agree exactly with the project
+comparator, base and edit alike.
+
+**Why it survives review.** The count is *close*. Two phantom rows against a
+few hundred real ones looks like ordinary noise, not a methodology error, and
+every intermediate the lane measures is wrong by the same small constant --
+so the edit-to-edit *deltas* that drive the search stay correct and the loop
+feels trustworthy. It only shows up when the absolute number is compared with
+a tool that assembles.
+
+**Distinct from the relocation-masking question**, which is about a word
+carrying a relocation on one side only and is handled by masking the union of
+both sides' relocation fields. This trap is upstream of that: it is about
+having read the wrong bytes for the target in the first place, and no masking
+policy repairs it.
+
+**The rule:** assemble the listing and read the object. If a scorer's absolute
+count disagrees with the project's comparator while its deltas agree, suspect
+this before suspecting the comparator.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
