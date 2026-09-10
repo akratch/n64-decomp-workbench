@@ -3144,13 +3144,41 @@ walking user pointer. Confirmed on a six-point standalone probe. So the
 array-index spelling produces the fact, and on the measured function it also
 reproduced the target's exact spill order and argument-load form.
 
-**And it was still excluded, provably.** `cc -g3`'s `.mdebug` local table
-decomposes that target's `0x48` frame as 28 bytes of outgoing args plus return
-save and 44 bytes of declared block — **zero compiler temp cells**, with the
-candidate's declared block already matching name for name. Every indexed
-spelling adds 3 temp cells (`0x50`) or 4 (`0x58`). The open question is
-therefore narrow and mechanical: a zero-temp producer of the disambiguation
-fact for a walking pointer.
+**And it was still excluded on that function.** `cc -g3`'s `.mdebug` local
+table decomposes that target's `0x48` frame as 28 bytes of outgoing args plus
+return save and 44 bytes of declared block — **zero compiler temp cells**, with
+the candidate's declared block already matching name for name. Every indexed
+spelling tried there added 3 temp cells (`0x50`) or 4 (`0x58`).
+
+**The fact is free in general, so that exclusion is a property of that
+function, not of the construct.** A standalone probe at the game-code preset
+compiled a walking user pointer against the indexed form over a named array:
+identical `subu $sp, 40`, identical four saved registers, identical `.mask` and
+`.frame`, identical 21-instruction bodies — and the indexed form emits
+`.noalias $16,$sp` while the walking form emits nothing. The disambiguation
+fact cost zero frame bytes and zero instructions.
+
+Three producers measured free at that preset, which is the answer to "what
+spells the fact without paying for it":
+
+- indexing a named array directly (`gNamedNodes[i].a`);
+- taking the address of an indexed element into a local pointer **inside** the
+  loop (`Node *p = &gNamedNodes[i];`), which reads like a pointer walk and
+  still produces the fact;
+- indexing through a pointer initialised to `&gNamedNodes[0]`.
+
+And two that do **not** produce it, which bounds the rule usefully: a pointer
+initialised from the named array and then incremented (`p = gNamedNodes; p++`),
+and a named-array walk against an end pointer. Origin in a named static is not
+enough; the *index* is what uopt strength-reduces, and the fact rides on that.
+
+A fourth form produces it for a different register: a walking user pointer with
+any incidental named-static reference elsewhere in the body emitted
+`.noalias $19,$sp`, at the cost of one extra saved register.
+
+So the search space on the measured function is not closed. What is established
+is that its temp cost came from its own expression shape rather than from the
+indexed spelling, and the forms above are worth re-trying there individually.
 
 **Receipt — T2, byte-inert assembler perturbations over a phase-replay
 harness.** Mickey's Speedway USA `overlay11UpdateMenu` (1,204 bytes),
