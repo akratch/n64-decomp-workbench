@@ -1813,6 +1813,21 @@ the counted-`for` rewrite a prior pass measured at 28, which moved the loop
 bound. This moves only the line. The controls: the same comma initialisation
 before an unchanged `do` scores 22, and a cursor-first header 27.
 
+**The last key is LIFO, not emission order (T1, 2026-09-10).** "Ready-list
+position" resolves to **last in, first out**. A replay of one function's own
+`cc -Wa,-R` trace reproduced **244 of 244** multi-candidate selections with zero
+mispredictions under `(start time, −aftercycles, −latency, addr, lineno,
+ready-list position)` once the last key was read that way. Anyone modelling the
+tie-break as emission order will predict the opposite winner on every selection
+that reaches it.
+
+**And the whole key space is reachable with `#line`.** Legal statement orders
+cover only part of it, so a lattice over statement order under-samples the law's
+own variable. Using `#line` to place a statement's number above, equal to and
+below its neighbour's is what turns "no legal order reaches it" into a proof
+rather than a report — on that function the three positions score 5 / 7 / 5 and
+the target's order is none of them.
+
 ### L79. A selection decided above `lineno` has no source lever
 
 `lineno` is the **last** key in as1's selection chain, so a selection decided
@@ -3678,6 +3693,13 @@ two kinds and they need opposite responses:
 |---|---|---|
 | nothing — the colour is absent from `p1cost` | not offered | **split the web** so the piece you want no longer spans the call |
 | `forbidden=<mask>` naming the colour | genuine interference | **partition the webs** — no ratio or spelling edit reaches it |
+| the colour is *already forbidden at decision time* | the force is declined | **nothing** — and the object comes back **byte-identical**, so the experiment proved nothing at all |
+
+**That third row is a trap, not a finding.** A forced-colour run that returns an
+object identical to the unforced one looks like "the colour makes no
+difference". It usually means the force never applied. Always check that the
+force was *accepted* in the record before reading anything into an unchanged
+object.
 
 A 14 KB procedure's prologue was force-declined with `forbidden=0x5e038000`: the
 switch-value copy's callee-saved register is interference, not preference, so no
@@ -3931,6 +3953,19 @@ that function, 165 recorded forms varying declaration order, statement order and
 definition position had come back flat across three separate attempts. They were
 all measuring an axis the function does not have.
 
+**Four functions measured, four with zero p2 records** (2026-09-10): 428, 473,
+1,218 and 1,655 p1 decisions, no p2 on any of them. One translation unit emits
+p2 records only in its *small* procedures. On this evidence p2 is the exception
+in large bodies, not the rule, so
+[L106](#l106-web-numbers-follow-first-definition-order-in-the-body-so-moving-a-definition-is-a-colour-lever) is the axis that usually does **not** exist and
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)'s ratio is the one that usually does.
+
+> **Briefing rule.** Do not name L106 as a lever in a plan until the census has
+> been run. It was named as the untried axis for two separate lanes on this
+> evidence base and was the wrong axis both times; each lane found out by
+> spending a sweep. One compile answers it — the census costs less than the
+> cheapest probe it would otherwise justify.
+
 **Corollary — p1 ties keep the incumbent, and the scan order is ascending web
 number.** When two colours are offered at exactly equal cost the first-scanned
 one wins, so a tie is decided by scan order and not by anything in the source.
@@ -3982,8 +4017,21 @@ address temp's and undid the rotation. **Two levers that both move one web's
 occurrence count are coupled**, and neither can be adopted without pricing the
 other.
 
+**Bound, measured 2026-09-10 — the probe does not reach the count for every
+value.** On a *pointer at loop depth 0*, five discarded forms (`(void)p;`, `p;`,
+`p = p;`, `p += 0;`, `p = &p[0];`, and an idempotent cast round-trip) at 1, 4, 6,
+13, 14 and 20 repetitions **all** left `totalsave` at exactly 8.000000 and the
+score unmoved. **uopt counts references after copy propagation**, so a form it
+propagates away contributes nothing. Only the form measured in the receipt above
+reached the count.
+
+So the lever is real but narrow: verify that a probe moves `totalsave` in the
+decision records *before* building anything on it. A probe that does not move
+the number is not a weak lever, it is not a lever.
+
 **Falsifies.** "A discarded expression is either free or useless." Its value is
-a number, and the number is set by where you put it.
+a number, and the number is set by where you put it — but the number can be
+zero, and only the records say which.
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_058_F000138C_18B0574`, 2026-09-10.
