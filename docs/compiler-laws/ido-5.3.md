@@ -1788,6 +1788,21 @@ different compiler invocation and a different base, so the rule is not an
 artifact of one build. It also independently reproduced the byte-inertness of
 `-R` on this tree's flags.
 
+**Largest field receipt — T2** (Mickey `func_overlay_071_F0000870_18CA390`,
+2026-09-10, 33 words to 11 in one whitespace edit). Every two-word display-list
+command ships `w1` before `w0`; the candidate emitted `w0` first at **ten of
+twelve** sites. Folding each pair onto **one physical line** made the two line
+numbers equal, dropped the tie to ready-list position, and landed the shipped
+order at all ten sites at once — 22 words, no token changed.
+
+The control matters as much as the result: **swapping the two statements
+regresses to 41.** That is the first corollary above, measured. Keys 1–4 are
+equal by construction, so an inversion does not remove the `lineno` tie, it
+only moves it to the other member of the pair. Equality is the only move that
+retires a tie; inversion trades one for another. Where a lane reports that
+"reordering made it worse", that is the expected outcome, not evidence against
+the law.
+
 ### L79. A selection decided above `lineno` has no source lever
 
 `lineno` is the **last** key in as1's selection chain, so a selection decided
@@ -2337,6 +2352,16 @@ single edits does not find them.
 
 **Provenance:** Mickey's Speedway USA decomp (2026-09-03),
 `overlay20UpdateObjectResource`, 90/98 words to exact.
+
+**Third instance of the family, at whole-function granularity — T2** (Mickey
+`overlay101DrawTransformed`, 2026-09-10). A single
+`command = (x = (*displayList)++)` carrier re-parks one web on `t0` and shifts
+the whole expression ring back one place — worth 66 words on its own, and the
+half that made a 62-word placement lever usable. The construct emits nothing;
+what it consumes is an allocator slot. So the family is not only a per-site
+tie-break: one such construct can rotate a function's entire ring, which means
+a lane that has ruled out "spelling" at statement granularity has not ruled out
+this.
 
 ### L77. An index scaled twice costs one more ring pop than an index scaled once
 
@@ -3558,6 +3583,27 @@ more, to 29.
 colours it forbids in the record. This names nothing — the candidate list is
 simply short. If a force is declined silently, check the list length before
 assuming the trace is broken.
+
+**Second receipt — T2, a different trigger with the same signature** (Mickey
+`overlay101DrawTransformed`, 2026-09-10). A `0xFFFFFF00` constant materialised
+in a `jal`'s **delay slot** is forbidden every argument register, and the force
+`p1:w112=c4` is **declined rather than costed** — the same silent shape, from
+placement rather than from a call-result span. So read the decline as the
+general fact: *a silently declined force means the colour was never a
+candidate*, and the source question is what put the value where it is, not how
+to pay for a better colour. Here the answer was to move the test to the
+target's position: the value then takes a1 and the a1 census goes 6 → 9
+exactly.
+
+**Corollary — a force sweep is a verdict, not only a lever.** Because a colour
+that is reachable can be *proved* reachable, a sweep answers "is this residual
+a colouring problem at all". Two forces (`p1:w27=c5,p1:w50=c5`) made
+`func_overlay_071_F0000870_18CA390` byte-identical, so its residue is colour
+and nothing else. Against that, **240 forces on `overlay101DrawPanel` and 168
+on `overlay2QueryNode` left both exactly at their plateaus** — and both
+handoffs had recorded their residue as "colouring". Both were wrong, and the
+sweep is what said so. Run the sweep before writing the classification into a
+handoff, because the next lane inherits it.
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_086_F0000474_18D22AC`, 2026-09-10.

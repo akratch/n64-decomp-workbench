@@ -415,6 +415,29 @@ positional words while losing instructions, because a filled hazard slot is a
 word that now agrees by accident. Count instructions, not just words, whenever
 a candidate changes scheduling.
 
+## Trap 13: a harness that re-prints the source destroys physical-line levers
+
+**The trap:** a candidate generator parses the translation unit and re-prints
+it from its own parse. Token-for-token the output is the same program, so the
+harness reports a base score and proceeds. But re-printing normalises physical
+line layout, and by [L59](compiler-laws/ido-5.3.md) line numbers are a codegen
+input at the scheduling stage. Any lever that lives in whitespace — a folded
+statement pair, a deliberately blank line — is silently undone before the first
+candidate is generated.
+
+**The incident.** decomp-permuter's `import.py` reported `base score = 420` on
+a function the tree scored at **11**, having unfolded the very statement pairs
+that bought the 22 words, and then spent its entire budget improving the
+unfolded form. Nothing errored. The run looked like a normal unproductive
+sweep.
+
+**The rule, and it is general:** *a harness's base score must agree with the
+project's own scorer before any candidate it produces means anything.* A
+disagreement is a scratch-fidelity failure in the harness, never a fact about
+the function. Check it once at the start of every sweep; it costs one
+measurement and it is the only thing standing between a whitespace lever and a
+wasted budget.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
