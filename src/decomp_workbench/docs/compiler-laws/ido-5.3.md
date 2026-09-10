@@ -3405,7 +3405,7 @@ which holds where a loop walks parallel arrays.
 
 **It also flips the exit test.** With the cursor carrying the subscript, `<`
 costs an extra compare and `!=` gives the target's branch — the converse of
-what the indexed form wants, refining [L90](#l90-uopt-normalizes-a-basic-induction-variable-s-exit-test-not-a-derived-one).
+what the indexed form wants, refining [L90](#l90-uopt-normalizes-a-basic-induction-variables-exit-test-not-a-derived-one).
 
 **Receipt — T2, `cc -S` reading ugen's allocation directly.** Mickey's Speedway
 USA `func_overlay_058_F000138C_18B0574` (14,456 bytes), 2026-09-10. Applied to
