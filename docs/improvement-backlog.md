@@ -1312,3 +1312,36 @@ have been acted on. Treat a reported mechanism as a hypothesis with a
 measurement attached, and check the magnitude before rewriting anything: the
 gap between "this effect exists" and "this effect explains 96 rows" is where
 the wasted work lives.
+
+## An exhaustion record is not evidence that a function is closed
+
+`func_overlay_041_F0000854_1887B8C` carried a handoff recording C-body
+mutation as **closed**, and no reopen authorization existed for it. It was
+matched exactly, in a single lane, on the first attempt after being assigned
+directly.
+
+So the standing closure was wrong, and the mechanism that exists to stop lanes
+re-working closed ground would have stopped the lane that closed it. That is
+worth stating plainly because the mechanism is otherwise doing its job: the
+lane noticed the missing authorization, declined to edit the shared config, and
+flagged it instead of routing around it, which is exactly right.
+
+The failure is in what a closure means. These records say "the space I searched
+was flat", and they are read as "the space is flat". This one was written
+before the loop-shape web-numbering law existed; the winning edit was not in
+the space it searched, so its own evidence was never wrong -- only its scope
+was. A closure written against a lever set that has since grown is not
+evidence about the lever set that exists now.
+
+Two cheap changes would carry this:
+
+- **Stamp a closure with the law and lever set it was measured against.** A
+  closure predating a law that plausibly applies is a re-open candidate on its
+  face, and this can be computed rather than argued.
+- **When a new law lands, list the closures that predate it.** After the
+  loop-shape law was banked, exactly this function was a one-query candidate,
+  and it was reached by a human-equivalent hunch instead.
+
+Relates to entry 17 (read the attempt *series*, not one comparison): both are
+about a stopping decision being recorded without the context that makes it
+re-checkable.

@@ -886,6 +886,18 @@ one, and is not claimed here.
 **Provenance:** Mickey's Speedway USA decomp (2026-08), font cohort,
 `func_8004D40C`.
 
+**Boundary (T2, Mickey `func_overlay_041_F0000854`, 2026-09-10).** The law
+above is stated for a comparison of a propagated variable against a
+**constant**, and that statement is unaffected. What needed bounding is the
+corollary -- "operand order in a branch is not a spelling you choose". It is
+not a spelling you choose *within the law's precondition*. Where **both**
+operands are memory loads and neither arrives as a copy-propagated carrier,
+there is no propagated side for the printed order to read out, and the written
+order does reach the emitted branch: writing the two loads in the target's
+order was worth 2 words on a function that then matched exactly. Check whether
+either operand is actually a propagated carrier before concluding the order is
+out of reach.
+
 ### L81. Address reassociation is insensitive to where the definition is written
 
 When uopt reassociates an induction base into a constant offset from a live
