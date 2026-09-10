@@ -3576,8 +3576,12 @@ descending order, so the question "which web takes the low colour" is decided
 by a ratio.
 
 > **Scope, corrected the same day it was written (2026-09-10): this describes
-> phase one only.** The **caller-saved sweep colours in ascending web number,
-> not by `save`**, and there `save` is only the `color`/`no-color` gate. All
+> phase one only, and phase one does not always run.** p1 is a repeated
+> **max-save selection over webs with `numintf >= regsleft`** — with a full
+> 22-register pool it needs at least 23 webs before it fires at all, so on a
+> small function, or on one an edit has just simplified, the ratio decides
+> nothing. The **caller-saved sweep then colours in ascending web number, not
+> by `save`**, and there `save` is only the `color`/`no-color` gate. All
 > twelve of one function's p2 records reproduce their logged `forbidden0` under
 > ascending web number and under no other order, while another function's
 > nineteen p1 records are strictly descending `save`. So before applying the
@@ -3826,3 +3830,58 @@ usually absent from a lane's lattice.
 
 **Provenance:** Mickey's Speedway USA decomp, `overlay1ResolvePathPoint`,
 2026-09-10.
+
+### L106. Web numbers follow first-definition order in the body, so moving a definition is a colour lever
+
+Web and symbol identifiers are assigned in the order values are **first
+defined in the function body**, and the caller-saved sweep colours in ascending
+web number. Moving a defining *statement* earlier therefore moves its web ahead
+of another's and it takes the free colour first.
+
+**This is a different axis from declaration order
+([L99](#l99-a-displaced-stack-home-is-a-position-in-the-declaration-list-and-carrier-count-is-emergent-from-order)), and confusing the two closes functions that are open.** L99 orders the
+*declaration list* and decides stack homes. This orders *definitions* and
+decides web numbers. A function can be provably flat on one and wide open on
+the other.
+
+**Receipt — T2** (Mickey `overlay19ClassifyEdge`, 2026-09-10, matched and
+promoted). A prior lane recorded that "every form that reaches the t3 carrier
+scores exactly 24", measured over 4,190 forms including an exhaustive 4,096-cell
+comparison lattice and 82 declaration-order and `register` forms. Hoisting one
+definition above the early-exit test scores **0**. The 82 declaration-order
+forms were the other axis, and are indeed inert here; the deciding statement was
+never moved. Hoisting puts the pointer web ahead of the stack-passed fifth
+argument's, so it takes v0 first — written below the test, the argument colours
+first and the two swap registers across sixteen words.
+
+**Falsifies.** A closure of the form "N forms measured, all flat" where the
+forms vary spelling and declaration order. Neither reaches definition position.
+
+**Provenance:** Mickey's Speedway USA decomp, `overlay19ClassifyEdge`,
+2026-09-10.
+
+### L107. A uopt region boundary blocks address reassociation, and costs exactly 8 bytes of temp
+
+Opening a uopt region between a pointer's definition and a later derived
+address stops uopt reassociating the second address through the first. Without
+the boundary, `particle + 16` is folded through `particle`'s own definition into
+an offset from the enclosing base, and a second cursor stays dependent on the
+first; with it, the two are independent and the preheader reorders.
+
+**The boundary costs 8 bytes of compiler temp below the declared block**, and
+that cost is payable. In a reconstruction the size of a local aggregate is a
+free parameter — nothing outside the function observes it — so shrinking a
+scratch aggregate from 16 bytes to 8 pays for the region at an unchanged frame.
+That trade is available whenever the frame is exact and the residual is not.
+
+**Receipt — T2** (Mickey `func_overlay_038_F0000000_1885D10`, 2026-09-10,
+matched and promoted). `direction` initialised inside an `if (1) { }`; only
+control flow opens the region, a bare block does not
+([L97](#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one)),
+and no spelling of the address reached it. The scratch aggregate shrank 16 → 8
+to pay the 8 bytes. Closed by putting the zero initialisation and the region on
+one physical line to win the as1 line-number tie
+([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)).
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_038_F0000000_1885D10`, 2026-09-10.
