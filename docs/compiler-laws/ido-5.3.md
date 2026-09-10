@@ -3144,11 +3144,33 @@ walking user pointer. Confirmed on a six-point standalone probe. So the
 array-index spelling produces the fact, and on the measured function it also
 reproduced the target's exact spill order and argument-load form.
 
-**And it was still excluded on that function.** `cc -g3`'s `.mdebug` local
-table decomposes that target's `0x48` frame as 28 bytes of outgoing args plus
-return save and 44 bytes of declared block — **zero compiler temp cells**, with
-the candidate's declared block already matching name for name. Every indexed
-spelling tried there added 3 temp cells (`0x50`) or 4 (`0x58`).
+**That exclusion was wrong, and is retracted.** It read the `0x48` frame as 28
+bytes of outgoing args plus return save and 44 bytes of declared block with
+**zero compiler temp cells**, and concluded any form adding a cell was
+excluded. The frame is actually `align8(28 + declared block + 4 x pooled
+temps)` (five censuses), and the pooled induction pointer always takes pool
+cell 1 — so a temp cell can be *paid for* by trimming the declared block.
+Measured: trimming 44 bytes of declared block to 28 gives frame `0x48`, 215
+instructions, all four live homes exact, **with `.noalias $3,$sp` covering the
+pair**, and the object then carries the target's store at `+0x138` and its
+delay-slot store at `+0x140`. That pair is fixed.
+
+**The real barrier is a different mechanism, and it is a chain.** With the pair
+fixed the residual moves to the preheader at `+0x10C`/`+0x110`: uopt appends a
+strength-reduced induction pointer's initialisation *after every user preheader
+statement*, measured across eight forms (statement swap, `for`, `while`,
+top-increment, `++i` in the test, three initialiser placements). The target
+needs that initialisation *before* the counter init, and only a user assignment
+puts it there — a walking pointer, which never emits the fact. So the chain is
+**fact ⇒ variable index ⇒ strength-reduced pointer ⇒ preheader last**, and its
+intersection with "initialisation before the counter init" is empty. Both
+bodies land at the same score, so the source is unchanged.
+
+Also bounded on that pass: six constant-index forms all fold to a plain
+dereference with no fact, and six pointer-arithmetic spellings all fold to
+base+4 with a −4 displacement. Routing the offset through a pointer variable is
+the only shape that restores displacement 0, and it is reported as one
+mechanism from a match.
 
 **The fact is free in general, so that exclusion is a property of that
 function, not of the construct.** A standalone probe at the game-code preset
