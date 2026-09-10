@@ -3661,6 +3661,20 @@ colours it forbids in the record. This names nothing — the candidate list is
 simply short. If a force is declined silently, check the list length before
 assuming the trace is broken.
 
+**The discriminator, stated as a rule (2026-09-10).** A declined force comes in
+two kinds and they need opposite responses:
+
+| the record says | what it means | what reaches it |
+|---|---|---|
+| nothing — the colour is absent from `p1cost` | not offered | **split the web** so the piece you want no longer spans the call |
+| `forbidden=<mask>` naming the colour | genuine interference | **partition the webs** — no ratio or spelling edit reaches it |
+
+A 14 KB procedure's prologue was force-declined with `forbidden=0x5e038000`: the
+switch-value copy's callee-saved register is interference, not preference, so no
+`save` edit could ever move it. Reading the mask is what said so, and it is the
+first callee-saved decision in the function and therefore upstream of every
+later one.
+
 **Second receipt — T2, a different trigger with the same signature** (Mickey
 `overlay101DrawTransformed`, 2026-09-10). A `0xFFFFFF00` constant materialised
 in a `jal`'s **delay slot** is forbidden every argument register, and the force
@@ -3885,3 +3899,70 @@ one physical line to win the as1 line-number tie
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_038_F0000000_1885D10`, 2026-09-10.
+
+### L108. Establish which allocator phase owns a residual before choosing an axis — it can be entirely one-sided
+
+The decision records carry a `phase` field, and a procedure's records are not
+necessarily mixed. One 14,456-byte procedure's **428 decisions are all `p1`** —
+136 `color`, 292 `split`, and **zero p2 records**. On such a function
+[L106](#l106-web-numbers-follow-first-definition-order-in-the-body-so-moving-a-definition-is-a-colour-lever)'s ascending web number does not apply at all, and only
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)'s `save = totalsave/nocs` decides anything.
+
+**This is the cheapest question on the page and it is worth asking first.** On
+that function, 165 recorded forms varying declaration order, statement order and
+definition position had come back flat across three separate attempts. They were
+all measuring an axis the function does not have.
+
+**Corollary — p1 ties keep the incumbent.** When two colours are offered at
+exactly equal cost the first-scanned one wins, so a tie is decided by scan order
+and not by anything in the source. The lever is then the *ratio* that orders the
+two webs, never the cost. On the same function a 187-slot register rotation hung
+entirely on one such tie: the address temp for a 24-byte buffer (`nocs` 53,
+`totalsave` 849, `save` 16.0189) was selected ahead of the loop counter (`nocs`
+61, `totalsave` 776, `save` 12.7213) and offered both candidate registers at
+cost 145.199982 exactly.
+
+**Receipt — T1, live records from a gated instrument.** Mickey's Speedway USA
+`func_overlay_058_F000138C_18B0574` (14,456 bytes), 2026-09-10. The phase census
+and both webs' `nocs`/`totalsave`/`save`/cost figures were read directly from an
+instrumented uopt whose `.text` was checked byte-identical to the tree's stock
+object, which is the identity gate this page requires. The tie itself is
+confirmed by a force: `CDX_FORCE=p1:w911=c22` flips the selection and the
+counter web follows unforced.
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_058_F000138C_18B0574`, 2026-09-10.
+
+### L109. A discarded-expression probe's weight is its loop depth, so `save` is tunable from source at zero instruction cost
+
+A discarded expression naming a variable adds to that variable's `totalsave`
+without emitting an instruction, and **how much it adds is decided by the loop
+depth it sits at**. Measured: a probe at **depth 2 adds 100**; a probe at
+**depth 0 is not free** and costs instructions. This is the same ×10 per loop
+level that weights ordinary references
+([L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)), applied to a construct that emits nothing.
+
+**Therefore the `save` ratio that orders two webs is a quantity you can set.**
+Where a rotation hangs on one ratio comparison, placing two or three probes on
+the losing variable inside a doubly-nested loop moves it deterministically.
+
+**Receipt — T1/T2** (Mickey `func_overlay_058_F000138C_18B0574`, 2026-09-10).
+Two discarded-expression probes on the loop counter, inside a grid inner loop,
+reproduce a `CDX_FORCE`d object **byte-for-byte** — both `.text` hashes equal —
+at zero instruction cost. The force it reproduces takes transposed
+saved-register slots 187 → 0, agreement 434/848 → 621/848 and byte-exact
+aligned rows 2,877 → 3,042.
+
+**Use three probes rather than the minimum two.** Every other edit to the
+function moves the same ratio as a side effect, so a lever sitting exactly on
+the boundary is undone by the next change. This was measured: five ways of
+supplying a missing definition each dropped the counter's `save` back below the
+address temp's and undid the rotation. **Two levers that both move one web's
+occurrence count are coupled**, and neither can be adopted without pricing the
+other.
+
+**Falsifies.** "A discarded expression is either free or useless." Its value is
+a number, and the number is set by where you put it.
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_058_F000138C_18B0574`, 2026-09-10.
