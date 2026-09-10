@@ -1115,6 +1115,22 @@ Recurring and now blocking on at least four functions:
   pipeline silently yields empty output instead of an error. Two lanes lost a
   round trip to this. Refusals belong on stderr.
 
+**The trigger is now known (2026-09-10): a linked ELF being present.**
+`--summary-json` refuses `func_overlay_047_F0000B30_1891948` whenever
+`build/mickey.us.elf` exists, raising *either* "candidate relocation symbol
+`D_8007C0B8` has conflicting runtime identity" *or* "candidate function escapes
+TU ownership" depending on the candidate. Move the linked image aside, re-run
+the identical source, and it summarises fine. So the two bullets above are one
+defect with two faces, and both messages are false: they describe the
+candidate, while the actual input that decides the outcome is a build artifact
+the caller did not think was part of the measurement.
+
+That is worse than a refusal, because the message routes the reader at their
+own source. A lane lost time reading a correct candidate as broken. Until it is
+fixed, the workaround is to take the score **before** a full build; the real
+fix is for the identity resolution to either not consult the linked image or to
+say plainly that it did and that the image disagrees with the object.
+
 ## Smaller friction, each measured by a lane
 
 - **`finalize_plateau.py` refuses to run with any unrelated file dirty**, so a
