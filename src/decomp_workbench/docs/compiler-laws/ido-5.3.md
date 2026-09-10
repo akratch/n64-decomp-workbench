@@ -3515,6 +3515,16 @@ declarations" is right but incomplete — the carrier count is itself a function
 of the order, and a frame that is short by one carrier can sometimes be fixed
 by permuting rather than by declaring.
 
+**Scope — frame *size* is a count, not an order.** L99 decides which home each
+value gets; it does not decide how big the frame is. Measured: 962 candidates
+covering all 32 declarations of one function reached exactly one frame size, and
+growing a single local moved it in 8-byte steps with otherwise identical code.
+So a frame that is N bytes too large is never fixed by reordering — it is fixed
+by having fewer live locals, which means merging carriers with disjoint
+lifetimes. That is a bounded search with a hard stopping criterion, and it is a
+different problem from the one this law solves. Establish which of the two you
+have before spending a sweep.
+
 **Scope — a frameless function retires this axis entirely.** With no frame
 there are no homes to order, and declaration order becomes byte-inert: all
 **40,320** permutations of one frameless function's eight declarations compiled
@@ -3685,6 +3695,14 @@ candidate*, and the source question is what put the value where it is, not how
 to pay for a better colour. Here the answer was to move the test to the
 target's position: the value then takes a1 and the a1 census goes 6 → 9
 exactly.
+
+**Open question, worth one probe when it next comes up.** It is not established
+whether the exclusion fires on a call *consuming* a result into v0 or merely on
+one *defining* v0. A long call ladder where no call's result is consumed still
+shows the candidate naming a1 where the target names v0 143 times — if the
+weaker condition holds, that whole class is L101 and the lever is web splitting
+rather than colouring. The distinguishing experiment is a body whose calls all
+return values nothing reads.
 
 **Third receipt — T2, and the first controlled one** (Mickey `func_80028FCC`,
 2026-09-10). Two probes demonstrate the mechanism directly rather than

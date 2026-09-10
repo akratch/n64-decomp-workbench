@@ -438,6 +438,52 @@ the function. Check it once at the start of every sweep; it costs one
 measurement and it is the only thing standing between a whitespace lever and a
 wasted budget.
 
+## The instrument that answers Trap 12: split the residual by cause
+
+Trap 12 says the positional count misleads at scale. This is what to measure
+instead, and it is cheap.
+
+Align the two instruction sequences on a **register-erased shape** — keep
+opcode, function, format, shift amount, immediate and branch offset; erase
+every GPR *and FPR* selector — then split each aligned pair three ways:
+
+| bucket | meaning | what moves it |
+|---|---|---|
+| **byte-exact** | agreed | nothing needed |
+| **register-naming only** | same instruction, different register | allocation: colour, ratio, web numbering |
+| **really different** | different instruction or absent | structure: spelling, control flow, frame |
+
+Subtract the aligned agreement from the positional count and the remainder is
+**displacement tax** — words that differ only because something upstream shifted
+the stream.
+
+**Why it is worth the trouble.** Three whales measured this way came apart
+completely differently, and only one matched the assumption in its brief:
+
+| | displacement | naming | really different |
+|---|---|---|---|
+| whale A (538 words) | 284 (53%) | 231 (43%) | 23 (4%) |
+| whale B (636 words) | 104 (16%) | 489 (77%) | 55 (9%) |
+| whale C (613 words) | 41 (7%) | 514 (84%) | 58 (9%) |
+
+B and C are *naming* problems. A lane chasing whale C's first divergence — the
+obvious move — could not have paid more than 41 words no matter how well it
+went. Whale A was the displacement problem the brief assumed, and it went 538 →
+186 once its first divergence was read: the target leaves a coprocessor hazard
+as a `nop`, the candidate fills it, and that one word carried a −1 displacement
+across 311 rows.
+
+**Watch the tooling.** A masker written for integer code may leave COP1's `fs`
+and `fd` fields alone, because they sit where an I-type immediate does. Then a
+rotated float ring lands in "really different" and reads as a structural hole
+that no amount of spelling will close. Check your masker against a known float
+rotation before trusting a float-heavy split. This project's own masker had
+exactly that gap, plus the mirror-image one of erasing the `.s`/`.d` format
+selector, which is semantic.
+
+**Report all three numbers** for anything you adopt or reject. Two of the three
+whales above had adoption decisions that reverse depending on which you read.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
