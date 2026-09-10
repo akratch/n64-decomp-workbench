@@ -3182,15 +3182,30 @@ strength-reduced induction pointer" above overstates it.** A *constant* index
 So it rides on indexing a named array, not on the induction machinery. The
 first reading of this law guessed otherwise, and a probe falsified the guess.
 
-**One negative that is not yet explained.** On `overlay11UpdateMenu` the source
-reaches its pointer as array-decay-plus-offset, `(s32 *)(D_menuBase + 0x1C4)`,
-which is a non-producing form. Rewriting it to the producing form,
-`(s32 *)&D_menuBase[0x1C4]`, is **byte-identical** -- the residual stays at 2
-words. Either the fact was already present from another indexed reference in
-that body, or the fact it produces names a register other than the one the
-argument load uses. Reading the function's actual `.noalias` state would settle
-it; a scratch `-S` compile of that TU fails on include resolution, so it is
-open. Do not read this negative as the construct failing.
+**The fact is a scoped region, and presence is not coverage.** This is the
+sharpest part of the law and it was missed on the first pass.
+
+On `overlay11UpdateMenu` the source reaches its pointer as
+array-decay-plus-offset, `(s32 *)(D_menuBase + 0x1C4)`, a non-producing form,
+and rewriting it to the producing indexed form is **byte-identical** -- the
+residual stays at 2 words, at frame `0x48` with the `.mdebug` locals unchanged.
+Two obvious explanations were wrong. The fact is **already present** in the
+baseline, and it **already names the right register**: the argument load uses
+`$3` (`v1`), and baseline `.noalias $3,$sp` directives exist. They simply cover
+*later* accesses through that pointer, not the `handle` spill pair where the
+fill has to happen.
+
+`.noalias` opens a region that `.alias` closes, so what matters is whether the
+region **spans the site**, not whether the fact exists anywhere in the body.
+Replay controls separate the two cleanly: the `$3` fact placed at the pair
+gives **0** masked differences; naming `$2` instead leaves 2; and closing the
+region before the second store leaves 2.
+
+So the open question is not "which register" and not "can the fact be
+produced" -- it is **emit the fact for the right pointer, with a region that
+covers the pair, at zero temp cells**. The lane that established this said
+plainly that three replay controls and one C remeasurement demonstrate the
+mechanism and *do not* prove C unreachability, which is the right reading.
 
 So the search space on the measured function is not closed. What is established
 is that its temp cost came from its own expression shape rather than from the
