@@ -898,6 +898,18 @@ order was worth 2 words on a function that then matched exactly. Check whether
 either operand is actually a propagated carrier before concluding the order is
 out of reach.
 
+**T3 (Mickey `func_overlay_002_F0001A94_185888C`, 2026-09-10) gives the
+boundary a mechanism and a magnitude.** Three `s16` equality tests where one
+side is a struct member load and the other a cast chain: writing every test
+with the member on the left took the residual from 41 words to 13, and with one
+further edit to 0. The reason is not the branch at all. ugen evaluates a
+comparison's **right** operand subtree first, so `point->x == (s16)g` requests
+the cast chain before the member load, and the two subtrees take different ring
+temps. The printed branch order follows from that, rather than causing it. So
+the boundary is wider than "the written order reaches the branch": outside the
+law's precondition, operand order is a **ring-temp assignment lever** worth
+tens of words, not the two-word tiebreak T2 suggested.
+
 ### L81. Address reassociation is insensitive to where the definition is written
 
 When uopt reassociates an induction base into a constant offset from a live
@@ -3468,3 +3480,112 @@ this law tells you that *which* values occupy them, and how many values become
 carriers at all, is decided by list position. The two together turn a frame
 residual into an ordering problem with a computable target rather than a
 search.
+
+### L100. A web's save is `totalsave/nocs`, and a symbol boundary moves both terms at zero width
+
+globalcolor ranks webs by `save = totalsave / nocs` and colours them in
+descending order, so the question "which web takes the low colour" is decided
+by a ratio. Both of its terms are moved by **where a symbol begins and ends**,
+and that is a source decision with no width cost:
+
+- **Merging raises the save.** A variable declared once inside each arm of a
+  dispatch is two webs, each with its own references. Declared once at function
+  scope it is one web with the sum of them, at the same `nocs`.
+- **Naming lowers it.** One cfe temporary serves the same construct in *every*
+  arm, which routinely makes a compiler temporary the longest-lived web in a
+  region. Giving each arm its own explicit name splits that web, and each piece
+  ranks by its own share.
+- **`totalsave` weights a reference inside a loop ×10.** Measured, not assumed;
+  one reference moved into or out of a loop body outweighs nine outside it.
+
+Neither edit costs an instruction: nothing is added or removed, only the extent
+over which a name is one symbol.
+
+**Receipt — T2** (Mickey `overlay57UpdateModeState`, 2026-09-10, 21 words to
+5). Saves read from the uopt decision records, ranking confirmed by score
+deltas; no force was applied and no oracle hash was reproduced, so this does
+not meet the T1 gate. The
+target's `entries` = v0, `count` = v1, dead copy = a0 is exactly definition
+order, so the saves had to run `entries > count > dead copy`. Measured per arm
+they ran the exact reverse — entries 42/3 = 14, count 34/2 = 17, dead copy
+44/2 = 22 — because one cfe temp served the post-decrement in *both* arms while
+`entries` and `count` were block-scoped inside each. Hoisting `entries` to
+function scope (14 → 21) and naming the dead copy per arm (22 → 11) produced
+21 > 17 > 11, the target's order, with no force applied.
+
+**Each edit alone is a 31-word regression** ([L88](#l88-a-colour-residual-with-an-identical-ring-order-is-a-site-not-a-phase)). The pair is the
+lever; either half taken on its own reads as a refutation.
+
+**Falsifies.** Reading a wrong colour assignment as something only a force can
+move. Before reaching for the allocator trace, compute `totalsave/nocs` per web
+from the decision records and ask which symbol boundary would reorder them.
+
+**Negative results from the same pass.** 20 loop respellings, 18
+[L97](#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one)
+region placements, all 24 declaration orders, and hoisting `count` as well
+(68/4 is the same 17) — every one flat. The ratio, not the spelling, is the
+variable.
+
+**Provenance:** Mickey's Speedway USA decomp, `overlay57UpdateModeState`,
+2026-09-10.
+
+### L101. A web whose span reaches a call result is not offered colour v0 at all
+
+When a web's live range extends to a value returned by a call, p1 does not
+place v0 on that web's `p1cost` candidate list. It is not listed and forbidden;
+it is **absent**, and a `CDX_FORCE`-style assignment to v0 is declined with no
+diagnostic. Reading the decision record for a "forbidden" entry finds nothing,
+because the mechanism is a shorter list rather than an interference.
+
+**Therefore a v0 residual on such a web is not a colouring problem.** No
+colouring lever reaches it. What reaches it is **splitting the web** so that
+the piece you want in v0 no longer spans the call.
+
+**Receipt — T2** (Mickey `func_overlay_086_F0000474_18D22AC`, 2026-09-10, 51
+words to 29). The short candidate list was read directly from the instrumented
+compiler's records, which is T1-grade observation, but the force it predicts
+was *declined* rather than reproducing a named object hash, so the claim is
+recorded at T2 until a positive force receipt exists. Two `+0x48` dereference sites shared one cfe temp, making a
+six-reference web spanning both switch arms and reaching a call result, so the
+target's v0 was unreachable by any colouring lever. Carrying the case-0 site in
+an **already-declared** local ([L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)) — no twelfth auto, frame unchanged
+at `0xA8` — split it: the case-2/3 site became a one-block web, regained v0,
+took it, and pulled a ten-row state-byte family into v1 behind it. 51 → 30.
+Writing the command word through the pointer before the advance closed one
+more, to 29.
+
+**How to tell this apart from an interference.** An interference names the
+colours it forbids in the record. This names nothing — the candidate list is
+simply short. If a force is declined silently, check the list length before
+assuming the trace is broken.
+
+**Provenance:** Mickey's Speedway USA decomp,
+`func_overlay_086_F0000474_18D22AC`, 2026-09-10.
+
+### L102. uopt re-materialises a cheap masked value at each use, so naming it manufactures no web
+
+Giving a name to a value that is cheap to recompute — a mask of a live
+quantity, a small shift, a constant-offset address — does not create a web to
+colour. uopt re-materialises the value at each use and the loop body comes out
+byte-identical; the only effect is the frame cell the name costs, when it costs
+one. The same holds for a single-assignment local used in an address
+expression: uopt forward-substitutes it back into the address in every
+arrangement tried — hoisted to a loop header, separated by an
+[L97](#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one)
+region, assigned inside an `else if` condition's comma, or in a comma inside
+the containing add's own left operand.
+
+**Therefore "name it to make it a web" is not a lever for a cheap value.** It
+is a lever for an expensive one — a call result, a load through a pointer that
+may alias, a float conversion — where re-materialising costs more than keeping.
+
+**Receipts — T2** (Mickey, 2026-09-10), probe ladders against score deltas. `levelInit`: naming the masked index and the
+store address to manufacture the two webs a colouring needed left the body
+identical and paid only the cell (24 / 24 / 29 across three forms).
+`levelFreeAll`: 21 arrangements of a single-assignment mask local, all
+producing one of exactly two ucode orders (3 or 5 words), because the local was
+substituted back every time. The target's order needs the mask to survive as
+its own statement ahead of a base-first address, which no arrangement produced.
+
+**Provenance:** Mickey's Speedway USA decomp, `levelInit` and `levelFreeAll`,
+2026-09-10.

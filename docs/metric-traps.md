@@ -405,6 +405,16 @@ Adopt on the positional score only once displacement is closed. Record both
 when you file a plateau, because the next lane inherits whichever you wrote
 down.
 
+**A second receipt, independent and much smaller.** On a 1,080-byte overlay
+function, marking four aggregate members `volatile` and dropping a carrier
+scores **37 against the standing 39 — and is further from the target**: it
+emits five loads where the target emits three, and it fills both r4300
+multiply-hazard `nop` slots that the target leaves open. So the trap is not
+only a large-residual phenomenon. Any edit that moves the *schedule* can buy
+positional words while losing instructions, because a filled hazard slot is a
+word that now agrees by accident. Count instructions, not just words, whenever
+a candidate changes scheduling.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
