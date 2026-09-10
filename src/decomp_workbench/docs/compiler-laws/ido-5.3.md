@@ -3415,3 +3415,40 @@ subscript two or three distinct arrays with one index and need that many
 pointer cells where the frame has one spare, one also strength-reduces a
 non-power-of-two multiply so the cursor costs 16 bytes, and one reaches the
 target's shape but costs 8 bytes in its own tail.
+
+### L99. A displaced stack home is a position in the declaration list, and carrier count is emergent from order
+
+Stack homes descend from the frame top in **declaration order**. So a home that
+sits at the wrong offset is not a property of the value, the type, or how the
+value is used: it is where its declaration sits relative to the others. Moving
+declarations moves homes, and it is the cheapest lever in the frame family
+because it changes no instruction.
+
+**The part that is not obvious: reordering changes the carrier *count*.** A
+function homed four of its nine declared locals before a reorder and five
+after, with no declaration added or removed. So "count carriers, not
+declarations" is right but incomplete — the carrier count is itself a function
+of the order, and a frame that is short by one carrier can sometimes be fixed
+by permuting rather than by declaring.
+
+**Receipt — T2, build outcomes.** Mickey's Speedway USA, 2026-09-10, four
+resident functions worked in one lane:
+
+- `func_80010900`: frame already exact; moving two locals above a scratch value
+  and two flag words to the end of the list closed **all 21** stack-displacement
+  constants in a single edit, 41 → 20 masked words.
+- `func_8001BBB4`: frame 8 non-save bytes short, meaning two carriers missing.
+  Reordering supplied them (four homed locals before, five after), retiring 16
+  words.
+- `overlay34CreateRecord`: the same shape, 8 words.
+
+Across the lane, **45 of the 66 words closed came from declaration order
+alone**, on three of four functions. Try this before any spelling lattice on a
+residual whose differing words are stack displacements.
+
+**Its relation to the frame closed form.** The closed form (N cells →
+`align8(4N)`, last home `align8(4N) − 4N`) tells you how many cells you need;
+this law tells you that *which* values occupy them, and how many values become
+carriers at all, is decided by list position. The two together turn a frame
+residual into an ordering problem with a computable target rather than a
+search.

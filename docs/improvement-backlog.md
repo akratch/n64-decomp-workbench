@@ -1189,6 +1189,36 @@ say plainly that it did and that the image disagrees with the object.
   across workers; one lane hit a race and fixed it with per-object, per-pid
   paths.
 
+## Masking hides relocation IDENTITY, and it has now misled twice
+
+The relocation-masked score compares instruction bits and erases the
+linker-controlled field. That is right for scoring codegen and wrong for two
+questions people ask of the same number, and both have now cost real work:
+
+- **`runlinkInit`** read as one raw word and zero masked while carrying **eight
+  unresolved relocation identities**. A weak pragma produces a weak *undefined*
+  symbol in IDO rather than an alias, so four anchor names had no address at
+  all and a promotion would have linked them to zero. `function_preflight.py`
+  reported them; the score could not. The `reloc-mismatch` class means
+  `masked == 0`, **not** that identities agree, and nothing in the tool says so.
+- **`overlay34CreateRecord`**: the target reads three globals as offsets 0, 4
+  and 8 of **one** relocated symbol — they were members of a single struct in
+  the original source. The score masks that away entirely; it is plainly
+  visible in the relocation table.
+
+Both are the same gap: a masked-equal word can carry a different symbol, a
+different addend, or no resolvable symbol at all. Two cheap changes would close
+it. Report a relocation-identity column beside the masked count, so a
+`reloc-mismatch` row says whether identities agree rather than only that the
+bits do. And have `score_symbol.py` refuse, or loudly warn, when a symbol's
+relocation identities do not correspond one-to-one — the preflight already
+computes exactly that.
+
+The second case is also a source-evidence lever nobody is harvesting: a
+relocation table that resolves several apparent globals to one symbol's offsets
+is direct evidence about the original's struct layout, and it is invisible to
+every score on this page.
+
 ## The permuter's scratch is unfaithful for a reason worth fixing
 
 A lane isolated the cause and it is **not** the importer's reformatting:
@@ -1405,3 +1435,23 @@ positive and the fourth is a clean regression.
 
 The brief should say "try this on each sibling and record the price" rather
 than "this should transfer".
+
+## A permuter scratch can be a different function, and the score will not say so
+
+`tools/permute.sh` on one resident function reported a base score of 60 against
+a real masked count of **2**. Its scratch object was 0x29c where the real
+per-TU object is 0x258 — **17 extra instructions**. It was not optimising a
+worse version of the function; it was optimising a different function.
+
+The lane ruled out both documented corrections before reporting: the compile
+flags were spliced correctly, and the POSTPROCESS `objcopy --redefine-sym`
+rename was replicated, with the unprototyped declarations identical on both
+sides. It then stopped the run rather than spend time improving the wrong
+object, which is the right call and also the only reason this was caught.
+
+The failure mode is the dangerous kind: a plausible score with no signal that
+the subject is wrong. A permuter run that begins by comparing its scratch
+object's size against the real per-TU object would catch it in one step, and a
+size mismatch should refuse rather than warn. Until then, a standing
+"permuter-target" routing on a function is not actionable without checking the
+scratch first.
