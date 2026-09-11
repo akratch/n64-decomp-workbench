@@ -5133,3 +5133,75 @@ size delta 0: moving one statement group last (8 of the 72 legal orderings score
 all.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L142. A web spanning a call is denied exactly the argument registers that call loads — so call arity, not the save ratio, is the lever
+
+[L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all) says a web whose span reaches a call result is not *offered*
+`v0`. The general rule is wider and sharper: **a web live across a call is
+denied `v0`/`v1` and precisely those argument registers the spanned calls
+actually load**, and the denial shows as **absence from the `p1cost` list**
+rather than as a `forbidden` mask or a losing bid.
+
+So the forbidden set is a function of **what the calls in the web's range take**:
+
+- spanned calls loading `a0`/`a1` ⇒ the web's cost list starts at **c5**;
+- spanned calls loading `a0`–`a3` ⇒ it starts at **c7**.
+
+**This makes "raise the save" unfalsifiable-but-wrong.** A register absent from
+the cost list is never bid for, so no ratio, no carrier and no spelling reaches
+it, and a sweep that raises `totalsave` will move the number without ever
+producing the wanted colour. Two separate closures were written demanding a
+`totalsave` that could not have helped, because both named a register their
+web's list did not contain.
+
+**The lever that does exist is the call's arity inside the web's range.**
+Dropping one argument from a call in that range moved a mask from `0x7803e000`
+to `0x7003e000` and globalcolor then reported `bestcolor=4 bestreg=a1` at an
+unchanged save — the wanted colour, reached by changing what the call loads
+rather than what the web is worth.
+
+**The float bank does the same thing, which is the strongest evidence that this
+is one mechanism.** There, c26 and c27 are `f12` and `f14`, both argument
+registers: a reference in the call's own block combined with a call taking
+**two** float arguments masks c24–c27 together and lands a carrier on c28
+`f16`, again with no competing save ratio involved. A call taking one float
+argument masks less; an integer-argument call leaves the float mask untouched
+altogether. Same rule, two register files.
+
+**Read the cost list, not the mask** ([Trap 18](../metric-traps.md#trap-18-a-consistency-mask-is-not-an-offer-set)). A colour missing from the
+list and a colour outbid in it look identical in a mask and route to opposite
+work.
+
+**Receipt — T1, two procedures with different call arities** (Mickey, overlay 86
+and overlay 46, 2026-09-12), plus the float-bank measurement on the overlay-27
+builder with three controls separating mask from table. On overlay 86 the
+arity edit reaches the target's colouring and lands **4 bytes short** — the
+target emits a `move` then an `addiu` where the candidate folds both into one
+`addiu` — which is a named structural defect rather than an allocator question.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L143. Permute declarations within a same-type run, or the frame grows and the masked score lies
+
+Declaration order moves stack homes ([L99](#l99-a-displaced-stack-home-is-a-position-in-the-declaration-list-and-carrier-count-is-emergent-from-order)), so it is swept. But an
+**unconstrained** permutation also changes cfe's padding: of 1,500 unconstrained
+orders on one function, **1,458 padded the frame from 0x80 to 0x88 or 0x90**,
+and several of those scored *better* on the masked count while being further
+from the target. A masked score improving on a frame that has grown is a false
+positive, and a sweep that does not hold the frame fixed will surface them.
+
+**Permuting only within a run of same-type declarations preserves the padding**
+— 600 of 600 such orders held the frame at 0x80. That converts declaration order
+from a sampled axis into a bounded one, which is the difference between "1,500
+cells, best was X" and an exhaustive answer.
+
+**So constrain the sweep and check the frame alongside the score.** The paired
+reading is the point: a masked count is only comparable between candidates whose
+frames agree.
+
+**Receipt — T2, 1,500 unconstrained against 600 constrained orders** (Mickey,
+overlay 35, 2026-09-12). Separately on overlay 89, a constrained 11,520-order
+sweep established 21 masked words as the floor and moved a spill home from
+`sp+0x54` to `sp+0x38`.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
