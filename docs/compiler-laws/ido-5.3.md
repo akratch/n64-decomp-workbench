@@ -4600,3 +4600,55 @@ the same score.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
 
+### L127. A no-op the peephole deletes still consumes a ugen ring temp, so the free list is settable from source at zero byte cost
+
+ugen hands out expression temporaries from a **FIFO free list**. An operation
+that is semantically a no-op — masking a `u8` with `0xFF`, or-ing in bits it
+already has — still requests a temporary while the tree is being lowered, and
+as1's peephole then deletes the instruction. The instruction stream is
+unchanged; the free list is one position further on.
+
+**Therefore a whole-function ring phase error is a source-level fix costing
+nothing.** Where the candidate runs a fixed number of positions behind the
+shipped code from some offset onward, one no-op consumes the missing temporary
+and puts the list back in phase for everything downstream.
+
+**The boundary is the useful half: it does not reach a p1 colouring residual.**
+Where the contested register is one globalcolor assigned, a mask lattice moves
+nothing in the right direction — 31 cells on one function ran 30 to 109, every
+one worse. So establish first whether the row is ring phase or colour
+([L114](#l114-globalcolors-colours-are-the-callee-saved-and-pool-registers-only-and-roughly-a-sixth-of-a-naming-residual-is-colour-at-all)); this lever is only for the former.
+
+**Receipt — T1, from the instrumented ugen's free-list trace** (Mickey
+`overlay101DrawTransformed`, 2026-09-11, matched and promoted). The candidate
+ran exactly one position behind from `+0x128` onward, and all 30 naming words
+plus both structural pairs were that single phase difference: masking a `u8`
+colour field and or-ing back the bits above it took **36 → 4**, with the `andi`
+peepholed away. Ordering the last command's two constant stores took 4 → 2, and
+folding that pair onto one line ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)) closed it. The same edit is worth 5 words on a
+sibling.
+
+**Provenance:** Mickey's Speedway USA decomp, `overlay101DrawTransformed`,
+2026-09-11.
+
+### L128. Beyond one spanned call a caller-saved colour costs 2 each, and at `nocs` 3 none is offered at all
+
+A web's `available0` mask narrows as it spans more calls. Priced from the
+records: a caller-saved colour costs **2 per call spanned beyond the first**,
+and **once `nocs` reaches 3 the mask offers no caller-saved colour at all** —
+every such web takes `s0` and upward, in descending `save`.
+
+**So "which bank does this web land in" is a function of how many calls it
+spans, and that is a source decision.** Where the target holds a value
+callee-saved and the candidate holds it caller-saved, compare the two `nocs`
+before looking at anything else: a candidate web at `nocs` 1 will take the
+cheapest colour no matter what its save is, and no colouring lever moves it.
+The lever is the span.
+
+**Receipt — T2, from two procedures' own records** (Mickey, overlay 101,
+2026-09-11). On one, seven naming rows read `v0` against the target's `s2`
+because its pre-call pointer web sits at `nocs` 1 with `save` 9.0; no source
+form tried moved that `nocs`.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
