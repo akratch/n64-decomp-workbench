@@ -4408,6 +4408,14 @@ strength reduction rebuilds into the same walking pointer, and a nested
 invariant that reuses a disjoint carrier — taking its block from fourteen cells
 to eleven with no instruction change.
 
+**Receipt — T2, build outcomes.** Mickey `func_overlay_007_F0000324`,
+2026-09-11. The global-field holder's deletion was measured **byte-identical**;
+the three deletions together took the block from fourteen cells to eleven, all
+fourteen stack slots then agreed with the target including the compiler temp,
+and the function went 238 → 129 masked. The twelve-cell control was built and
+put the frame back to 0x80, which is how the eleven is pinned rather than
+assumed.
+
 **Provenance:** Mickey's Speedway USA decomp, `func_overlay_007_F0000324`,
 2026-09-11.
 
