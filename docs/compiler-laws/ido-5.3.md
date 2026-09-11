@@ -84,6 +84,24 @@ gate, several against a stock object *and* one or more oracle hashes. An
 ungated instrument attributes decisions to the wrong pass, which is worse than
 having no instrument.
 
+**A single lane's measurement is T3 until something independent agrees with
+it, however instrumented it looks.** This page took two wrong entries in one day
+from ignoring that. One decoded a colour table from a carrier whose own
+forbidden mask hid the two lowest entries, and shipped the mask as the table.
+The other read a force sweep's floor as a verdict when the forces had never been
+applied at all. Both were written up as T1 or T2 on the strength of one lane's
+report, and both were overturned by the next lane to look.
+
+The tell in both cases was available at banking time and not asked for: **what
+would this look like if the instrument were lying?** A table decoded from one
+web, a sweep with no acceptance check, a census from one decoder — each has a
+failure mode that produces a *confident, clean, plausible* answer rather than an
+error. Corroboration means a second web, a second decoder, or a mechanism that
+explains the result independently; re-reading the same dump is not corroboration.
+
+Promote to T1/T2 when that arrives. Recording a lead as T3 costs a sentence;
+recording it as a law costs every lane that inherits it.
+
 **Oracle hashes go stale.** A force set that reproduced a target hash on one
 base often does not on the next, because adoptions move everything downstream.
 The law usually survives; the hash does not. Re-gate an oracle on the current
