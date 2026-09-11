@@ -511,6 +511,50 @@ steering by* — the failure mode is a candidate that looks like progress. Five
 semantically invalid candidates were produced across three lanes in one day by
 generators with no such guard.
 
+## Trap 15: a build flag chosen by a positional score can be provably impossible
+
+**The trap:** a flag sweep compiles a candidate under each flag group, ranks by
+positional differing words, and the winner is written into the build as a
+per-file override. Nothing in that loop asks whether the target could have been
+built that way at all — and the ranking metric is the one that rewards keeping
+instructions in place over getting them right.
+
+**The tell is in the target's own instruction set.** An ISA level is not a
+preference; it is a capability. If the shipped code contains an instruction the
+compiler cannot emit at the chosen level, the choice is refuted outright,
+whatever it scored. Two families have each done this in practice:
+
+- **branch-likely** (`beql`, `bnel`, `bc1tl`, …) — MIPS II and above;
+- **rounding-mode float conversion** (`trunc.w`, `round.w`, `ceil.w`, `floor.w`)
+  and `sqrt` — also MIPS II. At MIPS I a float-to-integer truncation is instead
+  a save of the FPU control word, a forced rounding mode, the convert, and a
+  restore: roughly eleven words where MIPS II spends three.
+
+**Two incidents, and the second only surfaced because of the first.** One
+function carried a `-mips1` override adopted by a positional sweep while its
+target held 38 branch-likely instructions; the wrong flag manufactured 532
+bytes of surplus and 180 spurious `nop`s, and three later attempts inherited
+that phantom as the function's defining problem. Removing it took the size
+delta from +532 to +8 in one step. A second function was recorded as a 562-word
+*structural* residual and matched on the ISA alone — target 54 `trunc.w.s` and
+no `cvt.w.s`, candidate 0 and 30. Its closure had named the ISA and declared it
+out of scope, on a misreading of which build rule set the default.
+
+**Why the positional score cannot catch it.** On a third function, dropping a
+provably-impossible `-mips1` pin makes the positional count *worse* — 181 to
+202 — while byte-exact rows rise 80 → 94 and structural differences fall 84 →
+64. The sweep that adopted the pin was reading the one number that disagrees.
+
+**The rule:** *a per-file flag override is a falsifiable claim about how the
+shipped code was built, and the target can refute it.* Check the instruction
+set before adopting one, and never adopt a flag on a positional score alone.
+Automate it — this project's check runs in its documentation gate, so an
+override that contradicts its target cannot be committed.
+
+**Also worth knowing:** a matched function has no extracted assembly left for
+such a check to read, so a detector reports its override as *unchecked*, not as
+clean. Do not read a clean run as clearing every pin in the tree.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
