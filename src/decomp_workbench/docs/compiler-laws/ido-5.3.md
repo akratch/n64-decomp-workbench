@@ -4975,6 +4975,24 @@ concluded that no source form reaches a lower web number for its copy web; the
 region does not renumber anything, it removes the interference, so the closure
 was answering a question that was not the one blocking the function.
 
+**Base rate, measured the next day across the fleet — read this before
+spending on it.** The lever was promoted in four dispatches as "try this first
+on any naming residual". That framing was too strong. Tallied across every lane
+that ran it: **it moved two functions out of roughly fifteen.** The flat results
+were not cursory — 192 cells on one function, 78 points on another, 68
+placements across a four-function batch, 16 on another, and single-digit
+placements on six more, all zero.
+
+**The scope note above is what predicts the outcome, and it is worth applying
+strictly.** Every function it moved had a *symbol-level interference*: two
+values whose block sets overlapped in a join block. Every function it failed on
+had something else — colour-table exhaustion where the wanted register was
+absent from the `p1cost` list ([L142](#l142-a-web-spanning-a-call-is-denied-exactly-the-argument-registers-that-call-loads--so-call-arity-not-the-save-ratio-is-the-lever)), a ugen ring phase, a constant
+fold, a callee-saved span, or a loop-endpoint address identity. So the question
+to answer *before* opening a region is which of those the residual is — the
+aligner's buckets and the cost list settle it in one look, and they turn a
+15-cell prior into a near-certainty either way.
+
 **Receipt — T2, two functions and a negative** (Mickey, 2026-09-11). On
 `func_8004BA8C` a region gave `fontData` the target's `v0`, 6 masked words to 2,
 and the function subsequently **matched at 0 of 46 words**, `gmake verify`
