@@ -3730,13 +3730,17 @@ to pay for a better colour. Here the answer was to move the test to the
 target's position: the value then takes a1 and the a1 census goes 6 → 9
 exactly.
 
-**Open question, worth one probe when it next comes up.** It is not established
-whether the exclusion fires on a call *consuming* a result into v0 or merely on
-one *defining* v0. A long call ladder where no call's result is consumed still
-shows the candidate naming a1 where the target names v0 143 times — if the
-weaker condition holds, that whole class is L101 and the lever is web splitting
-rather than colouring. The distinguishing experiment is a body whose calls all
-return values nothing reads.
+**Answered 2026-09-11: the weaker condition holds.** The exclusion fires on a
+call *defining* v0, not on one whose result is consumed. Read from the records
+on the distinguishing case, a body whose calls return values nothing reads: its
+one per-symbol web spans about ten calls and its `p1cost` list **omits v0
+entirely**, with no consumed call result anywhere in the function. It is
+coloured a1 at net 43 against cost 20.2, while the target's v0 means the
+target's pieces do not span a call.
+
+So the law is wider than its first statement: **any web spanning a call is
+excluded from v0**, and a long call ladder is the common shape. The lever is
+the symbol boundary that stops the span, never the colour.
 
 **Third receipt — T2, and the first controlled one** (Mickey `func_80028FCC`,
 2026-09-10). Two probes demonstrate the mechanism directly rather than
@@ -4192,13 +4196,19 @@ callee-saved register is
 territory, a row naming a ring register is *ring phase*, which is
 [L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)/[L76](#l76-a-struct-field-read-through-a-local-costs-one-ring-pop-a-direct-read-does-not)/[L77](#l77-an-index-scaled-twice-costs-one-more-ring-pop-than-an-index-scaled-once).
 
-**How much is colour, measured.** A greedy force sweep over every web × every
-colour its own `p1cost` record declares available — with each force confirmed
-*accepted* in the records rather than assumed — bounds it. On three large
-functions it reached 156 of 1,031 wrong words, 136 of 822, and 50 of 310:
-**15%, 17% and 16%**. On four others it was worth 48, 48, 24 and 4 naming rows.
-Budget about a sixth of a naming residual to the allocator and look elsewhere
-for the rest.
+**How much is colour, measured, and the bound under-reads.** A greedy force
+sweep over every web by every colour its own `p1cost` record declares available,
+with each force confirmed *accepted* in the records rather than assumed, bounds
+it: on three large functions it reached 15%, 16% and 17% of the wrong words, and
+on four others 48, 48, 24 and 4 naming rows. **But "declares available" is the
+catch, and it makes the figure a floor rather than a ceiling.** A colour another
+web has *forbidden* is never offered, so the sweep never tries it, and freeing
+the interferer first can open it. Measured the same day the bound was taken: one
+web had `f2` forbidden by two others, and double-forcing both away let it take
+`f2`, moving the residual **636 to 606** with float-only rows 197 to 156; a
+second had `f2` behind a mask the sweep never reached. So read a single-force
+ceiling as "at least this much is colour", and where a named lever sits behind a
+forbidding web, free that web before concluding the lever is out of reach.
 
 **Receipt — T1** (Mickey, 2026-09-11, three translation units), instrumented
 uopt with `.text` confirmed byte-identical to stock before any reading. The
