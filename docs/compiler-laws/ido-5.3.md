@@ -4829,3 +4829,86 @@ instrumented `uopt` reproduces the tree's object exactly with logging enabled.
 only colours inside the table above. Forces aimed at `f0`–`f6` never applied.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L134. A declared local appears to consume a frame cell even when it is coloured — which contradicts L99's memory-class refinement
+
+**Provisional:** this law and [L99](#l99-a-displaced-stack-home-is-a-position-in-the-declaration-list-and-carrier-count-is-emergent-from-order)'s 2026-09-10 refinement cannot both
+be right as written, and the conflict is recorded here rather than resolved,
+because resolving it wrongly in either direction costs every future frame sweep.
+
+L99 says IDO gives a four-byte home **only** to a local it leaves memory-class,
+and that a local uopt colours owns no slot — so the list that decides homes is
+the shorter list of memory-class locals. A direct layout measurement says
+something different:
+
+> Every declared local consumes a four-byte cell assigned from the frame top
+> downward in declaration order — register-class, never-referenced and
+> block-scoped locals included — and the compiler temp area sits strictly below
+> the last cell.
+
+**What both agree on, and it is the actionable part.** A value carried in an
+**expression web** costs no cell; a value carried in a **declared local** is
+the thing in dispute. On the measured function, seven declared locals put the
+slot-pointer spill one word below where the target has it and the target's own
+source declares six. Deleting the seventh and respelling its three uses as
+integer arithmetic on the field split that value through *two expression webs*,
+cost no cell, and closed the function to 0 of 116 words at size delta 0.
+
+**So the reliable lever is the declared/expression boundary, not the
+memory-class one.** If a frame is one cell too deep, the question to ask is
+which declared local can be dissolved into expression temps — and note that the
+respelling has to produce an *integer* intermediate: five integer round-trip
+spellings reached zero and a `(void *)` spelling did not, while a pointer
+spelling at all five sites commoned back into one web and stayed 24 words out.
+
+**Missing evidence.** Nobody has compiled a function with a local that is
+provably coloured and read its frame layout on *both* accounts at once. The
+decisive experiment is one function, one local, two builds: confirm from the
+`p1color` records that the local takes a colour, then read the `.mdebug` home
+table and the frame size with that local present and removed. If the frame
+shrinks by a cell when a *coloured* local is deleted, L99's refinement is wrong
+as written; if it does not, this law's "register-class included" clause is, and
+the four layouts behind it were varying something else. Until then treat the
+declared/expression boundary as the lever and neither clause as settled.
+
+**Receipt — T2, four measured frame layouts** (Mickey, `func_8002B524`,
+2026-09-11). The function matched: 0 of 116 words, size delta 0, `gmake verify`
+printing the expected ROM SHA1, its `NON_MATCHING` guard removed and its
+extracted assembly pruned. The two residual words were a frame-cell count
+rather than an allocator choice, which is what put the count under a microscope.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L135. uopt folds identity operations before the web builder, so an L109 probe is not always a probe
+
+[L109](#l109-a-discarded-expression-probes-weight-is-its-loop-depth-so-save-is-tunable-from-source-at-zero-instruction-cost) says a discarded-expression probe's weight is its loop depth,
+which makes a `save` ratio settable from source at zero instruction cost, and it
+already narrows the reliable forms to OR-with-zero, AND-with-minus-one and
+XOR-with-zero. **That narrowing is not tight enough: on some functions all three
+are byte-inert**, because uopt folds the identity operation away before the web
+builder runs. No web is created, so there is no weight to place.
+
+**This does not overturn L109** — its own receipt stands on a function where
+probes did move `totalsave`. It means whether a probe creates a web at all is a
+property of the function, and must be confirmed rather than assumed.
+
+**So the operative instruction is the one L109 already carries, promoted from a
+caveat to a precondition:** add the probe, dump the decision records, and
+confirm a new web exists with the `save` you expect, *before* spending a sweep
+on placement or on pairing it with a second probe. If the records show no new
+web, the whole probe family is closed for that function and the finding is a
+negative worth recording.
+
+**The same mechanism probably explains a wider failure.** On a different
+function every attempt to manufacture a floating-point carrier coalesced into an
+existing constant web instead of becoming a new one, leaving the naming residual
+untouched. Folding and coalescing are the same obstacle seen from two sides: the
+open question in both is what shape of expression uopt will *not* absorb.
+
+**Receipt — T2, a byte-identity sweep** (Mickey, `levelFreeAll`, 2026-09-11).
+Three probe spellings plus three `register` spellings and an enclosing-block
+hoist, every one byte-identical to the base. The function's four ring draws are
+already consecutive, so no phantom draw can fix its transposition, and
+[L129](#l129-a-redundant-load-into-a-ring-temp-is-a-free-ring-draw--the-inverse-of-the-free-copy) is not reachable there at all.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
