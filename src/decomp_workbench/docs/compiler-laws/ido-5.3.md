@@ -4258,9 +4258,19 @@ web has *forbidden* is never offered, so the sweep never tries it, and freeing
 the interferer first can open it. Measured the same day the bound was taken: one
 web had `f2` forbidden by two others, and double-forcing both away let it take
 `f2`, moving the residual **636 to 606** with float-only rows 197 to 156; a
-second had `f2` behind a mask the sweep never reached. So read a single-force
-ceiling as "at least this much is colour", and where a named lever sits behind a
-forbidding web, free that web before concluding the lever is out of reach.
+So read a single-force ceiling as "at least this much is colour".
+
+**But the obvious follow-on does not pay, and that was tested exhaustively
+(2026-09-11).** The natural move — displace a coloured web off its colour *and*
+force another onto what it vacated — was swept as ordered pairs with both
+forces verified accepted in the `p1color` records: **12,320 pairs at one
+function's plateau and 15,004 from its unforced base, with nothing beating the
+single-force ceiling**, and a second function ran 11,286 pairs to the same
+result. On these shapes the ceiling *is* the floor. "Free the interferer first"
+was worth testing and did not survive; where a named lever sits behind a
+forbidding web, prefer changing the span
+([L128](#l128-beyond-one-spanned-call-a-caller-saved-colour-costs-2-each-and-at-nocs-3-none-is-offered-at-all))
+over hunting a displacement pair.
 
 **Receipt — T1** (Mickey, 2026-09-11, three translation units), instrumented
 uopt with `.text` confirmed byte-identical to stock before any reading. The
