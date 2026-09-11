@@ -4419,3 +4419,65 @@ assumed.
 **Provenance:** Mickey's Speedway USA decomp, `func_overlay_007_F0000324`,
 2026-09-11.
 
+### L121. Every declared local reserves a home in declaration order whether or not it ever reaches memory — so a gap between two homed objects is a scalar count
+
+This is [L99](#l99-a-displaced-stack-home-is-a-position-in-the-declaration-list-and-carrier-count-is-emergent-from-order) read forwards. Homes descend from the frame top in declaration
+order, each aligned to its own type, and a local reserves its slot **even when
+uopt keeps it in a register for the whole function**. An unused pointer still
+reserves a home.
+
+**Therefore the empty space between two objects you can see in the target is
+not a gap — it is a count.** Divide it by four and you have the number of
+register-class scalars the shipped source declared there. That turns a layout
+residual from something you sweep into something you solve.
+
+**Receipt — T2** (Mickey, three functions, 2026-09-11). One function's shard
+recorded "the target's gaps at 132..143, 168..175 and 216..271 that no
+declaration accounts for"; they are 3, 4 and 8 register-class scalars declared
+between the homed objects, and its surplus cell was a declared-but-never-used
+pointer. On another, the candidate declared seven register-class locals *first*,
+reserving 0x1C above the first homed object and pushing every homed object 0xF8
+low — with the frame size already exact, so nothing in the total said anything
+was wrong. 433 → 299 masked, byte-exact rows 146 → 390 of 533.
+
+**Falsifies.** "The frame is the right size, so the layout is right." Order is
+independent of size, and only the ladder shows it.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L122. A spilled float takes the home of the first free f32-typed declaration, not one of its own
+
+When uopt spills a float temporary it does not allocate a fresh slot: it lands
+on the home reserved by the first free `f32`-typed declaration in the run. So a
+spill's offset is a property of the *declaration list*, and moving the spill
+means moving that declaration.
+
+**Receipt — T2** (Mickey, 2026-09-11). One function's float spill followed a
+named local's slot across three different layouts; nothing moved it except
+moving that local.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_8001DD70`, 2026-09-11.
+
+### L123. Ask not only whether the target declares a value, but whether it declares it *separately*
+
+[L118](#l118-before-sweeping-where-to-declare-a-local-check-whether-the-target-declares-it-at-all) says to check whether the target declares a local at all. The mirror
+case is a value the target declares as **one object** where the candidate
+declares several, or the reverse.
+
+**The tell is a stored-but-never-read member.** Three floats declared
+separately, where only the first has its address escape, are three symbols:
+nothing escapes the other two, so uopt constant-propagates their stores away and
+they never reach memory. The target stores all three — which means the target
+declared them as a single aggregate, so one escaping address covers the whole
+object.
+
+**Therefore a residual of "the target stores values my candidate optimises
+out" is a declaration-shape problem**, not a spelling or allocation one. Group
+them.
+
+**Receipt — T2** (Mickey `func_8001DD70`, 2026-09-11). Two such triples, one
+recovered as a three-float vector and one as a short array, were part of taking
+the function 433 → 299.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_8001DD70`, 2026-09-11.
+
