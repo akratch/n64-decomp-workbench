@@ -2593,6 +2593,32 @@ better than the function it was diagnosed on.
    more informative: the lever that failed did so because that relative's
    reconstruction was *already* in the shape the others had to be moved toward.
 
+**Transfer is not the default — name the precondition first (2026-09-11).**
+A wave that applied five proved mechanisms to their untouched siblings had
+**four refuse**, and the refusals were more informative than the one that paid:
+
+- two refused because the mechanism's precondition was a *frame gap*, and a
+  census reported identical frames, slot counts and ladders on both siblings —
+  no cell for the lever to move;
+- one refused because it was **already** in the state the mechanism moves a
+  function toward;
+- one refused because the *tell* was insufficient rather than absent: the
+  diagnostic fired, the mechanism was applied, and the sibling's residual turned
+  out to be a different animal (see the coherence note below).
+
+So a cluster's leverage is real but conditional. Before applying, write down
+what the lead's fix *depended on* — a frame gap, a shared expression, a
+particular declaration shape — and check that precondition on the sibling. That
+check costs one command and it is the difference between a mechanical win and a
+spent lane.
+
+**And a permutation is only a permutation if the mapping is coherent.** A
+register census printing a closed cycle is not sufficient: the lead whose
+temp-ring cycle closed on one edit had **88%** of substitutions following each
+source register's dominant target, while the sibling that refused had **51%**,
+with one source register splitting three ways. Read the coherence line and the
+size delta together, not the cycle alone.
+
 **What a divergence means.** If a lever pays on three of four, the one that
 resists is the result worth reporting — it is telling you which precondition
 the lever actually depends on. One four-word gap between two siblings turned
