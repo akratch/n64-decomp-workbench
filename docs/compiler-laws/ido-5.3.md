@@ -3639,6 +3639,12 @@ movable at zero size delta — a second definition halves a web's rank for
 free**. Fitted on one function against a positive control that reproduced the
 ROM's assignment at the required rank.
 
+**That lever reaches declared variables only (2026-09-11).** For a *compiler
+temp* the two terms are not independently movable from source: a second
+definition is not something the source can give a value cfe invented. On the
+function that established this the temp had to be **removed**, not demoted. So
+establish what the contested web actually is before reaching for the divisor.
+
 > **Scope, corrected the same day it was written (2026-09-10): this describes
 > phase one only, and phase one does not always run.** p1 is a repeated
 > **max-save selection over webs with `numintf >= regsleft`** — with a full
