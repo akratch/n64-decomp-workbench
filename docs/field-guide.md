@@ -2571,6 +2571,40 @@ Each of these was searched exhaustively at real cost; skip them.
 
 ---
 
+## Work a cluster's lead, not its members
+
+Functions of identical size in the same overlay are, in this family of games,
+the same routine specialised N ways. Treat them as one unit of work.
+
+**The leverage is measured, not assumed.** Across one queue: 21 such groups
+holding 50 functions, where working every sibling separately is 7,088 residual
+words and working one lead per group is 2,457 — **2.9x**. On three separate
+occasions a diagnosis on one sibling was applied to the others *by line range*
+with no per-function tuning, and twice the siblings landed at the same score or
+better than the function it was diagnosed on.
+
+**How to run one:**
+
+1. **Diagnose one member properly.** Pick the lowest residual; it is usually
+   the least obstructed.
+2. **Apply to the others mechanically**, by line range where the bodies permit.
+3. **Measure each separately anyway.** This is the step people skip. Two of the
+   three transfers were total and one was partial, and the partial one was the
+   more informative: the lever that failed did so because that relative's
+   reconstruction was *already* in the shape the others had to be moved toward.
+
+**What a divergence means.** If a lever pays on three of four, the one that
+resists is the result worth reporting — it is telling you which precondition
+the lever actually depends on. One four-word gap between two siblings turned
+out to be a post-increment spelling accident with nothing to do with the
+family's mechanism at all.
+
+**Do not infer a shared *residual* from a shared size.** Identical size means
+the same source shape, not the same remaining defect. Siblings that scored
+within six words of each other still had their fold-paying subsets differ, and
+one sibling's instruction multiset was exact where another's was eight words
+out. Check per member before inheriting a claim.
+
 ## Verdict-to-lever index
 
 | `view` verdict / `playbook` | Levers |
@@ -2595,6 +2629,10 @@ Each of these was searched exhaustively at real cost; skip them.
 | `lever: line-order` from `diagnose --emit-trace` | 42, then 33, 25 |
 | `lever: pool-rotation` / `pool-population` from `diagnose --ladder` | 44, then 7-13 |
 | `lever: unreachable`, or a `see_also` proof | 43, then the permuter |
+| identical-size siblings in one overlay | work the lead, then transfer — see *Work a cluster's lead* |
+| whole-function ring phase, stream otherwise exact | a peephole-deleted no-op consumes a ring temp (L127); 14, 15, 16 |
+| target holds callee-saved where you hold caller-saved | compare `nocs` first (L128); the lever is the span, not the colour |
+| the ROM's order needs two loads before a store you must issue after | read the `-Wa,-R` after-nodes: if the bases differ the edge is in the graph (L125), and only a carrier changes it — priced by L126 |
 | function exact; fake-match scaffolding remains / `post-match-cleanup` | 27 |
 | TU-clustered impossible dispatch | 20, 22, then the atlas in [alternate-frontends](alternate-frontends.md) |
 | token-identical variants stall (accom lineage) | 21 |
