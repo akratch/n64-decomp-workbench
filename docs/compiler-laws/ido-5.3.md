@@ -5157,8 +5157,12 @@ all.
 [L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all) says a web whose span reaches a call result is not *offered*
 `v0`. The general rule is wider and sharper: **a web live across a call is
 denied `v0`/`v1` and precisely those argument registers the spanned calls
-actually load**, and the denial shows as **absence from the `p1cost` list**
-rather than as a `forbidden` mask or a losing bid.
+actually load**, and the denial is recorded in the web's **`forbidden` mask**.
+It also shows as absence from the `p1cost` list, but that is a *consequence*:
+the list simply omits every forbidden colour — one web's ran 5–13 then 19–22,
+skipping the forbidden 14–18. **Read the mask; it is the primary record.** What
+the list does distinguish is a colour that was *never offered* from one that was
+offered and outbid, which a mask alone cannot ([Trap 18](../metric-traps.md#trap-18-a-consistency-mask-is-not-an-offer-set)).
 
 So the forbidden set is a function of **what the calls in the web's range take**:
 
@@ -5186,16 +5190,45 @@ registers: a reference in the call's own block combined with a call taking
 argument masks less; an integer-argument call leaves the float mask untouched
 altogether. Same rule, two register files.
 
-**Read the cost list, not the mask** ([Trap 18](../metric-traps.md#trap-18-a-consistency-mask-is-not-an-offer-set)). A colour missing from the
-list and a colour outbid in it look identical in a mask and route to opposite
-work.
+**Two scope limits, both measured after this law was first written, and both
+narrow it considerably.**
 
-**Receipt — T1, two procedures with different call arities** (Mickey, overlay 86
-and overlay 46, 2026-09-12), plus the float-bank measurement on the overlay-27
-builder with three controls separating mask from table. On overlay 86 the
-arity edit reaches the target's colouring and lands **4 bytes short** — the
-target emits a `move` then an `addiu` where the candidate folds both into one
-`addiu` — which is a named structural defect rather than an allocator question.
+**It is per call, not per call-set.** The denial rests on individual spanned
+calls. On one function a single call carried the whole thing and the other call
+alone did not; on another, one argument on one call was worth exactly one
+colour — 0, 1 or 2 arguments put the flag on `a3`, three put it on `t0`, four on
+`t1`. So the lever is aimed at a *specific* call, and calls outside the web's
+range move nothing.
+
+**It reaches only the caller-saved head of the colour table.** Where the
+contested colours are `s`-registers the lever is completely inert: on one
+function, 1, 3 and 4 arguments left every integer web's `save`, `nocs`,
+`totalsave`, `forbidden` mask and assigned colour **bit-for-bit identical**, and
+the objects differed only in argument setup. **Establish which bank the
+contested colours are in before spending a pass on arity.** That check is one
+look at the census and it retires the whole axis when the contest is callee-saved.
+
+**Receipt — T1, three procedures with different call arities** (Mickey, overlays
+86, 46 and 92, 2026-09-12), plus the float-bank measurement on the overlay-27
+builder with three controls separating mask from table.
+
+**The lever paid.** On overlay 86 the arity edit cleared bit 27
+(`0x7803e000` → `0x7003e000`) and globalcolor reported `bestcolor=4 bestreg=a1`
+at an unchanged save. Combined with defeating a fold (see below) and a
+payload-store reordering, that function went **29 masked words to 9 at size
+delta 0** on 2,648 bytes, and a full force ceiling of 1,470 objects — 938
+accepted — found nothing better than 9. On overlay 46 the lever is *bounded
+rather than unexplored*: the floor it can reach is `a3`, the target's `a2` is
+never offered, and 552 force cells over 24 decisions found nothing under 54.
+On overlay 92 it is inert for the callee-saved reason above.
+
+**The fold that had looked like a 4-byte structural defect is a lever too.**
+uopt folds a pointer's rematerialisation into its advance, emitting one
+`addiu a1,s5,12` where the target emits `move a1,s5` then `addiu a1,a1,12`.
+**Two successive in-place advances** leave the copy standing and combine only
+the constants, reproducing the target exactly — the adopted form being the
+ordinary idiom `*p++ = 0xC;` then `p += 5;`. Every two-step spelling is
+byte-identical, so this is a fold to defeat rather than a spelling to search.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
 

@@ -695,6 +695,41 @@ to check the instrument, not as a reason to stop measuring. This is
 [Trap 18](#trap-18-a-consistency-mask-is-not-an-offer-set) once more: an empty
 result is evidence about the instrument until shown otherwise.
 
+## Trap 20: a force that was silently dropped is indistinguishable from one that was declined
+
+**The trap:** `CDX_FORCE` is **ignored unless `CDX_PROC` is also set**. Set on
+its own it records `forced=-2` and returns a **byte-identical object**.
+
+That is exactly what a legitimately *declined* force looks like. [L101](compiler-laws/ido-5.3.md#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all)
+names three kinds of decline, and one of them — already forbidden at decision
+time — returns a byte-identical object and proves nothing. So a dropped force
+and a declined force produce **the same observable**, and the natural reading of
+an unchanged object is "the allocator refused, therefore this axis is closed".
+The correct reading may be "the experiment never ran".
+
+**Why this is worse than an ordinary tool bug.** It fails in the direction that
+manufactures negative results. A sweep reports "N cells, nothing better" and
+that sentence is what goes into a handoff, where the next lane reads it as a
+closure and does not re-run it. Under [L140](compiler-laws/ido-5.3.md#l140-an-exhaustive-force-sweep-is-an-existence-proof-and-its-two-failure-shapes-mean-opposite-things) the distinction is load-bearing in both
+directions: a sweep that genuinely never improves says the residual is below
+globalcolor, while a sweep whose forces never applied says nothing at all, and
+the two route to completely different work.
+
+**The rule:** *set `CDX_PROC` alongside `CDX_FORCE`, and verify the force was
+accepted by reading the `forced` value in the record* — `-1` accepted, `-2`
+never applied. Never infer acceptance from whether the object changed. And when
+inheriting a force sweep from a handoff, check that it recorded acceptance
+before treating its negative as evidence.
+
+**The general shape, which is the third instance of it on this page.** An
+instrument that needs a companion setting and does not complain when it is
+missing returns a *plausible* result rather than an error. Compare
+[Trap 17](#trap-17-an-empty-debug-bitset-is-not-an-idle-compiler-pass) (an empty
+bitset read as an idle pass) and
+[Trap 19](#trap-19-a-decoder-that-silently-drops-what-it-cannot-parse-reports-high-confidence)
+(a decoder dropping what it cannot parse and so reporting *higher* confidence).
+Each time, the instrument's silence was read as the compiler's answer.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
