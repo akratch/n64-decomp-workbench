@@ -3588,11 +3588,15 @@ Three consequences, each of which has produced a false negative:
   buy a frame cell is not a lever; the cell count follows from what uopt leaves
   memory-class, which is why the solve in this law reads the homes rather than
   counting names.
-- **An unused `s32` is inert, an unused `f32` or pointer is not.** The `s32` is
-  eliminated before the frame is sized, so padding a frame with dummy `s32`
-  locals measures as flat and reads as "declarations do not reach the frame".
-  They do; that type does not. This qualifies the field guide's blanket
-  statement that an unused declaration still costs frame.
+- **Whether an unused local is inert is compilation-dependent — measure it, do
+  not assume it.** This law first said an unused `s32` is eliminated before the
+  frame is sized while an unused `f32` or pointer is not. **That is falsified on
+  a second compilation**, where an unused `s32` and an unused pointer behave
+  identically and both occupy a home; a third function found two unused declared
+  locals moving a frame from 0x50 to 0x58. So padding a frame with dummy locals
+  may measure flat or may not, and the only safe reading is the census. The
+  original observation stands for the function it was taken from and generalised
+  no further — which is the failure mode this page exists to prevent.
 - **`align8(4N)` hides a one-slot change.** Removing a single declaration left a
   0x40 frame unmoved because N = 8 and N = 7 both round to 32 bytes. A probe
   that changes the count by one and reads no frame change has measured the
