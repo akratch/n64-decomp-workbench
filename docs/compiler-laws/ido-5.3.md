@@ -5119,12 +5119,35 @@ wanted register at **infinity with an empty forbidden mask**, that is the table
 and not the mask ([L133](#l133-the-float-colour-table-excludes-f4f10-so-a-float-carrier-aimed-at-them-is-refuted-as-a-class)), so no ratio, spelling or carrier reaches it
 and every form keeping the value as a globalcolor web is refuted together.
 
-**Receipt — T1, two sweeps with opposite shapes** (Mickey, `objects.c` and
-`saves.c`, 2026-09-12). On one function a 522-compile sweep never beats 25 —
-the missing-web shape, later corroborated by a ring trace showing a genuine
-phantom pop. On another the full p2 sweep, every web × every colour plus split
-and a greedy second round, bottoms out at 8 and never improves — the
-ring-phase shape. Same instrument, same TU batch, opposite verdicts.
+**Provisional, and the reason is instructive.** There is a **third** cause of a
+sweep that never improves, and it was not in the first version of this law: the
+forces may never have applied at all. `CDX_FORCE` is silently ignored without
+`CDX_PROC` ([Trap 20](../metric-traps.md#trap-20-a-force-that-was-silently-dropped-is-indistinguishable-from-one-that-was-declined)),
+recording `forced=-2` and returning a byte-identical object. A sweep built that
+way produces the *bottoming-out* shape for a reason that has nothing to do with
+the compiler.
+
+**So the two shapes only mean what this law says once acceptance is verified.**
+Read the `forced` value on every cell — `-1` accepted, `-2` never applied —
+before reading a floor as a verdict.
+
+**Receipt — T1 for the missing-web half, FALSIFIED for the other** (Mickey,
+2026-09-12). On `func_80007C68` a 522-compile sweep never beats 25, the
+missing-web shape, corroborated independently by a ring trace showing a genuine
+phantom pop — that corroboration is what keeps this half standing.
+
+The second receipt does **not** stand. It read: "the full p2 sweep on
+`func_8002C69C`, every web × every colour plus split and a greedy second round,
+bottoms out at 8 and never improves — the ring-phase shape." Re-run with
+`CDX_PROC` set, `p2:w0=c7` and `p2:w34=c7` are **accepted**
+(`decision=color reg=t0 forced=7`) and score **6 at delta 0**. The residual is a
+globalcolor decision after all, not something below it, and the conclusion drawn
+from that sweep was wrong.
+
+**Missing evidence.** A second, independently corroborated example of the
+bottoming-out shape, measured with acceptance verified on every cell. Until
+there is one, treat a floor as "no single decision beats this, forces confirmed
+applied" and not as proof that the residual is below globalcolor.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
 
