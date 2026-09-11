@@ -1828,6 +1828,21 @@ below its neighbour's is what turns "no legal order reaches it" into a proof
 rather than a report — on that function the three positions score 5 / 7 / 5 and
 the target's order is none of them.
 
+**The reversal receipt, and where the lever does not reach (T2, 2026-09-11).**
+A family of display builders emits each per-element assignment group **in
+reverse** of source order. With the group's stores on separate lines `lineno`
+is the deciding key and they come out in source order; folding the group onto
+one physical line retires that key and the raw ready-list order supplies the
+reversal. Four sibling functions: 296 to 213, 298 to 211, 298 to 211, 246 to
+209, with structural rows 130 to 41 on the lead and insertion sites 25 to 7 --
+the fold alone accounting for the first 26 words.
+
+**A multi-line macro expansion carries the invocation's line.** Every row built
+through a macro is therefore already one line as far as as1 is concerned, and
+no fold applies to it. That is why a body can look full of foldable groups and
+have only some of them respond: check whether the rows are macro-built before
+concluding the lever failed.
+
 ### L79. A selection decided above `lineno` has no source lever
 
 `lineno` is the **last** key in as1's selection chain, so a selection decided
