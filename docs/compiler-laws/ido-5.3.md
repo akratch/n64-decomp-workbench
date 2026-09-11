@@ -4198,3 +4198,33 @@ single compile. A census bounds what globalcolor *assigns*, not what an
 assignment *moves*.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L115. A live range is formed per symbol, and interference is a block-set intersection — so an existing carrier imports its interference free
+
+uopt forms a live range **per symbol**, not per value, and two webs interfere
+when their block sets intersect. So assigning a value to a local that *already*
+has a live range elsewhere in the function does not merely give the value a
+home: it makes the value interfere with everything that local already
+interferes with, **at zero width and with no instruction added**.
+
+**Therefore "add a carrier" and "reuse a carrier" are different levers.**
+Adding a fresh local creates a web with a minimal block set. Reusing a local
+that is live across some other region imports that region's interference, which
+can push the value out of a colour it would otherwise take and into the one the
+target uses. Choosing *which* existing local is the whole decision
+([L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)).
+
+**Receipt — T1** (Mickey `levelInit`, 2026-09-11, 22 → 6), read from a
+recompiled instrumented uopt. Carrying a resource id in a local that already
+has a live range beside the v0/v1 temps of an earlier loop imported that
+interference and moved the value from v0 to the target's a2. Three previous
+passes had only ever *added* or *reordered* webs, which is why all of them
+measured flat: neither operation changes an existing symbol's block set.
+
+**Boundary.** It does not work for a value uopt re-materialises. A mask carried
+the same way is copy-propagated *before* live ranges are formed, so no
+interference is imported and the body is byte-identical — which is
+[L102](#l102-uopt-re-materialises-a-cheap-masked-value-at-each-use-so-naming-it-manufactures-no-web) holding for shared symbols too.
+
+**Provenance:** Mickey's Speedway USA decomp, `levelInit`, 2026-09-11.
+

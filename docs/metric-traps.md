@@ -555,6 +555,28 @@ override that contradicts its target cannot be committed.
 such a check to read, so a detector reports its override as *unchecked*, not as
 clean. Do not read a clean run as clearing every pin in the tree.
 
+## Trap 16: the fast direct-compile loop needs the TU's own per-file flags
+
+**The trap:** the fast iteration loop calls the compiler directly instead of
+going through the build, because that is what makes a lattice exhaustive rather
+than sampled. But the build carries **per-file** flag overrides, and a direct
+call that reproduces only the group defaults is compiling a different program.
+
+**The tell is a size mismatch that appears out of nowhere.** A missing
+`-Wab,-r4300_mul` changes how multiplies are expanded, so the symbol scores as
+a *size* difference against a target it actually matches in shape — and a size
+delta is the one signal every lane is trained to trust, so the loop looks like
+it has found something real.
+
+**The rule is the one from Trap 13, applied to flags rather than to text:** *the
+harness's base score must equal the project scorer's before any candidate it
+produces means anything.* Check it once per TU at the start of a sweep. If they
+disagree, diff the expanded compile command against the build's own — do not
+start adjusting the source.
+
+Three TUs in this project carry such overrides, and a lane hit exactly this on
+all three in one session.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
