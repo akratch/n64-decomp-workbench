@@ -662,6 +662,39 @@ share one shape, and it is worth stating on its own: a debug dump's *contents*
 are evidence about the dump. What a pass decided is in its decision records, and
 nowhere else.
 
+## Trap 19: a decoder that silently drops what it cannot parse reports *high* confidence
+
+**The trap:** an instrument decodes a stream, meets an instruction class it does
+not handle, and returns nothing for it rather than failing. The sites it dropped
+cannot disagree with anything, so they cannot lower a coherence score or split a
+mapping into windows. **The reading therefore comes back cleaner than the truth,
+not noisier** — and a clean reading is precisely the one a lane acts on without
+re-checking.
+
+**The incident.** `register_census.py`'s field decoder treated `lwc1`/`swc1` as
+plain I-type, so a float datum printed under a general-register name, and it
+returned no fields at all for COP1 register format. On a function whose residual
+was *entirely* floating point it dropped **nine of thirteen** substitution sites
+and misnamed the other four. The output read `coherence 100%, cycle a2 → a0 →
+a2, one ring-phase fact, see L127` — a single clean cause, in the integer
+expression ring, with a law attached. The corrected reading is **13/13 float,
+coherence 71%, three windows**. Every actionable word of the first reading was
+wrong, and it pointed at the wrong allocator entirely.
+
+**What caught it, and it is the reusable part.** The project had a *second*
+decoder of the same bytes — `nm_ranking.instr_reg_mask` — which handled COP1
+correctly. The two instruments disagreed, and the disagreement was the whole
+signal. Neither tool reported an error; only the comparison did.
+
+**The rule:** *a decoder must fail loudly on an instruction class it does not
+model, never return empty.* Absent that, cross-check any confident reading
+against an independent decoder of the same bytes before building on it. Treat a
+suspiciously clean result — 100% coherence, one window, one cycle — as a reason
+to check the instrument, not as a reason to stop measuring. This is
+[Trap 17](#trap-17-an-empty-debug-bitset-is-not-an-idle-compiler-pass) and
+[Trap 18](#trap-18-a-consistency-mask-is-not-an-offer-set) once more: an empty
+result is evidence about the instrument until shown otherwise.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries

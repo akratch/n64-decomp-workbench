@@ -4804,3 +4804,28 @@ require the old-link loads to be written after the stores that overwrite what
 they read.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L133. The float colour table excludes f0–f6, so a float carrier aimed at them is refuted as a class
+
+[L130](#l130-a-source-level-local-is-a-symbol-so-a-register-outside-the-procedures-colour-table-is-unreachable-by-any-declaration) says a declared local is a symbol, coloured from the
+procedure's own table or given a stack home, so a register outside that table is
+unreachable by any declaration. **The same holds for the float bank, and its
+table starts higher than the register file does.**
+
+Decoded by force-and-read on one procedure: c24 `f8`, c25 `f10`, c26 `f12`,
+c27 `f14`, c28 `f16`, c29 `f18`, then `f20`–`f30` callee-saved. **`f0`, `f2`,
+`f4` and `f6` are not in it at all.** They are not forbidden to a web — they are
+never offered, exactly as [L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all) describes for `v0`.
+
+**So a float-carrier lattice aimed at `f0`–`f6` is refuted before it is built.**
+Decode the table from your own procedure's records rather than assuming this
+one; the integer boundary is per procedure ([L114](#l114-globalcolors-colours-are-the-callee-saved-and-pool-registers-only-and-roughly-a-sixth-of-a-naming-residual-is-colour-at-all)) and there is no
+reason to think the float boundary is not.
+
+**Receipt — T1, force-and-read** (Mickey, overlay-27 builder, 2026-09-11). The
+instrumented `uopt` reproduces the tree's object exactly with logging enabled.
+`CDX_FORCE=p1:w35=c28` takes the function to **9 masked words at size delta 0**
+— byte-exact 320 → 359, naming 46 → 7 — and the force set that reaches it names
+only colours inside the table above. Forces aimed at `f0`–`f6` never applied.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
