@@ -4912,3 +4912,106 @@ already consecutive, so no phantom draw can fix its transposition, and
 [L129](#l129-a-redundant-load-into-a-ring-temp-is-a-free-ring-draw--the-inverse-of-the-free-copy) is not reachable there at all.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L136. An L97 region deletes a symbol-level interference at zero bytes, and it is near-binary rather than a lattice
+
+[L115](#l115-a-live-range-is-formed-per-symbol-and-interference-is-a-block-set-intersection--so-an-existing-carrier-imports-its-interference-free) forms a live range per symbol and takes interference as a
+**block-set intersection**. So a variable whose read lands in a join block
+interferes with everything else live in that block — not because the values
+compete for a register in any real sense, but because their block sets overlap
+there. [L97](#l97-a-uopt-region-boundary-is-an-allocation-lever-and-only-control-flow-opens-one) says `if (1) { }` and `do { } while (0)` open a uopt
+region while a bare `{ }` does not. **Splitting the join block with a region
+removes the overlap, and therefore the interference, without adding an
+instruction.**
+
+**The important property is that placement does not matter.** On one function,
+**all 128 measured points that open at least one region scored 5**, and the
+single point that opens none scored 20. That makes this a two-build question —
+open a region anywhere in the area of interest, see whether the number moves —
+rather than the placement lattice a source-order lever usually implies. Answer
+it before building anything larger.
+
+**It reaches colourings, not folds.** On a third function the same lever was
+measured flat at **78 points**, because that residual was constant propagation
+meeting across two arms rather than an interference. So read the aligner's
+buckets first: a naming residual is in scope, a value that is being folded is
+not, and no number of regions will change a fold.
+
+**Two recorded closures fell to it**, which is the reason it is written up as a
+law rather than a tip. One asked for a source form in which a loop's first byte
+reaches the loop top without a copy — the copy was never needed. The other
+concluded that no source form reaches a lower web number for its copy web; the
+region does not renumber anything, it removes the interference, so the closure
+was answering a question that was not the one blocking the function.
+
+**Receipt — T2, two functions and a negative** (Mickey, 2026-09-11). On
+`func_8004BA8C` a region gave `fontData` the target's `v0`, 6 masked words to 2,
+and the function subsequently **matched at 0 of 46 words**, `gmake verify`
+printing the expected ROM SHA1. On `debug_text_width` it turned a known exact
+`v0`/`v1` transposition into the target's colouring, 20 words to 5, with the
+128-point placement sweep above. On `overlay68CheckKind` it was flat at 78
+points.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L137. IDO hoists only the loop invariants that sit in the loop header, so placement below the first branch retires the lever
+
+A read that is loop-invariant is hoisted into the preheader **only if it sits in
+the loop header**. A read placed after the first branch in the body is never
+hoisted, however invariant it is. So "move the statement above the guard" is not
+a spelling choice — it decides whether hoisting happens at all.
+
+**The lever that follows, and the wall behind it.** Reading a value through a
+`const` pointer puts the read in the header and *does* hoist it, which on one
+function closed the first ten words exactly. The residual then moved to the
+**preheader's hoist order**, which is not the reverse of source order and was
+flat across 19 spellings. So the hoist is reachable from source; its ordering is
+a separate and so far unmoved question.
+
+**A smaller companion, worth one word where it applies.** cfe canonicalises a
+comparison written `constant != variable` back to variable-first, so a
+commutative compare keeps its source operand order **only when the constant is
+itself a variable**. Confirmed against `cc -S`: both spellings emit identically.
+And uopt reassociates `p[i]` into index-plus-base; adding the two as `u32`
+leaves the target's base-plus-index, with **both** casts required — casting one
+measured 22 words worse.
+
+**Receipt — T2** (Mickey, `overlay15DrawScreenStars` and `func_8004BA8C`,
+2026-09-11). The hoist result is the ten-word closure above with its 19-spelling
+preheader sweep; the reassociation result was `func_8004BA8C`'s last word before
+it matched.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L138. An address constant has been observed copied across a block boundary, which L110 says cannot happen
+
+**Provisional:** a measurement and [L110](#l110-uopt-never-merges-an-address-constant-across-a-basic-block-boundary) disagree, and the conflict is
+recorded rather than resolved.
+
+L110 says uopt never merges an address constant across a basic-block boundary,
+and that no read count produces a stack temporary. On one function the target
+restarts a cursor on every outer pass while the retained C lets it run on — and
+writing the reset cost **exactly one word in all 162 placements and spellings
+measured**, because uopt hoisted the array address into a register and *copied*
+it rather than re-materialising it in the second block.
+
+**Why this matters beyond the one function.** L110 is used to argue that a
+second block must pay for its own address, which is how several frame and
+carrier arguments are built. If the merge happens under some condition, those
+arguments hold only when that condition fails, and nobody currently knows what
+it is.
+
+**Missing evidence.** Nobody has read the uopt records for the copying case to
+establish whether this is a merge across the boundary at all, or a *different*
+mechanism — loop-invariant hoisting into the preheader ([L137](#l137-ido-hoists-only-the-loop-invariants-that-sit-in-the-loop-header-so-placement-below-the-first-branch-retires-the-lever)) would
+place the address in a register before either block, which would leave L110
+untouched and explain the observation completely. The decisive step is cheap:
+dump the records on that function and see whether the address is live out of the
+preheader. Until someone does, do not cite L110 to rule out a shared address in
+a loop body.
+
+**Receipt — T3, a single observation across a 162-point sweep** (Mickey,
+`func_8005776C`, 2026-09-11). Flagged by its own measurer as an apparent
+counter-example rather than claimed as one.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
