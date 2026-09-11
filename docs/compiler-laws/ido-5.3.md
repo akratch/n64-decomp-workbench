@@ -4351,3 +4351,63 @@ target may have fewer.
 
 **Provenance:** Mickey's Speedway USA decomp, `func_80041530`, 2026-09-11.
 
+### L119. A frame is `args + saves + temps + block`, and all four are separately readable
+
+"The frame is N bytes too big" is four different diagnoses wearing one number.
+Censusing both objects' `$sp` traffic separates them, because each region has a
+signature: the outgoing argument words sit at the bottom, the saved registers
+and `ra` are stored once in the prologue and loaded once in the epilogue, the
+compiler temps sit immediately below the declared block, and the block is
+everything above.
+
+On five functions measured together, the argument build and every saved-register
+word sat at **identical absolute offsets on both sides** every time. So each
+gap was one named region, and which region it is decides the lever:
+
+- **block too large** ⇒ too many live locals ⇒ merge carriers with disjoint
+  lifetimes, or delete a declaration outright (see
+  [L120](#l120-a-declaration-whose-value-is-a-commoned-global-load-deletes-at-zero-byte-cost)). Four of the five.
+- **block too small** ⇒ the *target* declares more than you do. One of the five
+  was 56 bytes short, and its three 64-byte matrices, being the only
+  address-taken slots on either side and spaced 64 apart on both, served as
+  rulers to locate exactly where the missing fourteen cells go.
+- **temps differ** ⇒ not a declaration problem at all. One function's whole
+  8-byte gap was the temporary region: five stack temps against the target's
+  four, because the target reuses for a late spill the slot its first temp
+  vacated. No declaration edit reaches that.
+
+**Solve for the cell count rather than estimating it.** `frame = round8(args +
+saves + temps + block)` with the block in 4-byte cells; put the target's frame
+in and read the count out. That turned "five or six cells" on one function into
+exactly thirteen, and gave another a target block of eleven cells against the
+candidate's fourteen.
+
+**A closed frame is not the objective — the *ladder* is.** On one function three
+separate single-declaration merges each closed the frame to the target's size by
+making the block *smaller* than the target's, moving every home off the ladder
+in the process. Check the homes, not the total.
+
+**Receipt — T2** (Mickey, five overlay functions, 2026-09-11). The lead went
+238 → 129 masked with immediate-only rows 28 → 5 and all fourteen slots
+agreeing, compiler temp included.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L120. A declaration whose value is a commoned global load deletes at zero byte cost
+
+Where a local exists only to hold a value read from a global, deleting it and
+reading the global's fields directly is **byte-identical**: uopt commons the
+load into one temp, so the same instructions are emitted and the frame loses a
+cell.
+
+**That makes it the cheapest way to shorten a block by one**, and the first
+thing to try before carrier merging, which costs instructions when the lifetimes
+are not genuinely disjoint. Three declarations came out of one function this
+way — a global-field holder, a cursor replaced by an indexed access that
+strength reduction rebuilds into the same walking pointer, and a nested
+invariant that reuses a disjoint carrier — taking its block from fourteen cells
+to eleven with no instruction change.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_overlay_007_F0000324`,
+2026-09-11.
+
