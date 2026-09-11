@@ -3713,6 +3713,13 @@ colours it forbids in the record. This names nothing — the candidate list is
 simply short. If a force is declined silently, check the list length before
 assuming the trace is broken.
 
+**A `split` force is not a census instrument (2026-09-11).** Forcing a web to
+split does **not** apply when that web's first decision is already `split`: the
+second, colouring decision on the same web number records `forced=-1` and
+colours anyway. So a split census silently measures nothing on exactly the webs
+it is aimed at, while a *colour* census — which records `forced=<colour>` at the
+colour site — is sound. Check for the `forced=` value before believing either.
+
 **The discriminator, stated as a rule (2026-09-10).** A declined force comes in
 two kinds and they need opposite responses:
 
@@ -4536,3 +4543,60 @@ store against the source. Nothing about the source shape distinguished them;
 the deciding key did.
 
 **Provenance:** Mickey's Speedway USA decomp, overlay 101 builders, 2026-09-11.
+
+### L125. as1 orders a memory reference after any preceding store on a different base, and disambiguates only same-base pairs
+
+as1's dependence graph treats a load or store as ordered after every preceding
+store whose base register differs, and applies displacement disambiguation only
+where the two references share a base. Read straight off the `-Wa,-R` node
+table: a store through one pointer lists a load through a different pointer as
+an after-node, with no displacement test attempted.
+
+**Therefore some target orderings are infeasible in a given candidate's
+dependence graph, and no scheduling lever reaches them.** Where the ROM issues
+two loads before a store that the candidate must issue after, neither a
+`lineno` tie ([L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)),
+a fold, nor any statement order can produce it — the edge is in the graph, not
+in the tie-break. **The only source change that reaches it is one that changes
+the graph**, which means carrying the value so the reference is no longer a
+load through a different base.
+
+That is a genuine closure argument rather than a plateau, and it is cheap: read
+the after-nodes for the contested store and check whether the bases differ.
+
+**Receipt — T1, from the assembler's own node table** (Mickey, overlay 101
+builders, 2026-09-11). The ROM's node block issues both old-link loads before
+every store; the candidate's graph forbids it. Every carrier spelling that would
+change the graph — new `s32`, `void *`, `u32`, `Node32 *`, eight distinct
+per-invocation symbols, `register`-qualified, and four reuses of existing
+locals — lands on the same number, for the reason in
+[L126](#l126-a-carrier-that-spans-no-call-is-always-coloured-so-it-costs-ring-temps-by-construction).
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L126. A carrier that spans no call is always coloured, so it costs ring temps by construction
+
+globalcolor colours a web whenever its `totalsave` exceeds its `bestcost`. A
+carrier introduced for one short-lived value spans no call, so its split residue
+records `nocs=1`, `totalsave=1.000000`, `bestcost=0.000000` — and 1.0 exceeds
+0.0, so it is **always** coloured.
+
+**Therefore "add a carrier" is never free in ring terms.** Every colour removes
+that value's consumers from the ugen scratch ring, so a carrier introduced in N
+blocks takes N sets of ring temps out of circulation and rotates everything
+downstream. On one function the trade was exact and adverse: the carrier
+reproduced the ROM's block shape, gained two structural words, and cost 109
+naming rows.
+
+**So the question is never "does a carrier work" but "does the ring survive
+it".** Price both sides before adopting — and note this is the mechanism behind
+[L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)'s
+observation that carrier *identity* decides the delta class: reusing a local
+that is already coloured elsewhere pays the ring cost once instead of twice.
+
+**Receipt — T1, from the decision records** (Mickey, overlay 101 builders,
+2026-09-11), across thirteen distinct carrier spellings that all converged on
+the same score.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
