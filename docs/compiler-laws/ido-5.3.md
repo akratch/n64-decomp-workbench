@@ -3631,6 +3631,14 @@ globalcolor ranks webs by `save = totalsave / nocs` and colours them in
 descending order, so the question "which web takes the low colour" is decided
 by a ratio.
 
+**Both terms are now priced exactly (2026-09-11).** `nocs` is the **number of
+definitions**, and `totalsave` sums **10^(loop depth)** over every reference
+*including the defining one*. That makes the two terms behave very differently
+as levers: the total is fixed by where the value is used, but **the divisor is
+movable at zero size delta — a second definition halves a web's rank for
+free**. Fitted on one function against a positive control that reproduced the
+ROM's assignment at the required rank.
+
 > **Scope, corrected the same day it was written (2026-09-10): this describes
 > phase one only, and phase one does not always run.** p1 is a repeated
 > **max-save selection over webs with `numintf >= regsleft`** — with a full
@@ -4601,6 +4609,21 @@ blocks takes N sets of ring temps out of circulation and rotates everything
 downstream. On one function the trade was exact and adverse: the carrier
 reproduced the ROM's block shape, gained two structural words, and cost 109
 naming rows.
+
+**But the ring cost depends on what the carrier carries, and a *copy* is
+free (2026-09-11).** The colouring always happens; the ring draw does not. A
+copy of a value that is already in a register is not an expression temporary,
+so it takes nothing from the scratch ring — it creates a web that survives into
+the colouring, takes the colour, and then as1's peephole deletes the copy
+itself. Zero instructions, zero frame, invisible in the shipped bytes. A carrier
+holding a *computed* value is the opposite: one float product carrier measured
+56 naming rows of pure ring rotation on the function it closed.
+
+**That distinction closed a function four passes had declared impossible.** The
+records said the residual needed a neighbouring web already holding the
+contested colour, and four passes looked for that neighbour in the ROM and
+concluded it could not exist, because the register is never touched in that
+block. It cannot be found there — a copy carrier leaves no trace in the bytes.
 
 **So the question is never "does a carrier work" but "does the ring survive
 it".** Price both sides before adopting — and note this is the mechanism behind
