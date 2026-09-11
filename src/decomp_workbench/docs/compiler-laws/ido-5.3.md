@@ -3561,6 +3561,11 @@ Three consequences, each of which has produced a false negative:
   frame size unmoved. That turns a displaced-home residual into arithmetic:
   read the target's offset, solve for the index, declare it there. It closed
   the last four words of one function.
+- **The frame quantum is not a declaration at all.** Eleven kinds of unused
+  *homed* local measured byte-inert on one function. Adding a declaration to
+  buy a frame cell is not a lever; the cell count follows from what uopt leaves
+  memory-class, which is why the solve in this law reads the homes rather than
+  counting names.
 - **An unused `s32` is inert, an unused `f32` or pointer is not.** The `s32` is
   eliminated before the frame is sized, so padding a frame with dummy `s32`
   locals measures as flat and reads as "declarations do not reach the frame".
@@ -4227,4 +4232,36 @@ interference is imported and the body is byte-identical — which is
 [L102](#l102-uopt-re-materialises-a-cheap-masked-value-at-each-use-so-naming-it-manufactures-no-web) holding for shared symbols too.
 
 **Provenance:** Mickey's Speedway USA decomp, `levelInit`, 2026-09-11.
+
+### L116. uopt rewrites a comparison to an inequality *before* it copy-propagates
+
+The pass that turns a counted test into an inequality against a hoisted
+register — `i < 6` becoming `i != 6` — runs **earlier than copy propagation**.
+Confirmed from the phase order in `uoptlist`.
+
+**Therefore where a counter's initial value comes from decides which test is
+emitted.** A counter initialised from a *local copy* of zero still looks like a
+general value when the rewrite pass sees it, so the test stays a `slti`; and
+because propagation only runs afterwards, the copy it then folds away still
+leaves its `move` behind. Initialise the counter directly and the rewrite
+fires.
+
+**So two things a lane reads as separate defects are one decision:** a
+comparison that will not become an inequality, and a surviving `move` from a
+copy that "should" have been propagated. Both follow from the initialiser.
+
+**Receipt — T2** (Mickey `func_8003A754`, 2026-09-11, matched). Twelve words,
+two mechanisms, neither of them a spelling. This was the structural half; the
+allocation half was holding the returned pointer live to the exit with a
+trailing empty `if (p != base) { }`, which keeps v0 off a web entirely and
+emits nothing, because uopt deletes the folded branch after liveness. `return
+base` does not do it.
+
+**Related, and still open elsewhere: the copy uopt propagates but does not
+delete.** The target keeps a dead `move` that no spelling reproduces. It was
+closed on this function by the initialiser above, and it remains the named
+blocker on two others — so it is a recurring shape worth recognising, not a
+one-off.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_8003A754`, 2026-09-11.
 
