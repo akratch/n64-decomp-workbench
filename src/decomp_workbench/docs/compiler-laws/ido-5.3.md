@@ -3442,6 +3442,13 @@ carried through a whole body, or a web that must be demoted rather than
 permuted, this lever has nothing to reach. Try it early because it is cheap and
 size-neutral; abandon it after a handful of placements rather than sweeping.
 
+**Scope — a region boundary does not partition a CSE expression web (T2,
+2026-09-11).** Placed between a body read and a tail read of the same member,
+in all five placements tried, the object is **byte-identical**. A shared
+subexpression is one symbol regardless of the region structure around it; to
+split it, change what the shared expression *is*
+([L117](#l117-the-shared-cse-symbols-identity-is-the-lever-not-its-colour)).
+
 **Scope — a region boundary does not re-order the ugen ring (T2, 2026-09-10).**
 The lever moves *allocation*: which values are register-resident, and in the fp
 case ring membership. It does not permute the order in which ugen hands out
@@ -4264,4 +4271,58 @@ blocker on two others — so it is a recurring shape worth recognising, not a
 one-off.
 
 **Provenance:** Mickey's Speedway USA decomp, `func_8003A754`, 2026-09-11.
+
+### L117. The shared CSE symbol's *identity* is the lever, not its colour
+
+When several accesses share a subexpression, uopt forms one symbol for it, and
+**which expression becomes that symbol** decides whether globalcolor colours it
+at all. A shared `i * 12` is a value with a save worth colouring, so it takes a
+callee-saved or argument register and the ring is out of phase for the rest of
+the function. A shared `i * 3` with the `<< 2` left as address scaling is a ring
+temp, and nothing downstream shifts.
+
+The two spellings compute the same addresses. The difference is only which part
+of the index arithmetic is common to every access — and that is chosen by how
+the data is *typed and indexed*, not by any allocator lever.
+
+**Therefore a residual that looks like one badly-coloured web may not be a
+colouring problem at all.** Forcing the web to split is the test: if the forced
+object is far worse rather than better, the colour was never the variable.
+
+**Receipt — T1** (Mickey `func_80041530`, 2026-09-11, matched). With
+`entry->points[i].x` and `input[i][k]` the shared symbol is `i * 12`, coloured
+as p1 web 70 at save 20 into a1. `CDX_FORCE=p1:w70=s` — `.text` identity
+confirmed against stock first — measured **391 words at size +4**, so splitting
+the colour is not the lever. Re-typing the access so `i * 3` is the shared
+symbol, with a flat view and `input[i*3+k]`, took the function from 87 to **4**.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_80041530`, 2026-09-11.
+
+### L118. Before sweeping *where* to declare a local, check whether the target declares it at all
+
+A declaration-order sweep searches the space of positions for a name. If the
+shipped source never declared that value — if it is a loop-invariant uopt
+hoisted and spilled to a compiler temp slot — then the sweep's space and the
+target's home lie in **disjoint sets by construction**, and every cell is a
+miss for a reason no amount of sweeping reveals.
+
+**The distinguishing instrument is a `-g3` `.mdebug` census**, which is
+text-inert and names each slot as a declared home or a compiler temp. Read both
+sides before sweeping: if a contested slot is a *temp* on the target and a
+*declared home* on the candidate, the fix is to delete the declaration, not to
+move it.
+
+**Receipt — T2** (Mickey `func_80041530`, 2026-09-11, matched). Roughly 190
+declaration cells had been swept against a full frame-slot readout, reaching
+80/92/96/100/104 and never the target's 72. The census showed the candidate's
+76 was already a temp and its 96 the declared home of a local the target does
+not have: uopt hoists two loop-invariant length expressions and spills them to
+the temp slots at 72 and 76. Dropping both scalars put the homes on the
+target's ladder immediately.
+
+**Falsifies.** "Every declaration order was measured, so the frame is
+unreachable." Every order of *the names the candidate has* was measured. The
+target may have fewer.
+
+**Provenance:** Mickey's Speedway USA decomp, `func_80041530`, 2026-09-11.
 
