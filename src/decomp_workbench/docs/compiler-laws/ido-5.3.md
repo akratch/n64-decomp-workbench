@@ -4805,28 +4805,47 @@ they read.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
 
-### L133. The float colour table excludes f0–f6, so a float carrier aimed at them is refuted as a class
+### L133. The float colour table excludes f4–f10, so a float carrier aimed at them is refuted as a class
 
 [L130](#l130-a-source-level-local-is-a-symbol-so-a-register-outside-the-procedures-colour-table-is-unreachable-by-any-declaration) says a declared local is a symbol, coloured from the
 procedure's own table or given a stack home, so a register outside that table is
-unreachable by any declaration. **The same holds for the float bank, and its
-table starts higher than the register file does.**
+unreachable by any declaration. **The same holds for the float bank, and the
+registers it omits are in the middle of the file, not at the bottom.**
 
-Decoded by force-and-read on one procedure: c24 `f8`, c25 `f10`, c26 `f12`,
-c27 `f14`, c28 `f16`, c29 `f18`, then `f20`–`f30` callee-saved. **`f0`, `f2`,
-`f4` and `f6` are not in it at all.** They are not forbidden to a web — they are
-never offered, exactly as [L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all) describes for `v0`.
+Decoded by force-and-read: c24 `f0`, c25 `f2`, c26 `f12`, c27 `f14`, c28 `f16`,
+c29 `f18`, c30 `f20`, c31 `f22`. **`f4`, `f6`, `f8` and `f10` are not in it at
+all** — they appear throughout a residual only as ring temporaries. So a
+float-carrier lattice aimed at those four is refuted before it is built.
 
-**So a float-carrier lattice aimed at `f0`–`f6` is refuted before it is built.**
-Decode the table from your own procedure's records rather than assuming this
-one; the integer boundary is per procedure ([L114](#l114-globalcolors-colours-are-the-callee-saved-and-pool-registers-only-and-roughly-a-sixth-of-a-naming-residual-is-colour-at-all)) and there is no
-reason to think the float boundary is not.
+**This law shipped wrong for part of one day and the correction is the useful
+part.** It first read "`f0`, `f2`, `f4`, `f6` are not in it", decoded from a
+long-lived carrier whose own forbidden mask hid the two lowest entries. A
+3-reference, 1-component web — one with nothing forbidden — shows c24 and c25
+plainly. **Decode the table from a web with an empty forbidden mask**, or the
+mask is read as the table's boundary. Two shards disagreed on this for a day and
+the one nobody had acted on was right.
+
+**With the corrected table a second observation resolves, and it is
+[L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all) holding in the float bank.** A web was denied c24 for no
+apparent reason; c24 is `f0`, the float *return* register, and that web's range
+reaches the call's result. Removing the call removes the forbid — exactly the
+`v0` rule one bank over.
+
+**The reframing this unlocks is worth more than the table.** c26 and c27 are
+`f12` and `f14`, *both argument registers*. So a pre-call reference combined
+with a call taking **two** float arguments puts a carrier's forbidden mask at
+c24, c25, c26, c27 and lands it on c28 `f16` — with no competing web's save
+ratio playing any part. On a function whose target call already takes two
+floats, a two-condition colouring problem collapses to one pre-call reference.
 
 **Receipt — T1, force-and-read** (Mickey, overlay-27 builder, 2026-09-11). The
 instrumented `uopt` reproduces the tree's object exactly with logging enabled.
 `CDX_FORCE=p1:w35=c28` takes the function to **9 masked words at size delta 0**
-— byte-exact 320 → 359, naming 46 → 7 — and the force set that reaches it names
-only colours inside the table above. Forces aimed at `f0`–`f6` never applied.
+— byte-exact 320 → 359, naming 46 → 7 — and the float register histogram then
+matches the target in all ten registers. Three controls separate the mask from
+the table: an integer-argument call leaves the mask at c24,c25; the same
+reference in a call-free block leaves the mask alone while still moving
+`totalsave`; a second float argument adds c27.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
 
