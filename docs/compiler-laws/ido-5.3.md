@@ -3955,7 +3955,26 @@ all measuring an axis the function does not have.
 
 **Four functions measured, four with zero p2 records** (2026-09-10): 428, 473,
 1,218 and 1,655 p1 decisions, no p2 on any of them. One translation unit emits
-p2 records only in its *small* procedures. On this evidence p2 is the exception
+p2 records only in its *small* procedures.
+
+**And then the rule behind it, which needs no census at all (2026-09-11).**
+Across the 61 procedures of three translation units, **every procedure that
+issues a call emits p1 records only, and every leaf emits p2 only** — 59
+classified, zero counterexamples. Seven further procedures measured earlier
+agree. So the cheap test is not "run the census", it is **"does this function
+call anything?"**:
+
+| the function | records | the axis |
+|---|---|---|
+| contains a call | p1 only | the `save` ratio ([L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)) |
+| is a leaf | p2 only | ascending web number ([L106](#l106-web-numbers-follow-first-definition-order-in-the-body-so-moving-a-definition-is-a-colour-lever)) |
+
+**L106 is therefore dead for any queued function containing a call**, which is
+most of them, and live for leaves, which are typically the small ones. That
+explains the shape of the earlier evidence — the TU emitting p2 "only in its
+small procedures" was emitting it in its leaves. Run the census to confirm on a
+function you are about to spend a lane on; use the call test to decide whether
+it is worth confirming. On this evidence p2 is the exception
 in large bodies, not the rule, so
 [L106](#l106-web-numbers-follow-first-definition-order-in-the-body-so-moving-a-definition-is-a-colour-lever) is the axis that usually does **not** exist and
 [L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)'s ratio is the one that usually does.
@@ -4144,3 +4163,38 @@ The two are the same preheader, reached from opposite directions.
 
 **Provenance:** Mickey's Speedway USA decomp,
 `func_overlay_058_F000138C_18B0574`, 2026-09-10.
+
+### L114. globalcolor's colours are the callee-saved and pool registers only, and roughly a sixth of a naming residual is colour at all
+
+globalcolor never assigns `t3`–`t9` or `f4`–`f10`: those are ugen's scratch
+ring, handed out by expression evaluation order rather than coloured. The
+class-2 float pool is six wide, decoded by force-and-diff: **c24 = `$f0`,
+c25 = `$f2`, c26 = `$f12`, c27 = `$f14`, c28 = `$f16`, c29 = `$f18`**, with
+c30 and above callee-saved.
+
+**Therefore a naming row that names a ring register is not a colouring
+problem**, and no `save` edit, force or web split reaches it. Split a naming
+residual by register bank before choosing a toolkit: a row naming a pool or
+callee-saved register is
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width)/[L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all)
+territory, a row naming a ring register is *ring phase*, which is
+[L44](#l44-a-constructs-delta-class-depends-on-the-carrier-not-only-the-site)/[L76](#l76-a-struct-field-read-through-a-local-costs-one-ring-pop-a-direct-read-does-not)/[L77](#l77-an-index-scaled-twice-costs-one-more-ring-pop-than-an-index-scaled-once).
+
+**How much is colour, measured.** A greedy force sweep over every web × every
+colour its own `p1cost` record declares available — with each force confirmed
+*accepted* in the records rather than assumed — bounds it. On three large
+functions it reached 156 of 1,031 wrong words, 136 of 822, and 50 of 310:
+**15%, 17% and 16%**. On four others it was worth 48, 48, 24 and 4 naming rows.
+Budget about a sixth of a naming residual to the allocator and look elsewhere
+for the rest.
+
+**Receipt — T1** (Mickey, 2026-09-11, three translation units), instrumented
+uopt with `.text` confirmed byte-identical to stock before any reading. The
+lane that produced it first claimed the ownership census *bounded*
+reachability at 67 and 123 rows, then forced 156 and 127 and retracted the
+claim in its own commit: the ring's phase is downstream of pool-colour
+consumption, so one class-2 force rotates the whole `f4/f6/f8/f10` ring in a
+single compile. A census bounds what globalcolor *assigns*, not what an
+assignment *moves*.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
