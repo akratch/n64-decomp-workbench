@@ -5297,3 +5297,52 @@ sweep established 21 masked words as the floor and moved a spill home from
 `sp+0x54` to `sp+0x38`.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L144. Taking a parameter's address forces the reload without `volatile`'s scheduling edges — they are two levers, not one
+
+`volatile` does two separable things: it makes every read a load from the
+value's home, **and** it emits scheduling edges that pin those loads in order.
+Taking the value's address — reading it as `*(s32 *)&param` — does **only the
+first**. The parameter becomes memory class, so every read is a load from its
+home, and **no edge is emitted.**
+
+**That difference is the whole lever.** With no edges, a call-result copy ties
+with the reloads at `aftercycles` 0, and as1 breaks the tie on emission index —
+so the block collapses to **ugen's emission order**. Where the target's order
+*is* ugen's, `volatile` overshoots (its edges impose an order the target does
+not have) and the address form lands exactly.
+
+**So a swept-and-failed `volatile` axis does not retire the reload.** One
+function had **eight `volatile` qualifications measured flat** and a retained
+plateau that named the decision variable correctly — "make IDO reload the four
+integer controls from their homes at every call *without* volatile scheduling
+edges" — while naming no lever that achieves it. The storage-class axis had
+simply never been tried.
+
+**The informative negatives, which bound it.** Tested on three sibling
+functions in the same overlay, it failed on each for a different and legible
+reason:
+
+- one needed the reload *and* a store; the address form supplies the reload only
+  (106 instructions against the target's 107), and adding the store back
+  restores 107 — **the store was the load-bearing half**;
+- on another the address form costs an instruction outright, so `volatile` is
+  genuinely the right tool there;
+- on a third it scores 56–74 against an incumbent 18.
+
+So the question to ask is **which of `volatile`'s two effects the target's shape
+actually needs.** If the target's order is ugen's own, take the address; if the
+target carries an order ugen does not produce, the edges are the point and
+`volatile` stays.
+
+**Receipt — T1, byte-identity** (Mickey, `overlay1MeasureCurves`,
+2026-09-12). This is the one receipt stronger than an instrumented
+reading: the compiler's own output settles it, with no instrument in the
+path to lie. The
+function **matched**: 27 masked words to 0, size delta 0, frame 0x70 exact,
+5 of 5 relocations, `gmake verify` printing the expected ROM SHA1, and
+`promotion-proof` PASS with `identity=static-plus-runtime-table-and-linked-rom`.
+Corroborated in the negative direction by the three siblings above, each
+failing for a separately measured reason rather than failing flat.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.

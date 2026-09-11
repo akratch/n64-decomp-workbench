@@ -730,6 +730,35 @@ bitset read as an idle pass) and
 (a decoder dropping what it cannot parse and so reporting *higher* confidence).
 Each time, the instrument's silence was read as the compiler's answer.
 
+## Trap 21: a hand-written compile line is not the configured build, and the identity gate cannot see the difference
+
+**The trap:** the identity gate asks whether the *instrumented* compiler's
+output is byte-identical to the *stock* compiler's. It is usually run by
+compiling the TU both ways with a command written out by hand. If that command
+omits a **per-file flag** the real build applies, both sides are wrong in the
+same way — they agree with each other and disagree with the tree. The gate
+passes and every number taken afterwards is against a translation unit the
+project does not build.
+
+**The incident.** A TU carried a per-file `-Wab,-r4300_mul`. A hand-written
+instrumented compile line without it scored the function at **33** where the
+configured build scores **31**. Nothing errored; the two-word gap is small
+enough to read as ordinary measurement noise, and a lane chasing it would have
+been chasing a flag.
+
+**The rule:** *derive the compile command from the build, never retype it.*
+Take `nm_ranking.configured_compile_commands` (or the project's equivalent) and
+**replace only the compiler binary**, leaving every flag as the build supplies
+it. Then `cmp` the resulting objects rather than trusting the gate's verdict
+alone.
+
+**Why this belongs beside the other instrument traps on this page.** As with
+[Trap 19](#trap-19-a-decoder-that-silently-drops-what-it-cannot-parse-reports-high-confidence)
+and [Trap 20](#trap-20-a-force-that-was-silently-dropped-is-indistinguishable-from-one-that-was-declined),
+the failure produces a plausible number instead of an error, and the check meant
+to catch it is the very thing the mistake defeats. A gate that compares two
+copies of the same error reports agreement.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
