@@ -4880,6 +4880,18 @@ respelling has to produce an *integer* intermediate: five integer round-trip
 spellings reached zero and a `(void *)` spelling did not, while a pointer
 spelling at all five sites commoned back into one web and stayed 24 words out.
 
+**Second independent measurement, 2026-09-12.** A different lane, different TU,
+fitted a frame rule over seven measured declaration counts (6, 7, 8, 9, 10, 12,
+16) as `frame = round8(52 + 4N)` and found it **charges for an unused `s32`**,
+which L99 says it should not. Two further controls came with it: sibling scopes
+do not share a home (a three-block rewrite is byte-identical), and parameters
+cost nothing, which confirms the arithmetic from the other side. It is not a
+whole-TU artefact — synthetic functions compiled in the same TU at the same
+flags charge nothing — but `func_8005AAC0`, a **matched** function in that TU,
+does charge, so the homing is real in the shipped build. That strengthens this
+law's side of the conflict without closing it, because neither measurement
+establishes the colour status of the locals it counted.
+
 **Missing evidence.** Nobody has compiled a function with a local that is
 provably coloured and read its frame layout on *both* accounts at once. The
 decisive experiment is one function, one local, two builds: confirm from the
@@ -5034,3 +5046,90 @@ a loop body.
 counter-example rather than claimed as one.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L139. globalcolor splits or colours on `totalsave` against `bestcost` — not on `save`
+
+A web is **coloured when `totalsave` is strictly greater than `bestcost`, and
+split otherwise.** The comparison is against the *total*, not against the
+per-reference ratio `save = totalsave/nocs` that
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width) uses to rank webs. Those are two different quantities doing two
+different jobs, and conflating them predicts the wrong outcome for any web whose
+`nocs` is above one.
+
+**The discriminating pair, which is why this is not a restatement.** One web
+colours at `save` 1.0 against `bestcost` 2.0 — a ratio *below* the cost — because
+its `totalsave` is 3.0. A sibling with `save` 0.5, `nocs` 2 and the same
+`bestcost` splits, because its `totalsave` is 1.0. Ranked by `save` the first
+looks like the weaker candidate of the two relative to its cost; by `totalsave`
+the order is plain.
+
+**So the two levers are separate.** Raising `nocs` at fixed `totalsave` lowers a
+web's *rank* among competitors without moving it toward being split; raising
+`totalsave` moves both. A lane trying to force a split, or to prevent one, has
+to move `totalsave` past `bestcost` and cannot do it by adding references alone.
+
+**Receipt — T1, a whole-TU decision census** (Mickey, `models_5B300.c`,
+2026-09-12). **63 allocator decisions — 48 colours, 15 splits, zero
+counterexamples** — read from the instrumented `uopt`, whose `.text` was
+confirmed byte-identical to the tree's object for this TU. The lane separately
+reproduced the call test on the same procedure: globalcolor ordinal 3, 14
+decisions, all p1, no p2.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L140. An exhaustive force sweep is an existence proof, and its two failure shapes mean opposite things
+
+Forcing every web onto every colour, plus every split, is usually run hoping one
+cell wins. **Its more reliable use is the shape of the result when none does**,
+because two different causes produce two distinguishable outcomes:
+
+- **The sweep never reaches the incumbent's score**, or beats it nowhere — the
+  colour you want belongs to a web that **does not exist** in your candidate.
+  No assignment of the webs you have can produce it, so the lever is a source
+  form that *creates* a web, not one that re-colours an existing one.
+- **The sweep bottoms out at a floor above zero and stays there** — every web is
+  placeable and the residual is **below globalcolor entirely**, i.e. a ugen
+  scratch-ring phase. Colour levers are exhausted by construction; the ring is
+  the remaining axis.
+
+**Both verdicts are actionable, and neither is "flat".** That matters because a
+sweep reported as "N cells, no improvement" throws away which of the two it saw,
+and those route to opposite work. Record the floor and whether it was reached.
+
+**A third reading, from the same instrument.** Where a web's cost row prices the
+wanted register at **infinity with an empty forbidden mask**, that is the table
+and not the mask ([L133](#l133-the-float-colour-table-excludes-f4f10-so-a-float-carrier-aimed-at-them-is-refuted-as-a-class)), so no ratio, spelling or carrier reaches it
+and every form keeping the value as a globalcolor web is refuted together.
+
+**Receipt — T1, two sweeps with opposite shapes** (Mickey, `objects.c` and
+`saves.c`, 2026-09-12). On one function a 522-compile sweep never beats 25 —
+the missing-web shape, later corroborated by a ring trace showing a genuine
+phantom pop. On another the full p2 sweep, every web × every colour plus split
+and a greedy second round, bottoms out at 8 and never improves — the
+ring-phase shape. Same instrument, same TU batch, opposite verdicts.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L141. globalcolor's phase two assigns in ascending web number, lowest free colour — the saves play no part
+
+The call test says a leaf emits **p2 records only**. This is what p2 then does:
+it walks the webs in **ascending web number** and gives each the **lowest free
+colour**. A web's `save` does not order anything.
+
+**So on a leaf, every lever that moves a save is inert**, and the only thing that
+changes an assignment is which web number a value lands on — that is, whether a
+value becomes a web at all, and where it sits in the numbering. This is why
+statement position is a real lever on a leaf and a ratio edit is not.
+
+**Receipt — T1, eleven webs read against their saves** (Mickey, `func_8002C69C`,
+2026-09-12). Colours were assigned to web numbers 0, 4, 9, 11, 17, 22, 25, 27,
+39, 46 and 61, whose saves ran 1.0, 10.3, 30.0, 30.0, 3.3, 10.0, 10.0, 30.0,
+20.0, 30.0 and 5.0 — monotone in web number, unordered in save. The retained
+handoff had said "the lever must reorder the webs' `save`", which is why 1,080
+previously-measured body-shape cells had moved nothing. Two edits followed
+directly from the corrected model and took the function 11 masked words to 8 at
+size delta 0: moving one statement group last (8 of the 72 legal orderings score
+9, and all 8 put it last), and deleting a carrier so it stops being a p2 web at
+all.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
