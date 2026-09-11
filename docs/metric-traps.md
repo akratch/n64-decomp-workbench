@@ -577,6 +577,33 @@ start adjusting the source.
 Three TUs in this project carry such overrides, and a lane hit exactly this on
 all three in one session.
 
+## Trap 17: an empty debug bitset is not an idle compiler pass
+
+**The trap:** a debug listing prints a structure with a suggestive name and it
+comes out empty, so the pass that owns it is read as having done nothing. The
+conclusion then propagates: "globalcolor colours nothing here, so the save ratio
+is not the lever", and the next lane skips the axis entirely.
+
+**The incident.** `uopt -Wo,-zdbug:2` reports its `colorcand` bitset empty on a
+function, and a handoff recorded that as globalcolor being idle. A sibling
+function was then measured on the instrumented compiler, whose per-decision
+records show globalcolor **colouring six webs** while `colorcand` still reads
+empty. The bitset is simply a different thing from the colouring decisions.
+
+**The rule:** *absence in a debug structure is evidence about that structure,
+not about the pass.* A pass is idle when its decision records are empty, and
+those are what to read. If the only instrument you have prints a bitset, the
+honest conclusion is "untested", not "excluded" — and the difference matters,
+because "excluded" closes an axis for every lane that inherits the note.
+
+**How this one spread, which is the part worth copying.** The wrong inference
+was written into a handoff, relayed into a dispatch brief as established fact,
+and caught only because the receiving lane measured it instead of believing it.
+That is the second claim in one session to travel that route. A specific
+measurement quoted from another lane's report should be re-run before it goes
+into a brief; with the census and alignment tools that is one command, and it
+is cheaper than the sweep a wrong premise costs.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
