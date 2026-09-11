@@ -4752,3 +4752,55 @@ explains why they all converged on one score.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
 
+### L131. A live range is formed per IR name, and a repeated expression is one name — so deleting the local does not split the range
+
+[L115](#l115-a-live-range-is-formed-per-symbol-and-interference-is-a-block-set-intersection--so-an-existing-carrier-imports-its-interference-free) says uopt forms a live range **per symbol**. The `lineage_range`
+/ `lineage_member` records show the rule is broader than the word "symbol"
+suggests: the range is formed per **IR name**, and a common subexpression is a
+name. So the *same address expression* written at three different sites is
+**one** range with members in three blocks, and its hull spans everything
+between them — including calls that no single occurrence is anywhere near.
+
+**That refutes the obvious way to split such a range.** Deleting the pointer
+local that holds the expression, or introducing a fresh one per site, changes
+nothing while every site still *spells* the expression the same way: the name
+survives the local. To split the range the spellings have to differ, not the
+declarations.
+
+It also corrects how such a range's uses are read. Counting only the uses
+lexically near one occurrence understates the web: every occurrence's uses
+belong to it.
+
+**Receipt — T1, from the lineage records** (Mickey, overlay-101 builders,
+2026-09-11). Three sibling rows each spelled a pre-call base as the same
+subscripted address expression. The records show one range, members in three
+distinct blocks, hull covering two calls, and all six stores across the three
+rows as its uses — not the two that sit beside any one occurrence. Removing
+the pointer local left the range intact and the score unmoved; changing the
+*spelling* at the store sites moved it 8 words.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L132. A macro expansion is exactly one folded source line, so folding inside a macro is byte-inert
+
+Emission order is keyed on source line
+([L109](#l109-a-discarded-expression-probes-weight-is-its-loop-depth-so-save-is-tunable-from-source-at-zero-instruction-cost)). Every statement a macro expands to carries the line number
+of the **invocation**, so an N-statement macro is one `lineno` key, indivisible
+— identical in every respect to writing those N statements folded onto one
+line by hand.
+
+**Two consequences, both of which retire a lever.** Rearranging or folding
+statements *inside* a macro body cannot change emission: the key is the same
+either way. And "write the macro out longhand" is not one lever but a choice of
+line partition — it is worth exactly what splitting those statements across
+lines is worth, and nothing more.
+
+**Receipt — T2, a partition sweep** (Mickey, overlay-101 image-node groups,
+2026-09-11). One statement per line reads 152; the group folded back onto one
+line reads 136 and is **byte-identical to the macro invocation**; all 128
+line-partitions of the group read 136 or worse. The target's own order in that
+region is unreachable under the `lineno` key at any partition, because it would
+require the old-link loads to be written after the stores that overwrite what
+they read.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.

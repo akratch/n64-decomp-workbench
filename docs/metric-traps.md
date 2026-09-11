@@ -604,25 +604,6 @@ measurement quoted from another lane's report should be re-run before it goes
 into a brief; with the census and alignment tools that is one command, and it
 is cheaper than the sweep a wrong premise costs.
 
-## See also
-
-- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
-  behind every trap above.
-- [The p1 decision arithmetic](p1-decision-arithmetic.md) — the formula
-  several of these traps were made while reasoning about.
-- [Postmortem: GE007 `object_interaction`](history/postmortem-2026-08-09-ge007.md) —
-  the full campaign the first six traps are drawn from.
-- [Hotwash: the cef4c exact-match endgame](history/postmortem-2026-08-24-cef4c-exact.md) —
-  where Trap 8 was paid for, and where the heal-signature fitness function
-  that answers its corollary was invented.
-- [From verdict to edit](from-verdict-to-edit.md) — `align`, the full
-  shift-tolerant edit script Trap 8's summary is drawn from.
-- [Shiftability](shiftability.md) — the commands Trap 7 routes to, and the
-  worked example of a matched ROM carrying an address bug.
-- [L18, positional words are the honest metric](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric) and
-  [L19, partial closure is not monotone](compiler-laws/ido-5.3.md#l19-partial-closure-is-not-monotone) —
-  the two measurement laws this page's traps extend.
-
 ## Trap 11: a forced-colour receipt is numbered against the variant it ran on
 
 **The trap:** a `CDX_FORCE` result is cited as "forcing web N reaches score S",
@@ -650,3 +631,52 @@ re-derive the web number before spending a lane on it. A force is a causal
 probe -- it identifies a decision worth explaining -- and its *number* is an
 artifact of one compilation, not a property of the function.
 
+## Trap 18: a consistency mask is not an offer set
+
+**The trap:** an allocator dump prints a per-web bitmask with a name like
+`available`, most of it clear, and it is read as "these colours are forbidden to
+this web". The axis is then closed: "the interference set is the lever, not the
+cost". In fact the mask is written *after* the decision, recording which colours
+remain consistent with the choice already made — the colours it clears were
+mostly never refused, they were **outbid**.
+
+**The incident.** A handoff recorded `available0=0x00020000` on a web as every
+caller-saved colour being unavailable, and concluded that the save ratio was not
+the lever. The same build's own cost list, dumped alongside it, **offers c4–c13
+at 4.0 each**. Only four colours were genuinely withheld. The web took an
+already-saved callee-saved register at 0.0 because that was cheaper, not because
+the others were barred — and the save ratio turned out to be exactly the lever:
+the competing range's 4.5 outranks the 3.0 beside it, so it colours first and
+takes the register the target gives the other.
+
+**The rule:** *read the cost list, not the mask.* A mask says what the allocator
+believes after choosing; the offers say what it was choosing between. Only the
+second one supports a claim about why a colour was not taken — and only the
+second one tells you whether raising a competing range's rank would change the
+outcome.
+
+**This is [Trap 17](#trap-17-an-empty-debug-bitset-is-not-an-idle-compiler-pass)
+again, on the same function, in the same handoff.** Both halves of that closure
+read a printed data structure as a statement about a decision. The two failures
+share one shape, and it is worth stating on its own: a debug dump's *contents*
+are evidence about the dump. What a pass decided is in its decision records, and
+nowhere else.
+
+## See also
+
+- [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries
+  behind every trap above.
+- [The p1 decision arithmetic](p1-decision-arithmetic.md) — the formula
+  several of these traps were made while reasoning about.
+- [Postmortem: GE007 `object_interaction`](history/postmortem-2026-08-09-ge007.md) —
+  the full campaign the first six traps are drawn from.
+- [Hotwash: the cef4c exact-match endgame](history/postmortem-2026-08-24-cef4c-exact.md) —
+  where Trap 8 was paid for, and where the heal-signature fitness function
+  that answers its corollary was invented.
+- [From verdict to edit](from-verdict-to-edit.md) — `align`, the full
+  shift-tolerant edit script Trap 8's summary is drawn from.
+- [Shiftability](shiftability.md) — the commands Trap 7 routes to, and the
+  worked example of a matched ROM carrying an address bug.
+- [L18, positional words are the honest metric](compiler-laws/ido-5.3.md#l18-positional-words-are-the-honest-metric) and
+  [L19, partial closure is not monotone](compiler-laws/ido-5.3.md#l19-partial-closure-is-not-monotone) —
+  the two measurement laws this page's traps extend.
