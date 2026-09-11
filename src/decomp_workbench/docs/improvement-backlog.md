@@ -819,3 +819,639 @@ the wrong sites; the table is an input, and a run without one says so.
   residual name; an incomplete honest plan is the existing contract.
 - **Blocked on nothing.** The inputs are the ones `diagnose --ladder
   --force-result` already takes.
+
+### 17. Stopping evidence: read the attempt *series*, not one comparison
+
+- **Symptom.** Every workbench verdict describes a single comparison. Nothing
+  reads a *series*, so "should the next attempt happen at all?" is left to the
+  host project, and every host reaches for the same proxy: a fixed attempt
+  count. On Mickey's Speedway USA (2026-09-08) that proxy failed in both
+  directions inside one wave. `func_8000590C`, a 719-word structural
+  reconstruction, improved monotonically across its series -- 692, then 619,
+  then 538 differing words, with extent and frame proved correct along the way
+  -- and was stopped at the count while still gaining; the plateau it filed
+  names an untested lever. In the same wave
+  `func_overlay_092_F0000068_18D5F88` had a committed handoff already recording
+  the flag lattice exhausted, donor scans negative, and the adjacent
+  explicit-dereference mechanism flat in three isolated forms; the correct
+  number of further attempts was zero, and a count would have granted nine
+  attempts of headroom whose only possible result was re-deriving a known-flat
+  answer. One proxy, two opposite failures, same day.
+- **Proposed change.** A `stall` reading, shaped like `next_steps`: data in,
+  verdict out. Given a series of already-measured attempts -- best residual per
+  attempt, and what each attempt *eliminated* -- return `improving`,
+  `stalled(n)` after n consecutive attempts that moved neither the residual nor
+  the hypothesis set, or `closed-by-evidence` when the target's own recorded
+  history already rules out the mechanisms still available. The host supplies
+  the series; the workbench supplies the reading.
+- **Payoff.** Replaces an arbitrary constant with measured stopping evidence,
+  in both directions: it keeps a working search alive and it ends a search that
+  has stopped learning. It also gives a plateau record something better than a
+  count -- the last attempt that moved anything, and what the following ones
+  failed to move.
+- **What it must not do.** Own or schedule attempts; only the project runs
+  those, and a workbench that guessed the loop would be guessing the chain the
+  staleness work deliberately refused to guess (item 1). Nor may it read a bare
+  score improvement as progress: a nonexact candidate that merely scores better
+  is not evidence, and `oracle`'s existing rule -- a forced or nonexact result
+  is never adopted because its number improved -- has to hold here too, or the
+  reading would license exactly the grinding it exists to stop. A stall is also
+  not a reachability claim: "this search stopped learning" and "no source
+  reaches this" are different statements, and the second needs the permuter or
+  a force proof (items 8 and 16).
+- **Blocked on nothing.** The inputs are counts the host already records to
+  file a plateau.
+
+### 18. A forced result and a stock result score identically
+
+- **Symptom.** Every comparison reports the same shape of score whether the
+  object came from the stock compiler or from a run with allocator forcing on.
+  `oracle` states the rule -- "web IDs and forced objects are never source-match
+  evidence" -- but states it as prose inside a `proof` string, so a consumer
+  reading `exact` and a differing-word count has nothing structural telling it
+  which kind of run produced them. During a Mickey's Speedway USA campaign on
+  2026-09-08 a supervising agent read `0/403`, `0/146`, `0/131` and `0/22` from
+  forced diagnostic runs and reported four exact matches to its operator. None
+  were matches; all four lanes went on to file plateaus. The scores were
+  correct and the reading was wrong, and nothing in the data could have
+  corrected it.
+- **Proposed change.** Classify the build environment and say what the result
+  supports, in the data-in/verdict-out shape `next_steps` and `read_series`
+  already use. Landed as `provenance.py`: `classify_environment` maps a build
+  environment to `stock`, `forced`, or `unknown`, and `read_result` turns an
+  exact-or-not result plus that provenance into `match`,
+  `reachability-proof`, `unverified`, or `no-claim`.
+- **Payoff.** The one failure mode that costs an operator trust -- a confident
+  false match -- becomes unrepresentable in the reading rather than a rule the
+  reader has to remember.
+- **What it must not do.** Guess. A caller that cannot say how the object was
+  built gets `unknown`, which is never promotable; defaulting to `stock` would
+  recreate the false positive. It also does not inspect objects or run
+  compilers: only the project knows how its build was invoked, the same
+  boundary the staleness work (item 1) and the stall reading (item 17) hold.
+- **Still open.** Nothing calls it yet. Wiring it into the comparison and score
+  outputs, so a forced run's own report carries the classification, is the
+  follow-up.
+
+## Stage regenerated plateau shards inside the merge transaction
+
+`merge_transaction.py`'s `GENERATED` set covers README, the overlay tables and
+the symbol files, but not the per-symbol plateau handoff shards. Those are
+derived from an in-source `PLATEAU-HANDOFF` marker and regenerated by
+`plateau_handoff_audit.py` during the integration gates, so the rewrite lands
+in the worktree *after* the merge commit. The next merge then refuses with
+"tracked changes present", and the operator commits the same one-character
+reconciliation by hand. Observed three times in one session on Mickey's
+`func_8000FAE0`.
+
+The content is independently verified — `plateau_handoff_audit --check` runs in
+`check-docs` and fails if a shard disagrees with its marker — so admitting the
+shard directory to the transaction's allowed set does not weaken review the way
+a blanket "generated" exemption would. Scope it to shards the merge actually
+touched, as the transaction already does for `src/` and `include/` paths.
+
+## Report a shift-tolerant count beside the positional differing-word score
+
+`wb_compare` and `nm_ranking` report a positional differing-word count: row *n*
+against row *n*. One inserted instruction renumbers every row after it, so the
+metric reads a pure alignment shift as hundreds of words. Measured twice in one
+day on Mickey: a shift moved the score by 173 while the exactly-identical row
+count did not move, and `flag_sweep` ranked `-O2 -g3` first on positional words
+(2507 vs 2511) when alignment-aware counts put it clearly last (1752 non-exact
+rows vs 1674; 338 structural vs 255). **A flag decision taken on the positional
+score alone would have been backwards.**
+
+Both agents had to write their own shift-tolerant scorer to get an honest
+answer. The tool should report, beside the positional count: exactly-identical
+rows under an insertion-tolerant alignment, structural rows (insertions plus
+deletions), and the running shift. The third also answers "does the residual
+re-converge", which is what separates a dense local defect from a real
+structural mismatch — three whale-sized functions were reclassified that way in
+one day, each turning out to be register naming at 93%+ mnemonic agreement.
+
+Ranking is affected too: `nm_ranking` orders the whole queue by this number.
+
+## Reconcile the two size taxonomies
+
+`nm_ranking` labels a row `size-mismatch` from `size_delta != 0`, while the
+workbench verdict for the same function can be `structure-mismatch`. A lane was
+briefed on the nm_ranking label, told to look for a localized 12-byte hole, and
+found instead 45 insertions against 48 deletions over 93 sites -- the -12 was a
+net, not a gap. Both labels were defensible and they routed to different work.
+Name them differently, or derive one from the other.
+
+## RESOLVED (2026-09-10): the union mask is implemented in both trees
+
+The "concrete fix" below -- mask a word if EITHER side carries a relocation --
+**is already in the code**, in both this package and the Mickey host, and has
+been for long enough that nobody noticed the entry was stale. Verified by
+reading each site and then by measurement:
+
+- `src/decomp_workbench/compare.py:relocation_aware_words` computes
+  `keep = (~(expected_mask | actual_mask)) & 0xFFFFFFFF`.
+- Mickey's `tools/nm_ranking.py` ORs `RELOC_VALUE_MASKS` over
+  `(base_reloc.get(offset), target_reloc.get(offset))` at each differing word.
+- Empirical, both directions: splat's unrelocated literal `lui $v0, 0x800C`
+  against the C build's relocated `lui $v0, %hi(sym)` masks **equal**, while a
+  genuine register difference (`lui $v0` vs `lui $v1`) still **differs**. So
+  the mask erases the artifact without erasing codegen evidence.
+
+**So why do lanes keep reporting this?** Because they hand-roll raw-word
+scorers in their fast direct-`cc` loops and never reach the project's
+comparator. On 2026-09-10 a lane reported "six false residuals on
+`overlay1ResolvePathPoint`" from exactly that. The defect is real, the cause
+was misattributed to the comparator, and the entry below sent the project's
+stated top priority at code that was already correct.
+
+**And the effect is small where it does occur.** Raw against union-masked on
+the six largest campaign targets: 73/73, 295/295, 1338/1337, 225/222,
+1841/1834, 3229/3215. Artifacts are 0, 0, 1, 3, 7 and 14 words -- at most
+**0.4%** of a residual. Any plan that budgets a phase for "partition out the
+relocation artifacts" is budgeting for a rounding error.
+
+**What is actually still open**, and it is a different item: lanes hand-roll
+scorers *because the correct one is impractical in a loop* -- see
+"`wb_compare.sh` is 25-60x slower than it needs to be" and
+"`--summary-json` refuses on several TUs" below. Ship a fast, correct,
+lane-facing scorer and the recurring misdiagnosis stops at the source. The
+broader idea below -- resolving addresses against the linked ELF rather than
+masking -- remains unimplemented, but the measurements above say its payoff is
+bounded by those same fractions of a percent, so it should not be carrying the
+"highest priority" label.
+
+Two implementation notes worth keeping from the original entry: the same
+`>> 16` syntax with a full 32-bit constant (`0x41F00000 >> 16`) is a float
+immediate and must NOT be masked or resolved; and `objdump -d -r` prints
+relocation offsets in *section* coordinates while a home-grown scorer indexes
+from the function's base, so not rebasing silently unmasks relocated words --
+it produced a false 4-word residual on a function that was exact, and inflated
+another from 15 to 18.
+
+## Original entry (superseded above, kept for its evidence)
+
+### Score against link-resolved addresses, not relocation-masked words
+
+The "relocation-masked differing words" metric masks words carrying an ELF
+relocation. splat emits an address as a `%hi`/`%lo` pair of a named symbol only
+when it has a symbol and the halves sit together; otherwise it writes the
+literal form, `lui $v0, (0x800C9464 >> 16)`, which carries **no relocation**.
+The comparator then sees a relocated word against a literal one and reports a
+difference that does not survive linking.
+
+Found twice in one day by different lanes, on different causes:
+
+- The two halves straddled a branch, so splat could not pair them. The phantom
+  two-word residual survived **three work packets** on that function before a
+  lane noticed the candidate object carried two relocations the fallback did
+  not.
+- splat minted no symbol for an overlay-local address. That was the *entire*
+  reported residual of one function and 4 of another's 10.
+
+This is not a niche case: it silently inflates residuals, it routes work at
+functions that are already correct, and it is invisible to every existing gate
+because both sides of `--check` read the same comparator.
+
+**The fix:** resolve every address materialization on both sides against the
+canonical linked ELF and compare resolved values. One lane wrote a
+`score.py` doing exactly this in its scratch and offered it for promotion.
+
+**The trap in implementing it:** the same `>> 16` syntax with a full 32-bit
+constant (`0x41F00000 >> 16`) is a float immediate and must NOT be masked or
+resolved. Discriminate by whether the value lands in a mapped address range.
+
+Ranking is affected too — `nm_ranking` orders the whole queue by this number.
+
+## Wire the postprocess audit's --check into the docs gate
+
+`tools/postprocess_audit.py --check` detects both a stale committed audit and
+the presence of review-required helpers, and exits 1 on either. `check-docs`
+runs only `--check-redefines`, so the audit drifted from 625 to 640 objects
+unnoticed until a lane happened to regenerate it.
+
+Blocked on triage, not on code: two objects classify `review-required`
+(`o009/overlay_009.c.o`, `libultra/block_6F3E0.c.o`) and one `altered`
+(`o059/overlay59Advance.c.o`). All three are NON_MATCHING candidates and the
+audit's own headline is "altered bytes: 0 of 123796 matched-C bytes", so
+nothing is currently at risk — but wiring the gate before those are resolved
+would fail every merge.
+
+Resolve the three, then add `--check` beside `--check-redefines`.
+
+#### The concrete fix for the address-scoring item above: mask the UNION (DONE)
+
+A lane solved this by measurement rather than design. The defect is that the
+comparator masks a word when *the candidate* carries a relocation there. splat
+sometimes emits an address as an unrelocated literal `%hi`/`%lo` split, so the
+target side has no relocation at that word and the mask does not apply.
+
+**Mask a word if EITHER side carries a relocation at that offset.** The lane
+built exactly that and its scorer then reproduced `wb_compare.sh --summary-json`
+on all four of its TUs (4 / 19 / 24 / 39) — where the one-sided mask miscounts
+one of them by 3. That is the whole change, and it is verifiable against the
+existing tool on any function.
+
+Also worth carrying over: `objdump -d -r` prints relocation offsets in *section*
+coordinates while a home-grown scorer indexes instructions from the function's
+base. Not rebasing them silently unmasks relocated words — it produced a false
+4-word residual on a function that was actually exact, and inflated another from
+15 to 18.
+
+## Warn when a permuter candidate changes semantics
+
+The permuter optimises a score, not correctness. On Mickey's overlay 47 two of
+its top-scoring candidates silently dropped a loop initialisation; on other
+functions lanes have kept improvements that did not survive re-derivation as a
+semantics-preserving edit.
+
+Byte-identity with the target is self-validating — such a candidate *is* the
+function however it was reached. The hazard is the retained NON_MATCHING body:
+a candidate that improves the score without matching becomes the committed
+source, and if it is not semantics-preserving the tree now carries C that does
+something different from the game.
+
+**Second occurrence, and the signature is consistent (2026-09-10).** On
+Mickey's `func_overlay_058_F0000000_18AF1E8` a hill climber returned three
+proposals and **two were semantically invalid**: one hoisted a loop-carried
+read (`entry = *orderCursor;`) out of its loop and above the cursor's own
+initialisation, the other hoisted a store out of the `if` that guarded it.
+Together they scored 11 words. Both were rejected, and that function
+consequently gained 1 word where its siblings gained 44 and 89 -- so the
+correctness cost was visible in the results and could easily have been read as
+the function being harder rather than the proposals being wrong.
+
+**Fourth and fifth occurrences (2026-09-10).** An unguarded statement-move
+search produced two more invalid candidates on overlay 101 -- a `cursor++`
+hoisted out of its loop, and a store sunk below its reader -- and a permuter
+run elsewhere proposed a `(-4) & 0xFF` mask. Both lanes rejected them by
+reading every move, and both said in their reports that anyone reusing the
+harness must gate the moves. Three separate lanes have now hit this in one
+day.
+
+Both occurrences involve **loop-carried state**, which makes the proposed check
+concrete rather than open-ended: a statement move that crosses a loop boundary,
+or that leaves a guarded block, is the whole hazard class seen so far. The lane
+only caught it because it read and argued every accepted move individually,
+which is not a control that scales.
+
+This is now recurring rather than anecdotal, and it is the one defect on this
+page that can put *wrong code* in the tree rather than merely waste time.
+
+Worth a check in the permuter wrapper: diff the candidate against the base for
+deleted statements and assignments to loop-carried variables, and warn loudly
+before a non-matching candidate is adopted.
+
+## Measurement cost: `wb_compare.sh` is 25–60× slower than it needs to be
+
+Every `wb_compare.sh` call re-invokes `gmake`, costing ~6 s. Scoring a
+pre-assembled target object against a directly-compiled candidate gives the
+*same numbers* at 0.1–0.3 s. Six independent lanes measured this and every one
+of them wrote its own scorer to get around it; throughput went from roughly one
+candidate per 6 s to **200–500 scored candidates per second**, which is the
+difference between a sampled lattice and an exhaustive one.
+
+That speed is what produced most of today's matches: a 3,992-point declaration
+census in 17 s, 720 declaration orders in 3.5 s, 46,080 order × grouping
+candidates, and a 344,946-evaluation local search. The tool should offer this
+path directly rather than making each lane rediscover it.
+
+Two conditions the lanes established for the fast path being sound:
+- The direct `tools/ido/cc` compile is `.text`-identical to the asm-processor
+  `NON_MATCHING` object **only at the TU's real flags**, recovered from
+  `gmake -n <object>`. At `-mips1`, or with `-DVERSION_US` instead of
+  `-DVERSION_us`, it silently emits a plausible but different `.text` — one
+  function came out 0x168 against the real object's 0x13c. The tool must
+  recover the flags itself and verify the identity before reporting a number.
+- Any home-grown scorer must rebase `objdump -d -r` relocation offsets from
+  *section* to *function* coordinates. Not doing so silently unmasks relocated
+  words: it produced a false 4-word residual on a function that was exact, and
+  inflated another from 15 to 18.
+
+## `wb_compare.sh --summary-json` refuses on several TUs, blocking measurement
+
+Recurring and now blocking on at least four functions:
+
+- "candidate relocation symbol `D_8007C1A0` / `D_8007C11C` has conflicting
+  runtime identity" (`reloc_surface.py`) — `_stable_symbol_identities` yields
+  the resident address while `_stable_overlay_data_identities` yields a
+  different one for the same name. The raw `decomp-workbench compare` path is
+  unaffected, so the canonical proof pipeline is unusable on those TUs while
+  the underlying comparison is fine.
+- "candidate function escapes TU ownership" — a *correct* change that
+  temporarily grows the function blocks all measurement.
+- `--diagnose` writes its refusal to **stdout with exit 2**, so a `grep`/`sed`
+  pipeline silently yields empty output instead of an error. Two lanes lost a
+  round trip to this. Refusals belong on stderr.
+
+**The trigger is now known (2026-09-10): a linked ELF being present.**
+`--summary-json` refuses `func_overlay_047_F0000B30_1891948` whenever
+`build/mickey.us.elf` exists, raising *either* "candidate relocation symbol
+`D_8007C0B8` has conflicting runtime identity" *or* "candidate function escapes
+TU ownership" depending on the candidate. Move the linked image aside, re-run
+the identical source, and it summarises fine. So the two bullets above are one
+defect with two faces, and both messages are false: they describe the
+candidate, while the actual input that decides the outcome is a build artifact
+the caller did not think was part of the measurement.
+
+That is worse than a refusal, because the message routes the reader at their
+own source. A lane lost time reading a correct candidate as broken. Until it is
+fixed, the workaround is to take the score **before** a full build; the real
+fix is for the identity resolution to either not consult the linked image or to
+say plainly that it did and that the image disagrees with the object.
+
+## Smaller friction, each measured by a lane
+
+- **`finalize_plateau.py` refuses to run with any unrelated file dirty**, so a
+  pass that updates several plateaus must commit between each one, and a change
+  spanning a header plus a source needs throwaway commits that are later
+  squashed. Scope the cleanliness check to the paths it writes.
+- **`lane_status.py --symbols` never returns a "matched/done" verdict** — it
+  reports `active` for symbols that have been matched and committed, so it
+  cannot be used to confirm completion.
+- **`reloc_surface.py` rewrites built objects in place.** A poisoned object
+  links once and then fails `R_MIPS_26 relocation truncated` on the *next*
+  rebuild, which means `gmake verify` can pass on it. Write to a new path.
+- **Overlay objects do not depend on `mk/overlays.mk`**, so editing a
+  POSTPROCESS rule triggers no rebuild and the stale object's link failure
+  looks as though the rule is wrong when it is already correct.
+- **`MIXED_TU_EXACT_C_RANGES` in `tools/overlay_atlas.py` is hand-maintained**
+  and gates `promotion_proof.py`; `overlay-atlas-write` reports "current" and
+  adds nothing. It must also stay sorted by offset within each overlay or the
+  splat stamp dies with a `ValueError` naming neither the entry nor the rule.
+- **`gmake overlay-donors-write` cannot run here**: the JFG reference checkout
+  is at `efd5abb1` while the pin expects `c82afff`. Lanes work around it by
+  refreshing the atlas digest by hand. Re-pin the reference farm.
+- **`cc -S` writes `<basename>.s` into the current directory, ignoring `-o`** —
+  any parallel harness must run in a private cwd. One lane dropped a file into
+  the repo root.
+- A scratch file named `dis.py` on `sys.path` shadows the stdlib `dis` module
+  and breaks `concurrent.futures` with an unrelated `IndexError`.
+- A parallel measurement harness must not share `cand_text.bin` / `target.o`
+  across workers; one lane hit a race and fixed it with per-object, per-pid
+  paths.
+
+## Masking hides relocation IDENTITY, and it has now misled twice
+
+The relocation-masked score compares instruction bits and erases the
+linker-controlled field. That is right for scoring codegen and wrong for two
+questions people ask of the same number, and both have now cost real work:
+
+- **`runlinkInit`** read as one raw word and zero masked while carrying **eight
+  unresolved relocation identities**. A weak pragma produces a weak *undefined*
+  symbol in IDO rather than an alias, so four anchor names had no address at
+  all and a promotion would have linked them to zero. `function_preflight.py`
+  reported them; the score could not. The `reloc-mismatch` class means
+  `masked == 0`, **not** that identities agree, and nothing in the tool says so.
+- **`overlay34CreateRecord`**: the target reads three globals as offsets 0, 4
+  and 8 of **one** relocated symbol — they were members of a single struct in
+  the original source. The score masks that away entirely; it is plainly
+  visible in the relocation table.
+
+Both are the same gap: a masked-equal word can carry a different symbol, a
+different addend, or no resolvable symbol at all. Two cheap changes would close
+it. Report a relocation-identity column beside the masked count, so a
+`reloc-mismatch` row says whether identities agree rather than only that the
+bits do. And have `score_symbol.py` refuse, or loudly warn, when a symbol's
+relocation identities do not correspond one-to-one — the preflight already
+computes exactly that.
+
+The second case is also a source-evidence lever nobody is harvesting: a
+relocation table that resolves several apparent globals to one symbol's offsets
+is direct evidence about the original's struct layout, and it is invisible to
+every score on this page.
+
+## The permuter's scratch is unfaithful for a reason worth fixing
+
+A lane isolated the cause and it is **not** the importer's reformatting:
+splicing the permuter's own reformatted function text back into the full TU
+scores identically to the real object. It is **TU isolation** — the importer's
+single-function unit (correct struct and extern declarations, 191 lines)
+compiles to different code than the real 8-function unit, 296 words against
+282. Base scores of 5–36× the measured residual have been recorded on six TUs,
+and a score-0 there would be a false ceiling.
+
+Where the scratch word count differs from the real object, the importer should
+carry the whole TU. Until then the wrapper should compare the two and refuse to
+report a score when they disagree.
+
+## Teach the donor-claim guard about split translation units
+
+`check_donor_claims.py` maps our TU to the donor's by basename, which is right
+for the common case and wrong for a TU this project has split. `src/main/menu.c`
+and `src/main/menu_3B1A0.c` are two halves of what JFG keeps as one `src/menu.c`,
+so a perfectly valid donor claim on the second half is refused with "donor has
+no counterpart file".
+
+It caught a real mistake of mine the first time it fired, so the fail-closed
+behaviour is right. But it should accept a declared split mapping — a small
+table of `ours -> theirs` overrides consulted before the basename rule — rather
+than forcing the claim to be restated under a weaker mechanism than the one
+that is actually true.
+
+## Merge policy: single-writer artifacts where two correct edits do not compose
+
+A recurring integration failure class, now seen three times on Mickey with
+three different file types. The lane merge driver keeps both sides of a
+conflicting hunk, which is right for prose and for a Makefile gaining two
+different per-file flags, and wrong whenever the file is a **list with
+uniqueness semantics**:
+
+- **JSON.** A keep-both hunk spliced two records together without a delimiter
+  and produced a file no reader could parse. Fixed by matching `.json` by
+  suffix and parse-checking before staging.
+- **A `POSTPROCESS` recipe.** Two lanes independently restored overlay 60's
+  missing resident-call renames; the merge kept both, giving 110
+  `--redefine-sym` entries for 59 unique symbols. `objcopy` refuses a duplicate
+  outright, so the object stopped building, `reloc_surface` then read a *stale*
+  object and silently dropped nine aliases, and the ROM stopped verifying --
+  four steps from the cause, with an error naming none of them. Fixed with a
+  per-recipe duplicate check that fails at resolution time.
+- **A plateau shard.** Regenerated after the merge commit rather than in it,
+  so the next merge refuses with "tracked changes present". Already queued
+  above.
+
+The general rule worth building into the tool: **classify each conflicting
+path as prose, list, or generated, and pick the policy from the class** rather
+than from a hardcoded filename set. A list takes one side whole and is then
+validated; a generated file is regenerated; only prose keeps both. Every one of
+these three was found by a downstream symptom rather than at the merge, which
+is the expensive way.
+
+## `reloc_surface.py` failure modes are indistinguishable from source defects
+
+Three separate lanes lost cycles to the same thing, so it is worth tooling
+rather than documenting again. It rewrites resident-call symbol names *inside
+the compiled overlay objects*, and only `gmake overlay-syms` applies it. So:
+
+- A fresh worktree does not link -- `R_MIPS_26 relocation truncated to fit`
+  against resident symbols, which reads exactly like a real relocation bug.
+- The renames are silently discarded by anything that rebuilds objects,
+  including `gmake extract` and any edit to `symbol_addrs.us.txt`.
+- Worst: a promotion's own `gmake verify` can pass in a worktree holding
+  renames the *commit* does not carry, so the tree stops linking for everyone
+  else. Overlay 60 shipped 8 of its 51 resident renames that way.
+
+Two cheap guards would have caught all of it: have the link failure suggest
+`gmake overlay-syms` by name when the undefined symbols are resident
+addresses, and have the promotion path check that every resident call the new
+object makes has a matching rename in `mk/overlays.mk` before the commit.
+
+## Whole-file authorization validation turns one bad row into a queue-wide outage
+
+`reopen_authorizations` validates the entire authorization document eagerly and
+raises on the first invalid row, so **every** symbol any lane queries fails with
+a reason naming a function that lane never asked about. It has now happened
+twice on Mickey with different defects: a ledger commit whose handoff shard
+named a different source path, and a source/ledger pair on divergent branches
+where neither commit was an ancestor of the other. Each time, every lane's
+queue screen went dark until a coordinator dropped the row.
+
+Failing closed is right — a half-validated authorization file is worse than
+none. But the blast radius is wrong. Validate lazily per symbol, or validate
+eagerly and report the bad rows while still answering for the good ones. A lane
+asking about `func_X` should not be told about `func_Y`.
+
+Both times the lane diagnosed it correctly and declined to edit the shared
+config, which is the right instinct and also why the outage persisted until a
+human-equivalent noticed. That argues for the tool surfacing it loudly rather
+than relying on the reader.
+
+## A falling similarity count after masking is `autojunk`, not the greedy-vs-LCS gap
+
+A Mickey reconstruction lane reported that `difflib.SequenceMatcher` "is a
+greedy longest-block heuristic, not an LCS, and collapses on
+relocation-masked instruction streams (398 → 302 identical rows when masking
+made the streams *more* similar)", and concluded that **any** scorer built on
+it under-reports. The observation is real and the direction is right. The
+named mechanism is wrong, and acting on it would have sent someone to replace
+a matcher that was not the problem.
+
+Measured, seeded, reproducible:
+
+- **Greedy-vs-LCS is real but inert at scale.** It is trivial to exhibit
+  (`abcabba` vs `cbabac`: matcher 3, true LCS 4). At realistic stream sizes it
+  effectively vanishes — 400-row streams with 40 edits, 60 trials per arm:
+  wide alphabet **0 of 60** trials under-reported, narrow alphabet 3 of 60,
+  worst single trial **1 row**, aggregate **0.01%** low. It cannot produce a
+  96-row drop, and reaching for it as the explanation is a dead end.
+- **`autojunk` is the mechanism, and it keys on exactly what masking does.**
+  It engages once `b` reaches 200 rows and then refuses to anchor a match on
+  any row occurring in more than 1% of `b`. Masking collapses distinct
+  operands onto a few shared keys, which is precisely how a row becomes
+  "popular". Same heavily-diverged 400-row pair, one arm masked: unmasked the
+  heuristic costs **1 row of 352**; masked it costs **21 of 356 (6%)**. So the
+  score falls *because* the streams got more similar — the reported paradox,
+  from the right knob.
+- **It only bites on heavily-diverged pairs.** On near-identical streams the
+  cost is zero, because `find_longest_match` extends blocks across junk and
+  recovers what the heuristic skipped. Two attempts to reproduce an output
+  difference on a real near-identical path produced byte-identical reports.
+  That regime split is why this hides: it is invisible exactly where people
+  test it and active exactly where they rank on it.
+
+**Audit result: the workbench is clean.** Every `SequenceMatcher` call in
+`compare.py`, `shift_align.py`, `streams.py`, `regions.py`, `composition.py`,
+`loc_boundaries.py` and `view.py` already passes `autojunk=False`, including
+the one scored value (`streams.py`'s `similarity`). The single site that did
+not was in the host project (Mickey's `candidate_context.py`), now fixed.
+
+**Proposed change.** Two cheap ones. First, a test that fails if any
+`SequenceMatcher` in the package is constructed without an explicit
+`autojunk=False` — the property is currently maintained by convention across
+seven files and one careless addition silently breaks a scored number.
+Second, a line in [Metric traps](metric-traps.md): a similarity score that
+*falls* when you make two streams more alike is a signature, and it points at
+the popularity heuristic, not at the matcher's optimality.
+
+The broader lesson: a lane's observation is usually worth more than its
+diagnosis. The 398 → 302 number was a genuine finding. Everything the lane
+concluded *about* it was wrong — and the conclusion is the part that would
+have been acted on. Treat a reported mechanism as a hypothesis with a
+measurement attached, and check the magnitude before rewriting anything: the
+gap between "this effect exists" and "this effect explains 96 rows" is where
+the wasted work lives.
+
+## An exhaustion record is not evidence that a function is closed
+
+`func_overlay_041_F0000854_1887B8C` carried a handoff recording C-body
+mutation as **closed**, and no reopen authorization existed for it. It was
+matched exactly, in a single lane, on the first attempt after being assigned
+directly.
+
+So the standing closure was wrong, and the mechanism that exists to stop lanes
+re-working closed ground would have stopped the lane that closed it. That is
+worth stating plainly because the mechanism is otherwise doing its job: the
+lane noticed the missing authorization, declined to edit the shared config, and
+flagged it instead of routing around it, which is exactly right.
+
+The failure is in what a closure means. These records say "the space I searched
+was flat", and they are read as "the space is flat". This one was written
+before the loop-shape web-numbering law existed; the winning edit was not in
+the space it searched, so its own evidence was never wrong -- only its scope
+was. A closure written against a lever set that has since grown is not
+evidence about the lever set that exists now.
+
+Two cheap changes would carry this:
+
+- **Stamp a closure with the law and lever set it was measured against.** A
+  closure predating a law that plausibly applies is a re-open candidate on its
+  face, and this can be computed rather than argued.
+- **When a new law lands, list the closures that predate it.** After the
+  loop-shape law was banked, exactly this function was a one-query candidate,
+  and it was reached by a human-equivalent hunch instead.
+
+Relates to entry 17 (read the attempt *series*, not one comparison): both are
+about a stopping decision being recorded without the context that makes it
+re-checkable.
+
+## Sibling transfer works, but the unit is the construct, not the overlay
+
+Two campaigns were run on the thesis that a mechanism found on one function
+transfers to its siblings in the same overlay. The thesis holds and has paid
+for itself, but it was briefed too loosely and the correction is worth stating
+before the next campaign repeats it.
+
+What actually transfers is a **construct**, and whether a sibling contains that
+construct is an empirical question, not a property of the overlay:
+
+- An argument-affinity edit on a point-quad pair ported **verbatim** to its
+  twin: 70 masked words to 26, identical score. That twin was a clone -- the
+  same candidate source over different data -- so transfer was guaranteed
+  rather than demonstrated.
+- The same edit applied to a genuine sibling in the same overlay **regressed
+  it**, 102 to 152. The mechanism was a property of the call site, not of the
+  overlay.
+- A discarded-expression probe transferred to four of seven members of that
+  cluster, at a different price each time: 44, 44, 89, 34 and 13 words. The
+  spread is itself the useful measure of how much of each residual is
+  colouring order.
+- Reading an `s16` field in place rather than copying it to an `s32` local
+  transferred across an overlay 57 pair in one mechanical edit, 92 to 0.
+
+So: batching by overlay is a good way to *find* candidates for transfer,
+because siblings share idioms. It is not a reason to assume a mechanism
+applies. Every port must be re-measured on the sibling, and a regression on
+one sibling says nothing about the next -- three of the four cases above are
+positive and the fourth is a clean regression.
+
+The brief should say "try this on each sibling and record the price" rather
+than "this should transfer".
+
+## A permuter scratch can be a different function, and the score will not say so
+
+`tools/permute.sh` on one resident function reported a base score of 60 against
+a real masked count of **2**. Its scratch object was 0x29c where the real
+per-TU object is 0x258 — **17 extra instructions**. It was not optimising a
+worse version of the function; it was optimising a different function.
+
+The lane ruled out both documented corrections before reporting: the compile
+flags were spliced correctly, and the POSTPROCESS `objcopy --redefine-sym`
+rename was replicated, with the unprototyped declarations identical on both
+sides. It then stopped the run rather than spend time improving the wrong
+object, which is the right call and also the only reason this was caught.
+
+The failure mode is the dangerous kind: a plausible score with no signal that
+the subject is wrong. A permuter run that begins by comparing its scratch
+object's size against the real per-TU object would catch it in one step, and a
+size mismatch should refuse rather than warn. Until then, a standing
+"permuter-target" routing on a function is not actionable without checking the
+scratch first.

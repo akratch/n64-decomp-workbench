@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import pathlib
 import unittest
 from pathlib import Path
 from typing import ClassVar
@@ -69,7 +70,37 @@ class PackagedGuideTests(unittest.TestCase):
             PACKAGED.read_text(encoding="utf-8"),
             CANONICAL.read_text(encoding="utf-8"),
             "the packaged field guide drifted; run:\n"
-            "  cp docs/field-guide.md src/decomp_workbench/docs/field-guide.md",
+            "  python3 tools/sync_packaged_docs.py",
+        )
+
+    def test_every_packaged_page_matches_its_canonical_copy(self) -> None:
+        """The guarantee above was written for one file while four ship.
+
+        The other three drifted the way unwatched invariants do:
+        `improvement-backlog.md` fell 636 lines behind -- everything from item
+        17 onward -- and nothing reported it, so an installed wheel would have
+        served a reader half a backlog. The two compiler-law pages stayed in
+        sync only because whoever edited them remembered to copy.
+
+        The set is derived from the packaged tree rather than listed here, so
+        adding a fifth page cannot forget to register it.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        packaged_root = root / "src" / "decomp_workbench" / "docs"
+        pages = sorted(packaged_root.rglob("*.md"))
+        self.assertGreaterEqual(len(pages), 4, "packaged doc set shrank unexpectedly")
+
+        drifted = []
+        for packaged in pages:
+            canonical = root / "docs" / packaged.relative_to(packaged_root)
+            if not canonical.is_file():
+                drifted.append(f"{packaged.name}: no canonical copy under docs/")
+            elif canonical.read_bytes() != packaged.read_bytes():
+                drifted.append(packaged.relative_to(root).as_posix())
+        self.assertEqual(
+            drifted, [],
+            "packaged pages drifted from their canonical copies; run:\n"
+            "  python3 tools/sync_packaged_docs.py",
         )
 
     def test_every_shipped_section_parses_with_its_number(self) -> None:
