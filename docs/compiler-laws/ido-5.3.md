@@ -4207,6 +4207,24 @@ procedure. The class-2 float pool is six wide, decoded by force-and-diff:
 **c24 = `$f0`, c25 = `$f2`, c26 = `$f12`, c27 = `$f14`, c28 = `$f16`,
 c29 = `$f18`**, with c30 and above callee-saved.
 
+**Sharpened the same day, from two more procedures.** Decoded from each one's
+own `p1cost` rows, **c7–c12 are `t0`–`t5`, priced identically to `a0`–`a3`**;
+only `t6`–`t9` and c13 sat outside. One of the two assigns three t-bank colours
+outright — two webs `t0`, one `t1`. So the table reaches most of the temporary
+bank, and the part outside it is small.
+
+**And a distinction the correction exposes: *reachable* is not *profitable*.**
+A force census over all 40 p1 webs of one procedure, forced to the three
+contested colours — **78 forces, every one accepted**, with a `forced=` record
+at the colour site and a changed object each time, none of them
+[L101](#l101-a-web-whose-span-reaches-a-call-result-is-not-offered-colour-v0-at-all)'s
+silent third kind — produced **zero improvements**, moving the whole function
+from 189 to between 394 and 545. The rotation does move: the best force took
+one region's naming rows from 81 to 37. It also added 53 structural words in
+that region and 44 elsewhere. So those rows are reachable and unprofitable,
+which is a different finding from unreachable, and only the census can tell
+them apart. Record which one you measured.
+
 > **Corrected 2026-09-11.** This law was first written as "globalcolor never
 > assigns `t3`–`t9` or `f4`–`f10`", and that is too strong: two webs on the
 > correcting function carry `p1color … color=10 reg=t3` outright. The
@@ -4493,3 +4511,28 @@ the function 433 → 299.
 
 **Provenance:** Mickey's Speedway USA decomp, `func_8001DD70`, 2026-09-11.
 
+### L124. as1 does not preserve store order — do not infer a scheduling law from one function
+
+A lane observed that as1 emitted a function's stores in source order, inferred
+that it preserves store order generally, and then watched as1 move a handle
+store past a chain-type store on the very next function in the same family.
+
+**It is not a law, and the shape of the mistake is the point.** as1 selects by
+the chain in
+[L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers), and
+source order only survives when `lineno` is the deciding key — which it is only
+when the earlier keys tie. Two functions with the same source shape can differ
+on `aftercycles` or latency and schedule the same stores differently.
+
+**So a scheduling observation generalises only as far as the deciding key.**
+Read which key decided it with `cc -Wa,-R`, which prints the selection, before
+turning an observation into a rule. That is the cheapest reachability test on
+this page ([L79](#l79-a-selection-decided-above-lineno-has-no-source-lever)).
+
+**Receipt — T2, build outcomes.** Mickey's Speedway USA, two overlay-101
+builders of the same family, 2026-09-11. The order held on the first and did
+not on the second, where as1 emitted the handle store after the chain-type
+store against the source. Nothing about the source shape distinguished them;
+the deciding key did.
+
+**Provenance:** Mickey's Speedway USA decomp, overlay 101 builders, 2026-09-11.
