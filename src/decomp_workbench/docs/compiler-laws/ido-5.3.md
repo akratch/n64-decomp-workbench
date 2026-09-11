@@ -4197,11 +4197,23 @@ The two are the same preheader, reached from opposite directions.
 
 ### L114. globalcolor's colours are the callee-saved and pool registers only, and roughly a sixth of a naming residual is colour at all
 
-globalcolor never assigns `t3`–`t9` or `f4`–`f10`: those are ugen's scratch
-ring, handed out by expression evaluation order rather than coloured. The
-class-2 float pool is six wide, decoded by force-and-diff: **c24 = `$f0`,
-c25 = `$f2`, c26 = `$f12`, c27 = `$f14`, c28 = `$f16`, c29 = `$f18`**, with
-c30 and above callee-saved.
+globalcolor's colour table reaches further down the caller-saved registers than
+this law first claimed, and **the boundary is per procedure**. Decoded from the
+`p1color` and `p1cost` records on one procedure: **c1 `v0` … c9 `t2`, c10 `t3`,
+c11 `t4`, c12 `t5`, c13 unnamed, c14 `s0`, c15 `s1`** — so `t3`–`t6` are
+ordinary caller-saved candidates there, priced by `p1cost` and reachable by a
+force. Only `t7`–`t9` and the float ring sat outside the table in that
+procedure. The class-2 float pool is six wide, decoded by force-and-diff:
+**c24 = `$f0`, c25 = `$f2`, c26 = `$f12`, c27 = `$f14`, c28 = `$f16`,
+c29 = `$f18`**, with c30 and above callee-saved.
+
+> **Corrected 2026-09-11.** This law was first written as "globalcolor never
+> assigns `t3`–`t9` or `f4`–`f10`", and that is too strong: two webs on the
+> correcting function carry `p1color … color=10 reg=t3` outright. The
+> consequence of the error ran the wrong way — it told lanes to *skip* naming
+> rows that a force can in fact reach. **Decode the table from the records on
+> the procedure you are working**, rather than assuming this or any other
+> boundary.
 
 **Therefore a naming row that names a ring register is not a colouring
 problem**, and no `save` edit, force or web split reaches it. Split a naming
