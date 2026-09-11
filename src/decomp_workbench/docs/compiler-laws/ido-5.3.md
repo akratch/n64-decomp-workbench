@@ -4695,3 +4695,60 @@ form tried moved that `nocs`.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
 
+### L129. A redundant load into a ring temp is a free ring draw — the inverse of the free copy
+
+Two source constructs both vanish from the shipped stream and have **opposite**
+effects on ugen's scratch ring. Neither is visible in the bytes, which is why
+both were invisible to lanes reading the ROM:
+
+| construct | as1's peephole | the ring |
+|---|---|---|
+| a copy of a value already in a register, into a **coloured symbol** | deletes it | **never advanced** — draws nothing ([L126](#l126-a-carrier-that-spans-no-call-is-always-coloured-so-it-costs-ring-temps-by-construction)) |
+| a redundant load whose destination is a **ring temp** | deletes it | **has advanced** — one position of phase |
+
+So reading a global back immediately after storing it to that global costs
+nothing when the destination is a declared symbol, and buys exactly one ring
+position when it is an expression temporary. The peephole removes the
+instruction in both cases because the value was just stored from a register;
+what differs is whether ugen drew from the ring to hold it.
+
+**That makes ring phase adjustable in both directions at zero bytes**, where
+[L127](#l127-a-no-op-the-peephole-deletes-still-consumes-a-ugen-ring-temp-so-the-free-list-is-settable-from-source-at-zero-byte-cost)
+only pushed it one way with a no-op.
+
+**Receipt — T1** (Mickey, overlay-101 builders, 2026-09-11, 149 → 145 on four
+siblings). Writing the pre-call pointer expression to read the counter global
+directly, rather than through an index local, moved one ring position per text
+row — the whole 44-row rotation an earlier shard had described as "diverging at
+the second multiply result". `register_census.py` reads it in one command:
+**51 substitution sites with a closed cycle `t5→t6→t8→t9→t0→t4→t5` before, 29
+sites with no closed cycle at all after**, and the remainder a pure colour
+chain. Priced from the `p1dec` records: the pre-call reference held that web at
+`totalsave=45 nocs=2`, the direct read drops it to 39, and its save falls
+22.5 → 19.5 under a competing web's 21.0, flipping p1's max-save order.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
+### L130. A source-level local is a symbol, so a register outside the procedure's colour table is unreachable by any declaration
+
+globalcolor assigns from a per-procedure colour table
+([L114](#l114-globalcolors-colours-are-the-callee-saved-and-pool-registers-only-and-roughly-a-sixth-of-a-naming-residual-is-colour-at-all)). A declared local becomes a **symbol**, and a symbol is either
+coloured from that table or given a stack home — it is *never* handed a ring
+temp. So if the register the target uses is not in the table, **no declaration,
+carrier, qualifier or spelling can put a value there.**
+
+**That turns a spelling search into a one-step argument.** Decode the table from
+the procedure's own `p1cost` rows; if the wanted register is absent, every
+carrier variant is refuted as a class rather than one at a time.
+
+**Receipt — T1, from the decision records** (Mickey, overlay-101 builders,
+2026-09-11). A carrier pair *does* reproduce the ROM's block shape — the seven
+differing words per group fall to two and both old-link loads issue before every
+store — but the carried values land in `a0`/`a1` where the ROM has `t8`/`t9`,
+and this procedure's table reads c1 `v0`, c2 `v1`, c3–c6 `a0`–`a3`, c7–c12
+`t0`–`t5`, c13 unnamed, c14–c22 `s0`–`s8`. `t8` and `t9` are not in it. That
+retires thirteen previously-measured carrier spellings as a class, and it
+explains why they all converged on one score.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-11.
+
