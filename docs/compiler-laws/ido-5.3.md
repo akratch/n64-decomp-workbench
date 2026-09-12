@@ -5539,6 +5539,14 @@ ugen draws a temporary for each, and as1 folds the pair into the single `andi`
 the object shows. Deleting the redundant mask is semantically exact, costs no
 instruction, and returns the draw.
 
+**Scope of the generator: the type must be narrow.** The double mask folds only
+because reading a `u8` (or `s16`) local *already* emits the `and`, so the
+source-level mask is the second one. On an `s32` there is no implicit mask and a
+written mask emits an `and` of its own — it is an instruction, not a free draw,
+and adding one is a large regression (955 masked, measured). **Check the
+declared width before reaching for this**; on a 32-bit local the generator does
+not exist.
+
 **Receipt — T1, freelist records with byte-identity** (Mickey, overlay-101
 builders, 2026-09-12). Measured 16 draws per row against the shipped 15.
 Removing the second mask emptied the naming bucket outright — 281 byte-exact /
