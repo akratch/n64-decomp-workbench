@@ -5630,3 +5630,42 @@ The deletion renames its producer, so a no-op that buys a draw can break an
 agreeing register in the same edit.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L151. A constant's *type* is part of its IR identity — the same value spelled signed and unsigned is two webs
+
+Two occurrences of the same numeric value do **not** share a materialisation
+unless they agree in type. `0x07000000` written as a plain `int` literal and the
+identical value arriving through a macro that yields `unsigned` are **two
+distinct IR constants**, so uopt forms two webs, and the loop-invariant register
+holding one is rematerialised for the other while the second expands its own
+`lui`.
+
+**The tell is a register cycle that no colour lever explains.** On one function
+the mismatch also made five hoisted command constants read as a five-cycle over
+`t1`–`t5`. Unifying the type collapsed the cycle — the constants had never been
+competing for colours at all; they were one web too many.
+
+**So when a value appears both as a bare literal and through a macro, check what
+the macro's expansion is typed as.** The gbi-style `_SHIFTL(x, n, w)` idiom
+yields `unsigned`, and a hand-written hex literal beside it does not. This costs
+one look and it is invisible in every register-level instrument, because both
+spellings emit correct code.
+
+**A companion, same function, same class of cause: `* 4` and `<< 2` are not
+interchangeable.** uopt **reassociates** the multiply — `(x - 1) * 4` becomes
+`x*4 - 4` — and leaves the shift alone. Where the target keeps the subtraction
+inside, write the shift. Four sites, eight structural words.
+
+**Receipt — T1, byte-identity** (Mickey, `func_8002F618`, 2026-09-12). The
+function **matched**: 91 masked words to 0, size delta +8 to 0, byte-exact 267 →
+327, `gmake verify` printing the expected ROM SHA1 and the guard removed. The
+type unification alone took it 91 → 85 with delta +8 → 0 and naming 31 → 14.
+Two prologue symptoms that three earlier passes had chased as separate problems
+— a `move s3,a1` and a branch-likely early exit — fell out of freeing `a0` and
+were never independent faults.
+
+**Falsifies.** "The same constant is the same constant, so its spelling cannot
+matter." Type is part of the identity, and two spellings of one value cost a
+web, a materialisation and sometimes an apparent register cycle.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
