@@ -5710,3 +5710,45 @@ order reaches it." Where the heights differ the pick is forced, and no order
 reaches it; the question is what changes a height.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L153. uopt rewrites a *provably counted* loop's `< CONST` exit test into `!=` against a hoisted register — and only an opaque initial value defeats it
+
+Where uopt can prove a loop counted, it replaces the `< CONST` exit test with a
+`!=` against a constant hoisted into a register. At loop depth this happens
+**unconditionally**: measured across four different bounds, and again with every
+other occurrence of the bound constant removed from the procedure. **No spelling
+of the comparison reaches it** — thirteen bound spellings across two loops
+compiled to one object each.
+
+**So "write the bound differently" is refuted as a class, and the lever is the
+loop's *initial value* instead.** The rewrite needs the start to be known.
+Making it opaque — assigning through an expression the compiler cannot fold to a
+constant, while remaining provably equal to it — stops the proof, the rewrite
+does not fire, and the target's `slti` exit test appears. On the measured
+function that was worth **54 masked words** in one edit.
+
+The receipts show it as an allocator consequence rather than a peephole: the
+hoisted constant's web carries `save` 8.909 at `nocs` 22 and `totalsave` 196,
+taking a callee-saved register and **evicting an address web entirely**; with the
+rewrite defeated it becomes `save` 12.25 at `nocs` 8 and `totalsave` 98, and both
+address webs keep their colours.
+
+**The corollary is the part worth carrying to other functions.** The extra
+`addiu` that the un-rewritten form emits — the thing that looks like a
+one-instruction difference — was a **ring-phase fact**: after the affected
+address, 150 of 212 differing register slots formed one closed nine-cycle over
+the temp ring, and before it, none. **An apparently one-word instruction
+difference can be worth a hundred and fifty register slots downstream.** Price a
+surplus instruction by the phase it carries, not by its own width.
+
+**Receipt — T1, instrumented decision records plus a 23-cell spelling sweep with
+four unconditionality proofs** (Mickey, `func_overlay_058_F000138C_18B0574`,
+2026-09-12), on the largest function in the queue: **688 masked words to 594**
+at size delta 0, naming 371 → 198, byte-exact 3,144 → 3,311.
+
+**Falsifies.** "The candidate emits an extra subtract before the compare, so the
+bound is spelled wrong." The bound cannot be spelled to reach it; the exit test
+is rewritten because the loop is provably counted, and the subtract is the
+rewrite's residue rather than the fault.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
