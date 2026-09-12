@@ -5377,6 +5377,15 @@ the carrier, which no spelling reaches. A 343-cell lattice of twelve address
 spellings across three rows on two bases returns exactly **two** reachable name
 classes, and every mix reads 136 or worse.
 
+**The boundary, measured the same day: both sides of the call must be spelled
+the *same* expression.** Where a reconstruction models relocation identity with
+two different symbol names for one array or counter, [L131](#l131-a-live-range-is-formed-per-ir-name-and-a-repeated-expression-is-one-name--so-deleting-the-local-does-not-split-the-range)
+cannot fuse them, and going direct *costs* instructions instead of saving them.
+Measured: a whole-body direct form read 444 at delta +8 against 393 for doing
+nothing, and a dual-named array pair went 143 to 194. Functions with a
+single-named counter take the lever whole-body; dual-named ones do not, and a
+mixed form was the optimum there. **Check the names before applying it.**
+
 **Receipt — T1, byte-identity ×5** (Mickey, overlay-101 builders, 2026-09-12).
 Priced on the lead at size delta 0 throughout: index locals everywhere **179**;
 one row reverted to the direct read **155**; all rows direct but post-call stores
@@ -5485,5 +5494,46 @@ sweep that comes back byte-identical.
 and overlay 41, 2026-09-12). Recorded as a negative by the lane that needed the
 lever and could not get it, on a function whose sibling *had* just been moved by
 the integer form — which is what made the asymmetry visible.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L149. Count ring draws, not registers — a draw whose instruction as1 folds away is invisible to every register-level instrument
+
+A ugen ring draw and the instruction that consumes it are **separable**. ugen
+allocates a scratch temporary for an operation; as1's peephole can then fold
+that operation into a neighbouring one and delete it. **The draw is still
+spent.** The free list has advanced, every later row is one position off, and
+*nothing in the emitted code shows why* — the instruction that caused it is not
+there to be found.
+
+**So a per-row ring phase can have a cause no register-level instrument can
+see.** `register_census.py` compares registers that exist; a spelling lattice
+varies text that survives. Neither can observe a draw whose instruction was
+deleted. This is why one function's 155 measured [L127](#l127-a-no-op-the-peephole-deletes-still-consumes-a-ugen-ring-temp-so-the-free-list-is-settable-from-source-at-zero-byte-cost) no-op cells
+were flat: a no-op *consumes* a draw, and what was needed was **one fewer**.
+
+**The instrument that does see it** is the ring itself: run the instrumented
+ugen with `DKWB_UGEN_SCHED=1` and read the `DKWB-FREELIST … ALLOC_GP_RESULT`
+records, which stamp each draw with its source line. Count draws per iteration
+and compare against the shipped code's. **Do this before classifying a per-row
+phase**, not after a lattice comes back flat.
+
+**The concrete generator, which is worth recognising on sight: a redundant mask
+on a narrow type.** With a `u8` local, merely reading it already emits
+`and reg,v0,255`. Writing `(f32)(u32)(length & 0xFF)` therefore masks *twice*;
+ugen draws a temporary for each, and as1 folds the pair into the single `andi`
+the object shows. Deleting the redundant mask is semantically exact, costs no
+instruction, and returns the draw.
+
+**Receipt — T1, freelist records with byte-identity** (Mickey, overlay-101
+builders, 2026-09-12). Measured 16 draws per row against the shipped 15.
+Removing the second mask emptied the naming bucket outright — 281 byte-exact /
+87 naming / 0 / 12 becoming 380 / 0 / 0 / 0 — and the three sibling functions
+then closed to **0 of 380 words** each, 1,520 bytes apiece, `gmake verify`
+printing the expected ROM SHA1 and `promotion-proof` PASS on each.
+
+**Falsifies.** "The register census shows no cause, so the phase is not a draw
+problem." The census cannot see a draw whose instruction was folded away, and
+on this family that was the entire residual.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
