@@ -5537,3 +5537,54 @@ problem." The census cannot see a draw whose instruction was folded away, and
 on this family that was the entire residual.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L150. as1 deletes a no-op by renaming its producer's destination — so a no-op placed to buy a ring draw moves the producer's colour
+
+[L127](#l127-a-no-op-the-peephole-deletes-still-consumes-a-ugen-ring-temp-so-the-free-list-is-settable-from-source-at-zero-byte-cost) and [L129](#l129-a-redundant-load-into-a-ring-temp-is-a-free-ring-draw--the-inverse-of-the-free-copy) say a no-op the peephole deletes still
+consumes a ring temp, which makes the free list settable from source at zero
+byte cost. **The deletion is not free of side effects, and this is the
+constraint that has been missing.** as1 does not simply drop the instruction: it
+deletes it **by renaming the producer's destination** to the no-op's
+destination. So the value that fed the no-op comes out in a *different*
+register.
+
+**That is why the no-op family keeps failing where it looks like it should
+work.** Placing a no-op to buy one extra draw at a chosen point also moves
+whatever produced its operand off the colour it held. If the producer's colour
+is part of what already agrees with the target, the no-op buys a draw and breaks
+a register in the same edit — and the score moves the wrong way for a reason
+that is not visible as "the draw did not happen".
+
+**So the no-op lever has a placement precondition**: its operand's producer must
+be a value whose destination register you are willing to lose. Reading that off
+the records before placing the probe converts a sweep into a short list of legal
+sites. On one function the requirement reduced to a single sentence — the block
+owes a fifth draw that must fall *between* the sum and the truncation, and every
+no-op there renames the sum off its pool colour, which is what closes the axis.
+
+**Two instrument facts that make this checkable, both worth having on their
+own.**
+
+**ugen draws a ring register immediately before each instruction it emits, so
+the listing order *is* the draw order.** `cc -S` therefore gives the draw
+sequence directly, without the instrumented compiler — read it off the listing
+rather than inferring phase from a register census.
+
+And the corollary for [L147](#l147-nocs-counts-basic-blocks-not-occurrences--so-merging-two-references-into-one-block-raises-a-save-at-zero-width): when every tied web's references already
+sit in **one** basic block, `nocs` is at its floor of 1 and a block reading can
+only divide the save *further*. L147 opens a function whose references are
+**split across blocks**, and does nothing where they are already together — one
+look at the lineage capture settles which case you have.
+
+**Receipt — T2, listing-derived with a byte-identical gate** (Mickey, overlay-1
+and level/track functions, 2026-09-12). Established while re-testing six
+inherited closures, five of which survived re-testing and were made mechanical
+rather than merely reasserted. A postorder walk of one two-operand address
+admits exactly two emission orders and the target's is neither; 23 further
+spellings read off the listing all land in those two.
+
+**Falsifies.** "A deleted no-op is byte-inert, so placing one can only help."
+The deletion renames its producer, so a no-op that buys a draw can break an
+agreeing register in the same edit.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
