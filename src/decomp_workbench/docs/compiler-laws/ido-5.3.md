@@ -5346,3 +5346,70 @@ Corroborated in the negative direction by the three siblings above, each
 failing for a separately measured reason rather than failing flat.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L145. To put a value in a ring temp, delete the carrier — a local is a symbol and a symbol is never a ring temp
+
+When a residual needs one more ugen ring draw, the reflex is to *add* something:
+a probe, a no-op, a redundant load ([L129](#l129-a-redundant-load-into-a-ring-temp-is-a-free-ring-draw--the-inverse-of-the-free-copy)). On a coloured carrier that
+cannot work, and [L130](#l130-a-source-level-local-is-a-symbol-so-a-register-outside-the-procedures-colour-table-is-unreachable-by-any-declaration) says why — a declared local is a **symbol**,
+and a symbol is either coloured from the procedure's table or given a stack
+home. It is **never** handed a ring temp. So no probe, qualifier or spelling
+placed *through a local* supplies the draw.
+
+**The lever is subtraction.** Write the value's uses as the expression itself —
+the global's own subscript, `D_340[D_1CC].x = …` — and declare no pointer or
+index local at all. Three things then happen at once, and they are the three
+that partial shapes each got only one or two of:
+
+1. The expression written on both sides of a call is **one IR name**
+   ([L131](#l131-a-live-range-is-formed-per-ir-name-and-a-repeated-expression-is-one-name--so-deleting-the-local-does-not-split-the-range)), so it is *one* range spanning the call, and both
+   occurrences take the one caller-saved register. **Two separate names cannot
+   reach this**: on the split shape a force onto the shipped colour is *declined
+   with a forbidden mask*, because the pre-call and post-call address webs
+   genuinely interfere. Only sameness of name removes the interference.
+2. The counter load becomes its own range across all rows and takes the
+   callee-saved register the index local used to occupy.
+3. The pre-call read lands in a **ring temporary** — that is the missing draw.
+
+**So "split the range" and "merge the range" are not symmetric options.** A
+spelling lattice explores the split side; the merge is reached only by removing
+the carrier, which no spelling reaches. A 343-cell lattice of twelve address
+spellings across three rows on two bases returns exactly **two** reachable name
+classes, and every mix reads 136 or worse.
+
+**Receipt — T1, byte-identity ×5** (Mickey, overlay-101 builders, 2026-09-12).
+Priced on the lead at size delta 0 throughout: index locals everywhere **179**;
+one row reverted to the direct read **155**; all rows direct but post-call stores
+still through a shared index local **165**; **no locals at all 98**. With the
+statement orders re-climbed on the new shape the lead reached **0 of 525 words**,
+frame 0x40 exact, and the edit **transferred totally to all four siblings** —
+four 2,100-byte functions and a fifth of 1,772 bytes promoted, 59/59
+relocations, `promotion-proof` PASS on each, `gmake verify` printing the
+expected ROM SHA1.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L146. A statement-order optimum is a property of the shape, not the function — a shape change retires every order sweep taken before it
+
+An exhaustive statement-order result — "all N orders measured, the incumbent is
+the unique optimum" — is evidence about **the carrier shape it was measured
+on**. Change the shape and the optimum moves, so the sweep has to be re-climbed
+from scratch rather than inherited.
+
+**This is not a small correction.** Two closures on one function fell to it the
+day the shape changed: a **630-order exhaustion** of one statement group had
+established the incumbent as the unique optimum with the second best +8, and on
+the new shape that same group wants a completely different order — worth
+**98 → 26**. A second group of nine stores then wanted its own new order,
+worth **26 → 0**. Both sweeps had been correct when taken.
+
+**So when adopting an edit that changes the carrier shape, treat every recorded
+order sweep on that function as void**, and budget for re-climbing them. The
+corollary is more useful still: a function sitting at a plateau *behind* an
+exhausted order sweep is a strong reopen candidate the moment any shape-changing
+edit lands, because the sweep that closed it no longer applies.
+
+**Receipt — T2, two re-climbed sweeps** (Mickey, overlay-101 builders,
+2026-09-12), both on a function that then matched at 0 of 525 words.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
