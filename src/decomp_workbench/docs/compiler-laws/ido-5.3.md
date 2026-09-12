@@ -4937,6 +4937,20 @@ XOR-with-zero. **That narrowing is not tight enough: on some functions all three
 are byte-inert**, because uopt folds the identity operation away before the web
 builder runs. No web is created, so there is no weight to place.
 
+**Corrected 2026-09-12: the inertness is per WEB, not per function.** This law
+first read "on some functions all three are byte-inert", and that is too coarse.
+On a function where a probe had been recorded as inert, an or-with-zero on a
+*different* named local raises its save **2.0 → 4.0 at size delta 0** — the
+earlier null was web 25 only. So "the probe was flat" is a statement about the
+web it was applied to, and it does not close the probe family for the function.
+Two closure sub-claims fell to exactly this.
+
+**The practical rule:** before concluding the family is closed, try the probe on
+each *named local* whose save you want to move, and confirm in the records that
+`totalsave` actually moved. Folding is real — the identity-op forms do vanish
+before the web builder in some places — but it is a property of the expression
+and the web it lands in, not of the translation unit.
+
 **This does not overturn L109** — its own receipt stands on a function where
 probes did move `totalsave`. It means whether a probe creates a web at all is a
 property of the function, and must be confirmed rather than assumed.
