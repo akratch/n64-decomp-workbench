@@ -759,6 +759,33 @@ the failure produces a plausible number instead of an error, and the check meant
 to catch it is the very thing the mistake defeats. A gate that compares two
 copies of the same error reports agreement.
 
+## Trap 22: two harnesses on one translation unit return plausible wrong numbers
+
+**The trap:** the measuring tools give each run a private *work directory*, so
+"any number can run at once" is true of their outputs and **false of their
+input**. A sweep rewrites the translation unit's own `.c` between compiles. A
+second measurement of that same TU therefore compiles whatever partial state the
+sweep happens to have written — and reports a number, not an error.
+
+**The incident.** An identity gate — the check that an instrumented compiler's
+object is byte-identical to the stock one — was run against a TU while a sweep
+was rewriting it. It read **FAIL, 4 words differing**. Re-run after the sweep
+finished, on the same source: **PASS, byte-identical.** Believed, that verdict
+would have retired the instrumented toolchain, and with it the evidence behind
+this campaign's largest single result.
+
+**Why it is worse than an ordinary race.** The failure is silent and it is
+*plausible*: a four-word difference on an identity gate looks exactly like a
+real instrumentation fault, which is a finding a careful reader would act on
+immediately and would not think to re-run. Nothing in the output says the source
+moved underneath it.
+
+**The rule:** *one writer per translation unit.* Before starting a measurement,
+know whether anything else is rewriting that `.c`; before believing a surprising
+negative from any tool, re-run it with nothing else touching the TU. A private
+work directory isolates results, not sources — and it is the source that the
+compiler actually reads.
+
 ## See also
 
 - [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — the formal law entries

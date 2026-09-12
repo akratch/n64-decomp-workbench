@@ -5669,3 +5669,44 @@ matter." Type is part of the identity, and two spellings of one value cost a
 web, a materialisation and sometimes an apparent register cycle.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L152. as1's list scheduler picks the largest `aftercycles` among nodes issuable this cycle, terminator last — and the tie is a separate question
+
+The rule, validated exhaustively rather than assumed: **among the nodes issuable
+at the current cycle, as1 issues the one with the greatest `aftercycles`** — its
+height to the end of the block — with the block terminator taken last.
+
+**5,334 picks with a real choice in one function, zero violations.**
+
+**The consequence is that a scheduling residual splits into two kinds, and only
+one of them has a source lever.** Where the two candidates' heights *differ*,
+the pick is forced: no tie-break lever reaches it, and [L59](#l59-the-schedulers-tie-break-reads-physical-source-line-numbers)'s physical
+line numbers are irrelevant because there is no tie to break. Where they are
+equal, a lever exists — but note that **the tie is not settled by emission order
+alone**: of 3,094 ties in the same function, 1,581 went to the lowest `INST`
+index and 605 to the highest. Something else participates, and it is not yet
+named.
+
+**So price the heights before reaching for an order lever.** They are readable
+from the target's own stream and they decompose: one site's 13 is
+`10 (multiply latency) + 3 (mflo to terminator)`, against a competing 6 of
+`3 (load latency) + 3 (store to terminator)`. A residual whose two nodes differ
+by that much is not an ordering problem at all.
+
+**Receipt — T1, an identity-gated `cc -Wa,-R` census** (Mickey,
+`func_overlay_101_F0003A58_18DF278`, 2026-09-12), on a function standing at
+**2 masked words on 5,844 bytes**, delta 0, naming 0, immediate 0. About
+**13,900 source forms** are flat at 2 against it: a full move-one over each
+node's statements to a fixed point, a greedy two-move climb from all 25 inert
+forms (12,800 candidates), all 153 sub-span region boundaries per node, every
+carrier spelling, and all 23 neighbour permutations. Both reachable states of
+the one variable that moves the competing heights are measured — a
+block-filling pass hoists five instructions into the predecessor, and the
+predecessor block is **byte-identical to the target's**, so the target hoists
+the same five — and neither state produces the target's order.
+
+**Falsifies.** "A scheduling residual is an ordering problem, so some statement
+order reaches it." Where the heights differ the pick is forced, and no order
+reaches it; the question is what changes a height.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
