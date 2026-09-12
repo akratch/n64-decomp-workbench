@@ -5752,3 +5752,47 @@ is rewritten because the loop is provably counted, and the subtract is the
 rewrite's residue rather than the fault.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L154. A web's number follows its *type* first and its first use second — so the source decides the numbering by deciding the type
+
+Web numbers are not arbitrary, and on a leaf they decide everything
+([L141](#l141-globalcolors-phase-two-assigns-in-ascending-web-number-lowest-free-colour--the-saves-play-no-part): p2 assigns in ascending web number, lowest free colour). The
+order is:
+
+1. **type first** — address-constant webs (type 1) number above every symbol web
+   (type 3);
+2. **first use second** — within a type, webs number in order of first
+   occurrence **in the instruction stream**, not by constant-table slot.
+
+**So the lever is which *type* the source gives a value, not where it is
+declared.** A loop bound written as a local initialised from an address constant
+becomes a type-1 web; it is propagated away, re-created at its use in the loop
+tail, and therefore numbered last, coloured last and hoisted last. That is
+**three symptoms from one cause** — a colour pair, a `%lo` ordering and a
+compare's operand order — and **no declaration, statement or grouping order
+touches any of them**.
+
+The same bound produced by **linear-function-test replacement**, from a source
+declaring only an *index* and letting uopt strength-reduce the subscript into a
+walking pointer, is numbered with the induction temporaries and takes the
+target's colour.
+
+**Before sweeping any spelling axis on a walking pointer and its bound, ask
+which of them the source declares.** That question is one look and it decides
+whether a sweep can reach the residual at all.
+
+**Receipt — T1, decision records plus byte-identity** (Mickey, `func_8003A5A0`,
+2026-09-12). Globalcolor ordinal 0, phase two only, four webs coloured in
+ascending web number — and the saves (23.67, 6.25, 13.33, 3.33) are **not** the
+decision order, so no ratio edit could ever have moved it. **288 order and
+grouping cells floored at 9** on the pointer-pair shape, with a force pricing it
+at 9 → 4 and a further edit at 3. The index shape reached **0 at delta 0 on the
+first try**, in both a `for` and an interior-exit `while` form; it is not
+unrolled despite the TU's default unroller because four interior returns make
+the body multi-exit.
+
+**Falsifies.** "The two registers are coloured wrongly, so this is an allocator
+problem." The colouring follows the numbering, the numbering follows the type,
+and the type follows the source's choice of induction variable.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
