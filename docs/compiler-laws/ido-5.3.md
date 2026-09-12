@@ -5413,3 +5413,77 @@ edit lands, because the sweep that closed it no longer applies.
 2026-09-12), both on a function that then matched at 0 of 525 words.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L147. `nocs` counts basic blocks, not occurrences — so merging two references into one block raises a save at zero width
+
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width) gives a web's save as `totalsave / nocs`. The denominator is
+**the number of basic blocks the web is referenced in**, not the number of
+references. Two occurrences in one block count once; the same two occurrences
+split across two blocks count twice.
+
+**That makes the denominator a source-controlled lever, and a cheap one.**
+Moving a statement so that two references share a block halves nothing and adds
+no instruction — it merges the occurrences into one `nocs` and the save rises
+directly. Measured: moving one store a single line earlier merged a literal's
+occurrences, taking its save from 0.5 to 1.0 at delta 0.
+
+**Reading `nocs` as an occurrence count predicts the wrong edit.** It suggests
+deleting a reference, which usually costs an instruction, when the reachable
+move is to *relocate* one. Two functions were moved on this in one pass, and it
+is the transferable half of that lane's result.
+
+**The numerator has its own lever, and it composes.** An
+[L109](#l109-a-discarded-expression-probes-weight-is-its-loop-depth-so-save-is-tunable-from-source-at-zero-instruction-cost) or-with-zero probe on a loop index raised `totalsave` from 31
+to 51 at unchanged `nocs`. The confirmation method is worth copying: **the
+probed object came back byte-identical to the object produced by forcing the
+colour directly**, which proves the probe moved the decision rather than merely
+moving the score.
+
+**Falsifies.** "`nocs` counts the web's references, so raising its save means
+adding or removing one." It counts *blocks*. That misreading points at deleting
+a reference, which usually costs an instruction, and hides the edit that is
+actually free: moving one reference so two share a block.
+
+**Receipt — T1, decision records with forced controls** (Mickey,
+`overlay34CreateRecord` and siblings, 2026-09-12). That function went **24
+masked words to 8** at size delta 0 on three edits, each priced by an accepted
+`CDX_FORCE` before adoption; the frame and every home were already exact, so the
+entire residual was rank order among webs that all receive a colour.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L148. The float no-op family draws no ring temp — the integer probe's mirror image does not exist
+
+[L127](#l127-a-no-op-the-peephole-deletes-still-consumes-a-ugen-ring-temp-so-the-free-list-is-settable-from-source-at-zero-byte-cost) and [L129](#l129-a-redundant-load-into-a-ring-temp-is-a-free-ring-draw--the-inverse-of-the-free-copy) say a no-op the peephole deletes still
+consumes a ugen ring temp, which makes the free list settable from source at
+zero byte cost. **That holds for the integer ring and not for the float pool.**
+
+Measured directly: of **24 float probe forms, 18 leave the object
+byte-identical** — no draw, no phase change, nothing. The integer
+or-with-zero does draw. So a residual that is a *float* ring phase cannot be
+moved by the probe family that fixes an integer one, and a lane that infers the
+float lever from the integer law will measure two dozen flat cells.
+
+**What does move a float ring phase is a real operation with a side effect on
+the pool** — on one function a redundant 16-bit mask on an `s16`
+read-modify-write, byte-inert in the emitted code but drawing one temp, made a
+closed ten-cycle over the whole temp bank disappear and took the function from
+34 masked words to 14.
+
+**Read the bank before choosing the lever.** This is the third law on this page
+whose scope splits at the integer/float boundary, alongside
+[L133](#l133-the-float-colour-table-excludes-f4f10-so-a-float-carrier-aimed-at-them-is-refuted-as-a-class)'s colour table and [L142](#l142-a-web-spanning-a-call-is-denied-exactly-the-argument-registers-that-call-loads--so-call-arity-not-the-save-ratio-is-the-lever)'s argument-register denial.
+The banks are separate allocators and almost nothing transfers between them
+without measurement.
+
+**Falsifies.** "A no-op still consumes a ring temp, so a float ring phase is
+settable from source the same way an integer one is." The integer law does not
+carry across the bank boundary, and assuming it does costs a two-dozen-cell
+sweep that comes back byte-identical.
+
+**Receipt — T2, a 24-cell probe sweep with an 18-cell null** (Mickey, overlay 8
+and overlay 41, 2026-09-12). Recorded as a negative by the lane that needed the
+lever and could not get it, on a function whose sibling *had* just been moved by
+the integer form — which is what made the asymmetry visible.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
