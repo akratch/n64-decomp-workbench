@@ -4856,6 +4856,16 @@ c24, c25, c26, c27 and lands it on c28 `f16` — with no competing web's save
 ratio playing any part. On a function whose target call already takes two
 floats, a two-condition colouring problem collapses to one pre-call reference.
 
+**Independently corroborated 2026-09-12, from the other side.** A different lane
+on a different overlay read the **fp scratch ring** directly and found it is
+**five registers — `f4 f6 f8 f10 f18`, FIFO** — with the complementary five,
+`f0 f2 f12 f14 f16`, being globalcolor's float colours 24–28. That is this
+law's table derived from the *ring* rather than from a force, and it agrees:
+`f0` and `f2` are colours, `f4`–`f10` are ring temporaries. It also settles a
+recorded cycle that was not the free list's order at all. This is the second
+independent measurement the tier rule asks for before a single lane's reading
+becomes a law.
+
 **Receipt — T1, force-and-read** (Mickey, overlay-27 builder, 2026-09-11). The
 instrumented `uopt` reproduces the tree's object exactly with logging enabled.
 `CDX_FORCE=p1:w35=c28` takes the function to **9 masked words at size delta 0**
@@ -4919,6 +4929,16 @@ shrinks by a cell when a *coloured* local is deleted, L99's refinement is wrong
 as written; if it does not, this law's "register-class included" clause is, and
 the four layouts behind it were varying something else. Until then treat the
 declared/expression boundary as the lever and neither clause as settled.
+
+**Third measurement, 2026-09-12.** On another function the frame fault was again
+a *count* rather than a placement: the target carries one more register-resident
+local than the candidate, and a recorded closure saying "reintroducing it in any
+of eleven positions grows the frame" was true but not the whole story —
+**deleting any other declared local pays for it.** Measured across nine
+configurations: the swap temp alone 167, one other local alone 145, the swap
+temp plus one deletion **111**. The frame behaves as a count of declared
+memory-class locals, which is this law's side of the conflict; L99's clause
+still stands unreconciled.
 
 **Receipt — T2, four measured frame layouts** (Mickey, `func_8002B524`,
 2026-09-11). The function matched: 0 of 116 words, size delta 0, `gmake verify`
