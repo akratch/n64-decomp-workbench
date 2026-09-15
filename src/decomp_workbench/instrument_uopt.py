@@ -357,6 +357,135 @@ static void dkwb_cdx_log_ichain(
         (unsigned int)MEM_U32(ichain + 24),
         (unsigned int)MEM_U32(ichain + 32));
 }
+/* The basic blocks a web spans, read off the live range itself.
+ *
+ * webdetail's bb is the ichain's expression node, and an address-constant
+ * web has none: on the overlay 58 whale it reads -1 for 330 of 395 webs, so
+ * the block set of exactly the webs whose splits made the residual was
+ * unreadable. The live range keeps two block bitvectors: the member set at
+ * +0x14 (f_formbvlivran allocates it, f_setbitbb sets bit bb as each
+ * liveblock is added, f_bvectin tests it) and a second at +0xc that the split
+ * path sets and resets. Each is {u32 chunks; u32 *data} with 128 bits per
+ * 16-byte chunk; block n is chunk n >> 7, word (n & 0x7f) >> 5, bit
+ * 31 - (n & 0x1f), the same decode f_bvectin performs with its sign test.
+ * `bbs` is the member set, `aux` the +0xc vector; an empty set prints "-"
+ * so every field stays one token. */
+static int dkwb_cdx_print_bitvector(uint8_t *mem, uint32_t vector) {
+    uint32_t chunks, data, chunk, word, bit;
+    int count = 0;
+    if (!dkwb_cdx_emulated_pointer(vector)) { fputs("-", dkwb_cdx_output); return 0; }
+    chunks = MEM_U32(vector + 0);
+    data = MEM_U32(vector + 4);
+    if (!dkwb_cdx_emulated_pointer(data) || chunks > 4096) {
+        fputs("-", dkwb_cdx_output);
+        return 0;
+    }
+    for (chunk = 0; chunk < chunks; chunk++) {
+        for (word = 0; word < 4; word++) {
+            uint32_t bits = MEM_U32(data + chunk * 16 + word * 4);
+            if (bits == 0) continue;
+            for (bit = 0; bit < 32; bit++) {
+                if ((bits >> (31 - bit)) & 1u) {
+                    fprintf(dkwb_cdx_output, "%s%u", count ? "," : "",
+                        (unsigned int)(chunk * 128 + word * 32 + bit));
+                    count++;
+                }
+            }
+        }
+    }
+    if (!count) fputs("-", dkwb_cdx_output);
+    return count;
+}
+static void dkwb_cdx_log_blocks(
+        uint8_t *mem, int ordinal, const char *phase, const char *role, int web,
+        uint32_t liverange) {
+    uint32_t ichain;
+    if (!dkwb_cdx_emulated_pointer(liverange)) return;
+    ichain = MEM_U32(liverange + 0);
+    fprintf(dkwb_cdx_output,
+        "[CDX] webblocks phase=%s proc=%d role=%s web=%d sym=%d lr=0x%08x bbs=",
+        phase, ordinal, role, web,
+        dkwb_cdx_emulated_pointer(ichain) ? (int)MEM_U16(ichain + 2) : -1,
+        (unsigned int)liverange);
+    dkwb_cdx_print_bitvector(mem, liverange + 0x14);
+    fputs(" aux=", dkwb_cdx_output);
+    dkwb_cdx_print_bitvector(mem, liverange + 0xc);
+    fputs("\n", dkwb_cdx_output);
+}
+/* Split-piece growth. When globalcolor cannot colour a live range it calls
+ * split(), which seeds a new piece at one reference block (L46fcd4) and then
+ * grows it breadth-first over the range's blocks in addadjacents(): for each
+ * candidate successor it counts the interferences the block would add
+ * (`new`), folds the block's held colours into the piece's forbidden mask,
+ * recounts the colours left, and accepts the block only while
+ *     new < left_before  and  2 * left_after >= numintf + new
+ * (with the strict flag at 0x1001eb10 set; with it clear any block that
+ * leaves a colour is accepted). A call block is accepted but never expanded.
+ * The piece pointer `lr` joins these rows to the webblocks row of the web the
+ * piece becomes; the web number at +4 is not assigned until later. */
+static void dkwb_cdx_log_seed(uint8_t *mem, uint32_t piece, uint32_t graphnode) {
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_globalcolor_ordinal)) return;
+    if (!dkwb_cdx_emulated_pointer(piece) || !dkwb_cdx_emulated_pointer(graphnode)) return;
+    fprintf(dkwb_cdx_output, "[CDX] seed proc=%d lr=0x%08x bb=%d\n",
+        dkwb_cdx_globalcolor_ordinal, (unsigned int)piece, (int)MEM_U16(graphnode + 8));
+}
+/* Seed candidates: split() walks the parent's remaining liveblocks in list
+ * order and seeds the piece at the first one that passes; the block's
+ * register-use words (+44/+48 per register class) are compared against the
+ * class baseline at 0x1001e638 + 8*class, and the liveblock's own flags
+ * (+16 count, +18, +19, +20) decide the rest. Both passes are logged. */
+static void dkwb_cdx_log_seedcand(uint8_t *mem, uint32_t piece, uint32_t liveblock,
+        uint32_t rclass, int pass) {
+    uint32_t bb, base;
+    int maskdiff;
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_globalcolor_ordinal)) return;
+    if (!dkwb_cdx_emulated_pointer(piece) || !dkwb_cdx_emulated_pointer(liveblock)) return;
+    bb = MEM_U32(liveblock + 0);
+    if (!dkwb_cdx_emulated_pointer(bb)) return;
+    base = 0x1001e638u + rclass * 8u;
+    maskdiff = (MEM_U32(bb + rclass * 8u + 44) != MEM_U32(base + 0)) ||
+               (MEM_U32(bb + rclass * 8u + 48) != MEM_U32(base + 4));
+    fprintf(dkwb_cdx_output,
+        "[CDX] seedcand proc=%d lr=0x%08x pass=%d bb=%d f16=%d f18=%d f19=%d f20=%d "
+        "maskdiff=%d\n",
+        dkwb_cdx_globalcolor_ordinal, (unsigned int)piece, pass, (int)MEM_U16(bb + 8),
+        (int)MEM_U16(liveblock + 16), (int)MEM_U8(liveblock + 18),
+        (int)MEM_U8(liveblock + 19), (int)MEM_U8(liveblock + 20), maskdiff);
+}
+/* Liveblock movement: a reference block leaves a range's list only through
+ * dellivbb (into the piece being grown, or as the seed), and updatelivran adds
+ * entry/exit marker liveblocks (flags +21/+22, no references) wherever the
+ * remainder's live blocks are not all-predecessor / all-successor members. */
+static void dkwb_cdx_log_livbb(uint8_t *mem, const char *op, uint32_t range,
+        uint32_t liveblock) {
+    uint32_t bb;
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_globalcolor_ordinal)) return;
+    if (!dkwb_cdx_emulated_pointer(liveblock)) return;
+    bb = MEM_U32(liveblock + 0);
+    if (!dkwb_cdx_emulated_pointer(bb)) return;
+    fprintf(dkwb_cdx_output, "[CDX] livbb proc=%d op=%s lr=0x%08x bb=%d refs=%d\n",
+        dkwb_cdx_globalcolor_ordinal, op, (unsigned int)range, (int)MEM_U16(bb + 8),
+        (int)MEM_U16(liveblock + 16));
+}
+static void dkwb_cdx_log_grow(uint8_t *mem, uint32_t piece, uint32_t graphnode,
+        int shared, int left_before) {
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_globalcolor_ordinal)) return;
+    if (!dkwb_cdx_emulated_pointer(piece) || !dkwb_cdx_emulated_pointer(graphnode)) return;
+    fprintf(dkwb_cdx_output,
+        "[CDX] grow proc=%d lr=0x%08x bb=%d new=%d left_before=%d left_after=%d "
+        "numintf=%d strict=%d\n",
+        dkwb_cdx_globalcolor_ordinal, (unsigned int)piece, (int)MEM_U16(graphnode + 8),
+        shared, left_before, (int)MEM_U8(piece + 33), (int)MEM_U32(piece + 36),
+        (int)MEM_U8(0x1001eb10));
+}
+static void dkwb_cdx_log_grow_verdict(uint8_t *mem, uint32_t piece, uint32_t graphnode,
+        int accepted) {
+    if (!dkwb_cdx_log || !dkwb_cdx_active(dkwb_cdx_globalcolor_ordinal)) return;
+    if (!dkwb_cdx_emulated_pointer(piece) || !dkwb_cdx_emulated_pointer(graphnode)) return;
+    fprintf(dkwb_cdx_output, "[CDX] growv proc=%d lr=0x%08x bb=%d accepted=%d\n",
+        dkwb_cdx_globalcolor_ordinal, (unsigned int)piece, (int)MEM_U16(graphnode + 8),
+        accepted);
+}
 /* -2: no override, -1: force split/no-color, >=0: force color.
  * Keys are phase-qualified: p1:w9=c30 and p2:w9=c30 are different webs. */
 static int dkwb_cdx_lookup(int ordinal, const char *phase, int web) {
@@ -433,6 +562,7 @@ static void dkwb_cdx_log_interference(
     if (!dkwb_cdx_log || !dkwb_cdx_active(ordinal) ||
             (web != dkwb_cdx_detail_web && dkwb_cdx_detail_web != -2)) return;
     dkwb_cdx_log_ichain(mem, ordinal, phase, "target", web, liverange);
+    dkwb_cdx_log_blocks(mem, ordinal, phase, "target", web, liverange);
     if (dkwb_cdx_detail_web == -2) return;
     item = MEM_U32(liverange + 56);
     while (item != 0) {
@@ -450,6 +580,10 @@ static void dkwb_cdx_log_interference(
                 mem, ordinal, phase, "neighbor",
                 (int)MEM_U32(neighbor + 4),
                 neighbor);
+            dkwb_cdx_log_blocks(
+                mem, ordinal, phase, "neighbor",
+                (int)MEM_U32(neighbor + 4),
+                neighbor);
         }
         item = MEM_U32(item + 4);
     }
@@ -464,7 +598,7 @@ class UoptInstrumentationResult:
     source: str
     input_sha256: str
     profile: str = "ido-5.3-static-recomp-v12"
-    trace_points: int = 13
+    trace_points: int = 23
 
 
 def _replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -501,7 +635,16 @@ def instrument_uopt_globalcolor(
         "static void dkwb_cdx_log_lineage_range(uint8_t *mem, "
         "uint32_t ichain, uint32_t liverange);\n"
         "static void dkwb_cdx_log_lineage_member(uint8_t *mem, "
-        "uint32_t ichain, uint32_t graphnode, uint32_t liveblock);\n\n"
+        "uint32_t ichain, uint32_t graphnode, uint32_t liveblock);\n"
+        "static void dkwb_cdx_log_seed(uint8_t *mem, uint32_t piece, "
+        "uint32_t graphnode);\n"
+        "static void dkwb_cdx_log_seedcand(uint8_t *mem, uint32_t piece, "
+        "uint32_t liveblock, uint32_t rclass, int pass);\n"        "static void dkwb_cdx_log_livbb(uint8_t *mem, const char *op, "
+        "uint32_t range, uint32_t liveblock);\n"
+        "static void dkwb_cdx_log_grow(uint8_t *mem, uint32_t piece, "
+        "uint32_t graphnode, int shared, int left_before);\n"
+        "static void dkwb_cdx_log_grow_verdict(uint8_t *mem, uint32_t piece, "
+        "uint32_t graphnode, int accepted);\n\n"
         "static void f_formlivbb(uint8_t *mem, uint32_t sp, uint32_t a0, "
         "uint32_t a1, uint32_t a2) {\n",
         "lineage declarations",
@@ -530,6 +673,77 @@ def instrument_uopt_globalcolor(
         "MEM_U32(s1 + 0));\n"
         "// bdead 1 ra = MEM_U32(sp + 36);",
         "lineage member creation",
+    )
+    result = _replace_once(
+        result,
+        "a0 = s5 + 0x8;\na1 = s0;\nf_dellivbb(mem, sp, a0, a1);",
+        "dkwb_cdx_log_livbb(mem, \"del-grow\", s5, s0);\n"
+        "a0 = s5 + 0x8;\na1 = s0;\nf_dellivbb(mem, sp, a0, a1);",
+        "liveblock moved by growth",
+    )
+    result = _replace_once(
+        result,
+        "a0 = a3 + 0x8;\na1 = s0;\nf_dellivbb(mem, sp, a0, a1);",
+        "dkwb_cdx_log_livbb(mem, \"del-seed\", a3, s0);\n"
+        "a0 = a3 + 0x8;\na1 = s0;\nf_dellivbb(mem, sp, a0, a1);",
+        "liveblock moved as seed",
+    )
+    result = _replace_once(
+        result,
+        "MEM_U8(v0 + 21) = (uint8_t)s6;\n",
+        "MEM_U8(v0 + 21) = (uint8_t)s6;\n"
+        "dkwb_cdx_log_livbb(mem, \"mark-entry\", s3, v0);\n",
+        "entry marker",
+    )
+    result = _replace_once(
+        result,
+        "MEM_U8(v0 + 22) = (uint8_t)s6;\n",
+        "MEM_U8(v0 + 22) = (uint8_t)s6;\n"
+        "dkwb_cdx_log_livbb(mem, \"mark-exit\", s3, v0);\n",
+        "exit marker",
+    )
+    result = _replace_once(
+        result,
+        "L46faac:\nt4 = MEM_U8(s0 + 20);",
+        "L46faac:\ndkwb_cdx_log_seedcand(mem, MEM_U32(s1 + 0), s0, a2, 1);\n"
+        "t4 = MEM_U8(s0 + 20);",
+        "split seed candidate pass one",
+    )
+    result = _replace_once(
+        result,
+        "L46fb48:\nt9 = MEM_U32(s0 + 0);",
+        "L46fb48:\ndkwb_cdx_log_seedcand(mem, MEM_U32(s1 + 0), s0, a2, 2);\n"
+        "t9 = MEM_U32(s0 + 0);",
+        "split seed candidate pass two",
+    )
+    result = _replace_once(
+        result,
+        "L46fcd4:\nt7 = MEM_U32(s2 + 0);",
+        "L46fcd4:\ndkwb_cdx_log_seed(mem, MEM_U32(s2 + 0), MEM_U32(s0 + 0));\n"
+        "t7 = MEM_U32(s2 + 0);",
+        "split piece seed",
+    )
+    result = _replace_once(
+        result,
+        "L46e2e0:\n// bdead c1fe0003 gp = MEM_U32(sp + 52);\nat = (int)s6 < (int)s4;",
+        "L46e2e0:\n// bdead c1fe0003 gp = MEM_U32(sp + 52);\n"
+        "dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4);\n"
+        "at = (int)s6 < (int)s4;",
+        "split piece growth test",
+    )
+    result = _replace_once(
+        result,
+        "L46e34c:\nt3 = MEM_U32(fp + 0);",
+        "L46e34c:\ndkwb_cdx_log_grow_verdict(mem, s2, MEM_U32(s1 + 0), 1);\n"
+        "t3 = MEM_U32(fp + 0);",
+        "split piece growth accept",
+    )
+    result = _replace_once(
+        result,
+        "L46e47c:\nt2 = MEM_U32(sp + 96);",
+        "L46e47c:\ndkwb_cdx_log_grow_verdict(mem, s2, MEM_U32(s1 + 0), 0);\n"
+        "t2 = MEM_U32(sp + 96);",
+        "split piece growth reject",
     )
     result = _replace_once(
         result,

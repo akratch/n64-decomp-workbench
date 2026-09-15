@@ -33,6 +33,39 @@ L464644:
 L4647b8:
 // bdead 1 ra = MEM_U32(sp + 36);
 }
+static void f_dellivbb(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
+}
+static void f_updatelivran(uint8_t *mem, uint32_t sp, uint32_t a0) {
+uint32_t v0 = 0, s3 = a0, s6 = 1;
+MEM_U8(v0 + 21) = (uint8_t)s6;
+MEM_U8(v0 + 22) = (uint8_t)s6;
+}
+static void f_addadjacents(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+uint32_t s0 = 0, s1 = a0, s2 = a1, s4 = 0, s5 = a2, s6 = 0, at = 0, t2 = 0, t3 = 0, fp = 0;
+a0 = s5 + 0x8;
+a1 = s0;
+f_dellivbb(mem, sp, a0, a1);
+L46e2e0:
+// bdead c1fe0003 gp = MEM_U32(sp + 52);
+at = (int)s6 < (int)s4;
+L46e34c:
+t3 = MEM_U32(fp + 0);
+L46e47c:
+t2 = MEM_U32(sp + 96);
+}
+static void f_split(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+uint32_t s0 = a0, s1 = a1, s2 = a2, t4 = 0, t7 = 0, t9 = 0;
+a3 = s2;
+a0 = a3 + 0x8;
+a1 = s0;
+f_dellivbb(mem, sp, a0, a1);
+L46faac:
+t4 = MEM_U8(s0 + 20);
+L46fb48:
+t9 = MEM_U32(s0 + 0);
+L46fcd4:
+t7 = MEM_U32(s2 + 0);
+}
 static void f_makelivranges(uint8_t *mem, uint32_t sp) {
 L468998:
 //makelivranges:
@@ -83,6 +116,17 @@ static uint8_t dkwb_test_memory[64];
 #define MEM_U8(address) (*(uint8_t *)dkwb_test_memory)
 """
 
+# The same accessors, honouring the address: the block-set driver lays a live
+# range and its bitvector out at distinct offsets, so a prelude that reads
+# word 0 for every address would test nothing.
+BLOCKS_PRELUDE = """\
+#include <stdint.h>
+static uint8_t dkwb_test_memory[4096];
+#define MEM_U32(address) (*(uint32_t *)(dkwb_test_memory + ((address) & 0xfffu)))
+#define MEM_U16(address) (*(uint16_t *)(dkwb_test_memory + ((address) & 0xfffu)))
+#define MEM_U8(address) (*(uint8_t *)(dkwb_test_memory + ((address) & 0xfffu)))
+"""
+
 COMPILE_DRIVER = """\
 int main(void) {
     dkwb_cdx_init();
@@ -97,8 +141,51 @@ int main(void) {
     dkwb_cdx_log_lineage_range(dkwb_test_memory, 0, 0);
     dkwb_cdx_log_lineage_member(dkwb_test_memory, 0, 0, 0);
     dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
+    dkwb_cdx_log_blocks(dkwb_test_memory, 0, "p1", "target", 9, 0);
+    dkwb_cdx_log_seed(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_seedcand(dkwb_test_memory, 0, 0, 0, 1);
+    dkwb_cdx_log_livbb(dkwb_test_memory, "del-grow", 0, 0);
+    dkwb_cdx_log_grow(dkwb_test_memory, 0, 0, 0, 0);
+    dkwb_cdx_log_grow_verdict(dkwb_test_memory, 0, 0, 1);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
+    return 0;
+}
+"""
+
+# A driver for the block-set record. Emulated memory here is one flat array
+# addressed directly, so the "pointers" are offsets into it and must sit in
+# the emulated heap window the header checks (0x10000000..0x20000000); the
+# accessor macros below mask that base off.
+BLOCKS_DRIVER = """\
+int main(void) {
+    uint32_t *words = (uint32_t *)dkwb_test_memory;
+    dkwb_cdx_init();
+    /* live range at offset 0: +0x14 = {chunks=3, data=offset 0x40}; +0xc unset */
+    words[0x14 / 4] = 3;
+    words[0x18 / 4] = 0x10000000u + 0x40;
+    words[0x40 / 4 + 0] = 0x80000001u;            /* blocks 0 and 31   */
+    words[0x40 / 4 + 1] = 0x80000000u;            /* block 32          */
+    words[0x40 / 4 + 3] = 0x00000001u;            /* block 127         */
+    words[0x40 / 4 + 4] = 0x80000000u;            /* block 128         */
+    words[0x40 / 4 + 8 + 1] = 0x00080000u;        /* block 300: chunk 2, word 1, bit 12 */
+    dkwb_cdx_log_blocks(dkwb_test_memory, 0, "p1", "target", 9, 0x10000000u);
+    dkwb_cdx_log_seed(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_seedcand(dkwb_test_memory, 0, 0, 0, 1);
+    dkwb_cdx_log_livbb(dkwb_test_memory, "del-grow", 0, 0);
+    dkwb_cdx_log_grow(dkwb_test_memory, 0, 0, 0, 0);
+    dkwb_cdx_log_grow_verdict(dkwb_test_memory, 0, 0, 1);
+    (void)dkwb_cdx_active(0);
+    (void)dkwb_cdx_lookup(0, "p2", 9);
+    (void)dkwb_cdx_force_color(0, "p1", "dec", 9, 0, 0);
+    (void)dkwb_cdx_reg_taken(dkwb_test_memory, 1);
+    dkwb_cdx_lineage_begin();
+    dkwb_cdx_log_lineage_range(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_lineage_member(dkwb_test_memory, 0, 0, 0);
+    dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
+    DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
+    dkwb_cdx_procindex();
+    dkwb_cdx_finish();
     return 0;
 }
 """
@@ -123,6 +210,11 @@ int main(int argc, char **argv) {
     dkwb_cdx_log_lineage_range(dkwb_test_memory, 0, 0);
     dkwb_cdx_log_lineage_member(dkwb_test_memory, 0, 0, 0);
     dkwb_cdx_log_interference(dkwb_test_memory, 0, "p1", 9, 0);
+    dkwb_cdx_log_seed(dkwb_test_memory, 0, 0);
+    dkwb_cdx_log_seedcand(dkwb_test_memory, 0, 0, 0, 1);
+    dkwb_cdx_log_livbb(dkwb_test_memory, "del-grow", 0, 0);
+    dkwb_cdx_log_grow(dkwb_test_memory, 0, 0, 0, 0);
+    dkwb_cdx_log_grow_verdict(dkwb_test_memory, 0, 0, 1);
     DKWB_CDX_LOG(0, "%s\\n", dkwb_cdx_register_name(2));
     DKWB_CDX_COST(0, "p1", 9, 2, "caller", 1.0, 2.0);
     dkwb_cdx_procindex();
@@ -216,7 +308,14 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("CDX_LINEAGE_TABLES", result.source)
         self.assertIn("[CDX] lineage_range", result.source)
         self.assertIn("[CDX] lineage_member", result.source)
-        self.assertEqual(result.trace_points, 13)
+        self.assertIn("[CDX] webblocks", result.source)
+        self.assertIn("[CDX] seed", result.source)
+        self.assertIn("[CDX] seedcand", result.source)
+        self.assertIn("[CDX] livbb", result.source)
+        self.assertIn("[CDX] grow", result.source)
+        self.assertIn("[CDX] growv", result.source)
+        self.assertIn("dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4)", result.source)
+        self.assertEqual(result.trace_points, 23)
         self.assertIn('strcmp(value, "all")', result.source)
         self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)
         self.assertIn("available0=0x%08x available1=0x%08x", result.source)
@@ -305,7 +404,9 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("dkwb_cdx_proc_decisions++", source)
         self.assertIn("atexit(dkwb_cdx_finish)", source)
 
-    def build_header_program(self, root: Path, driver: str = COMPILE_DRIVER) -> Path:
+    def build_header_program(
+        self, root: Path, driver: str = COMPILE_DRIVER, prelude: str = COMPILE_PRELUDE
+    ) -> Path:
         """Compile the injected header on its own and return the binary."""
 
         compiler = shutil.which("cc") or shutil.which("gcc")
@@ -318,7 +419,7 @@ class UoptInstrumentationTests(unittest.TestCase):
         end = source.index("static void f_compute_save")
         program = root / "header.c"
         program.write_text(
-            COMPILE_PRELUDE + source[start:end] + driver,
+            prelude + source[start:end] + driver,
             encoding="utf-8",
         )
         binary = root / ("header.exe" if os.name == "nt" else "header")
@@ -334,6 +435,34 @@ class UoptInstrumentationTests(unittest.TestCase):
     def test_generated_header_compiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             self.assertTrue(self.build_header_program(Path(temp)).is_file())
+
+    def test_web_block_sets_are_decoded_the_way_bvectin_reads_them(self) -> None:
+        """Block n is chunk n >> 7, word (n & 0x7f) >> 5, bit 31 - (n & 0x1f).
+
+        The record exists because webdetail's bb is -1 for every address
+        constant web; a decode off by one word or one bit direction would
+        attribute a split fragment to the wrong blocks, which is worse than
+        the -1 it replaces. Blocks 0, 31, 32, 127, 128 and 300 pin the chunk,
+        word and bit boundaries; the aux vector is left unallocated to pin
+        the "-" spelling of an empty set.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.build_header_program(
+                Path(temp), BLOCKS_DRIVER, BLOCKS_PRELUDE
+            )
+            completed = subprocess.run(
+                [str(binary)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "CDX_LOG": "1"},
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn(
+                "[CDX] webblocks phase=p1 proc=0 role=target web=9 sym=-1 "
+                "lr=0x10000000 bbs=0,31,32,127,128,300 aux=-\n",
+                completed.stderr,
+            )
 
     def test_force_specification_parses_accepted_controls(self) -> None:
         self.assertEqual(
