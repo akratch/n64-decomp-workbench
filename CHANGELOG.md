@@ -5,6 +5,23 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### A landscape measured against another source is refused
+
+- **Every compile-keyed artefact carries a `source_stamp`, and every reader
+  refuses a mismatch by default** (backlog item 20). Five consecutive lanes
+  on one campaign measured colours against a body that had moved 227 -> 207
+  -> 187 words beneath them; each report still read like a measurement of the
+  function in front of them. `oracle sweep`/`oracle force` stamp the digest
+  they compiled, `sweep.json` stamps its base, and `oracle status`,
+  `oracle export`, `diagnose --force-result` and `sweep ingest` exit 2 with a
+  `STALE:` line when the source has changed since.
+- `--allow-stale-source` reads a stale artefact and keeps saying so;
+  `--stamped-source PATH` checks against the source in another checkout. JSON
+  output carries the verdict as `source_freshness`.
+- Reports written before the stamp are checked through the digest they
+  already recorded. Unstamped and unreadable-source artefacts are warned
+  about, never refused and never passed as fresh.
+
 ### The suite is green again
 
 Seven tests failed on `main`; none of them was an assertion that had become

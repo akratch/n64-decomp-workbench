@@ -17,6 +17,12 @@ from .globalcolor import (
     register_for_color,
 )
 from .model import CompileResult
+from .source_stamp import (
+    FRESHNESS_KEY,
+    check_source_stamp,
+    enforce,
+    read_source_stamp,
+)
 
 PLAN_SCHEMA = "decomp-workbench-oracle-plan-v1"
 DIFF_SCHEMA = "decomp-workbench-oracle-diff-v1"
@@ -572,3 +578,36 @@ def run_oracle_campaign(
             else []
         ),
     }
+
+
+def oracle_report_freshness(
+    report: dict[str, Any],
+    *,
+    artefact: str,
+    source: str | None = None,
+    allow_stale: bool = False,
+) -> tuple[dict[str, Any], list[str]]:
+    """Check a persisted sweep against its source; refuse a stale one.
+
+    A report written before the stamp existed still recorded the digest of
+    the source it compiled, under ``inputs.source``; that is honoured, so
+    every sweep already on disk is checked rather than waved through.
+    Returns the report with its ``source_freshness`` block, and the warning
+    lines to print. Raises ``StaleSourceError`` for a refused read.
+    """
+
+    inputs = report.get("inputs")
+    recorded = inputs.get("source") if isinstance(inputs, dict) else None
+    legacy = (
+        [(str(recorded.get("path") or ""), str(recorded.get("sha256") or ""))]
+        if isinstance(recorded, dict)
+        else []
+    )
+    freshness = check_source_stamp(
+        read_source_stamp(report, legacy=legacy),
+        artefact=artefact,
+        source=source,
+        allow_stale=allow_stale,
+    )
+    warnings = enforce(freshness)
+    return {**report, FRESHNESS_KEY: freshness.as_dict()}, warnings

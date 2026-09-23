@@ -486,6 +486,91 @@ class IngestTests(SourceCase):
             target_dumps=True,
         )
 
+    def cli_ingest(self, *extra: str) -> tuple[int, str, str]:
+        directory, objects, target = self.build()
+        return run_cli(
+            [
+                "sweep-ingest",
+                str(directory),
+                "--objects",
+                str(objects),
+                "--target",
+                str(target),
+                "--object-suffix",
+                ".objdump",
+                "--dumps",
+                "--target-dumps",
+                *extra,
+            ]
+        )
+
+    def test_the_manifest_stamps_its_base_by_content(self) -> None:
+        directory, _objects, _target = self.build()
+        payload = json.loads((directory / "sweep.json").read_text(encoding="utf-8"))
+        stamp = payload["source_stamp"]
+        self.assertEqual(stamp["stamp_schema"], "decomp-workbench-source-stamp-v1")
+        self.assertEqual(stamp["sources"][0]["path"], str(self.path.resolve()))
+        self.assertEqual(stamp["sources"][0]["sha256"], payload["base_sha256"])
+
+    def test_ingest_carries_a_fresh_verdict_in_json(self) -> None:
+        status, stdout, _ = self.cli_ingest("--json")
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(stdout)["source_freshness"]["status"], "fresh")
+
+    def test_ingest_refuses_a_family_cut_from_a_base_that_moved(self) -> None:
+        """Backlog item 20: a price table is a difference against the base."""
+
+        directory, objects, target = self.build()
+        self.path.write_text(SOURCE + "\n/* edited */\n", encoding="utf-8")
+        common = [
+            "sweep-ingest",
+            str(directory),
+            "--objects",
+            str(objects),
+            "--target",
+            str(target),
+            "--object-suffix",
+            ".objdump",
+            "--dumps",
+            "--target-dumps",
+        ]
+        status, stdout, stderr = run_cli(common)
+        allowed, allowed_out, _allowed_err = run_cli(
+            [*common, "--allow-stale-source", "--json"]
+        )
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("STALE:", stderr)
+        self.assertEqual(allowed, 0)
+        block = json.loads(allowed_out)["source_freshness"]
+        self.assertEqual(block["status"], "stale")
+        self.assertTrue(block["allowed_stale"])
+
+    def test_a_pre_stamp_manifest_is_checked_by_its_base_digest(self) -> None:
+        directory, objects, target = self.build()
+        manifest = directory / "sweep.json"
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        del payload["source_stamp"]
+        payload["base"] = str(self.path)
+        payload["base_sha256"] = "0" * 64
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        status, _stdout, stderr = run_cli(
+            [
+                "sweep-ingest",
+                str(directory),
+                "--objects",
+                str(objects),
+                "--target",
+                str(target),
+                "--object-suffix",
+                ".objdump",
+                "--dumps",
+                "--target-dumps",
+            ]
+        )
+        self.assertEqual(status, 2)
+        self.assertIn("STALE:", stderr)
+
     def test_a_wrong_instruction_count_is_a_column_not_a_rejection(self) -> None:
         """Eleven stages abandoned candidates that were one row away."""
 

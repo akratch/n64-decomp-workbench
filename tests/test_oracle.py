@@ -17,6 +17,7 @@ from decomp_workbench.compare import compare_instructions
 from decomp_workbench.globalcolor import parse_globalcolor_trace
 from decomp_workbench.model import CompileResult, Instruction
 from decomp_workbench.oracle import oracle_diff, oracle_plan, run_oracle_campaign
+from decomp_workbench.source_stamp import STAMP_KEY, stamp_sources
 
 TRACE = """
 [CDX] webdetail proc=7 web=9 role=target dtype=13 bb=4 defbb=4 usebbs=5 line=20
@@ -424,6 +425,11 @@ class OracleTests(unittest.TestCase):
             state = root / "oracle-state"
             state.mkdir()
             report_path = state / "report.json"
+            # A current report is stamped with the source it compiled; the
+            # stamp is what lets `status`/`export` read it without a warning.
+            source = root / "candidate.c"
+            source.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+            report[STAMP_KEY] = stamp_sources([source]).as_dict()
             report_path.write_text(json.dumps(report), encoding="utf-8")
             status, stdout, stderr = self.run_cli(
                 ["oracle", "status", str(state), "--json"]
@@ -465,6 +471,182 @@ class OracleTests(unittest.TestCase):
         self.assertNotIn("https://", document)
         self.assertEqual(repeated, 2)
         self.assertIn("refusing to overwrite", repeated_stderr)
+
+
+class OracleSourceStampTests(unittest.TestCase):
+    """Backlog item 20: a persisted force grid is refused once its source moves."""
+
+    def run_cli(self, arguments: list[str]) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def write_report(self, root: Path, *, stamped: bool = True) -> tuple[Path, Path]:
+        source = root / "candidate.c"
+        source.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        report: dict[str, object] = {
+            "schema": "decomp-workbench-oracle-sweep-v1",
+            "completed_forces": 0,
+            "planned_forces": 0,
+            "baseline": None,
+            "results": [],
+            "signature": None,
+            "proof": "Forced compiler output is causal evidence only.",
+        }
+        if stamped:
+            report[STAMP_KEY] = stamp_sources([source]).as_dict()
+        state = root / "state"
+        state.mkdir()
+        (state / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        return state, source
+
+    def test_a_sweep_writes_the_digest_it_compiled_as_its_stamp(self) -> None:
+        from decomp_workbench import oracle_cli
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "candidate.c"
+            source.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+            # The identity block hashed the source before compiling; the stamp
+            # must carry that digest, not a re-read taken afterwards.
+            measured = "a" * 64
+            state = oracle_cli.OracleStatePaths(
+                root=root / "state",
+                ledger=root / "state" / "ledger.jsonl",
+                objects=root / "state" / "objects",
+                report=root / "state" / "report.json",
+                identity={"source": {"path": str(source), "sha256": measured}},
+            )
+            arguments = argparse.Namespace(
+                env=[],
+                toolchain="tc",
+                source=str(source),
+                target="t.o",
+                compile_command="cc",
+                cache_dir="c",
+                jobs=1,
+                objdump=None,
+                symbol=None,
+                section=".text",
+                compile_cwd=None,
+                no_keep_objects=True,
+                timeout=1.0,
+                stream_limit=1,
+                artifact_dir=None,
+                json=True,
+                limit=5,
+            )
+            campaign = {"control_valid": True, "results": []}
+            with (
+                mock.patch.object(oracle_cli, "_plan_for_compile", return_value={}),
+                mock.patch.object(
+                    oracle_cli, "merge_toolchain_environment", return_value={}
+                ),
+                mock.patch.object(oracle_cli, "_state_paths", return_value=state),
+                mock.patch.object(
+                    oracle_cli, "run_oracle_campaign", return_value=campaign
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                oracle_cli.oracle_sweep_command(arguments)
+            written = json.loads(state.report.read_text(encoding="utf-8"))
+        stamp = written[STAMP_KEY]
+        self.assertEqual(stamp["stamp_schema"], "decomp-workbench-source-stamp-v1")
+        self.assertEqual(
+            stamp["sources"],
+            [{"path": str(source.resolve()), "sha256": measured}],
+        )
+
+    def test_a_fresh_report_carries_its_verdict_in_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = self.write_report(Path(temporary))
+            status, stdout, _ = self.run_cli(["oracle", "status", str(state), "--json"])
+        self.assertEqual(status, 0)
+        block = json.loads(stdout)["source_freshness"]
+        self.assertEqual(block["status"], "fresh")
+        self.assertFalse(block["refused"])
+
+    def test_an_edited_source_refuses_the_report_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state, source = self.write_report(Path(temporary))
+            source.write_text("int f(void) { return 2; }\n", encoding="utf-8")
+            status, stdout, stderr = self.run_cli(["oracle", "status", str(state)])
+            json_status, json_out, _ = self.run_cli(
+                ["oracle", "status", str(state), "--json"]
+            )
+            output = Path(temporary) / "out.html"
+            exported, _, export_stderr = self.run_cli(
+                ["oracle", "export", str(state), "--output", str(output)]
+            )
+            self.assertFalse(output.exists())
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("STALE:", stderr)
+        self.assertIn("--allow-stale-source", stderr)
+        self.assertEqual(json_status, 2)
+        self.assertIn("STALE:", json.loads(json_out)["error"]["message"])
+        self.assertEqual(exported, 2)
+        self.assertIn("STALE:", export_stderr)
+
+    def test_allow_stale_source_reads_it_and_still_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state, source = self.write_report(Path(temporary))
+            source.write_text("int f(void) { return 2; }\n", encoding="utf-8")
+            status, _, stderr = self.run_cli(
+                ["oracle", "status", str(state), "--allow-stale-source"]
+            )
+            json_status, json_out, _ = self.run_cli(
+                ["oracle", "status", str(state), "--allow-stale-source", "--json"]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn("WARNING: STALE:", stderr)
+        self.assertEqual(json_status, 0)
+        block = json.loads(json_out)["source_freshness"]
+        self.assertEqual(block["status"], "stale")
+        self.assertTrue(block["allowed_stale"])
+        self.assertFalse(block["refused"])
+
+    def test_a_pre_stamp_report_is_checked_through_its_recorded_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state, source = self.write_report(root, stamped=False)
+            report_path = state / "report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["inputs"] = {
+                "source": {"path": str(source), "sha256": "0" * 64},
+            }
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            status, _, stderr = self.run_cli(["oracle", "status", str(state)])
+        self.assertEqual(status, 2)
+        self.assertIn("STALE:", stderr)
+
+    def test_an_unstamped_report_is_read_with_a_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = self.write_report(Path(temporary), stamped=False)
+            status, _, stderr = self.run_cli(["oracle", "status", str(state)])
+        self.assertEqual(status, 0)
+        self.assertIn("carries no source stamp", stderr)
+
+    def test_stamped_source_checks_a_moved_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state, source = self.write_report(root)
+            moved = root / "elsewhere.c"
+            moved.write_bytes(source.read_bytes())
+            source.unlink()
+            unknown, _, unknown_stderr = self.run_cli(["oracle", "status", str(state)])
+            fresh, _, fresh_stderr = self.run_cli(
+                ["oracle", "status", str(state), "--stamped-source", str(moved)]
+            )
+        self.assertEqual(unknown, 0)
+        self.assertIn("cannot be read here", unknown_stderr)
+        self.assertEqual(fresh, 0)
+        self.assertEqual(fresh_stderr, "")
 
 
 if __name__ == "__main__":

@@ -49,8 +49,10 @@ from .loc_boundaries import (
     schedule_class_count,
 )
 from .model import display_path
+from .oracle import oracle_report_freshness
 from .register_state import load_reservations
 from .schema import COMPARISON_CENSUS_KEYS
+from .source_stamp import FRESHNESS_KEY, add_source_stamp_arguments
 from .staleness_cli import (
     add_freshness_arguments,
     freshness_display,
@@ -141,7 +143,40 @@ def _with_trace_note(
     return dataclasses.replace(diagnosis, view=view)
 
 
-def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
+def _force_result(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Read `--force-result`, refusing one measured against another source.
+
+    A force grid is a measurement of one function body; read against an
+    edited body it reports reachability for a function that no longer
+    exists. The check is the oracle's own (backlog item 20), and its verdict
+    rides into the JSON under ``source_freshness``.
+    """
+
+    path = getattr(args, "force_result", None)
+    if not path:
+        return None, None
+    report = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise ValueError(f"{path}: --force-result must be a JSON object")
+    checked, warnings = oracle_report_freshness(
+        report,
+        artefact=f"force result {display_path(path)}",
+        source=getattr(args, "stamped_source", None),
+        allow_stale=bool(getattr(args, "allow_stale_source", False)),
+    )
+    for line in warnings:
+        print(line, file=sys.stderr)
+    freshness = checked.pop(FRESHNESS_KEY)
+    return checked, freshness
+
+
+def _lever(
+    diagnosis: Diagnosis,
+    args: argparse.Namespace,
+    force_result: dict[str, Any] | None = None,
+) -> Diagnosis:
     """Attach the source-edit class, reading whichever traces were supplied.
 
     Nothing here is optional-with-a-default: each input is a different
@@ -170,11 +205,6 @@ def _lever(diagnosis: Diagnosis, args: argparse.Namespace) -> Diagnosis:
             ladder = frame_ladder(cdx_log, proc=getattr(args, "lever_proc", None))
         except CascadeError as error:
             warn_to_stderr(f"{error} Reading its colouring records only.")
-    force_result = None
-    if getattr(args, "force_result", None):
-        force_result = json.loads(
-            Path(args.force_result).expanduser().read_text(encoding="utf-8")
-        )
     ring_events = None
     if getattr(args, "ring_trace", None):
         ring_events = parse_trace(
@@ -254,7 +284,8 @@ def _emit(
         return 2
     try:
         diagnosis, listing_report = _statement_lines(diagnosis, args)
-        diagnosis = _lever(diagnosis, args)
+        force_result, force_freshness = _force_result(args)
+        diagnosis = _lever(diagnosis, args, force_result)
     except (CascadeError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -310,6 +341,8 @@ def _emit(
             if isinstance(nested, dict):
                 nested["census"] = [item.as_dict() for item in census]
         payload.update(freshness_payload(freshness))
+        if force_freshness is not None:
+            payload[FRESHNESS_KEY] = force_freshness
         if listing_report is not None:
             payload["loc_boundaries"] = listing_report.as_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -516,6 +549,7 @@ def _add_shared_arguments(
             "proves they are not"
         ),
     )
+    add_source_stamp_arguments(parser)
     parser.add_argument(
         "--ring-trace",
         metavar="PATH",

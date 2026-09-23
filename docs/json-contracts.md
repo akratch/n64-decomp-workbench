@@ -104,7 +104,13 @@ that was compared against it. `check-staleness` emits that document on its
 own, with the schema at the top level. Its `status` is `fresh` only when at
 least one input/derived pair was actually read: a comparison run without
 `--built-from` compared nothing, so it reports `unknown` with `comparisons: 0`
-rather than certifying a build nobody checked. Switch on
+rather than certifying a build nobody checked. A reader of a compile-keyed
+artefact (`oracle status`/`export`, `diagnose --force-result`,
+`sweep ingest`) adds `source_freshness`: `status` (`fresh`, `unstamped`,
+`unknown`, `stale`), `refused`, `allowed_stale`, one row per stamped source,
+and `stamp_schema` (`decomp-workbench-source-stamp-v1`) inside the block. The
+artefacts themselves carry the stamp as `source_stamp`, versioned the same
+way. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 

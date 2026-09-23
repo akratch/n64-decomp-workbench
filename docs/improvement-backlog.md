@@ -1480,6 +1480,35 @@ workbench artefact keyed to a compile (landscape, lattice, census, allocator log
 carries the source digest, and every reader refuses a mismatch by default. Payoff:
 the most expensive class of wasted lane in the sprint becomes an error line.
 
+**Status (landed).** `source_stamp.py` is the one stamp and the one check.
+Writers record the SHA-256 of every source they compiled under `source_stamp`:
+`oracle sweep`/`oracle force` (the colour landscape and force grid) stamp the
+digest their identity block took *before* compiling, and a sweep family's
+`sweep.json` stamps its base with the path resolved where it was written.
+Readers check it and **refuse a mismatch by default** with a `STALE:` line and
+exit 2 -- `oracle status`, `oracle export`, `diagnose --force-result` and
+`sweep ingest`. `--allow-stale-source` reads it anyway and keeps printing the
+mismatch; `--stamped-source PATH` checks against the source in another
+checkout; every reader's JSON carries the verdict as `source_freshness`.
+Artefacts written before the stamp are checked through the digest they already
+recorded (`inputs.source`, `base_sha256`), so the reports on disk today are
+checked too, not waved through as unstamped.
+
+The digest is of content, never of mtime: a checkout or a rebase moves every
+mtime without changing what was measured, and a check that fired on those
+would be learned to be ignored within a day.
+
+**Deliberately out:** only a *contradiction* refuses. `unstamped` (nothing to
+compare) and `unknown` (the stamped path cannot be read from here) are loud
+warnings, because neither shows the source moved and refusing them would
+refuse every host-written report and every report read from a second
+checkout. Allocator and CDX *logs* are not stamped: the instrumented compiler
+writes them, and a stamp the workbench added afterwards would certify a file
+it did not produce; they reach a verdict through the stamped oracle report or
+through `diagnose --trace` scoping. No `source-stamp` command either -- the
+library functions (`stamp_sources`, `check_source_stamp`, `enforce`) are the
+host-facing half, the way `staleness.staleness_report` is item 1's.
+
 ### 21. P1 — Split-growth trace and per-web block sets as a standard profile
 Symptom: `webdetail` carried `bb=-1`, so the block set of an address-constant web
 was unreadable and three lanes reasoned about "numintf >= 25 offers a2" as a

@@ -206,6 +206,15 @@ the state directory. A state directory or `report.json` can be passed
 explicitly. Exports are self-contained HTML or JSON and refuse to overwrite an
 existing path.
 
+A sweep report is a measurement of one source. Each carries a `source_stamp`
+(the SHA-256 the identity block hashed before compiling), and `status`,
+`export` and `diagnose --force-result` refuse a report whose source has changed
+since, with a `STALE:` line and exit 2. `--allow-stale-source` reads it anyway,
+printing the mismatch and carrying it in JSON as `source_freshness`;
+`--stamped-source PATH` checks against the source in another checkout. Reports
+written before the stamp existed are checked through `inputs.source`. A report
+with neither is read with a warning, never passed as fresh.
+
 ## Reading the result
 
 - `baseline words` is the unforced control.
