@@ -33,8 +33,11 @@ What it measures, all from one alignment (the same `difflib` edit script
   three lines), ``as1`` (a nop), ``isa`` (an ISA hazard slot, never a source
   line), or ``neighbour`` for a target-only word placed only by the candidate
   line beside it -- the weakest.
-* **Label** per word and per pair from a fixed vocabulary, a rule over class
-  and owner (``missing-CSE``, ``spill/reload``, ...).
+* **Label** per word and per pair from a fixed vocabulary. The generic labels
+  (``missing-CSE``, ``spill/reload``, ...) are a rule over class and owner.
+  The specific labels were each measured as a recurring cause on the Mickey's
+  Speedway USA small-delta wave and carry the one check that decides them; when
+  that check fires the specific label wins over the generic one.
 
 What it cannot do: it reads *our* compile. The target has no trace and no line
 table, so a target-only word is owned by what our code does beside it. A label
@@ -754,7 +757,15 @@ def own(
 #: Labels a deciding check names. Each was measured as a recurring cause on
 #: the Mickey's Speedway USA small-delta wave (backlog items 33, 34, 39, 40)
 #: and each beats the generic label when its check fires.
-SPECIFIC_LABELS: tuple[str, ...] = ()
+SPECIFIC_LABELS = (
+    "isa-hazard",
+    "memory-across-call",
+    "narrow-param-store",
+    "const-arg-copy",
+    "arg-reg-copy",
+    "unprototyped-call",
+    "self-reassign-copy",
+)
 
 #: Rule labels over class and owner, the reader's original vocabulary.
 GENERIC_LABELS = (
@@ -794,7 +805,14 @@ CLASS_LABEL = {
 #: What kind of edit each label asks for. The census sorts by this, never by
 #: positional words.
 EDIT_KINDS: dict[str, str] = {
+    "isa-hazard": "compiler-flag",
+    "narrow-param-store": "declaration",
+    "unprototyped-call": "declaration",
+    "self-reassign-copy": "carrier-deletion",
+    "arg-reg-copy": "carrier-deletion",
+    "const-arg-copy": "carrier-deletion",
     "split-not-copy": "carrier-deletion",
+    "memory-across-call": "lifetime",
     "spill/reload": "reload",
     "callee-save": "save",
     "missing-CSE": "expression",
@@ -807,6 +825,104 @@ EDIT_KINDS: dict[str, str] = {
     "other": "unknown",
     "unowned": "unknown",
 }
+
+_ASSIGNMENT_RE = re.compile(
+    r"^\s*(?:(?:const|volatile|register|static|signed|unsigned)\s+)*"
+    r"(?:[A-Za-z_]\w*(?:\s*\*+\s*|\s+))?"
+    r"(?P<name>[A-Za-z_]\w*)\s*(?P<op>[-+*/%&|^]|<<|>>)?=(?!=)\s*(?P<rhs>[^;]+);"
+)
+_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_]\w*\b")
+_C_KEYWORDS = frozenset(
+    {
+        "int",
+        "char",
+        "short",
+        "long",
+        "float",
+        "double",
+        "unsigned",
+        "signed",
+        "void",
+        "const",
+        "volatile",
+        "sizeof",
+        "struct",
+        "union",
+        "enum",
+        "s8",
+        "u8",
+        "s16",
+        "u16",
+        "s32",
+        "u32",
+        "f32",
+        "f64",
+    }
+)
+
+
+def _strip_comment(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", " ", text)
+    return text.split("//", 1)[0]
+
+
+def self_reassignment(
+    source: Sequence[str], line: int, last_line: int | None
+) -> tuple[str, ...] | None:
+    """The locals a self-reassignment copy asks to merge, or None.
+
+    Fires when the owning line assigns a variable from an expression of
+    itself (``count = (count + 15) >> 4``, ``r *= 2``), naming that variable;
+    or assigns one local from an expression of exactly one other local that
+    no later line of the function reads, naming both.
+    """
+
+    if not 1 <= line <= len(source):
+        return None
+    match = _ASSIGNMENT_RE.match(_strip_comment(source[line - 1]))
+    if match is None:
+        return None
+    name, rhs = match.group("name"), match.group("rhs")
+    identifiers = [
+        item for item in _IDENTIFIER_RE.findall(rhs) if item not in _C_KEYWORDS
+    ]
+    if match.group("op") or name in identifiers:
+        return (name,)
+    distinct = sorted(set(identifiers))
+    if len(distinct) != 1:
+        return None
+    other = distinct[0]
+    stop = min(last_line or len(source), len(source))
+    later = " ".join(_strip_comment(text) for text in source[line:stop])
+    if re.search(rf"\b{re.escape(other)}\b", later):
+        return None
+    return (name, other)
+
+
+def unprototyped(texts: Iterable[str], callee: str) -> bool:
+    """Whether `callee` is declared with an empty parameter list, `f()`."""
+
+    pattern = re.compile(
+        rf"^[^;{{}}()]*\b{re.escape(callee)}\s*\(\s*\)\s*;", re.MULTILINE
+    )
+    prototype = re.compile(
+        rf"^[^;{{}}()]*\b{re.escape(callee)}\s*\(\s*[^)\s][^)]*\)\s*;", re.MULTILINE
+    )
+    joined = "\n".join(
+        _strip_comment(line) for text in texts for line in text.splitlines()
+    )
+    return bool(pattern.search(joined)) and not prototype.search(joined)
+
+
+_CALL_NAME_RE = re.compile(r"<([^>+]+)")
+
+
+def _callee(instruction: Instruction) -> str | None:
+    for relocation in instruction.relocations:
+        if relocation.symbol:
+            return relocation.symbol.split("+", 1)[0]
+    match = _CALL_NAME_RE.search(instruction.assembly)
+    return match.group(1) if match else None
 
 
 @dataclass(frozen=True)
@@ -822,6 +938,224 @@ class _Streams:
 
     def instructions(self, name: str) -> Sequence[Instruction]:
         return self.candidate if name == "candidate" else self.target
+
+
+def _specific(
+    word: dict[str, Any],
+    streams: _Streams,
+    *,
+    source: Sequence[str] | None,
+    context: Sequence[str],
+    bounds: tuple[int, int] | None,
+    memory_rows: Mapping[tuple[str, int], str],
+) -> tuple[str, str, str] | None:
+    """(label, check, lever) when one of the specific checks fires."""
+
+    side = word["side"]
+    row = word["row"]
+    words = streams.side(side)
+    value = words[row]
+    klass = word["class"]
+
+    # isa-hazard: a nop between an FP compare and its bc1 (backlog item 33).
+    if (
+        value == 0
+        and 0 < row < len(words) - 1
+        and is_fp_compare(words[row - 1])
+        and is_fp_branch(words[row + 1])
+    ):
+        flag = "-mips2 (or -mips1)" if side == "target" else "-mips3"
+        keeps = "the target keeps" if side == "target" else "only our build keeps"
+        return (
+            "isa-hazard",
+            "one-sided nop between an FP compare and bc1: the MIPS I/II "
+            f"compare-to-branch hazard slot, which as1 drops at -mips3; {keeps} it",
+            f"test the translation unit's ISA flag: build it at {flag}. This "
+            "word is not owned by any source line",
+        )
+
+    # memory-across-call: a one-sided store and reload of one stack cell on
+    # the same side, bracketing a call (backlog item 39c).
+    if (side, row) in memory_rows:
+        return (
+            "memory-across-call",
+            memory_rows[(side, row)],
+            "the "
+            + ("target" if side == "target" else "candidate")
+            + " keeps this variable in memory across the call where the other "
+            "side holds it in a register: change the variable's lifetime "
+            "(where it is defined and last read), not an expression",
+        )
+
+    # narrow-param-store: a one-sided store of an argument register in the
+    # prologue (backlog item 39b).
+    if klass == "stack-store":
+        _op, _rs, rt, _rd, _funct = _fields(value)
+        first_control = next(
+            (index for index, item in enumerate(words) if is_control_transfer(item)),
+            len(words),
+        )
+        on_first_line = bounds is not None and word["owner"].get("line") == bounds[0]
+        if rt in ARGUMENT_REGISTERS and (row < first_control or on_first_line):
+            offset = stack_offset(value)
+            frame = frame_size(words)
+            home = offset is not None and frame and offset >= frame
+            where = (
+                f"into the incoming-argument home at +0x{offset:X}"
+                if home and offset is not None
+                else "in the prologue"
+            )
+            return (
+                "narrow-param-store",
+                f"one-sided store of {ARGUMENT_NAMES[rt]} {where}, before the "
+                "first branch or call",
+                f"a narrow (u8/s16) parameter's entry store, not a spill: "
+                f"declare parameter {ARGUMENT_NAMES[rt]}'s type to match the "
+                "side that stores it",
+            )
+
+    if klass == "move" and side == "candidate":
+        _op, rs, rt, rd, _funct = _fields(value)
+        moved_from = rs or rt
+        if rd in ARGUMENT_REGISTERS:
+            # const-arg-copy: the copied value is a constant materialised in
+            # a different block (backlog item 40).
+            for back in range(row - 1, -1, -1):
+                if destination(words[back]) != moved_from:
+                    continue
+                if classify_word(words[back]) == "const":
+                    boundary = any(
+                        is_control_transfer(words[k]) for k in range(back + 1, row)
+                    ) or any(
+                        back < target <= row for target in branch_target_rows(words)
+                    )
+                    if boundary:
+                        return (
+                            "const-arg-copy",
+                            f"one-sided copy into {ARGUMENT_NAMES[rd]} from a "
+                            "constant materialised in a different block",
+                            "a plain constant argument never takes the argument "
+                            "register across a block boundary: make the "
+                            "constant an allocated expression, or move the "
+                            "materialisation into the call's block",
+                        )
+                break
+            # arg-reg-copy: the target's word beside it updates the argument
+            # register in place (backlog item 39a).
+            for partner in _paired_target_rows(streams, row, radius=2):
+                target_word = streams.target_words[partner]
+                if (
+                    classify_word(target_word) == "alu"
+                    and destination(target_word) == rd
+                    and rd in sources(target_word)
+                ):
+                    return (
+                        "arg-reg-copy",
+                        f"candidate copies back into {ARGUMENT_NAMES[rd]} where "
+                        "the target's word beside it updates "
+                        f"{ARGUMENT_NAMES[rd]} in place",
+                        "compute into the parameter itself (reassign the "
+                        "parameter) rather than through a second local",
+                    )
+
+    # unprototyped-call: an argument register set up before a call to a
+    # callee declared without a parameter list (backlog item 39d).
+    if side == "candidate" and source is not None:
+        written = destination(value)
+        if written in ARGUMENT_REGISTERS:
+            for ahead in range(row + 1, min(row + 8, len(words))):
+                if is_call(words[ahead]):
+                    callee = _callee(streams.candidate[ahead])
+                    if callee and unprototyped([*source, *context], callee):
+                        return (
+                            "unprototyped-call",
+                            f"one-sided write of {ARGUMENT_NAMES[written]} before "
+                            f"a call to {callee}, declared without a parameter "
+                            "list",
+                            f"declare {callee}(void) (or its real parameters): "
+                            "an unprototyped callee makes the caller set up "
+                            "argument registers",
+                        )
+                    break
+                if is_control_transfer(words[ahead]):
+                    break
+
+    # self-reassign-copy: the owning line reassigns a variable from itself
+    # (backlog item 34).
+    if klass == "move" and source is not None:
+        line = word["owner"].get("line")
+        if isinstance(line, int):
+            names = self_reassignment(source, line, bounds[1] if bounds else None)
+            if names is not None:
+                merge = (
+                    f"reuse one variable for {names[0]}'s old and new value"
+                    if len(names) == 1
+                    else f"merge {names[0]} and {names[1]} into one variable"
+                )
+                return (
+                    "self-reassign-copy",
+                    f"one-sided copy owned by line {line}, which assigns "
+                    + (
+                        f"{names[0]} from itself"
+                        if len(names) == 1
+                        else f"{names[0]} from {names[1]}, dead afterwards"
+                    ),
+                    merge,
+                )
+    return None
+
+
+def _paired_target_rows(
+    streams: _Streams, candidate_row: int, *, radius: int
+) -> list[int]:
+    rows: list[int] = []
+    for step in streams.script:
+        if step.target is None:
+            continue
+        if step.candidate is not None and abs(step.candidate - candidate_row) <= radius:
+            rows.append(step.target)
+    # Target-only rows adjacent to those partners are "beside" the word too.
+    lo = min(rows) if rows else None
+    hi = max(rows) if rows else None
+    for step in streams.script:
+        if step.op == "target" and step.target is not None and lo is not None:
+            assert hi is not None
+            if lo - 1 <= step.target <= hi + 1:
+                rows.append(step.target)
+    return sorted(set(rows))
+
+
+def _memory_across_call(
+    one_sided: Sequence[tuple[str, int]], streams: _Streams
+) -> dict[tuple[str, int], str]:
+    found: dict[tuple[str, int], str] = {}
+    for side in ("candidate", "target"):
+        words = streams.side(side)
+        stores = [
+            row
+            for name, row in one_sided
+            if name == side and classify_word(words[row]) == "stack-store"
+        ]
+        loads = [
+            row
+            for name, row in one_sided
+            if name == side and classify_word(words[row]) == "stack-load"
+        ]
+        for store in stores:
+            offset = stack_offset(words[store])
+            for load in loads:
+                if load <= store or stack_offset(words[load]) != offset:
+                    continue
+                if not any(is_call(words[k]) for k in range(store + 1, load)):
+                    continue
+                check = (
+                    f"one-sided store and reload of the stack cell at "
+                    f"+0x{offset:X} on the {side} side bracket a call"
+                )
+                found[(side, store)] = check
+                found[(side, load)] = check
+                break
+    return found
 
 
 def word_label(word: Mapping[str, Any]) -> str:
@@ -957,8 +1291,9 @@ def analyse_pairs(
 ) -> dict[str, Any]:
     """Pairs, shadow, classes, owners and labels for one function.
 
-    ``source`` is the candidate's C split into lines and ``context`` its
-    headers, kept for the checks that read a statement or a declaration.
+    ``source`` is the candidate's C split into lines; it is read only by the
+    two checks that need a statement (``self-reassign-copy``) or a
+    declaration (``unprototyped-call``, which also reads ``context``).
     """
 
     script = edit_script(target, candidate, granularity=granularity)
@@ -1035,6 +1370,16 @@ def analyse_pairs(
             seen = step.candidate
         last_candidate.append(seen)
 
+    one_sided: list[tuple[str, int]] = []
+    for pair in pairs:
+        for index in pair.steps:
+            step = script[index]
+            if step.op == "candidate" and step.candidate is not None:
+                one_sided.append(("candidate", step.candidate))
+            elif step.op == "target" and step.target is not None:
+                one_sided.append(("target", step.target))
+    memory_rows = _memory_across_call(one_sided, streams)
+
     for pair in pairs:
         words: list[dict[str, Any]] = []
         for index in pair.steps:
@@ -1091,9 +1436,28 @@ def analyse_pairs(
                     }
                 )
         for word in words:
+            decided = _specific(
+                word,
+                streams,
+                source=source,
+                context=context,
+                bounds=bounds,
+                memory_rows=memory_rows,
+            )
             word["specific"] = None
             word["check"] = None
             word["lever"] = None
+            if decided is not None:
+                word["specific"], word["check"], word["lever"] = decided
+                if decided[0] == "isa-hazard":
+                    # Never a source line: the ISA decides this word.
+                    word["owner"] = {
+                        "owned": True,
+                        "line": None,
+                        "construct": "isa-hazard",
+                        "basis": "isa",
+                        "reason": "ISA hazard slot, owned by the compiler flag",
+                    }
             word["label"] = word_label(word)
             word["kind"] = word_kind(word)
         pair.words = words

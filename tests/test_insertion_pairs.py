@@ -19,8 +19,10 @@ from mips_asm import assemble
 
 from decomp_workbench.cli import main
 from decomp_workbench.insertion_pairs import (
+    LABELS,
     PAIRS_CENSUS_SCHEMA,
     PAIRS_SCHEMA,
+    SPECIFIC_LABELS,
     LineTable,
     Step,
     analyse_pairs,
@@ -30,6 +32,8 @@ from decomp_workbench.insertion_pairs import (
     pairs_from_script,
     parse_line_table,
     parse_owner_trace,
+    self_reassignment,
+    unprototyped,
 )
 from decomp_workbench.model import Instruction
 from decomp_workbench.objdump import parse_disassembly
@@ -278,6 +282,182 @@ class OwnerTests(unittest.TestCase):
         parsed = parse_line_table(text, symbol=SYMBOL, source="demo.c")
         self.assertEqual(parsed.lines[4], "util.h:9")
         self.assertEqual(parsed.own_lines, (4, 5))
+
+
+class SpecificLabelTests(unittest.TestCase):
+    """Each label from backlog items 33, 34, 39 and 40, with its check."""
+
+    def test_the_vocabulary_puts_specific_labels_first(self) -> None:
+        self.assertEqual(LABELS[: len(SPECIFIC_LABELS)], SPECIFIC_LABELS)
+
+    def test_isa_hazard_names_the_flag_and_no_line(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target = rows([*head, "c.lt.s f0,f2", "nop", "bc1t @20", "nop", *tail])
+        candidate = rows([*head, "c.lt.s f0,f2", "bc1t @19", "nop", *tail])
+        report = analyse_pairs(target, candidate, lines=table([5] * 30))
+        word = only_word(report)
+        self.assertEqual(word["label"], "isa-hazard")
+        self.assertIsNone(word["owner"]["line"])
+        self.assertEqual(word["owner"]["basis"], "isa")
+        self.assertIn("-mips2", word["lever"])
+        self.assertEqual(report["label"], "isa-hazard")
+        self.assertEqual(report["edit"], "compiler-flag")
+
+    def test_a_nop_elsewhere_is_not_an_isa_hazard(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target = rows([*head, "nop", *tail])
+        candidate = rows([*head, *tail])
+        word = only_word(analyse_pairs(target, candidate))
+        self.assertNotEqual(word["label"], "isa-hazard")
+
+    def test_self_reassign_copy_from_the_owning_line(self) -> None:
+        body = stream(20)
+        target = rows(body)
+        candidate = rows([*body[:8], "move t0,t1", *body[8:]])
+        source = [""] * 20
+        source[11] = "    count = (count + 15) >> 4;"
+        report = analyse_pairs(
+            target,
+            candidate,
+            lines=table([10] * 8 + [12] + [14] * 12),
+            source=source,
+        )
+        word = only_word(report)
+        self.assertEqual(word["label"], "self-reassign-copy")
+        self.assertIn("count", word["lever"])
+
+    def test_self_reassignment_through_a_dead_second_local(self) -> None:
+        source = [
+            "void f(void) {",
+            "    s32 radius, wide;",
+            "    wide = radius * 2;",
+            "    use(wide);",
+            "}",
+        ]
+        self.assertEqual(self_reassignment(source, 3, 5), ("wide", "radius"))
+        source[3] = "    use(wide, radius);"
+        self.assertIsNone(self_reassignment(source, 3, 5))
+        self.assertEqual(self_reassignment(["    r *= 2;"], 1, 1), ("r",))
+
+    def test_arg_reg_copy_when_the_target_updates_in_place(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target = rows([*head, "or a0,a0,t1", *tail])
+        candidate = rows([*head, "or t0,a0,t1", "move a0,t0", *tail])
+        report = analyse_pairs(target, candidate, lines=table([7] * 20))
+        word = only_word(report)
+        self.assertEqual(word["label"], "arg-reg-copy")
+        # Preferred over the generic label a move would otherwise take.
+        self.assertEqual(report["pairs"][0]["label"], "arg-reg-copy")
+
+    def test_a_copy_into_an_argument_register_alone_is_not_arg_reg_copy(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target = rows([*head, "or t0,a0,t1", *tail])
+        candidate = rows([*head, "or t0,a0,t1", "move a0,t0", *tail])
+        word = only_word(analyse_pairs(target, candidate, lines=table([7] * 20)))
+        self.assertNotEqual(word["label"], "arg-reg-copy")
+
+    def test_narrow_param_store_in_the_prologue(self) -> None:
+        body = stream(12)
+        target = rows(["addiu sp,sp,-32", "sw a0,32(sp)", *body, "jr ra", "nop"])
+        candidate = rows(["addiu sp,sp,-32", *body, "jr ra", "nop"])
+        word = only_word(analyse_pairs(target, candidate))
+        self.assertEqual(word["label"], "narrow-param-store")
+        self.assertIn("incoming-argument home", word["check"])
+
+    def test_a_store_after_the_first_branch_is_not_a_parameter_store(self) -> None:
+        body = stream(12)
+        target = rows(["beq t0,t1,@3", "nop", *body[:2], "sw a0,24(sp)", *body[2:]])
+        candidate = rows(["beq t0,t1,@3", "nop", *body])
+        word = only_word(analyse_pairs(target, candidate))
+        self.assertNotEqual(word["label"], "narrow-param-store")
+
+    def test_memory_across_call_when_the_pair_brackets_a_jal(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target_lines = [*head, "sw t0,24(sp)", "jal foo", "nop", "lw t0,24(sp)", *tail]
+        candidate_lines = [*head, "jal foo", "nop", *tail]
+        target = rows(target_lines, {9: "R_MIPS_26\tfoo"})
+        candidate = rows(candidate_lines, {8: "R_MIPS_26\tfoo"})
+        report = analyse_pairs(target, candidate)
+        labels = [w["label"] for p in report["pairs"] for w in p["words"]]
+        self.assertEqual(labels, ["memory-across-call", "memory-across-call"])
+        self.assertEqual(report["label"], "memory-across-call")
+
+    def test_unprototyped_call_needs_the_declaration(self) -> None:
+        head, tail = stream(8), stream(8, 40)
+        target = rows([*head, "jal foo", "nop", *tail], {8: "R_MIPS_26\tfoo"})
+        candidate = rows(
+            [*head, "li a1,0", "jal foo", "nop", *tail], {9: "R_MIPS_26\tfoo"}
+        )
+        for declaration, expected in (
+            ("void foo();", "unprototyped-call"),
+            ("void foo(void);", "missing-CSE"),
+        ):
+            with self.subTest(declaration=declaration):
+                report = analyse_pairs(
+                    target,
+                    candidate,
+                    lines=table([3] * 20),
+                    source=[declaration, "", "    foo();"],
+                    trace=parse_owner_trace(
+                        "DKWB-EMIT-V1 proc=0 block=1 emit=1 op=1 line=3 "
+                        "buffer=fwd fn=f_emit_ri_"
+                    ),
+                )
+                self.assertEqual(only_word(report)["label"], expected)
+
+    def test_unprototyped_reads_declarations_only(self) -> None:
+        self.assertTrue(unprototyped(["extern void foo();"], "foo"))
+        self.assertFalse(unprototyped(["void foo(s32 x);"], "foo"))
+        self.assertFalse(unprototyped(["    foo();"], "bar"))
+
+    def test_const_arg_copy_across_a_block_boundary(self) -> None:
+        head, tail = stream(6), stream(8, 40)
+        target = rows(
+            [
+                *head,
+                "li a2,192",
+                "beq t1,zero,@10",
+                "nop",
+                "li t4,1",
+                "jal bar",
+                "nop",
+                *tail,
+            ],
+            {10: "R_MIPS_26\tbar"},
+        )
+        candidate = rows(
+            [
+                *head,
+                "li t0,192",
+                "beq t1,zero,@10",
+                "nop",
+                "li t4,1",
+                "move a2,t0",
+                "jal bar",
+                "nop",
+                *tail,
+            ],
+            {11: "R_MIPS_26\tbar"},
+        )
+        report = analyse_pairs(target, candidate)
+        labels = {w["label"] for p in report["pairs"] for w in p["words"]}
+        self.assertIn("const-arg-copy", labels)
+
+    def test_a_constant_in_the_same_block_is_not_const_arg_copy(self) -> None:
+        head, tail = stream(6), stream(8, 40)
+        target = rows(
+            [*head, "li a2,192", "jal bar", "nop", *tail], {7: "R_MIPS_26\tbar"}
+        )
+        candidate = rows(
+            [*head, "li t0,192", "move a2,t0", "jal bar", "nop", *tail],
+            {8: "R_MIPS_26\tbar"},
+        )
+        labels = {
+            w["label"]
+            for p in analyse_pairs(target, candidate)["pairs"]
+            for w in p["words"]
+        }
+        self.assertNotIn("const-arg-copy", labels)
 
 
 class CensusTests(unittest.TestCase):

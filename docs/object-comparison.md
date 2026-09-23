@@ -492,9 +492,23 @@ line table, then the ugen construct from `DKWB-EMIT-V1` records under their
 placed by the candidate line beside it), and a **label**. Offsets and classes
 only: no instruction text is printed.
 
-The labels are a rule over class and owner: `hoist`, `unrolled-loop`,
+The generic labels are a rule over class and owner: `hoist`, `unrolled-loop`,
 `extra-ILOD`, `extra-ISTR`, `missing-CSE`, `split-not-copy`, `spill/reload`,
-`callee-save`, `control-flow`, `delay-slot`, `other`, `unowned`.
+`callee-save`, `control-flow`, `delay-slot`, `other`, `unowned`. Seven
+specific labels were each measured as a recurring cause the generic rule
+mislabelled on the Mickey's Speedway USA small-delta wave, and each carries
+the one check that decides it. When the check fires the specific label wins,
+and the word carries `check` and `lever`:
+
+| label | the deciding check | the lever it names |
+|---|---|---|
+| `isa-hazard` | a one-sided nop between an FP compare and `bc1` | the TU's ISA flag (`-mips2` keeps the hazard slot, `-mips3` drops it); never a source line |
+| `memory-across-call` | a one-sided store and reload of one stack cell on one side, bracketing a call | the variable's lifetime, not an expression |
+| `narrow-param-store` | a one-sided store of an argument register before the first branch or call | the parameter's declared width (`u8`/`s16`) |
+| `const-arg-copy` | a candidate-only copy into an argument register from a constant materialised in a different block | make the constant an allocated expression, or move it into the call's block |
+| `arg-reg-copy` | a candidate-only copy into an argument register where the target's word beside it updates that register in place | compute into the parameter itself |
+| `unprototyped-call` | a candidate-only argument-register write before a call whose callee is declared `f()` (`--source`, `--context`) | declare `f(void)` or the real parameters |
+| `self-reassign-copy` | a one-sided copy whose owning line assigns a variable from itself, or from one other local dead afterwards (`--source`) | reuse one variable |
 
 What it cannot do: it reads our compile. The target has no trace and no line
 table, so a target-only word is owned by what our code does beside it, and a

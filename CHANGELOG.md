@@ -5,6 +5,17 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### The small-delta label vocabulary the Mickey wave measured
+
+- **Seven specific labels in `object pairs`**, each decided by one check and
+  preferred over the generic `missing-CSE`, `spill/reload`, `split-not-copy`
+  or `delay-slot` when it fires: `isa-hazard` (a nop between an FP compare and
+  `bc1`; names the ISA flag and never a source line), `self-reassign-copy`,
+  `arg-reg-copy`, `narrow-param-store`, `memory-across-call`,
+  `unprototyped-call` and `const-arg-copy`. A word whose check fired carries
+  `check` and `lever`; the census counts them as compiler-flag, declaration,
+  carrier-deletion and lifetime edits. Backlog items 33, 34, 39 and 40.
+
 ### Which word is extra: the insertion-pair reader and its census
 
 - **`object pairs` / `object pairs-dumps`** name the construct that owns each

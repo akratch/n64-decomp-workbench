@@ -54,6 +54,9 @@ FLOAT_REGISTERS: dict[str, int] = {f"f{number}": number for number in range(32)}
 # primary opcodes for the coprocessor-1 load/store forms the fixtures use
 FLOAT_MEMORY: dict[str, int] = {"lwc1": 0x31, "swc1": 0x39}
 
+# funct codes for the single-format FP compares the ISA-hazard fixtures use
+FLOAT_COMPARE: dict[str, int] = {"c.eq.s": 0x32, "c.lt.s": 0x3C, "c.le.s": 0x3E}
+
 # funct codes for the special-format instructions the fixtures use
 SPECIAL: dict[str, int] = {
     "sll": 0x00,
@@ -131,6 +134,18 @@ def _encode(mnemonic: str, operands: list[str], index: int) -> int:
         return (_register(operands[1]) << 21) | (_register(operands[0]) << 11) | 0x21
     if mnemonic == "li":
         return (0x09 << 26) | (_register(operands[0]) << 16) | _immediate(operands[1])
+    if mnemonic in FLOAT_COMPARE:
+        return (
+            (0x11 << 26)
+            | (0x10 << 21)
+            | (_float_register(operands[1]) << 16)
+            | (_float_register(operands[0]) << 11)
+            | FLOAT_COMPARE[mnemonic]
+        )
+    if mnemonic in {"bc1f", "bc1t"}:
+        offset = int(operands[0][1:]) - index - 1
+        on_true = 1 if mnemonic == "bc1t" else 0
+        return (0x11 << 26) | (0x08 << 21) | (on_true << 16) | (offset & 0xFFFF)
     if mnemonic in FLOAT_MEMORY:
         memory = MEMORY_RE.match(operands[1])
         if memory is None:

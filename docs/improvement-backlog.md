@@ -1898,6 +1898,13 @@ reader, classify a one-sided nop whose neighbours are an FP compare and a
 source line. Payoff: a flag test costs one compile; a spelling search for a
 nop the compiler cannot emit at the current ISA costs a lane.
 
+**Status (landed).** `object pairs` labels a one-sided nop whose neighbours on
+its own side are an FP compare (`c.cond.s`/`c.cond.d`) and a `bc1` as
+`isa-hazard`: its owner is `basis: isa` with no line, and its `lever` names
+the flag to test (`-mips2` when the target keeps the slot, `-mips3` when only
+the candidate does). **Deliberately out:** `compare` itself does not yet
+carry the label; the reader is where a one-sided word is classed at all.
+
 ### 34. P1 — A self-reassignment (`x = f(x)`) is a copy the reader should name
 Symptom: on `func_8000D820` and `func_8000DB34` (Mickey, 2026-09-23) the last
 one-sided word of each was the register copy IDO emits when a variable is
@@ -1909,6 +1916,12 @@ variable from an expression of itself, or assigns a fresh local from another
 local that is dead afterwards, label it `self-reassign-copy` and name the two
 locals to merge. Payoff: two functions' final word was the same shape; a
 label that names it saves the spelling search.
+
+**Status (landed).** `self-reassign-copy`: a one-sided `move` whose owning line
+(from the line table, read in `--source`) assigns a variable from an
+expression of itself (`x = f(x)`, `x op= ...`), or assigns a local from an
+expression of exactly one other local that no later line of the function
+reads. The `lever` names the variable to reuse or the two locals to merge.
 
 ### 35. P0 — Qualify L99: unreferenced `s32` locals do take frame homes
 Symptom: three Track B matches (`func_8000DB34`, `func_800133FC`, and the
@@ -1976,6 +1989,18 @@ the line is the prologue; whether the pair brackets a `jal`; whether the
 callee's declaration has a parameter list). Payoff: each of these cost a lane
 three to eight cycles of spelling before the shape was read off the listing.
 
+**Status (landed).** The four labels, each with its check, in `object pairs`:
+`arg-reg-copy` (a candidate-only copy into `a0`-`a3` where the target's word
+beside it -- a paired row within two, or a target-only row next to one -- is an
+ALU op updating that argument register in place); `narrow-param-store` (a
+one-sided store of `a0`-`a3` before the side's first branch or call, or on the
+function's first line, citing the incoming-argument home when the offset is at
+or above the frame); `memory-across-call` (a one-sided store and reload of one
+`$sp` cell on the same side with a call between them, both words labelled);
+`unprototyped-call` (a candidate-only write of an argument register before a
+call, in the same block, whose callee `--source`/`--context` declares `f()` and
+never with parameters). Each wins over the generic label when it fires.
+
 ### 40. P1 — A plain constant passed as a call argument never takes the argument register
 Symptom: `overlay101BuildPresentationA/B` (Mickey, 2026-09-23) sat at Δ +4
 through 180 type/cast cells because a constant colour passed to a call was
@@ -1995,6 +2020,13 @@ makes the constant an allocated expression (a `static const`, a global read,
 an enum through a volatile?), measured on the two functions, and record it
 in the field guide. Payoff: this pattern is any call taking a literal beside
 a conversion branch, which is common in draw code.
+
+**Status (landed, part 1 of 3).** `const-arg-copy` is a label in `object
+pairs`: a candidate-only copy into `a0`-`a3` whose source register was last
+written by a constant materialisation with a branch, or a branch target,
+between the two. **Not done:** banking the exemption rule as a law (part 2)
+and the measured natural spelling (part 3), which need the instrumented
+records and the two functions.
 
 ### 41. P1 — L56 block-count pricing can be reached with empty statements; name the natural lever
 Symptom: `overlay89UpdateStateAndParticles` matched only after two empty
