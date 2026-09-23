@@ -297,6 +297,35 @@ The CV64 campaign record also uses
 not a schema emitted by a CLI command and not a substitute for a fresh
 comparison.
 
+### The colour landscape
+
+`sweep landscape` emits `decomp-workbench-landscape-v1`, both when it compiles
+and when `--report` re-reads a saved one. `order` is `first` with an empty
+`hold` and `held` otherwise; `hold` lists the forces applied to the baseline
+and to every cell. `base_score` is the held baseline's masked positional word
+count and `baseline` carries its `instruction_delta`, `aligned_structural` and
+function fingerprint. `trace_identity` is `identical`, `differs`, `supplied`
+(the plan came from `--trace` and was not checked) or null.
+
+Each entry of `rows` is one planned cell: `web`, `color`, `force`, `register`,
+`score`, `footprint` (window offset in hex to signed word change), and
+`status`, exactly one of `ok`, `size-changed`, `failed` and `not-probed`, with
+a `reason` for the last three. Only `ok` rows have a footprint; a
+`size-changed` row keeps its score but is excluded from winners and packing.
+
+`winners` are the `ok` rows scoring below `base_score`, best first, each with
+its `gain`. `rivals` groups winners whose radii (footprint window sets) are
+identical. `packing` is the maximum-gain subset with pairwise-disjoint radii
+and one colour per web: `forces`, `members` (each with `radius`),
+`predicted_score`, `predicted_gain`, `winners_considered` and `truncated`
+(more winners than the exact search admits). `next_hold` is `hold` plus the
+packing, or null when nothing packed. `closure` is a sentence when measured
+probes exist and none won, and is scoped to those probes and that source.
+`nomination` maps each window to the forces that move it, strongest first.
+`inputs.source.sha256` is the fingerprint `--report` checks; a mismatch adds
+`freshness` beginning `STALE:` and exits `1`. `evidence` is always
+`diagnostic-colour-landscape`: nothing in this document is a source match.
+
 ## Failure
 
 A representative error is:

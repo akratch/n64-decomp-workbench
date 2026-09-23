@@ -1,0 +1,217 @@
+{
+  "base_score": 116,
+  "baseline": {
+    "aligned_structural": 0,
+    "instruction_delta": 0,
+    "object_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "score": 116
+  },
+  "closure": null,
+  "evidence": "diagnostic-colour-landscape",
+  "hold": [
+    "p1:w75=c16",
+    "p1:w379=c20"
+  ],
+  "inputs": {
+    "compile_command": "cc -c {source} -o {output}",
+    "cross_kind": false,
+    "environment": {},
+    "every_colour": false,
+    "section": ".text",
+    "source": {
+      "path": "examples/fixtures/landscape-mini.c",
+      "sha256": "68f4fa997e857728e3093a672dbcce2aad44ceac2add0b2747624294a68ea3d5"
+    },
+    "symbol": "landscape_mini",
+    "target": {
+      "path": "target.o",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "located": 4,
+  "measured_probes": 5,
+  "moved_nothing": [
+    "p1:w40=c16"
+  ],
+  "next_hold": [
+    "p1:w75=c16",
+    "p1:w379=c20",
+    "p1:w101=c17",
+    "p1:w26=c4"
+  ],
+  "nomination": [
+    {
+      "forces": [
+        "p1:w26=c4",
+        "p1:w37=c4"
+      ],
+      "window": "0x0"
+    },
+    {
+      "forces": [
+        "p1:w101=c17"
+      ],
+      "window": "0x780"
+    },
+    {
+      "forces": [
+        "p1:w101=c17"
+      ],
+      "window": "0x800"
+    },
+    {
+      "forces": [
+        "p1:w44=c15"
+      ],
+      "window": "0x1200"
+    }
+  ],
+  "not_probed": [],
+  "order": "held",
+  "packing": {
+    "forces": [
+      "p1:w101=c17",
+      "p1:w26=c4"
+    ],
+    "members": [
+      {
+        "color": 17,
+        "force": "p1:w101=c17",
+        "gain": 19,
+        "radius": [
+          "0x780",
+          "0x800"
+        ],
+        "register": "s3",
+        "score": 97,
+        "web": 101
+      },
+      {
+        "color": 4,
+        "force": "p1:w26=c4",
+        "gain": 7,
+        "radius": [
+          "0x0"
+        ],
+        "register": "a1",
+        "score": 109,
+        "web": 26
+      }
+    ],
+    "predicted_gain": 26,
+    "predicted_score": 90,
+    "rule": "maximum total gain over winners whose radii share no window, at most one colour per web; a prediction that assumes additivity, which disjoint radii imply but do not guarantee",
+    "truncated": false,
+    "winners_considered": 3
+  },
+  "planned_probes": 6,
+  "procedure": 0,
+  "proof": "Compiler-decision probes only. A forced object is never source-match evidence; a winner is a force to add to the held set, and the packing is a prediction to measure before holding it.",
+  "rivals": [
+    [
+      "p1:w26=c4",
+      "p1:w37=c4"
+    ]
+  ],
+  "rows": [
+    {
+      "color": 17,
+      "footprint": {
+        "0x780": -12,
+        "0x800": -7
+      },
+      "force": "p1:w101=c17",
+      "held_register": null,
+      "reason": null,
+      "register": "s3",
+      "score": 97,
+      "status": "ok",
+      "web": 101
+    },
+    {
+      "color": 4,
+      "footprint": {
+        "0x0": -7
+      },
+      "force": "p1:w26=c4",
+      "held_register": null,
+      "reason": null,
+      "register": "a1",
+      "score": 109,
+      "status": "ok",
+      "web": 26
+    },
+    {
+      "color": 4,
+      "footprint": {
+        "0x0": -5
+      },
+      "force": "p1:w37=c4",
+      "held_register": null,
+      "reason": null,
+      "register": "a1",
+      "score": 111,
+      "status": "ok",
+      "web": 37
+    },
+    {
+      "color": 16,
+      "footprint": {},
+      "force": "p1:w40=c16",
+      "held_register": null,
+      "reason": null,
+      "register": "s2",
+      "score": 116,
+      "status": "ok",
+      "web": 40
+    },
+    {
+      "color": 15,
+      "footprint": {
+        "0x1200": 5
+      },
+      "force": "p1:w44=c15",
+      "held_register": null,
+      "reason": null,
+      "register": "s1",
+      "score": 121,
+      "status": "ok",
+      "web": 44
+    },
+    {
+      "color": 18,
+      "footprint": {},
+      "force": "p1:w52=c18",
+      "held_register": null,
+      "reason": "size +1 instruction(s) against the held baseline; the insertion shadow shifts and cannot be differenced",
+      "register": "s4",
+      "score": 118,
+      "status": "size-changed",
+      "web": 52
+    }
+  ],
+  "schema": "decomp-workbench-landscape-v1",
+  "size_changed": [
+    "p1:w52=c18"
+  ],
+  "trace_identity": "identical",
+  "warnings": [],
+  "window": 128,
+  "winners": [
+    {
+      "force": "p1:w101=c17",
+      "gain": 19,
+      "score": 97
+    },
+    {
+      "force": "p1:w26=c4",
+      "gain": 7,
+      "score": 109
+    },
+    {
+      "force": "p1:w37=c4",
+      "gain": 5,
+      "score": 111
+    }
+  ]
+}

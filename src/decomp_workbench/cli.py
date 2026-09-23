@@ -114,6 +114,7 @@ from .instrument_profiles import (
     instrument_uopt_profiles,
 )
 from .instrument_uopt import instrument_uopt_globalcolor
+from .landscape_cli import register_landscape_command
 from .line_probe_cli import register_line_probe_command
 from .linked_oracle_cli import register_linked_oracle_commands
 from .matrix_cli import register_matrix_command
@@ -2283,6 +2284,7 @@ def build_parser() -> argparse.ArgumentParser:
     # family and its manifest, let the project's wrapper build them, read the
     # objects back gated, scored, and with the coverage the family declared.
     register_sweep_commands(commands)
+    register_landscape_command(commands)
     register_staleness_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)

@@ -186,6 +186,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("copies", "drop a copy and rehost its reads on the original"),
         ("fuse", "fuse a donor's live range into the target's"),
         ("ingest", "gate, score and rank a built variant family"),
+        ("landscape", "probe every web against a held force set; pack by radii"),
     ),
     "toolchain": (
         ("init", "materialize a real-copy toolchain with calibration gates"),
@@ -322,6 +323,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("sweep", "fuse"): "sweep-fuse",
     ("sweep", "hoist"): "sweep-hoist",
     ("sweep", "ingest"): "sweep-ingest",
+    ("sweep", "landscape"): "sweep-landscape",
     ("sweep", "regress"): "sweep-regress",
     ("toolchain", "fingerprint"): "fingerprint-toolchain",
     ("toolchain", "lineage"): "lineage",
@@ -400,6 +402,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "sweep-fuse",
         "sweep-hoist",
         "sweep-ingest",
+        "sweep-landscape",
         "sweep-regress",
         "toolchain-calibrate",
         "toolchain-init",
@@ -438,6 +441,7 @@ def command_map_payload() -> dict[str, Any]:
             ("oracle", "force"),
             ("oracle", "sweep"),
             ("project", "campaign"),
+            ("sweep", "landscape"),
             ("toolchain", "calibrate"),
             ("toolchain", "init"),
         }
@@ -489,6 +493,7 @@ def command_map_payload() -> dict[str, Any]:
             ("scratch", "doctor"),
             ("shift", "rehearse"),
             ("sweep", "ingest"),
+            ("sweep", "landscape"),
             ("toolchain", "calibrate"),
             ("toolchain", "fingerprint"),
         }

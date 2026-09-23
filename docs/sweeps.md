@@ -28,6 +28,7 @@ way.
 | `sweep copies` | one variant per removable `Y = X;` copy |
 | `sweep fuse` | one variant per donor fused into the target |
 | `sweep carriers` | *(read-only)* the locals that are dead at a site |
+| `sweep landscape` | one forced cell per (web, colour), footprints and the packing |
 | `sweep donors` | *(read-only)* the locals whose live range avoids a target's |
 | `sweep build` | compiles a wave of candidates and scores it into one table |
 | `sweep ingest` | reads built objects back, with the gate line and coverage |
@@ -289,6 +290,62 @@ the path that was looked for; a variant the generator refused is a row with its
 reason; and the last line is the coverage sentence, which says whether a
 negative result from this family is a proof about the space or evidence about a
 sample.
+
+## `sweep landscape` — the colour axis at any order
+
+The other sweeps vary the *source*. This one holds the source still and varies
+the allocator: every coloured phase-one web is forced, one cell at a time, to
+another colour from its own cost table, and each cell's residual is read as a
+**footprint** — the signed change per fixed window (default `0x80` bytes)
+against the baseline. It reuses the [oracle](oracle.md)'s campaign engine and
+needs the same instrumented, gated toolchain.
+
+What makes it more than `oracle sweep` is `--hold`. Without it the landscape is
+first-order, every web against the *unforced* baseline. With it the baseline is
+compiled with the held forces applied, **the probe plan is read from that held
+baseline's own trace** (held colours change what every other web is offered,
+so `--trace` is refused beside `--hold`), the held webs are skipped, and the
+held set is added to every cell. A winner is then a force to *add* to the
+hold. On the 14 KB function that motivated it, holding a packed five showed
+twelve winners, three of which no first-order landscape had ever nominated;
+holding the resulting seven showed none, which was the first closure of that
+function's colour axis anybody could state.
+
+The report picks by **packing radii, not by sorting scores**: the best set is
+the maximum-gain subset of winners whose footprints share no window, with at
+most one colour per web. A force that scores better alone can duplicate
+another member's radius and abandon a region only a worse colour reaches —
+measured, not hypothetical. Winners whose radii are identical are reported as
+**rivals**: one question with several handles. The packing is a prediction;
+measure it, then hold it for the next order.
+
+```sh
+decomp-workbench sweep landscape src/foo.c --target build/foo.o \
+  --toolchain toolchains/ido-5.3-instrumented --symbol foo \
+  --compile-command "ido/cc -c -O2 -mips2 {source} -o {output}" \
+  --hold p1:w75=c16 --hold p1:w379=c20 --every-colour
+decomp-workbench sweep landscape --report examples/fixtures/landscape-report.json
+```
+
+The second form re-reads a saved report without compiling, repacks it, and
+exits `1` with `STALE:` when the recorded source's hash no longer matches — a
+landscape describes one body, and five consecutive lanes once measured colours
+against a body that had moved underneath them.
+
+Three refusals and one warning keep the numbers honest: `--every-colour` is
+refused when the held baseline differs from the target in size (a colour
+landscape on a size mismatch maps insertion shadow, not webs); a cell that
+changes the size is excluded rather than differenced; the landscape owns
+`CDX_FORCE`, `CDX_PROC` and the tracing variables, so `--env` may not set them;
+and a same-size baseline that still aligns with structural rows is warned —
+insertion pairs that cancel in size are not reachable by any colour, so part
+of the floor is structural. `trace_identity` states whether the traced and the
+scored held baselines are the same function bytes; `differs` means tracing
+changed code generation and the plan describes an allocation nobody scored.
+
+A forced object is never a match. `closure`, when no probe wins, is scoped to
+the probes run and the source hash, never a statement that no source reaches
+the target. The JSON contract is in [JSON contracts](json-contracts.md#the-colour-landscape).
 
 ## Reviewing a winner
 

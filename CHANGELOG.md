@@ -5,6 +5,33 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### The colour landscape at any order
+
+- **`sweep landscape`** (flat `sweep-landscape`) probes every coloured
+  phase-one web against a baseline compiled with a held force set, reads each
+  cell as a per-window footprint, and packs the winners by radius. `--hold`
+  makes it the second- or third-order landscape: the baseline is compiled with
+  the hold applied, the probe plan is read from **that baseline's own trace**
+  (`--trace` beside `--hold` is refused, because held colours change what the
+  other webs are offered), held webs are skipped, and a winner is a force to
+  add to the hold. Legal colours are each web's own `p1cost` table, same save
+  kind first. Mickey's Speedway USA did this by hand on a 14 KB function
+  (2026-09-14..16): holding five forces exposed twelve winners, three never
+  nominated at first order, and holding the resulting seven found none.
+- **The packing, not the sort, picks the set**: the maximum-gain subset of
+  winners with pairwise-disjoint radii and one colour per web, exact by branch
+  and bound. Identical radii are reported as rivals. `next_hold` is the next
+  order's hold; `closure` states a no-winner result scoped to the probes and
+  the source hash.
+- **Honesty gates.** `--every-colour` is refused on a size-mismatched baseline
+  (insertion shadow, not webs); size-changing cells are excluded; a same-size
+  baseline with structural rows is warned (insertion pairs no colour reaches);
+  `trace_identity` says whether tracing changed the function; `--report`
+  re-reads and repacks a saved landscape and exits 1 with `STALE:` when its
+  source changed. Contract `decomp-workbench-landscape-v1` in
+  [JSON contracts](docs/json-contracts.md#the-colour-landscape); usage in
+  [Sweeps](docs/sweeps.md). Backlog item 19.
+
 ### Register capability is not per-function ownership
 
 - IDO 5.3 t0–t5 are possible UOPT colors and possible UGEN temporaries.

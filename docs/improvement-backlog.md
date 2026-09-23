@@ -1472,6 +1472,28 @@ closed. Change: `landscape --hold p1:wN=cM ...`, planning the probe set from the
 refusing `--trace` alongside. Payoff: the colour axis becomes exhaustible at every
 order in minutes, and "no winner at order 3" is a closure the guide can state.
 
+**Status (landed).** `decomp-workbench sweep landscape` is the command, with the
+`decomp-workbench-landscape-v1` contract in
+[JSON contracts](json-contracts.md#the-colour-landscape) and usage in
+[Sweeps](sweeps.md). It reuses the oracle's campaign engine: one traced compile
+of the held baseline (`CDX_LOG`, `CDX_DETAIL_WEB=all`, `CDX_OUT`, the hold as
+`CDX_FORCE`), the plan read from that trace's `p1cost` tables, then the held
+baseline and every cell through `run_parameterized_campaign`. The traced and
+scored held baselines are fingerprinted with the comparison's own function
+hash, so `trace_identity=differs` catches an instrument whose tracing changes
+code generation. Picking is by packing radii (disjoint windows, one colour per
+web, exact branch and bound, truncation stated), rivals are grouped, and a
+no-winner run carries a `closure` scoped to its probes and source hash.
+`--report` re-reads a saved landscape, repacks it, and refuses a stale one
+with `STALE:` and exit 1, which is item 20's stamp for this one artefact.
+
+**Deliberately out:** phase two. It assigns in ascending web number with the
+lowest free colour, so moving one p2 web re-decides every later one and its
+footprint no longer belongs to the web probed. Also out: running the packed
+set automatically. The packing is a prediction, and a measured cell is the
+evidence the next hold should rest on, so the report names the command rather
+than taking the step.
+
 ### 20. P0 — Landscape freshness stamp is now load-bearing; make it default
 Symptom: five consecutive lanes measured colours against a body that had moved
 227 -> 207 -> 187 underneath them. Mickey's `web_footprint --report` now stamps the
