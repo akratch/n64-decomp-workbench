@@ -1928,3 +1928,23 @@ qualify the call test in the field guide (what makes a leaf's webs global
 candidates: loop-carried constants? spill pressure?) from a measured set of
 leaves, and have the verdict name the allocator regime (`globalcolor webs: N`)
 so a regime change between two spellings is visible as a number.
+
+### 39. P1 — Four small-delta causes the reader mislabelled in wave 1 (Mickey, 2026-09-23)
+Symptom: over 21 Track B targets the insertion-pair reader named the right
+line every time but described the wrong mechanism on about half. Four
+recurring causes had no label: (a) **an argument-register copy**: ugen loads a
+parameter into the argument register, ORs into a temp and copies back, where
+the target ORs in place (`func_800084C4`, one word that rotates 81 ring rows
+after it); (b) **a narrow parameter's prologue store**: a target-only store of
+`a0` at entry is a `u8`/`s16` parameter, not a spill (`func_8004C690`); (c)
+**spill versus callee-save across a call**: a target-only store before a call
+plus a reload after is a variable the target kept in memory, where ours holds
+it in `s0`; the lever is the variable's lifetime, not CSE (`func_800180B4`);
+(d) **a prototype without `(void)`**: an unprototyped callee makes the caller
+set up argument registers the target never touches (`func_80037414`, one word
+and a frame slot). Change: add `arg-reg-copy`, `narrow-param-store`,
+`memory-across-call` and `unprototyped-call` to the label vocabulary, each
+with the one check that decides it (the target's opcode at the word; whether
+the line is the prologue; whether the pair brackets a `jal`; whether the
+callee's declaration has a parameter list). Payoff: each of these cost a lane
+three to eight cycles of spelling before the shape was read off the listing.
