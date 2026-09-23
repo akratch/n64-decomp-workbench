@@ -49,6 +49,12 @@ from .loc_boundaries import (
     schedule_class_count,
 )
 from .model import display_path
+from .provenance_cli import (
+    add_build_provenance_arguments,
+    build_provenance_lines,
+    build_provenance_payload,
+    guard_build_provenance,
+)
 from .register_state import load_reservations
 from .schema import COMPARISON_CENSUS_KEYS
 from .staleness_cli import (
@@ -310,6 +316,7 @@ def _emit(
             if isinstance(nested, dict):
                 nested["census"] = [item.as_dict() for item in census]
         payload.update(freshness_payload(freshness))
+        payload.update(build_provenance_payload(args, exact=comparison.exact))
         if listing_report is not None:
             payload["loc_boundaries"] = listing_report.as_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -320,6 +327,7 @@ def _emit(
             # Provenance ahead of the verdict: a reader who meets it after
             # the numbers has already believed the numbers.
             *(f"compared: {line}" for line in freshness.provenance_lines()),
+            *build_provenance_lines(args, exact=comparison.exact),
             *warning_lines(comparison.warnings),
             painter.bold("COMPARISON"),
             *alignment_caution_lines(comparison),
@@ -395,6 +403,7 @@ def diagnose_command(args: argparse.Namespace) -> int:
         guard_freshness(
             args, args.target, args.candidate, labels=("target", "candidate")
         )
+        guard_build_provenance(args)
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         evidence = trace_evidence(args)
         diagnosis = _with_trace_note(
@@ -429,6 +438,7 @@ def diagnose_dumps_command(args: argparse.Namespace) -> int:
         guard_freshness(
             args, args.target, args.candidate, labels=("target", "candidate")
         )
+        guard_build_provenance(args)
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         evidence = trace_evidence(args)
         diagnosis = _with_trace_note(
@@ -591,6 +601,7 @@ def _add_shared_arguments(
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
     add_freshness_arguments(parser)
+    add_build_provenance_arguments(parser)
     add_census_argument(parser)
 
 

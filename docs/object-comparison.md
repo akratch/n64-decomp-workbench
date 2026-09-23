@@ -140,6 +140,33 @@ as the source — so the default tolerance is one second and `--tolerance 0`
 tightens it. The guard removes the *silent* case; the project's own build
 system remains the thing that knows what is out of date.
 
+## Was the object built by the stock compiler?
+
+A forced or traced build scores exactly like a stock one. `compare`,
+`compare-dumps`, `score`, `diagnose` and `diagnose-dumps` therefore state how
+the candidate was built on a `build:` line ahead of the verdict, and in JSON as
+a `build_provenance` block (schema `decomp-workbench-build-provenance-v1`) with
+its `claim`:
+
+| Build | How it is known | Exact result claims |
+|---|---|---|
+| `stock` | `--build-env stock`, or `--build-env-file` with no forcing or tracing variable | `match` |
+| `forced` | `--build-env forced`, or a build environment carrying `CDX_FORCE` and kin | `reachability-proof` — NOT A MATCH |
+| `instrumented` | `--build-env instrumented`, or `CDX_LOG`, `DKWB_UGEN_TRACE` and kin | `unverified` until the stock object is re-scored |
+| `unknown` | nothing declared, from a shell exporting none of those variables | `unverified` — never promotable |
+
+`--build-env-file` takes a JSON object of the environment the object was
+built with, or a document holding one under `environment` (an oracle state
+report's `inputs` carries one). **A shell that exports a forcing or tracing
+variable while nothing is declared is refused**, exit 2: the object in hand may
+be the forced build, or the stock rebuild a project script made over it, and
+the two cannot be told apart from their scores. A Mickey's Speedway USA lane
+read one score for twelve different forces before noticing its scorer had
+rebuilt the unforced object every time; with this guard that session stops at
+the first comparison and asks which build it was. Declaring the build is the
+answer, and `--build-env stock` is what makes an exact result a claimable
+match.
+
 ## No verdict may suppress a diff site
 
 The verdict chooses emphasis and the next action. It never filters evidence.

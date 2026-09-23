@@ -11,6 +11,12 @@ from typing import Any
 from .cli_options import add_explain_keys_argument, add_symbol_argument
 from .compare import compare_loaded, load_target
 from .headline import Headline, build_headline, render_headline
+from .provenance_cli import (
+    add_build_provenance_arguments,
+    build_provenance_lines,
+    build_provenance_payload,
+    guard_build_provenance,
+)
 from .score import (
     ScoreError,
     ScoreReport,
@@ -144,6 +150,7 @@ def headline_command(args: argparse.Namespace) -> int:
         )
         return 2
     try:
+        guard_build_provenance(args)
         loaded = [
             load_target(
                 path, objdump=args.objdump, symbol=args.symbol, section=args.section
@@ -171,9 +178,12 @@ def headline_command(args: argparse.Namespace) -> int:
             "mode": "headline",
             **report.as_dict(),
             "screen": screen.as_dict(),
+            **build_provenance_payload(args, exact=report.matched),
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
+        for line in build_provenance_lines(args, exact=report.matched):
+            print(line)
         print("\n".join(render_headline(report, verbose=args.verbose)))
         print(screen.render())
         caution = screen.caution()
@@ -220,6 +230,7 @@ def score_command(args: argparse.Namespace) -> int:
         )
         return 2
     try:
+        guard_build_provenance(args)
         spec = score_spec_from_args(args)
         candidate = Path(args.target)
         report = score_report(candidate, spec, slot=args.slot)
@@ -230,9 +241,12 @@ def score_command(args: argparse.Namespace) -> int:
         payload: dict[str, Any] = {
             "schema": "decomp-workbench-score-v1",
             **report.as_dict(),
+            **build_provenance_payload(args, exact=report.matched),
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
+        for line in build_provenance_lines(args, exact=report.matched):
+            print(line)
         render_score_human(report)
     return 0 if report.matched else 1
 
@@ -348,6 +362,7 @@ def register_score_command(commands: Any) -> None:
         "--section", default=".text", help="object section (default: .text)"
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    add_build_provenance_arguments(parser)
     add_explain_keys_argument(parser)
     parser.set_defaults(handler=score_command)
 

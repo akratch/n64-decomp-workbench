@@ -928,6 +928,30 @@ same boundary the staleness chain keeps.
   outputs, so a forced run's own report carries the classification, is the
   follow-up.
 
+**Status (landed).** The follow-up is done, and the reading is now enforced at
+the point of scoring rather than offered beside it. `compare`,
+`compare-dumps`, `score` (both forms), `diagnose` and `diagnose-dumps` resolve
+the candidate's build before disassembling anything: `--build-env` declares
+it, `--build-env-file` reads the environment it was built with, and with
+neither a shell exporting any forcing or tracing variable is **refused** -- so
+the trap that cost a lane twelve scores of the unforced rebuild ends at the
+first comparison. Every report carries a `build:` line ahead of the verdict and
+a `build_provenance` block with the `claim` from `read_result`; only a stock
+build claims `match`, a forced exact prints NOT A MATCH, and an undeclared one
+is `unverified`. `classify_build` adds `instrumented` (tracing without force),
+which `read_result` treats as unverified until the stock object is re-scored.
+The attempt series of item 17 uses the same vocabulary, so a forced number
+never counts as residual progress either. Documented in
+[Object comparison](object-comparison.md) and
+[JSON contracts](json-contracts.md).
+
+**Deliberately out:** inspecting the object for evidence of forcing. Nothing
+in a forced object says it was forced, and a heuristic that sometimes guessed
+would be worse than the declaration. `rank` and campaign ledgers are also not
+yet covered: campaign-built candidates carry their environment in the ledger
+already, and `rank` over hand-built objects is the next place to add the same
+options.
+
 ## Stage regenerated plateau shards inside the merge transaction
 
 `merge_transaction.py`'s `GENERATED` set covers README, the overlay tables and

@@ -45,6 +45,12 @@ from .objdump import (
     selection_warnings,
     symbol_selection_error,
 )
+from .provenance_cli import (
+    add_build_provenance_arguments,
+    build_provenance_lines,
+    build_provenance_payload,
+    guard_build_provenance,
+)
 from .regions import (
     RegionError,
     RegionReport,
@@ -194,6 +200,7 @@ def _emit_comparison(
             census=census,
         )
         payload.update(freshness_payload(freshness))
+        payload.update(build_provenance_payload(args, exact=comparison.exact))
         if regions is not None:
             payload["by_region"] = regions.as_dict()
         payload.update(watch_payload)
@@ -207,6 +214,8 @@ def _emit_comparison(
         # build that predates the edit is indistinguishable from a match.
         for line in freshness.provenance_lines():
             print(f"compared: {line}")
+        for line in build_provenance_lines(args, exact=comparison.exact):
+            print(line)
         for line in warning_lines(comparison.warnings):
             print(line)
         for line in alignment_caution_lines(comparison):
@@ -249,6 +258,7 @@ def compare_command(args: argparse.Namespace) -> int:
         guard_freshness(
             args, args.target, args.candidate, labels=("target", "candidate")
         )
+        guard_build_provenance(args)
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         comparison = compare_objects(
             args.target,
@@ -283,6 +293,7 @@ def compare_dumps_command(args: argparse.Namespace) -> int:
         guard_freshness(
             args, args.target, args.candidate, labels=("target", "candidate")
         )
+        guard_build_provenance(args)
         predicates = parse_census(args.census, allowed=COMPARISON_CENSUS_KEYS)
         target_text = Path(args.target).read_text(encoding="utf-8")
         candidate_text = Path(args.candidate).read_text(encoding="utf-8")
@@ -462,6 +473,7 @@ def register_object_commands(
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
     add_freshness_arguments(compare)
+    add_build_provenance_arguments(compare)
     add_watch_rows_argument(compare)
     _add_by_region_arguments(compare)
     add_census_argument(compare)
@@ -490,6 +502,7 @@ def register_object_commands(
         help="return exit 1 unless exact, or structurally exact with --cross-rom",
     )
     add_freshness_arguments(dumps)
+    add_build_provenance_arguments(dumps)
     add_watch_rows_argument(dumps)
     _add_by_region_arguments(dumps)
     add_census_argument(dumps)

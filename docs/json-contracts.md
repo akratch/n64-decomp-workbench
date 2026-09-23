@@ -114,7 +114,15 @@ that was compared against it. `check-staleness` emits that document on its
 own, with the schema at the top level. Its `status` is `fresh` only when at
 least one input/derived pair was actually read: a comparison run without
 `--built-from` compared nothing, so it reports `unknown` with `comparisons: 0`
-rather than certifying a build nobody checked. Switch on
+rather than certifying a build nobody checked. `compare`, `compare-dumps`,
+`score`, `diagnose` and `diagnose-dumps` also add `build_provenance` and
+`build_provenance_schema` (`decomp-workbench-build-provenance-v1`):
+`provenance` (`stock`, `forced`, `instrumented` or `unknown`), `basis`
+(`declared`, `environment-file` or `undeclared`), the forcing and tracing
+`variables` seen, and the `claim` an exact result supports (`match` only for a
+stock build; `reachability-proof`, `unverified` or `no-claim` otherwise) with
+its `claim_lines`. A consumer deciding whether a result is a match reads
+`claim`, never `exact` alone. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 

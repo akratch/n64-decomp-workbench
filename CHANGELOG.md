@@ -5,6 +5,21 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### A forced result can no longer be read as a match
+
+- **`compare`, `compare-dumps`, `score`, `diagnose` and `diagnose-dumps` state
+  how the candidate was built**: a `build:` line ahead of the verdict and a
+  `build_provenance` block (`decomp-workbench-build-provenance-v1`) carrying
+  `provenance`, `basis` and the `claim` an exact result supports. Only a build
+  declared or shown `stock` claims `match`; forced is a reachability proof,
+  instrumented and undeclared are unverified.
+- **New `--build-env stock|forced|instrumented|unknown` and
+  `--build-env-file`.** A shell exporting `CDX_FORCE`, `CDX_LOG` or another
+  forcing or tracing variable with nothing declared is refused (exit 2), which
+  is the "scored the unforced rebuild twelve times" trap made impossible
+  rather than documented. `provenance.classify_build` separates `instrumented`
+  from `stock`; `read_result` accepts it. Backlog item 18.
+
 ### Stopping evidence as a command
 
 - **`campaign stall`** (flat `campaign-stall`) reads a
