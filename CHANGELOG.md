@@ -5,6 +5,15 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### L99 qualified: when an unreferenced local takes a frame cell
+
+- **The IDO 5.3 page's L99 now states the measured condition**: a wholly
+  unreferenced local takes a four-byte cell exactly when the procedure homes
+  another value in its own frame across a call, and is frame-inert otherwise
+  (leaves, `volatile`-only homes, callee-saved carriers, a parameter crossing
+  the call, array-only frames). Measured on ten synthetic shapes with 0-3 pads
+  under IDO 5.3; the C sources are `tests/fixtures/l99/`. Backlog item 35.
+
 ### A better forced split is priced in blocks
 
 - **`diagnose` names `split-cost-short-by N blocks`** when a recorded split

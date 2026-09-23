@@ -3609,15 +3609,47 @@ Three consequences, each of which has produced a false negative:
   buy a frame cell is not a lever; the cell count follows from what uopt leaves
   memory-class, which is why the solve in this law reads the homes rather than
   counting names.
-- **Whether an unused local is inert is compilation-dependent — measure it, do
-  not assume it.** This law first said an unused `s32` is eliminated before the
-  frame is sized while an unused `f32` or pointer is not. **That is falsified on
-  a second compilation**, where an unused `s32` and an unused pointer behave
-  identically and both occupy a home; a third function found two unused declared
-  locals moving a frame from 0x50 to 0x58. So padding a frame with dummy locals
-  may measure flat or may not, and the only safe reading is the census. The
-  original observation stands for the function it was taken from and generalised
-  no further — which is the failure mode this page exists to prevent.
+- **When an unreferenced local takes a home (qualified 2026-09-23).** This law
+  first said an unused `s32` is eliminated before the frame is sized, and a
+  second compilation falsified that, so the rule was left as "compilation-
+  dependent — measure it". It is not arbitrary. **A wholly unreferenced local
+  takes a four-byte cell — moving the frame in `align8` steps — exactly when
+  the procedure homes some other value in its own frame across a call**: a
+  declared local, or a compiler temporary, that is live across a call and was
+  not coloured into a callee-saved register. With no such home, unreferenced
+  locals are frame-inert, whatever else the procedure contains. FP locals are
+  not the condition (an int-only procedure charges identically), and a call
+  alone is not either. The deciding fact is readable off the listing: a store
+  and reload of one local stack cell bracketing a call.
+
+  | procedure shape | frame with 0 / 1 / 2 / 3 unreferenced `int` locals |
+  |---|---|
+  | declared `int` homed across a call | 32 / 40 / 40 / 48 |
+  | declared `float` homed across a call | 32 / 40 / 40 / 48 |
+  | compiler temp (`a * b`) homed across a call | 32 / 32 / 40 / 40 |
+  | frameless leaf, `int` or `float` locals | 0 / 0 / 0 / 0 |
+  | leaf whose only home is a `volatile` local | 8 / 8 / 8 / 8 |
+  | values live across calls, in callee-saved registers | 40 / 40 / 40 / 40 |
+  | a call with nothing live across it | 24 / 24 / 24 / 24 |
+  | only a parameter live across the call (homed in the caller's argument area) | 24 / 24 / 24 / 24 |
+  | an array local, no scalar homed | 32 / 32 / 32 / 32 |
+
+  So padding a frame with dummy locals is a real lever on a procedure that
+  spills across a call and a no-op on one that does not; three Mickey's
+  Speedway USA matches (`func_8000DB34`, `func_800133FC`, and an overlay 20
+  function, 2026-09-23) closed their frames with unreferenced `s32` pads, and
+  all three home values across calls. The earlier observations on this page
+  that measured an unused local frame-inert were not re-measured against this
+  condition; read them as procedures that homed nothing across a call until
+  shown otherwise.
+
+  **Receipt — T2, build outcomes.** Ten synthetic procedure shapes, each
+  compiled with 0 to 3 wholly unreferenced `int` locals at `-O2 -mips2` and
+  `-mips1` (identical frames), with IDO 5.3 `cc`, frames read from each
+  prologue; the three charging shapes and seven inert ones above. Sources:
+  `tests/fixtures/l99/spill_across_call.c` and `tests/fixtures/l99/no_spill.c`,
+  each carrying its measured table. The three campaign matches corroborate it
+  independently. The mechanism (which pass lays out the cells) was not read.
 - **`align8(4N)` hides a one-slot change.** Removing a single declaration left a
   0x40 frame unmoved because N = 8 and N = 7 both round to 32 bytes. A probe
   that changes the count by one and reads no frame change has measured the
@@ -4914,7 +4946,8 @@ spelling at all five sites commoned back into one web and stayed 24 words out.
 **Second independent measurement, 2026-09-12.** A different lane, different TU,
 fitted a frame rule over seven measured declaration counts (6, 7, 8, 9, 10, 12,
 16) as `frame = round8(52 + 4N)` and found it **charges for an unused `s32`**,
-which L99 says it should not. Two further controls came with it: sibling scopes
+which L99 as first written said it should not (L99 now states when it does:
+a value homed in the frame across a call). Two further controls came with it: sibling scopes
 do not share a home (a three-block rewrite is byte-identical), and parameters
 cost nothing, which confirms the arithmetic from the other side. It is not a
 whole-TU artefact — synthetic functions compiled in the same TU at the same

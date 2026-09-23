@@ -1936,6 +1936,15 @@ locals, with and without calls), and have `frame_census`-style readers report
 closure by declaration lattice is now the standard last step of a small-delta
 match; it needs a law that is true.
 
+**Status (landed, the law).** L99 now states the condition as measured: an
+unreferenced local takes a cell exactly when the procedure homes some other
+value (a declared local or a compiler temporary) in its own frame across a
+call; FP locals and calls alone are not the condition. Ten synthetic shapes
+with 0-3 pads, compiled with IDO 5.3 at `-mips1` and `-mips2`, banked T2 with
+the C sources at `tests/fixtures/l99/` and a test that every fixture a law
+cites exists. **Not done:** a frame reader reporting unreferenced local slots
+as a lever.
+
 ### 36. P1 — A symbol's section offset is a codegen input: as1 shares `lui $at` inside one aligned 16-byte block
 Symptom: `func_80024978` (Mickey, 2026-09-23) had a Δ −4 spelling that
 matched every word but the target's second `lui $at`; every Δ 0 spelling was

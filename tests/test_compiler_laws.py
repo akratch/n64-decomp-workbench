@@ -33,6 +33,21 @@ def run_cli(arguments: list[str]) -> tuple[int, str, str]:
     return status, stdout.getvalue(), stderr.getvalue()
 
 
+class FixtureReceiptTests(unittest.TestCase):
+    def test_every_cited_law_fixture_exists_and_is_c_source_only(self) -> None:
+        """A receipt that names a fixture must name one that is there."""
+
+        text = (ROOT / "docs" / "compiler-laws" / "ido-5.3.md").read_text(
+            encoding="utf-8"
+        )
+        cited = sorted(set(re.findall(r"`(tests/fixtures/[^`]+)`", text)))
+        self.assertIn("tests/fixtures/l99/spill_across_call.c", cited)
+        for path in cited:
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file(), path)
+                self.assertTrue(path.endswith(".c"), path)
+
+
 class PackagedLawsTests(unittest.TestCase):
     def test_every_era_document_exists_in_the_checkout(self) -> None:
         for era, (document, _label) in LAW_DOCUMENTS.items():
