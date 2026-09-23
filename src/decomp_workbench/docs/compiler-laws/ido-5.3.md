@@ -2906,6 +2906,7 @@ concluded from it.
 | A plain local is memory-resident because its web loses the cost contest | corrected by [L55](#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins) | `save <= 0` strikes it before the contest; it emits no candidate record at all |
 | A force lattice's floor is the colour floor | corrected by [L155](#l155-a-positional-score-counts-the-shadow-of-an-insertion-and-no-colour-can-move-it) and [L158](#l158-nominating-a-handful-of-webs-out-of-every-coloured-web-is-a-sample-not-a-floor) | 81 of 227 positional words were insertion shadow, and five webs of 139 were a sample |
 | The best force set is the best-scoring force per web | corrected by [L159](#l159-the-best-set-of-forces-is-a-packing-over-blast-radii-not-the-top-of-the-winners-list) | the c20 set measured 192 where the worse-scoring c14 set measured 185 |
+| `numintf >= 25` offers a2 (a pressure rule) | corrected by [L161](#l161-a-split-piece-grows-by-one-arithmetic-test-per-block-and-a-rejection-by-one-is-a-number) | 477 of 477 growth tests follow one arithmetic rule |
 | A copy relation can hand a web a forbidden colour (an `available0` bypass) | corrected by [L57](#l57-the-copy-relation-channel-available0-is-an-argmin-not-a-complement) | `available0` is the argmin of `f_cupcosts` over the **non-forbidden** colours |
 | The declaration list states the local supply; *N* locals is the ceiling at this frame size | falsified twice by [L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame) | an array whose base alone is addressed carries spendable bytes in its tail |
 | `a && b` as a value is expensive in every respelling | falsified by [L51](#l51-cfes-own--as-a-value-expansion-is-a-spelling-you-can-write) | cfe's own expansion, written out, is byte-identical at every site; the other spellings cost 264–860 rows |
@@ -5943,3 +5944,38 @@ the way.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
 
+### L161. A split piece grows by one arithmetic test per block, and a rejection by one is a number
+
+When globalcolor cannot colour a live range, `split()` seeds a piece at one
+reference block and `addadjacents()` grows it breadth-first over the range's
+blocks. With uopt's strict flag set (`0x1001eb10`, 1 on this profile) a
+candidate block is accepted iff
+
+    new < left_before   and   2 * left_after >= numintf + new
+
+where `new` is the interferences the block would add, `left_before` and
+`left_after` the colours the piece could still take before and after the
+block's held colours (and a call block's argument registers) are folded in,
+and `numintf` the piece's interference count so far. With the flag clear any
+block that leaves a colour is accepted. A call block is accepted but never
+expanded. So **a piece's shape is a function of three inputs**: the colours
+its neighbours hold at the moment of the split, how many neighbours it has
+(coloured or not, memory-class candidates and lineage remainders included),
+and how many each candidate block adds.
+
+**So a split residual is a margin, not a pressure threshold.** A rejection
+"by one" names the one colour or the one interferer whose removal flips it,
+and `trace growth --neighbours` lists the interferers a `new` is counted from.
+
+**Receipt — T1, the profile's growth records** (Mickey,
+`func_overlay_058_F000138C_18B0574`, 2026-09-15), read with the
+`webblocks`/`seed`/`grow`/`growv`/`livbb` records the pinned globalcolor
+profile now emits, on an instrument whose `.text` is byte-identical to stock.
+The rule agreed with **all 477 recorded growth tests** of one body, 0
+disagreeing; the residual's decisive piece rejected one block at margin `-1`
+(22 against 23) and was worked through to a closed system of inequalities.
+
+**Falsifies.** "`numintf >= 25` offers a2" — a pressure rule three lanes
+reasoned about. It was the shadow of this test.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-15.

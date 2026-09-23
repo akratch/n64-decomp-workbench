@@ -86,6 +86,16 @@ got. Switch on `schema`, never on argument count:
 | `align`, `align-dumps` | `decomp-workbench-shift-diff-v1` | `decomp-workbench-align-census-v1` |
 | `phase`, `phase-dumps` | `decomp-workbench-phase-v1` | `decomp-workbench-phase-census-v1` |
 
+`trace growth` has three modes and two schemas, switched on the same way:
+`--web` and `--census` emit `decomp-workbench-split-growth-v1` (the census
+carries `mode: census`), and `--neighbours` emits
+`decomp-workbench-neighbours-v1`. Every growth test carries `headroom`
+(`left_before - new`), `margin` (`2*left_after - numintf - new`), `shortfall`
+(0 when the rule accepts; otherwise how far the recorded inputs are from
+acceptance), the recorded `accepted`, the rule's `predicted`, and `agrees`
+(null without a verdict row). `trace blocks` adds `source`: `saveocc` or
+`webblocks`, whichever record kind the sets were read from.
+
 A census document holds one single-candidate report per entry under
 `candidates`, so a consumer that already reads the single shape can loop over
 that list unchanged.

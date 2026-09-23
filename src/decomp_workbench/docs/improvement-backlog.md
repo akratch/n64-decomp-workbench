@@ -1514,6 +1514,28 @@ blocks accepted, never expanded (verified on all 477 tests of one body) -- and
 ship `intfdiff.py`-style neighbour diffs as a command. Payoff: "rejects by one" is
 a number, and the margin names the interferer to remove.
 
+**Status (landed).** The records are documented as part of the standard
+globalcolor profile ([compiler instrumentation](compiler-instrumentation.md),
+"Per-web block sets and split growth": which variable enables each record, the
+field grammar, and the `lr` join), and `trace-cascade --grammar` marks them
+SHIPPED. `decomp-workbench trace growth` is the reader: `--web` gives the
+decided piece's block sets and every growth test with `headroom`, `margin`,
+verdict and rule agreement, and names the nearest rejection by its
+`shortfall`; `--census` is the "all 477 tests agree" check as a command, with
+exit 1 on any disagreement; `--neighbours --window` is the `intfdiff.py`
+neighbour diff. `trace blocks` now reads the `webblocks` member sets when a
+log has no `saveocc`. The growth rule is **L161** on the IDO 5.3 page.
+Contracts `decomp-workbench-split-growth-v1` and
+`decomp-workbench-neighbours-v1`, documented in
+[JSON contracts](json-contracts.md); synthetic trace
+`examples/traces/split-growth.log`.
+
+**Deliberately out:** the profile's version string and hook count were not
+touched here; the instrumentation tests that pin them are being repaired on a
+separate branch. Also out: predicting a growth verdict for an edit nobody
+compiled. The reader reports recorded inputs and the rule's verdict on them;
+what a source edit would do to `new` or `left_after` is a new capture.
+
 ### 22. P1 — Carrier-span guidance: the colour follows the symbol
 Symptom: six passes asked which colour a value wanted; the residual was which
 *variable* carried it. Laws to bank: uopt colours a symbol as ONE web function-

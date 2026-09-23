@@ -138,6 +138,7 @@ SCHEMAS: dict[str, str] = {
     "trace-alias": "decomp-workbench-trace-alias-v1",
     "trace-a71": "decomp-workbench-trace-a71-v1",
     "trace-blocks": "decomp-workbench-web-blocks-v1",
+    "trace-growth": "decomp-workbench-split-growth-v1",
     "trace-cascade": "decomp-workbench-cascade-v1",
     "trace-order": "decomp-workbench-color-order-v1",
     "trace-copy-decisions": "decomp-workbench-copy-decisions-v1",

@@ -104,6 +104,32 @@ RECORD_GRAMMAR: dict[str, str] = {
         "For a stack-resident web `raw10` is the FRAME OFFSET, which is the "
         "only identity in the whole grammar that survives renumbering."
     ),
+    "webblocks": (
+        "SHIPPED. A decided web's live-range block sets. phase proc role web "
+        "sym lr bbs aux. `bbs` is the member vector (every block the range is "
+        "live in), `aux` the pass-through vector; `-` is empty. Emitted under "
+        "CDX_DETAIL_WEB, with role=neighbor rows for a single detailed web."
+    ),
+    "intf": (
+        "SHIPPED. One interferer of a detailed web at one decision. phase proc "
+        "web other sym assigned shared marked; `assigned` is the neighbour's "
+        "colour, 0 for none."
+    ),
+    "seed": "SHIPPED. The block split() seeds a piece at. proc lr bb.",
+    "seedcand": (
+        "SHIPPED. A liveblock split() walked choosing the seed. proc lr pass "
+        "bb f16 f18 f19 f20 maskdiff."
+    ),
+    "grow": (
+        "SHIPPED. One addadjacents() growth test. proc lr bb new left_before "
+        "left_after numintf strict. Accepted iff new < left_before and "
+        "2*left_after >= numintf + new (strict=1)."
+    ),
+    "growv": "SHIPPED. The verdict of the preceding grow row. proc lr bb accepted.",
+    "livbb": (
+        "SHIPPED. A liveblock moved (del-seed, del-grow) or a marker made "
+        "(mark-entry, mark-exit). proc op lr bb refs."
+    ),
     "savedetail": (
         "CAMPAIGN-LOCAL (WB-15). The save arithmetic for one web at one "
         "round. proc web sym occ gross chargeA chargeB net divisor nocs "
@@ -1059,15 +1085,36 @@ def block_report(
     `saveocc bb=` values.
     """
 
-    log.require(("saveocc",), purpose="a block report")
     per_web: dict[int, set[int]] = {}
     detail: dict[int, list[Occurrence]] = {}
-    for record in log.of("saveocc"):
-        item = _occurrence(record.fields)
-        if item is None:
-            continue
-        per_web.setdefault(item.web, set()).add(item.block)
-        detail.setdefault(item.web, []).append(item)
+    source = "saveocc"
+    if log.kinds.get("saveocc"):
+        for record in log.of("saveocc"):
+            item = _occurrence(record.fields)
+            if item is None:
+                continue
+            per_web.setdefault(item.web, set()).add(item.block)
+            detail.setdefault(item.web, []).append(item)
+    elif log.kinds.get("webblocks"):
+        # The shipped profile's own block sets: the live range's member
+        # vector, read off the web's last decision. Unlike `saveocc` it
+        # covers address-constant webs, whose `webdetail bb` is -1.
+        source = "webblocks"
+        for record in log.of("webblocks"):
+            if record.fields.get("role", "target") != "target":
+                continue
+            web = optional_integer(record.fields.get("web"))
+            if web is None:
+                continue
+            text = record.fields.get("bbs", "-")
+            per_web[web] = (
+                set()
+                if text == "-"
+                else {int(item) for item in text.split(",") if item.strip()}
+            )
+            detail.setdefault(web, [])
+    else:
+        log.require(("saveocc",), purpose="a block report")
 
     selected: list[int]
     wanted = set(blocks)
@@ -1076,8 +1123,13 @@ def block_report(
         if missing:
             raise CascadeError(
                 f"{log.name} records no occurrences for web(s) "
-                f"{', '.join(str(item) for item in missing)}; a web with no "
-                "saveocc record never entered the save sum"
+                f"{', '.join(str(item) for item in missing)}; "
+                + (
+                    "a web with no saveocc record never entered the save sum"
+                    if source == "saveocc"
+                    else "a web with no webblocks row was not decided, or the "
+                    "capture's CDX_DETAIL_WEB did not include it"
+                )
             )
         selected = list(webs)
     elif wanted:
@@ -1091,6 +1143,7 @@ def block_report(
         intersection = sorted(common)
     return {
         "log": log.name,
+        "source": source,
         "webs": [
             {
                 "web": web,

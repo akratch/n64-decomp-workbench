@@ -5,6 +5,28 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Split growth and per-web block sets, read as a standard profile
+
+- **`trace growth`** (flat `trace-growth`) reads the globalcolor profile's
+  `webblocks`, `seed`, `seedcand`, `grow`, `growv` and `livbb` records (added to
+  the pinned profile in d0830b8). `--web` prints a decided web's span,
+  pass-through and reference blocks, joins it to its split piece through the
+  live-range pointer of its last `webblocks` row, and lists every growth test
+  with `headroom`, `margin` and the verdict, naming the rejection closest to
+  flipping by its `shortfall`. `--census` checks every recorded verdict in the
+  procedure against the rule and exits 1 on a disagreement. `--neighbours`
+  lists a detailed web's interferers at each decision, optionally only those
+  live in `--window` blocks, and what changed between decisions -- the
+  neighbour diff the Mickey campaign ran as a script.
+- **`trace blocks` reads the shipped member sets** when a log has no
+  campaign-local `saveocc`, which also covers address-constant webs
+  (`webdetail bb=-1`); its JSON gains `source`.
+- The records are documented as part of the standard globalcolor profile in
+  [compiler instrumentation](docs/compiler-instrumentation.md), marked SHIPPED
+  in `trace-cascade --grammar`, and the growth rule is banked as **L161**.
+  Contracts `decomp-workbench-split-growth-v1` and
+  `decomp-workbench-neighbours-v1`. Backlog item 21.
+
 ### Laws L155-L160 from the Mickey landscape work
 
 - **L155** (a positional score counts insertion shadow, which no colour

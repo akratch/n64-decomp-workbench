@@ -446,6 +446,64 @@ earlier by `compute_save`'s class verdict. A campaign extension adding `n`/`y`
 for that verdict is recorded in
 [the roadmap](roadmap.md) and is not part of this grammar.
 
+#### Per-web block sets and split growth
+
+`webdetail`'s `bb` is the ichain's expression node, and an address-constant web
+has none: it reads `-1`. On the largest function of the Mickey's Speedway USA
+campaign that was 330 of 395 webs, and exactly the webs whose splits made the
+residual. The profile therefore reads the block sets off the live range
+itself, and traces how `split()` grows each piece. These records are part of
+the standard globalcolor profile — nothing extra to apply — and are enabled by
+the same variables as the rest:
+
+| Record | Enabled by | Fields |
+|---|---|---|
+| `webblocks` | `CDX_LOG=1` with `CDX_DETAIL_WEB=all` (targets) or `=N` (target and `role=neighbor` rows) | `phase proc role web sym lr bbs aux` |
+| `intf` | `CDX_DETAIL_WEB=N` | `phase proc web other sym assigned shared marked` |
+| `seed` | `CDX_LOG=1` | `proc lr bb` |
+| `seedcand` | `CDX_LOG=1` | `proc lr pass bb f16 f18 f19 f20 maskdiff` |
+| `grow` | `CDX_LOG=1` | `proc lr bb new left_before left_after numintf strict` |
+| `growv` | `CDX_LOG=1` | `proc lr bb accepted` |
+| `livbb` | `CDX_LOG=1` | `proc op lr bb refs` (`del-seed`, `del-grow`, `mark-entry`, `mark-exit`) |
+
+`bbs` is the live range's member vector (every block it is live in) and `aux`
+its pass-through vector, both decoded the way `f_bvectin` reads them; `-` is
+the empty set. `lr` is the live-range pointer and is the join: a split piece
+keeps its parent's web number until later, so a web's decided piece is the
+`lr` of its **last** `webblocks` row, and that `lr` is what its `seed`,
+`grow`, `growv` and `livbb` rows carry. `CDX_OUT` is still the only log path.
+
+A candidate block is accepted iff `new < left_before` and
+`2 * left_after >= numintf + new` while `strict` (uopt's flag at
+`0x1001eb10`) is 1; with it 0, any block that leaves a colour is accepted. A
+call block is accepted but never expanded. This is law
+[L161](compiler-laws/ido-5.3.md#l161-a-split-piece-grows-by-one-arithmetic-test-per-block-and-a-rejection-by-one-is-a-number).
+
+`trace growth` is the reader, and `trace blocks` reads the member sets when a
+log carries no campaign-local `saveocc`:
+
+```sh
+decomp-workbench trace growth examples/traces/split-growth.log --web 202
+decomp-workbench trace growth examples/traces/split-growth.log --census
+decomp-workbench trace growth examples/traces/split-growth.log \
+  --neighbours --web 202 --window 183,202
+decomp-workbench trace blocks examples/traces/split-growth.log --web 202
+```
+
+`--web` prints the decided piece's span, pass-through and reference blocks, its
+seed, and each growth test with `headroom` (`left_before - new`, first clause
+holds above 0) and `margin` (`2*left_after - numintf - new`, second clause
+holds at 0 or more), and names the rejection closest to flipping with its
+`shortfall`. `--census` checks every recorded verdict in the procedure against
+the rule and exits 1 on a disagreement — the record wins over the rule, and a
+disagreement means one of them is wrong here. `--neighbours` needs a
+`CDX_DETAIL_WEB=<web>` capture and lists that web's interferers at each of its
+decisions, with their colours and blocks, keeping only those live in
+`--window` blocks when given, and what left or joined between decisions: the
+list a `new` in a growth test is counted from. The contract is
+`decomp-workbench-split-growth-v1` (`--web`, `--census`) and
+`decomp-workbench-neighbours-v1` (`--neighbours`).
+
 #### Reading `p1dec`/`p2dec` economics
 
 Three fields in the decision records are easy to read as something they are

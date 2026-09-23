@@ -105,6 +105,7 @@ from .globalcolor import (
     parse_globalcolor_trace,
     register_for_color,
 )
+from .growth_cli import register_growth_command
 from .guide_cli import register_guide_command
 from .handoff_cli import register_handoff_command
 from .instrument import instrument_ugen
@@ -2285,6 +2286,7 @@ def build_parser() -> argparse.ArgumentParser:
     # objects back gated, scored, and with the coverage the family declared.
     register_sweep_commands(commands)
     register_landscape_command(commands)
+    register_growth_command(commands)
     register_staleness_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)

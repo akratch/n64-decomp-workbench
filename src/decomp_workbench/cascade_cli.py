@@ -572,8 +572,8 @@ def blocks_command(args: argparse.Namespace) -> int:
         return 0
     queried = ",".join(str(item) for item in report["queried_blocks"])
     lines = [
-        f"web blocks: {report['log']}  {len(report['webs'])} web(s)"
-        + (f"  queried blocks {queried}" if queried else "")
+        f"web blocks: {report['log']}  {len(report['webs'])} web(s)  "
+        f"from {report['source']}" + (f"  queried blocks {queried}" if queried else "")
     ]
     for entry in report["webs"]:
         blocks = " ".join(str(item) for item in entry["blocks"])
@@ -846,7 +846,9 @@ def register_cascade_commands(commands: argparse._SubParsersAction[Any]) -> None
             "'Which web interferes with which' is a set intersection over "
             "`saveocc bb=` values; one campaign argued it from numintf deltas "
             "across five stages and resolved it in one command once the sets "
-            "were printed."
+            "were printed. A log without `saveocc` is read from the shipped "
+            "profile's `webblocks` member sets instead, which also cover "
+            "address-constant webs; `trace growth` reads the split pieces."
         ),
         epilog="example: decomp-workbench trace-blocks build.ilog --web 255 --web 260",
     )

@@ -1,0 +1,33 @@
+# Synthetic globalcolor capture for `trace growth`. Hand-written: the block
+# numbers and counts are illustrative and no record is copied from a build.
+[CDX] p1cand phase=p1 proc=0 web=202 sym=91 save=2.260 nocs=42 best=1
+[CDX] p1dec phase=p1 proc=0 web=202 sym=91 class=1 save=2.260 nocs=42 totalsave=95 bestcost=0 bestcolor=5 bestreg=a1 forbidden0=0x0 forbidden1=0x0 regsleft=15 numintf=23 available0=0x0 available1=0x0 decision=split forced=0
+[CDX] intf phase=p1 proc=0 web=202 other=40 sym=12 assigned=2 shared=1 marked=0
+[CDX] webblocks phase=p1 proc=0 role=neighbor web=40 sym=12 lr=0x10100040 bbs=13,183,184 aux=-
+[CDX] intf phase=p1 proc=0 web=202 other=157 sym=30 assigned=18 shared=1 marked=0
+[CDX] webblocks phase=p1 proc=0 role=neighbor web=157 sym=30 lr=0x10100157 bbs=190,202 aux=190
+[CDX] intf phase=p1 proc=0 web=202 other=251 sym=44 assigned=3 shared=1 marked=0
+[CDX] webblocks phase=p1 proc=0 role=neighbor web=251 sym=44 lr=0x10100251 bbs=171,183 aux=-
+[CDX] webblocks phase=p1 proc=0 role=target web=202 sym=91 lr=0x10200000 bbs=181,183,184,185,190,191,202 aux=184
+[CDX] seedcand proc=0 lr=0x10200100 pass=1 bb=183 f16=2 f18=0 f19=0 f20=0 maskdiff=0
+[CDX] seed proc=0 lr=0x10200100 bb=183
+[CDX] livbb proc=0 op=del-seed lr=0x10200000 bb=183 refs=2
+[CDX] grow proc=0 lr=0x10200100 bb=184 new=1 left_before=15 left_after=14 numintf=23 strict=1
+[CDX] growv proc=0 lr=0x10200100 bb=184 accepted=1
+[CDX] livbb proc=0 op=del-grow lr=0x10200000 bb=184 refs=1
+[CDX] grow proc=0 lr=0x10200100 bb=190 new=1 left_before=14 left_after=14 numintf=24 strict=1
+[CDX] growv proc=0 lr=0x10200100 bb=190 accepted=1
+[CDX] grow proc=0 lr=0x10200100 bb=185 new=0 left_before=14 left_after=11 numintf=23 strict=1
+[CDX] growv proc=0 lr=0x10200100 bb=185 accepted=0
+[CDX] grow proc=0 lr=0x10200100 bb=191 new=2 left_before=14 left_after=14 numintf=23 strict=1
+[CDX] growv proc=0 lr=0x10200100 bb=191 accepted=1
+[CDX] grow proc=0 lr=0x10200100 bb=202 new=1 left_before=14 left_after=14 numintf=25 strict=1
+[CDX] growv proc=0 lr=0x10200100 bb=202 accepted=1
+[CDX] livbb proc=0 op=mark-exit lr=0x10200000 bb=185 refs=0
+[CDX] p1dec phase=p1 proc=0 web=202 sym=91 class=1 save=2.260 nocs=6 totalsave=14 bestcost=0 bestcolor=5 bestreg=a1 forbidden0=0x0 forbidden1=0x0 regsleft=12 numintf=21 available0=0x0 available1=0x0 decision=color forced=0
+[CDX] intf phase=p1 proc=0 web=202 other=40 sym=12 assigned=2 shared=1 marked=0
+[CDX] webblocks phase=p1 proc=0 role=neighbor web=40 sym=12 lr=0x10100040 bbs=13,183,184 aux=-
+[CDX] intf phase=p1 proc=0 web=202 other=157 sym=30 assigned=18 shared=1 marked=0
+[CDX] webblocks phase=p1 proc=0 role=neighbor web=157 sym=30 lr=0x10100157 bbs=190,202 aux=190
+[CDX] webblocks phase=p1 proc=0 role=target web=202 sym=91 lr=0x10200100 bbs=183,184,190,191,202 aux=-
+[CDX] p1color phase=p1 proc=0 web=202 sym=91 color=5 reg=a1 forced=0
