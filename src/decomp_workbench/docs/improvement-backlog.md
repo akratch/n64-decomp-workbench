@@ -1870,3 +1870,28 @@ reader, classify a one-sided nop whose neighbours are an FP compare and a
 `bc1` as `isa-hazard`, name the flag to test, and never attribute it to a
 source line. Payoff: a flag test costs one compile; a spelling search for a
 nop the compiler cannot emit at the current ISA costs a lane.
+
+### 34. P1 — A self-reassignment (`x = f(x)`) is a copy the reader should name
+Symptom: on `func_8000D820` and `func_8000DB34` (Mickey, 2026-09-23) the last
+one-sided word of each was the register copy IDO emits when a variable is
+reassigned from its own value (`count = (count + 15) >> 4`, `radius *= 2`
+spelled through a second local). The insertion-pair reader labelled them
+split-not-copy and missing-CSE; both closed by reusing one variable, not by
+removing an expression. Change: when a one-sided move's owning line assigns a
+variable from an expression of itself, or assigns a fresh local from another
+local that is dead afterwards, label it `self-reassign-copy` and name the two
+locals to merge. Payoff: two functions' final word was the same shape; a
+label that names it saves the spelling search.
+
+### 35. P0 — Qualify L99: unreferenced `s32` locals do take frame homes
+Symptom: three Track B matches (`func_8000DB34`, `func_800133FC`, and the
+overlay 20 match) depend on unreferenced `s32` pads to land the target's frame
+layout; removing two moved a frame by 8. The banked law L99 says an unused
+`s32` is eliminated before the frame is sized. That is false for these
+procedures (all with FP locals and calls), so a lane trusting L99 will not try
+the lever that closed them. Change: qualify L99 in the compiler-laws page with
+the condition under which the home survives (measure: with and without FP
+locals, with and without calls), and have `frame_census`-style readers report
+"unreferenced local slots" as a lever rather than as noise. Payoff: frame
+closure by declaration lattice is now the standard last step of a small-delta
+match; it needs a law that is true.
