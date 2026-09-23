@@ -1895,3 +1895,36 @@ locals, with and without calls), and have `frame_census`-style readers report
 "unreferenced local slots" as a lever rather than as noise. Payoff: frame
 closure by declaration lattice is now the standard last step of a small-delta
 match; it needs a law that is true.
+
+### 36. P1 — A symbol's section offset is a codegen input: as1 shares `lui $at` inside one aligned 16-byte block
+Symptom: `func_80024978` (Mickey, 2026-09-23) had a Δ −4 spelling that
+matched every word but the target's second `lui $at`; every Δ 0 spelling was
+the wrong shape. The cause was data layout, not code: as1 reuses a `lui $at`
+only for addresses inside one 16-byte-aligned block of the data section, so
+the symbol's offset within its section decides whether a second `lui` is
+emitted. Moving the TU's `.data` start so the symbol sat at offset 0xC
+matched at 0 masked. Change: the object comparison should report, for each
+HI16/LO16 pair, the referenced symbol's section offset modulo 16 on both
+sides, and flag a one-sided `lui` whose neighbour addresses straddle a
+16-byte boundary as `layout-owned`. Payoff: the lever is a carve boundary,
+which no source spelling reaches; naming it saves a lane the spelling sweep.
+
+### 37. P2 — Rank candidate shapes by aligned structure, not by size delta alone
+Symptom: twice in one lane (`func_80024978`, `func_80030610`) a spelling at
+Δ 0 was not the target's shape while a Δ −4 spelling was the target one word
+short. A lane that stops at "size closed" keeps the wrong body. The Pareto
+ranking in `rank` already prefers structural dominance; the small-delta
+protocol's "delta 0 is the milestone" needs the same guard. Change: when a
+candidate reaches Δ 0, report its aligned-edit distance beside the best
+nonzero-delta candidate's, and say which is closer in structure. Payoff: the
+milestone stays true without being mistaken for the target.
+
+### 38. P2 — The call test's "a leaf emits only p2 records" is false for some leaves
+Symptom: `func_80049B14` (Mickey, 2026-09-23) is a leaf and emits 14 p1
+decisions; closing its size gap moved it from 14 coloured webs to 4 and
+relocated ten hoisted constants from v1–t5 to s0–s4. The brief's call test
+would have told the lane not to look at the global colouring pass. Change:
+qualify the call test in the field guide (what makes a leaf's webs global
+candidates: loop-carried constants? spill pressure?) from a measured set of
+leaves, and have the verdict name the allocator regime (`globalcolor webs: N`)
+so a regime change between two spellings is visible as a number.
