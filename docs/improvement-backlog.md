@@ -2060,3 +2060,45 @@ and carried as `measurements.split_cost`. At the toll's floor the count is
 `at least N`; above its ceiling the verdict says no block count reaches it.
 **Deliberately out:** the per-source block counts are the L56 rates, not a
 corpus measurement per construct; that survey is still open.
+
+### 42. P1 — as1 reorders stores past pointer increments only for compiler-created pointers
+Symptom: `func_overlay_054_F0000000_189ECA0` (Mickey, 2026-09-23) stalled at
+17 masked words, all in one loop tail, after its data moved into the TU.
+The target's stores sit above their pointer increments; ours stay below,
+and the assembler's scheduler trace shows each store chained to the next
+store and to a sentinel store, so it outranks the increments. The target
+behaves as if as1 knew the stores could not alias, and the compiler emits
+that fact only for pointers it creates itself from array indexing, never
+for pointers the source declares. Change: read the as1 `-Wa,-R` dependence
+chains beside the target's store order and report `store-chain-blocks-hoist`
+with the pointers involved and whether each is source-declared or
+compiler-created; document the rule in the field guide. Payoff: the lever
+is "spell this access as a subscript so the compiler owns the pointer", which
+is a one-line change once named, and the same family (overlays 50 and 52's
+initialisers) is queued.
+
+### 43. P2 — An extern whose relocation points at the overlay's rodata base is a literal
+Symptom: `func_overlay_001_F0003750_184FB30` referenced four `D_` floats
+that resolved to the overlay rodata base plus an addend; reading the ROM at
+base plus addend gave −1.2f, 400.5f, 0.1f, 0.1f, and spelling them as
+literals took the function from 321 to 285 and matched the target's
+constant materialisations. Change: in the object comparison, when a HI16/LO16
+pair on the candidate side names a symbol whose target-side record resolves
+into a read-only data section of the same module, report the resolved value
+and label the site `rodata-literal`. Payoff: a whole class of `D_` externs in
+overlay code are compiler literals, and each one costs a spelling sweep until
+named.
+
+### 44. P1 — A one-block live range can outrank a long web for a register
+Symptom: `func_80012234` matched only after a stack-passed argument's
+separate carrier gave it a one-block live range with priority 3.0, which took
+`$f2` ahead of a longer web at 1.67; the fix was to assign into the longer
+web's variable directly. Two sibling plateaus (`func_80011980`,
+`func_80011CDC`) stop on the same shape: an address with priority 30/7
+outranks a counter at 31/8 and is hoisted into a callee-saved register. The
+decision records show the ranking, but no verdict names it. Change: when the
+residual is register naming and the colouring records show a web coloured
+ahead of the target's occupant by priority, print `priority-inversion`
+with both webs, their priorities and the statement that creates the short
+range; suggest merging the carrier. Payoff: this replaced a colour landscape
+on three functions today.
