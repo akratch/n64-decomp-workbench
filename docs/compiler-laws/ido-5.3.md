@@ -5979,3 +5979,130 @@ disagreeing; the residual's decisive piece rejected one block at margin `-1`
 reasoned about. It was the shadow of this test.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-15.
+
+### L162. Dead-store elimination runs first, and counts only the reads that survive the early constant fold
+
+uopt keeps a def only if some path **reads it before overwriting it** — and the
+reads it counts are those left after an early constant fold that already knows
+the variable's value. That fold crosses calls: a variable reset in one call's
+argument is still known to be zero three calls later. So a read written to keep
+a def alive is no read at all if the fold can see through it, and the def dies.
+
+**This is the pass-order law the rest of L162–L167 hang from.** Every one of
+them answers "does this read or def still exist when the next pass looks", and
+the order is: early fold, then dead-store elimination, then the
+strength-reduction init fold, then the redundant-store pass.
+
+**Receipt — T2, about sixty two-loop mini translation units** (Mickey,
+2026-09-16, reproducing the shape of `func_overlay_058_F000138C_18B0574`'s last
+residual in forty lines), each compiled with `cc -S` at the project's flags in
+about 50 ms and read line by line from the listing. A discarded read of the
+reset variable in the next block, in a call argument, in an `else` arm and
+after a later reset was folded every time and the def died; `if (i != 0)
+h(3)` three calls later lost the call, which is what showed the fold crossing
+them. The listings are the measurement; no pass hook was read, which is why
+this is T2.
+
+**Falsifies.** "Any read keeps a def alive." Only a read the fold cannot
+remove does.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L163. A read followed by a def of the same variable in its block is not folded
+
+The early fold of L162 skips a read when a def of the same variable follows it
+**in the same basic block**; that read survives and counts for dead-store
+elimination. The same read one block earlier is folded. A def and a read inside
+one statement fold locally.
+
+**Receipt — T2, the mini-TU listings of L162.** `x += i & 0; i = 0;` in the
+guard block kept both the read and the earlier def it reads; the same read a
+block earlier did not; six single-statement read-and-def forms folded locally.
+
+**Falsifies.** "A discarded read is folded wherever the value is known." Not
+when its own block redefines the variable after it.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L164. The redundant-store pass deletes a store only as its block's first reference to the variable
+
+A store of a value the variable already holds is deleted **only when it is the
+first reference to that variable in its block**. Behind any other statement it
+is deleted; behind a read of the same variable it is kept. The same rule blocks
+a store's *sink* into a successor block whenever a read of the variable
+precedes it there: the sink is a delete-and-insert, and the delete is refused.
+
+**Receipt — T2, the mini-TU listings of L162.** A plain reset behind three
+different unrelated statements was deleted; behind a read of the variable it
+was kept in three forms; and a row reset's sink into the loop-exit block was
+blocked in every form that put a read of the variable before it.
+
+**Falsifies.** "A redundant store is always deleted." Its position in its block
+decides it.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L165. The strength-reduction init fold uses the preheader block's own def, not propagated knowledge
+
+A strength-reduced cursor's initial value folds to the bare array base only
+when **the loop's preheader block holds its own def** of the index. With the
+def in an earlier block the init is `base + i*scale`, even though the same
+compiler has already proved the index zero there (L162). A call between the
+preheader's reset and the loop kills the fold as well.
+
+A companion fact from the same mini TUs, recorded here because it is the reason
+anyone needs the fold: the `.noalias` fact that lets a load move into a call's
+delay slot rides on the address being a **load-address expression** (`islda`).
+An indexed named array carries it; a load through a pointer variable never
+does, whatever the pointer holds.
+
+**Receipt — T2, the mini-TU listings of L162.** With the reset in the guard
+block the init was the bare address; from the call-argument reset through three
+calls it stayed `base + i*4`; a call placed between a guard-block reset and the
+loop unfolded it.
+
+**Falsifies.** "The init folds wherever the index is known to be zero."
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L166. A conditional store of an already-known value is deleted before strength reduction
+
+`if (c) i = 0;` where `i` is already known to be zero is removed by the if-body
+no-op rule **before** strength reduction runs, whatever the condition, so it
+supplies no def to L165's fold and keeps nothing alive.
+
+**Receipt — T2, the mini-TU listings of L162.** Five conditions, from a
+constant to a loaded global, each with the known-value reset in the guard
+block: the reset was deleted and the init stayed unfolded in all five.
+
+**Falsifies.** "Guarding the reset keeps it as a def for the fold."
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L167. A self-reading def is not a dead-store candidate
+
+`i &= 0` reads `i` before it defines it, so dead-store elimination never
+deletes it (L163 keeps its read), and the def it reads survives L162. That is
+the way out of the three-way conflict L162–L164 build: the read keeps an
+earlier def alive, it cannot be folded, and it costs no instruction once later
+passes have treated it as a plain zero store.
+
+**What happens to its own store is not settled by these rules.** In the guard
+block it was emitted, kept by L164 because its own read precedes it; placed
+after the first call in an earlier block it was deleted, and the guard-block
+reset after it became that block's first reference and was deleted by L164 in
+turn. `pass order` reports the self-reading def as surviving dead-store
+elimination and does not predict its store.
+
+**Receipt — T2, the mini-TU listings of L162, then one whole-function match.**
+`i &= 0` after the first call reproduced the target's folded init and
+byte-identical code elsewhere in the mini TU; six cells on
+`func_overlay_058_F000138C_18B0574` (14,456 bytes) put it in three blocks and
+two spellings (`i &= 0`, `i = i & 0`): **five measured 0 masked words at delta
+zero**, unforced, and the control without the self-read measured 46. The
+function promoted.
+
+**Falsifies.** "A dead-looking statement that emits nothing cannot be the
+lever." It was the last one.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-16.

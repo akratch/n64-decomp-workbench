@@ -154,6 +154,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "pass": (
         ("replay-as1", "calibrate and probe late assembler scheduling"),
         ("replay-ugen", "replay a Ucode stream through stock ugen and as1"),
+        ("order", "which uopt pass-order rule decides each mini-TU statement"),
         ("diff", "compare user-supplied original and static pass boundaries"),
         ("binasm", "inspect a retained ugen-to-as1 peephole boundary"),
         ("ucode", "inspect retained XJP ranges, selectors, and case tables"),
@@ -304,6 +305,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("pass", "replay-as1"): "replay-as1",
     ("pass", "replay-ugen"): "replay-ugen",
     ("pass", "diff"): "pass-diff",
+    ("pass", "order"): "pass-order",
     ("pass", "binasm"): "inspect-binasm",
     ("pass", "ucode"): "inspect-ucode",
     ("capture", "make"): "capture-make",
@@ -396,6 +398,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "note-list",
         "note-merge",
         "note-reserve",
+        "pass-order",
         "sweep-build",
         "sweep-carriers",
         "sweep-commute",

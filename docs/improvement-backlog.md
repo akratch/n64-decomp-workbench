@@ -1573,6 +1573,26 @@ is. Change: bank as laws; add a `mini` harness command that compiles a two-loop
 probe TU and reports which rule fired. Payoff: pass-order questions become
 50 ms experiments instead of lane-days.
 
+**Status (landed).** The six rules are **L162-L167** on
+[the IDO 5.3 page](compiler-laws/ido-5.3.md), each with its mini-TU receipt
+(tier T2: the listings are the measurement, no pass hook was read), and the two
+"also" facts are recorded with L165. The harness is `decomp-workbench pass
+order`: a mini TU marks the statements under study with `@pass` annotations
+(block, role, variable, stored constant); the command replays the rules in pass
+order and names the deciding rule and law per statement, and with `--listing`
+or `--compile-command` it reads the `cc -S` listing's `.loc` records and checks
+every def's predicted fate against what its line emitted, exiting 1 on an
+unexplained one. Contract `decomp-workbench-pass-order-v1`; documented in
+[Retained-pass replay](pass-replay.md) with a synthetic fixture pair.
+
+**Deliberately out:** a trace hook. The instrumented profile starts after the
+passes these rules describe, so "which rule fired" is read from the pass's own
+output rather than claimed from inside it, and the report's `boundary` says so.
+Also out: inferring blocks and roles from C. The annotations state them because
+a guessed block number would make the model's agreement meaningless, and a
+self-reading def's own store is not predicted, because the campaign measured it
+both emitted and deleted.
+
 ### 25. P0 — Promotion audit: bare resident *data* names and jump-table pools
 Symptom: two promotion faults invisible to the score both broke `verify` with the
 function's bytes exact -- three bare `D_8…` resident data names lacked the

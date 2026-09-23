@@ -101,6 +101,7 @@ SCHEMAS: dict[str, str] = {
     "permute-doctor": "decomp-workbench-permute-doctor-v1",
     "permute-classify": "decomp-workbench-permute-classify-v1",
     "pass-diff": "decomp-workbench-original-pass-diff-v1",
+    "pass-order": "decomp-workbench-pass-order-v1",
     "phase": "decomp-workbench-phase-v1",
     "phase-dumps": "decomp-workbench-phase-v1",
     "replay-as1": "decomp-workbench-pass-replay-v1",

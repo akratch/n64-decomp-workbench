@@ -5,6 +5,29 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### uopt's pass order from mini TUs: laws L162-L167 and `pass order`
+
+- **Six pass-order laws banked on the IDO 5.3 page**, from about sixty two-loop
+  mini TUs the Mickey's Speedway USA whale campaign compiled with `cc -S`
+  (2026-09-16): dead-store elimination runs first and counts only reads that
+  survive the early constant fold, which crosses calls (L162); a read followed
+  by a def in its block is not folded (L163); the redundant-store pass deletes
+  a store only as its block's first reference, and the same rule blocks a sink
+  (L164); the strength-reduction init fold uses the preheader's own def, a
+  call between kills it, and `.noalias` rides on a load-address base (L165); a
+  conditional store of a known value is deleted before strength reduction
+  (L166); a self-reading def is not a dead-store candidate (L167), the rule the
+  14 KB function matched on.
+- **`pass order`** (flat `pass-order`) replays those rules in pass order over a
+  mini TU's `@pass`-annotated statements and names the rule that decides each
+  one; with `--listing` or `--compile-command` (a `cc -S` template run in a
+  private directory) it checks each def's fate against its line's emitted
+  instructions and exits 1 on an unexplained one. The instrumented profile
+  cannot see these passes, so this is the documented reader over the pass's
+  own output rather than a trace hook. Contract
+  `decomp-workbench-pass-order-v1`; usage in
+  [Retained-pass replay](docs/pass-replay.md). Backlog item 24.
+
 ### Split growth and per-web block sets, read as a standard profile
 
 - **`trace growth`** (flat `trace-growth`) reads the globalcolor profile's

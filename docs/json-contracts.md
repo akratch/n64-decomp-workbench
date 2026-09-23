@@ -307,6 +307,20 @@ The CV64 campaign record also uses
 not a schema emitted by a CLI command and not a substitute for a fresh
 comparison.
 
+### uopt pass order
+
+`pass order` emits `decomp-workbench-pass-order-v1`. `statements` holds one row
+per `@pass` annotation in source order: `line`, `role`, `variable`, `block`,
+`value`, `predicted` (`emitted`, `deleted`, `counted`, `folded`,
+`survives-dse`, `folded-init`, `unfolded-init` or `call`), `rule`, `law`,
+`because`, and `notes`. With a listing, `instructions` is the count ugen
+emitted under that line's `.loc` and `observed` the fate it shows for `def`,
+`cond` and `selfdef` rows (an instruction count for `loop`, null for `read` and
+`call`). `agrees` is set only for `def` and `cond` rows and null otherwise;
+`unexplained` lists the lines where it is false, and a non-empty list exits
+`1`. `observed` at the top level says whether a listing was read at all;
+`rules` maps each rule identifier to its law.
+
 ### The colour landscape
 
 `sweep landscape` emits `decomp-workbench-landscape-v1`, both when it compiles

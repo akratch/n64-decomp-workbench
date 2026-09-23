@@ -134,6 +134,7 @@ from .object_cli import (
 )
 from .oracle_cli import register_oracle_commands
 from .pass_adapter_cli import register_pass_adapter_command
+from .pass_order_cli import register_pass_order_command
 from .pass_replay import ListingEdit, replay_as1
 from .pass_replay_cli import register_replay_ugen_command
 from .permute_cli import register_permute_commands
@@ -2287,6 +2288,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_sweep_commands(commands)
     register_landscape_command(commands)
     register_growth_command(commands)
+    register_pass_order_command(commands)
     register_staleness_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)

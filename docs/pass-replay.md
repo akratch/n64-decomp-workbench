@@ -200,3 +200,56 @@ If one directive produces an exact object, it establishes that the downstream
 pass can account for the observed schedule and that the directive is
 sufficient at that site. It does not establish why the earlier pass omitted
 the directive; that requires tracing or source experiments upstream.
+
+## `pass order` — which uopt rule decided each statement
+
+Replay answers questions about as1. The passes *before* the allocator —
+constant folding, dead-store elimination, strength reduction, the
+redundant-store pass — have no hook in the instrumented profile, and the last
+fact one 14 KB function needed lived there: a def that had to be redundant
+before copy propagation. It was settled by about sixty two-loop mini
+translation units, each compiled with `cc -S` in about 50 ms and read line by
+line, and the six rules that came out are laws
+[L162–L167](compiler-laws/ido-5.3.md#l162-dead-store-elimination-runs-first-and-counts-only-the-reads-that-survive-the-early-constant-fold).
+
+`pass order` makes that a command. Mark the statements under study in the mini
+TU with `@pass` comments carrying what a listing cannot show — the basic block,
+the role, the variable, and a stored constant:
+
+```c
+i = 0;              /* @pass def i block=180 value=0 */
+f(i);               /* @pass read i block=180 */
+h(1);               /* @pass call block=181 */
+i &= 0;             /* @pass selfdef i block=181 value=0 */
+if (c) i = 0;       /* @pass cond i block=183 value=0 */
+do { x += arr[i]; } /* @pass loop i block=184 */
+```
+
+Roles are `def`, `read`, `selfdef`, `cond`, `call` and `loop` (whose block is
+the loop's preheader). The command runs the rules in pass order — early fold
+with the read-before-def exception, the if-body deletion of known conditional
+stores, dead-store elimination with self-reading defs exempt, the init fold,
+the redundant-store pass — and names per statement the rule that decided it.
+With `--listing` (or `--compile-command`, a `cc -S` template with `{source}`
+run in a private directory because `cc -S` ignores `-o`), it checks every
+def's predicted fate against what its line emitted:
+
+```sh
+decomp-workbench pass order examples/fixtures/pass-order-mini.c --listing examples/fixtures/pass-order-mini.s
+```
+
+```text
+line 12 bb=180 read i -> folded L162 early-fold
+line 17 bb=184 def i -> deleted L164 redundant-first-reference observed deleted
+```
+
+A def whose line disagrees is listed as **unexplained** and the command exits
+`1`: the listing is the measurement, and the model is six rules read as one
+path through the annotated statements, not a data-flow analysis. Two fates are
+never checked on their own line. A read's fate is visible only through the def
+it reads, and a self-reading def's own store was measured both emitted and
+deleted, so the command reports it as surviving dead-store elimination and
+does not predict the store. Put each statement under study on a line of its
+own — a def inside a call argument shares the call's instructions. The JSON
+contract is `decomp-workbench-pass-order-v1`
+([JSON contracts](json-contracts.md#uopt-pass-order)).
