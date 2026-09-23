@@ -24,8 +24,10 @@ def _sequence_matcher_calls() -> list[tuple[Path, ast.Call]]:
                 continue
             func = node.func
             name = (
-                func.attr if isinstance(func, ast.Attribute)
-                else func.id if isinstance(func, ast.Name)
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id
+                if isinstance(func, ast.Name)
                 else None
             )
             if name == "SequenceMatcher":
@@ -51,14 +53,20 @@ class SequenceMatcherInvariants(unittest.TestCase):
 
     def test_every_call_site_disables_the_popular_element_heuristic(self) -> None:
         calls = _sequence_matcher_calls()
-        self.assertGreaterEqual(len(calls), 7, "expected the known call sites to be found")
+        self.assertGreaterEqual(
+            len(calls), 7, "expected the known call sites to be found"
+        )
         offenders = []
         for path, call in calls:
             keyword = next((k for k in call.keywords if k.arg == "autojunk"), None)
             if keyword is None:
                 offenders.append(f"{path.name}:{call.lineno} omits autojunk")
-            elif not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False):
-                offenders.append(f"{path.name}:{call.lineno} does not pass autojunk=False")
+            elif not (
+                isinstance(keyword.value, ast.Constant) and keyword.value.value is False
+            ):
+                offenders.append(
+                    f"{path.name}:{call.lineno} does not pass autojunk=False"
+                )
         self.assertEqual(offenders, [], "; ".join(offenders))
 
 

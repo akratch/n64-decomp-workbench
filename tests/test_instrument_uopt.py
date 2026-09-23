@@ -1,5 +1,9 @@
 """Tests for guarded, profiled uopt instrumentation."""
 
+# The C fixtures deliberately preserve decompiler-generated one-line signatures
+# and driver lines; wrapping them would test a source nobody generates.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import os
@@ -318,7 +322,10 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("[CDX] livbb", result.source)
         self.assertIn("[CDX] grow", result.source)
         self.assertIn("[CDX] growv", result.source)
-        self.assertIn("dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4)", result.source)
+        self.assertIn(
+            "dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4)",
+            result.source,
+        )
         self.assertEqual(result.trace_points, 23)
         self.assertIn('strcmp(value, "all")', result.source)
         self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)

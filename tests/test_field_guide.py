@@ -98,7 +98,8 @@ class PackagedGuideTests(unittest.TestCase):
             elif canonical.read_bytes() != packaged.read_bytes():
                 drifted.append(packaged.relative_to(root).as_posix())
         self.assertEqual(
-            drifted, [],
+            drifted,
+            [],
             "packaged pages drifted from their canonical copies; run:\n"
             "  python3 tools/sync_packaged_docs.py",
         )
