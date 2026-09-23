@@ -881,6 +881,22 @@ the oracle's rule that a forced object is not source evidence both still hold.
 - **Blocked on nothing.** The inputs are counts the host already records to
   file a plateau.
 
+**Status (landed).** `stall.read_series` had landed with nothing calling it;
+`decomp-workbench campaign stall SERIES.json` is now the command, reading a
+`decomp-workbench-attempt-series-v1` document the host writes from what it
+already records and emitting `decomp-workbench-stall-v1` (exit 0 continue, 1
+stop). The one rule this item said must hold is structural rather than prose:
+every attempt carries a `provenance`, only a `stock` residual moves the best
+residual or counts as residual progress, and the loader refuses an attempt that
+omits it, so a forced run's `0` cannot read as the series closing. A forced
+attempt still counts when it eliminated a hypothesis. Documented in
+[Campaigns](campaigns.md) and [JSON contracts](json-contracts.md#stopping-evidence).
+
+**Deliberately out:** owning or scheduling the attempts, and reading a
+closure out of a handoff. `closed_by_evidence` stays the host's statement: the
+workbench does not parse a project's plateau format to decide it, which is the
+same boundary the staleness chain keeps.
+
 ### 18. A forced result and a stock result score identically
 
 - **Symptom.** Every comparison reports the same shape of score whether the

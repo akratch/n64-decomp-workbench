@@ -1,0 +1,10 @@
+{
+  "schema": "decomp-workbench-attempt-series-v1",
+  "threshold": 3,
+  "attempts": [
+    {"label": "baseline carve", "residual": 692, "provenance": "stock"},
+    {"label": "extent fixed", "residual": 619, "provenance": "stock"},
+    {"label": "packed force set", "residual": 0, "provenance": "forced", "eliminated": true},
+    {"label": "frame proved", "residual": 538, "provenance": "stock"}
+  ]
+}

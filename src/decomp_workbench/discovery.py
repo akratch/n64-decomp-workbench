@@ -90,6 +90,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("dossier-add", "append a tested hypothesis and do-not-repeat result"),
         ("dossier-list", "query tested hypotheses by function or result"),
         ("readiness", "split source work from identity and remeasurement queues"),
+        ("stall", "read an attempt series: continue, stalled, or closed by evidence"),
     ),
     "experiment": (
         ("validate", "check paths, parameter assignments, and region bounds"),
@@ -272,6 +273,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("campaign", "dossier-add"): "campaign-dossier-add",
     ("campaign", "dossier-list"): "campaign-dossier-list",
     ("campaign", "readiness"): "target-readiness",
+    ("campaign", "stall"): "campaign-stall",
     ("note", "add"): "note-add",
     ("note", "reserve"): "note-reserve",
     ("note", "list"): "note-list",
@@ -384,6 +386,7 @@ HIDDEN_FLAT_COMMANDS = frozenset(
         "campaign-package",
         "campaign-resume",
         "campaign-restore-best",
+        "campaign-stall",
         "campaign-status",
         "campaign-survey",
         "next-dumps",

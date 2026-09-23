@@ -38,6 +38,7 @@ SCHEMAS: dict[str, str] = {
     "campaign-resume": "decomp-workbench-campaign-status-v1",
     "campaign-status": "decomp-workbench-campaign-status-v1",
     "campaign-survey": "decomp-workbench-campaign-survey-v1",
+    "campaign-stall": "decomp-workbench-stall-v1",
     "cache-prune": "decomp-workbench-cache-prune-v1",
     "cache-restore": "decomp-workbench-cache-restore-v1",
     "cache-status": "decomp-workbench-cache-status-v1",

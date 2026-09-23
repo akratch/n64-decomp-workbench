@@ -166,6 +166,7 @@ from .slots_cli import register_slots_command
 from .source_correlation_cli import register_source_correlation_command
 from .source_probe_cli import register_source_probe_commands
 from .staleness_cli import register_staleness_command
+from .stall_cli import register_stall_command
 from .streams_cli import register_stream_commands
 from .sweep_cli import register_sweep_commands
 from .target_audit_cli import register_target_commands
@@ -2289,6 +2290,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_landscape_command(commands)
     register_growth_command(commands)
     register_pass_order_command(commands)
+    register_stall_command(commands)
     register_staleness_command(commands)
     register_fingerprint_commands(commands)
     register_relocation_command(commands)

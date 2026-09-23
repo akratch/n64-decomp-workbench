@@ -271,6 +271,37 @@ started. Use `--compile-cwd` when a project wrapper expects relative include,
 tool, or configuration paths. The resolved directory is recorded in
 provenance and participates in the cache key.
 
+## Stopping a series of attempts: `campaign stall`
+
+A campaign stops on an exact match. Across campaigns — the attempts a lane makes
+on one function over a day — the question is different: should the next attempt
+happen at all? A fixed attempt count answers it badly in both directions: on
+2026-09-08 it stopped a 719-word reconstruction that was still falling (692,
+619, 538) and would have granted nine attempts to a target whose recorded
+history already ruled out every remaining mechanism.
+
+`campaign stall` reads the series the host already records, one entry per
+attempt, and says `improving`, `stalled` or `closed-by-evidence`:
+
+```sh
+decomp-workbench campaign stall examples/fixtures/attempt-series.json
+```
+
+```text
+stall reading: improving over 4 attempt(s); best stock residual 538
+```
+
+An attempt buys something when it lowers the best **stock** residual or
+eliminates a recorded hypothesis; `stalled` means `threshold` consecutive
+attempts did neither, and `closed_by_evidence` (in the document or as
+`--closed-by-evidence`) stops before any attempt. Every attempt must state
+`provenance` — `stock`, `forced` or `unknown` — and a document that omits it is
+refused: a forced build's zero looks exactly like a stock one, and the fixture's
+forced `0` is set aside rather than read as the best residual. It still counts
+as progress if it eliminated a hypothesis, which is what a force experiment is
+for. Exit `0` means continue, `1` stop. The reading owns no attempts and
+schedules none, and a stall is not a reachability claim.
+
 ## What is recorded
 
 Each JSONL record includes:

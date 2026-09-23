@@ -307,6 +307,19 @@ The CV64 campaign record also uses
 not a schema emitted by a CLI command and not a substitute for a fresh
 comparison.
 
+### Stopping evidence
+
+`campaign stall` reads `decomp-workbench-attempt-series-v1`: `attempts`, an
+ordered list whose entries carry an integer `residual`, a required
+`provenance` (`stock`, `forced` or `unknown`), and optional `eliminated` and
+`label`; plus optional `threshold` (default 3) and `closed_by_evidence`. It
+emits `decomp-workbench-stall-v1`: `state` (`improving`, `stalled` or
+`closed-by-evidence`), `should_continue`, `stalled_for`, `best_residual` (the
+best **stock** residual, null when there is none), `last_progress` (1-based)
+and its `last_progress_label`, `attempts`, `excluded_from_residual` (the forced
+and unknown attempts whose numbers were set aside), and the `lines` printed on
+the terminal.
+
 ### The force plan
 
 `oracle force-plan` emits `decomp-workbench-force-plan-v1`. `substitutions`

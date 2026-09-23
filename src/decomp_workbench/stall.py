@@ -36,14 +36,23 @@ permuter or a force proof.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 __all__ = [
     "DEFAULT_THRESHOLD",
+    "SERIES_SCHEMA",
+    "STALL_SCHEMA",
     "Attempt",
     "StallReading",
+    "load_series",
     "read_series",
+    "stall_payload",
 ]
+
+#: The host's input: an ordered list of already-measured attempts.
+SERIES_SCHEMA = "decomp-workbench-attempt-series-v1"
+#: The reading `campaign stall` emits.
+STALL_SCHEMA = "decomp-workbench-stall-v1"
 
 #: Consecutive attempts that must buy nothing before a series reads `stalled`.
 #: Three, because two can be a pair of probes around one hypothesis; the third
@@ -68,6 +77,12 @@ class Attempt:
     residual: int
     eliminated: bool = False
     label: str = ""
+    #: How the measured object was built, in `provenance.classify_environment`
+    #: vocabulary. Only a `stock` residual is a source attempt's distance; a
+    #: forced or unknown build's number is a statement about the allocator or
+    #: about nothing, and it never counts as residual progress. It can still
+    #: eliminate a hypothesis, which is what a force experiment is for.
+    provenance: str = "stock"
 
 
 @dataclass(frozen=True)
@@ -79,6 +94,7 @@ class StallReading:
     best_residual: int | None
     last_progress: int | None
     lines: tuple[str, ...]
+    excluded: int = 0
 
     @property
     def should_continue(self) -> bool:
@@ -90,7 +106,8 @@ def _progress_indices(attempts: Sequence[Attempt]) -> list[int]:
     progressed: list[int] = []
     best: int | None = None
     for index, attempt in enumerate(attempts):
-        gained = best is None or attempt.residual < best
+        counts = attempt.provenance == "stock"
+        gained = counts and (best is None or attempt.residual < best)
         if gained:
             best = attempt.residual
         if gained or attempt.eliminated:
@@ -110,12 +127,46 @@ def read_series(
     history already rules out every mechanism still available to this worker.
     It wins over the series, including an empty one: zero attempts is the right
     number when the answer is already written down.
+
+    An attempt whose object was not built by the stock compiler never moves
+    the residual; its number is kept out of `best_residual` and the reading
+    says how many were set aside.
     """
+    reading = _read_series(
+        attempts, threshold=threshold, closed_by_evidence=closed_by_evidence
+    )
+    if not reading.excluded:
+        return reading
+    return replace(
+        reading,
+        lines=(
+            *reading.lines,
+            f"  {reading.excluded} attempt(s) were measured under force or with "
+            "an unknown build: their residuals are not source distances and "
+            "counted only if they eliminated a hypothesis.",
+        ),
+    )
+
+
+def _read_series(
+    attempts: Sequence[Attempt],
+    *,
+    threshold: int = DEFAULT_THRESHOLD,
+    closed_by_evidence: bool = False,
+) -> StallReading:
+    """The reading before the provenance note; see `read_series`."""
     if threshold < 1:
         raise ValueError("threshold must be at least one attempt")
 
+    for attempt in attempts:
+        if attempt.provenance not in {"stock", "forced", "unknown"}:
+            raise ValueError(f"unknown attempt provenance {attempt.provenance!r}")
+    excluded = sum(1 for attempt in attempts if attempt.provenance != "stock")
     progressed = _progress_indices(attempts)
-    best = min((attempt.residual for attempt in attempts), default=None)
+    best = min(
+        (attempt.residual for attempt in attempts if attempt.provenance == "stock"),
+        default=None,
+    )
     last_progress = progressed[-1] if progressed else None
     stalled_for = (
         len(attempts) - 1 - last_progress
@@ -129,6 +180,7 @@ def read_series(
             stalled_for=stalled_for,
             best_residual=best,
             last_progress=last_progress,
+            excluded=excluded,
             lines=(
                 "stop: the target's recorded history already rules out the "
                 "mechanisms still available here.",
@@ -150,6 +202,7 @@ def read_series(
             stalled_for=stalled_for,
             best_residual=best,
             last_progress=last_progress,
+            excluded=excluded,
             lines=(
                 f"stop: {stalled_for} consecutive attempts moved neither the "
                 "residual nor the hypothesis set.",
@@ -169,6 +222,7 @@ def read_series(
         stalled_for=stalled_for,
         best_residual=best,
         last_progress=last_progress,
+        excluded=excluded,
         lines=(
             f"continue: {stalled_for} attempt(s) since the last one that "
             f"bought something (stall at {threshold}).",
@@ -177,3 +231,70 @@ def read_series(
             "adopting a nonexact candidate.",
         ),
     )
+
+
+def load_series(payload: object) -> tuple[list[Attempt], bool, int]:
+    """Read a `decomp-workbench-attempt-series-v1` document.
+
+    Returns the attempts, the host's closed-by-evidence statement, and the
+    threshold. Every attempt must carry an integer `residual`; `eliminated`,
+    `label` and `provenance` are optional, and an attempt without
+    `provenance` is refused rather than assumed stock, because a series that
+    mixes forced and stock numbers without saying which is the failure the
+    field exists to prevent.
+    """
+
+    if not isinstance(payload, dict) or payload.get("schema") != SERIES_SCHEMA:
+        raise ValueError(f"expected a {SERIES_SCHEMA} document")
+    rows = payload.get("attempts")
+    if not isinstance(rows, list):
+        raise ValueError("the series has no `attempts` list")
+    attempts: list[Attempt] = []
+    for number, row in enumerate(rows, 1):
+        if not isinstance(row, dict) or not isinstance(row.get("residual"), int):
+            raise ValueError(f"attempt {number} has no integer `residual`")
+        provenance = row.get("provenance")
+        if provenance not in {"stock", "forced", "unknown"}:
+            raise ValueError(
+                f"attempt {number} does not say how its object was built: "
+                "`provenance` must be stock, forced or unknown. A forced score "
+                "and a stock score look identical, so the series refuses to "
+                "guess"
+            )
+        attempts.append(
+            Attempt(
+                residual=row["residual"],
+                eliminated=bool(row.get("eliminated", False)),
+                label=str(row.get("label", "")),
+                provenance=provenance,
+            )
+        )
+    threshold = payload.get("threshold", DEFAULT_THRESHOLD)
+    if not isinstance(threshold, int):
+        raise ValueError("`threshold` must be an integer")
+    return attempts, bool(payload.get("closed_by_evidence", False)), threshold
+
+
+def stall_payload(
+    reading: StallReading, attempts: Sequence[Attempt]
+) -> dict[str, object]:
+    """The versioned JSON form of one reading."""
+
+    return {
+        "schema": STALL_SCHEMA,
+        "state": reading.state,
+        "should_continue": reading.should_continue,
+        "stalled_for": reading.stalled_for,
+        "best_residual": reading.best_residual,
+        "last_progress": (
+            reading.last_progress + 1 if reading.last_progress is not None else None
+        ),
+        "last_progress_label": (
+            attempts[reading.last_progress].label or None
+            if reading.last_progress is not None
+            else None
+        ),
+        "attempts": len(attempts),
+        "excluded_from_residual": reading.excluded,
+        "lines": list(reading.lines),
+    }

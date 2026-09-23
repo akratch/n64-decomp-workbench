@@ -9,9 +9,21 @@ attempts was zero.
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import unittest
+from pathlib import Path
 
-from decomp_workbench.stall import DEFAULT_THRESHOLD, Attempt, read_series
+from decomp_workbench.cli import main
+from decomp_workbench.stall import (
+    DEFAULT_THRESHOLD,
+    SERIES_SCHEMA,
+    STALL_SCHEMA,
+    Attempt,
+    load_series,
+    read_series,
+)
 
 
 class ReadSeriesTests(unittest.TestCase):
@@ -89,3 +101,59 @@ class ReadSeriesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProvenanceInSeriesTests(unittest.TestCase):
+    """A forced score in a series is not a residual; it can only eliminate."""
+
+    def test_a_forced_zero_is_not_the_best_residual(self) -> None:
+        reading = read_series(
+            [
+                Attempt(692),
+                Attempt(0, eliminated=False, provenance="forced"),
+                Attempt(692),
+                Attempt(692),
+            ]
+        )
+        self.assertEqual(reading.best_residual, 692)
+        self.assertEqual(reading.state, "stalled")
+        self.assertEqual(reading.excluded, 1)
+        self.assertIn("under force", reading.lines[-1])
+
+    def test_a_forced_attempt_that_eliminates_still_counts(self) -> None:
+        reading = read_series(
+            [Attempt(50), Attempt(50), Attempt(0, eliminated=True, provenance="forced")]
+        )
+        self.assertEqual(reading.state, "improving")
+        self.assertEqual(reading.last_progress, 2)
+
+    def test_an_unrecognised_provenance_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            read_series([Attempt(5, provenance="instrumented-ish")])
+
+
+class SeriesDocumentTests(unittest.TestCase):
+    def test_a_series_without_provenance_is_refused_not_assumed_stock(self) -> None:
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            load_series({"schema": SERIES_SCHEMA, "attempts": [{"residual": 3}]})
+
+    def test_the_command_reads_the_fixture_and_exits_by_the_reading(self) -> None:
+        fixture = (
+            Path(__file__).resolve().parents[1]
+            / "examples"
+            / "fixtures"
+            / "attempt-series.json"
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            status = main(["campaign", "stall", str(fixture), "--json"])
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["schema"], STALL_SCHEMA)
+        self.assertEqual(payload["best_residual"], 538)
+        self.assertEqual(payload["excluded_from_residual"], 1)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            status = main(["campaign", "stall", str(fixture), "--closed-by-evidence"])
+        self.assertEqual(status, 1)
+        self.assertIn("stop:", stdout.getvalue())

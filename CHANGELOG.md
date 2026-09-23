@@ -5,6 +5,19 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Stopping evidence as a command
+
+- **`campaign stall`** (flat `campaign-stall`) reads a
+  `decomp-workbench-attempt-series-v1` document through `stall.read_series` and
+  prints `improving`, `stalled` or `closed-by-evidence`, exiting 0 to continue
+  and 1 to stop, with `decomp-workbench-stall-v1` under `--json`. The API half
+  existed with nothing calling it.
+- **Attempts carry provenance.** `Attempt.provenance` is `stock`, `forced` or
+  `unknown`; only a stock residual counts as residual progress or as the best
+  residual, and a forced attempt counts only through what it eliminated. The
+  series loader refuses an attempt that does not say how its object was built.
+  Backlog item 17.
+
 ### Plan the force experiment from the residual
 
 - **`oracle force-plan`** turns a register residual's substitutions
