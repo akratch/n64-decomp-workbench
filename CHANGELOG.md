@@ -5,6 +5,16 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### A better forced split is priced in blocks
+
+- **`diagnose` names `split-cost-short-by N blocks`** when a recorded split
+  force (`pN:wW=s`) scored below its baseline: the unforced L56 toll
+  (`bestcost`) is short of the web's `totalsave` by `N` blocks at 0.25 each,
+  with the natural block sources (a real conditional, a loop guard, a call
+  boundary) listed before the empty-block scaffolding that also reaches it.
+  `measurements.split_cost` carries it; a toll at its floor is a lower bound,
+  one above the ceiling is unreachable by blocks. Backlog item 41.
+
 ### The small-delta label vocabulary the Mickey wave measured
 
 - **Seven specific labels in `object pairs`**, each decided by one check and

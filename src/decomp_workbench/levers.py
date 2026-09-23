@@ -44,10 +44,11 @@ answering a question the evidence had not been asked.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .as1_reorganize import Selection
@@ -1941,7 +1942,179 @@ def _as1_lever(selections: Sequence[Selection]) -> Lever | None:
     return None
 
 
+#: The L56 toll's two bounds: `clamp(nBB / 4, 4, 60)`.
+TOLL_FLOOR = 4.0
+TOLL_CEILING = 60.0
+
+#: Callee-saved registers, the colours the L56 toll prices.
+CALLEE_SAVED = frozenset(
+    {f"s{n}" for n in range(8)} | {"s8", "fp"} | {f"f{n}" for n in range(20, 32, 2)}
+)
+
+#: Where the blocks a split-cost shortfall needs come from. The natural
+#: sources are first; the scaffolding that also reaches the price is named
+#: last, because it is a diagnostic and not a spelling.
+SPLIT_COST_BLOCK_SOURCES: tuple[str, ...] = (
+    "a real conditional: an `if` adds two blocks (+0.50 toll)",
+    "a loop guard: the test a `while` or `for` places before its body",
+    "a call boundary: each call ends a block (+0.25 toll)",
+    "scaffolding, which reaches the price but is not a natural spelling: "
+    "an empty `do { } while (0)` added two blocks on "
+    "overlay89UpdateStateAndParticles (Mickey's Speedway USA, 2026-09-23), "
+    "`if (1) { }` likewise",
+)
+
+
+def split_cost_pricing(
+    force: Mapping[str, Any], log: CdxLog, *, proc: int | None = None
+) -> list[dict[str, Any]]:
+    """Price each web a better-scoring forced split took out of the callee bank.
+
+    A web keeps its callee-saved colour while the L56 toll it pays
+    (`bestcost`, `clamp(nBB / 4, 4, 60)`) is below its save (`totalsave`).
+    When a force that sends it down the split path scores better than the
+    unforced baseline, the natural route to the same object is to raise the
+    toll to the save, and every basic block adds 0.25: so the shortfall is
+    `ceil(4 * (totalsave - bestcost))` blocks. At the floor (toll 4) the
+    block count is not readable from the toll, so the number is a lower bound;
+    above the ceiling no block count reaches it.
+    """
+
+    from .instrument_uopt import parse_force_specification
+
+    rows = force.get("results")
+    if not isinstance(rows, list):
+        return []
+    baseline_words: int | None = None
+    baseline = force.get("baseline")
+    if isinstance(baseline, dict) and isinstance(baseline.get("comparison"), dict):
+        value = baseline["comparison"].get("words")
+        baseline_words = value if isinstance(value, int) else None
+    decisions = {
+        (item.phase_tag, item.web): item for item in log.trace.allocator_webs(proc=proc)
+    }
+    priced: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("comparison"), dict):
+            continue
+        words = row["comparison"].get("words")
+        if not isinstance(words, int):
+            continue
+        if baseline_words is not None and words >= baseline_words:
+            continue
+        if baseline_words is None and words != 0:
+            continue
+        try:
+            entries = parse_force_specification(str(row.get("force") or ""))
+        except ValueError:
+            continue
+        for entry in entries:
+            if entry.color is not None:
+                continue
+            decision = decisions.get((entry.phase, entry.web))
+            if decision is None:
+                continue
+            save = decision.total_save
+            toll = _float_field(decision, "bestcost")
+            register = _record_register(decision)
+            base = {
+                "force": row.get("force"),
+                "phase": entry.phase,
+                "web": entry.web,
+                "words": words,
+                "baseline_words": baseline_words,
+                "save": save,
+                "toll": toll,
+                "register": register,
+                "block_sources": list(SPLIT_COST_BLOCK_SOURCES),
+            }
+            if toll is None or not math.isfinite(save):
+                continue
+            if register is not None and register not in CALLEE_SAVED:
+                priced.append(
+                    {
+                        **base,
+                        "bound": "not-priced",
+                        "short_by_blocks": None,
+                        "verdict": f"web {entry.web} took {register}, not a "
+                        "callee-saved colour: L56 does not price it",
+                    }
+                )
+                continue
+            if toll >= save:
+                continue
+            if save > TOLL_CEILING:
+                priced.append(
+                    {
+                        **base,
+                        "bound": "saturated",
+                        "short_by_blocks": None,
+                        "verdict": f"web {entry.web}'s save {save:g} is above "
+                        "the toll's ceiling of 60: no block count reaches the "
+                        "split",
+                    }
+                )
+                continue
+            blocks = max(1, math.ceil(4 * (save - toll) - 1e-9))
+            bound = "at-least" if toll <= TOLL_FLOOR + 1e-9 else "exact"
+            prefix = "at least " if bound == "at-least" else ""
+            priced.append(
+                {
+                    **base,
+                    "bound": bound,
+                    "short_by_blocks": blocks,
+                    "verdict": f"split-cost-short-by {prefix}{blocks} blocks: "
+                    f"forcing web {entry.web} to split scored {words} against "
+                    f"{baseline_words}; its toll {toll:g} is short of its save "
+                    f"{save:g}, and each block adds 0.25",
+                }
+            )
+    return priced
+
+
 def lever_for(
+    view: MechanismView,
+    *,
+    ladder: Ladder | None = None,
+    cdx_log: CdxLog | None = None,
+    force_result: Mapping[str, Any] | None = None,
+    ring_events: Sequence[TraceEvent] | None = None,
+    emit_events: Sequence[EmitEvent] | None = None,
+    as1_selections: Sequence[Selection] | None = None,
+    source: Sequence[str] | None = None,
+    proc: int | None = None,
+) -> Lever:
+    """Name the lever, then price any better-scoring forced split (item 41).
+
+    The class is decided by :func:`_lever_for`; a recorded force whose split
+    scored better adds a `split_cost` measurement and one evidence line per
+    web, saying how many blocks short the unforced toll is.
+    """
+
+    lever = _lever_for(
+        view,
+        ladder=ladder,
+        cdx_log=cdx_log,
+        force_result=force_result,
+        ring_events=ring_events,
+        emit_events=emit_events,
+        as1_selections=as1_selections,
+        source=source,
+        proc=proc,
+    )
+    if force_result is None or cdx_log is None:
+        return lever
+    priced = split_cost_pricing(force_result, cdx_log, proc=proc)
+    if not priced:
+        return lever
+    return replace(
+        lever,
+        evidence=(*lever.evidence, *(item["verdict"] for item in priced)),
+        measurements={**lever.measurements, "split_cost": priced},
+    )
+
+
+def _lever_for(
     view: MechanismView,
     *,
     ladder: Ladder | None = None,
@@ -2093,6 +2266,9 @@ def format_lever(lever: Lever) -> tuple[str, ...]:
         lines.append(f"  reopens when: {lever.unreachable.reopens_when}")
     for line in lever.evidence:
         lines.append(f"  evidence: {line}")
+    split_cost = lever.measurements.get("split_cost") or ()
+    if any(item.get("short_by_blocks") for item in split_cost):
+        lines.append("  block sources: " + "; ".join(SPLIT_COST_BLOCK_SOURCES))
     for line in lever.needs:
         lines.append(f"  capture: {line}")
     for family in lever.alternatives:

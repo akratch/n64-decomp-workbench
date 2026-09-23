@@ -2040,3 +2040,14 @@ natural block sources measured on this corpus (a real conditional, a loop
 guard, a call boundary) beside the scaffolding. Payoff: the cleanup queue
 already holds a dozen `do{}while(0)` and `if (1)` forms; a named lever turns
 "add an empty block" into "which real statement supplies the block".
+
+**Status (landed).** `diagnose` with `--force-result` and `--ladder` (the CDX capture) prices
+every split force that scored below its baseline: for a web that took a
+callee-saved colour unforced, `split-cost-short-by N blocks` with
+`N = ceil(4 * (totalsave - bestcost))` from its decision record, printed as
+evidence with a `block sources:` line naming a real conditional, a loop
+guard and a call boundary before the empty `do { } while (0)` scaffolding,
+and carried as `measurements.split_cost`. At the toll's floor the count is
+`at least N`; above its ceiling the verdict says no block count reaches it.
+**Deliberately out:** the per-source block counts are the L56 rates, not a
+corpus measurement per construct; that survey is still open.

@@ -151,6 +151,18 @@ class; `measurements` carries the numbers it was computed from;
 proofs the owning pass points at; `reachability` reports a recorded force
 experiment and is null without one.
 
+**A better-scoring forced split is priced.** When `--force-result` holds a
+split force (`pN:wW=s`) that scored below its baseline and the CDX capture
+carries that web's decision, `measurements.split_cost` lists one entry per
+web: `force`, `phase`, `web`, `words`, `baseline_words`, `save`
+(`totalsave`), `toll` (`bestcost`, the L56 callee-save toll), `register`,
+`bound` (`exact`, `at-least` when the toll sits at its floor of 4,
+`saturated` when the save is above the ceiling of 60, or `not-priced` for a
+caller-saved colour), `short_by_blocks` (`ceil(4 * (save - toll))`, null
+unless `exact` or `at-least`), `block_sources`, and `verdict`, which begins
+`split-cost-short-by N blocks` and is also appended to `evidence`. The class
+is unchanged: pricing says how far the natural route is, not which edit.
+
 **`edit_family` is null whenever the input that would name it is absent, and
 `needs` then names the capture that produces it.** That pairing is the
 contract, not a convenience: a consumer that treats a named class as a named

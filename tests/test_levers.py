@@ -45,6 +45,7 @@ from decomp_workbench.levers import (
     lever_for,
     pops_by_line,
     readiness_keys,
+    split_cost_pricing,
     sweep_records,
     tie_groups,
 )
@@ -1090,6 +1091,94 @@ class ForceReachabilityTests(PoolLaneGateTests):
         self.assertTrue(
             any(item.startswith("  reachability: proven") for item in lines)
         )
+
+
+def split_log(save: str, toll: str, register: str = "s1") -> CdxLog:
+    """One p1 web that took a callee-saved colour at `toll` against `save`."""
+
+    return CdxLog(
+        f"""\
+[CDX] p1dec phase=p1 proc=1 web=9 sym=4 class=1 save={save} nocs=1 \
+totalsave={save} bestcost={toll} bestcolor=15 bestreg={register} \
+forbidden0=0x00000000 forbidden1=0x00000000 regsleft=9 numintf=3 \
+available0=0x7ffc0000 available1=0x00000000 allcallersave=0 taken1=-1 \
+taken2=-1 decision=color forced=-2
+[CDX] p1color phase=p1 proc=1 web=9 sym=4 color=15 reg={register} forced=-2
+""",
+        name="capture.log",
+    )
+
+
+FORCED_SPLIT = {
+    "schema": "decomp-workbench-oracle-sweep-v1",
+    "baseline": {"comparison": {"words": 12, "candidate_instructions": 96}},
+    "results": [
+        {"force": "p1:w9=s", "comparison": {"words": 0, "candidate_instructions": 96}}
+    ],
+}
+
+
+class SplitCostPricingTests(PoolLaneGateTests):
+    """Backlog item 41: a better forced split, priced in L56 blocks."""
+
+    def test_the_shortfall_is_four_blocks_per_toll_unit(self) -> None:
+        priced = split_cost_pricing(
+            FORCED_SPLIT, split_log("10.000000", "9.250000"), proc=1
+        )
+        self.assertEqual(len(priced), 1)
+        self.assertEqual(priced[0]["short_by_blocks"], 3)
+        self.assertEqual(priced[0]["bound"], "exact")
+        self.assertIn("split-cost-short-by 3 blocks", priced[0]["verdict"])
+        self.assertTrue(
+            any("real conditional" in item for item in priced[0]["block_sources"])
+        )
+
+    def test_at_the_floor_the_count_is_a_lower_bound(self) -> None:
+        priced = split_cost_pricing(
+            FORCED_SPLIT, split_log("5.000000", "4.000000"), proc=1
+        )
+        self.assertEqual(priced[0]["bound"], "at-least")
+        self.assertIn("at least 4 blocks", priced[0]["verdict"])
+
+    def test_above_the_ceiling_no_block_count_reaches_it(self) -> None:
+        priced = split_cost_pricing(
+            FORCED_SPLIT, split_log("70.000000", "60.000000"), proc=1
+        )
+        self.assertEqual(priced[0]["bound"], "saturated")
+        self.assertIsNone(priced[0]["short_by_blocks"])
+
+    def test_a_caller_saved_colour_is_not_priced(self) -> None:
+        priced = split_cost_pricing(
+            FORCED_SPLIT, split_log("10.000000", "9.000000", "v0"), proc=1
+        )
+        self.assertEqual(priced[0]["bound"], "not-priced")
+
+    def test_a_split_that_scored_worse_is_not_a_lever(self) -> None:
+        worse = {
+            **FORCED_SPLIT,
+            "results": [
+                {
+                    "force": "p1:w9=s",
+                    "comparison": {"words": 14, "candidate_instructions": 96},
+                }
+            ],
+        }
+        self.assertEqual(
+            split_cost_pricing(worse, split_log("10.000000", "9.250000"), proc=1),
+            [],
+        )
+
+    def test_the_verdict_carries_the_price(self) -> None:
+        lever = lever_for(
+            self.colour_view(target_pool=("v1", "v0"), candidate_pool=("v0", "v1")),
+            cdx_log=split_log("10.000000", "9.500000"),
+            force_result=FORCED_SPLIT,
+            proc=1,
+        )
+        self.assertEqual(lever.measurements["split_cost"][0]["short_by_blocks"], 2)
+        rendered = "\n".join(format_lever(lever))
+        self.assertIn("split-cost-short-by 2 blocks", rendered)
+        self.assertIn("block sources:", rendered)
 
 
 class SweepRecordTests(unittest.TestCase):
