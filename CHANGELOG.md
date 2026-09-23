@@ -141,6 +141,82 @@ in [design notes](docs/history/design-notes.md).
   source changed. Contract `decomp-workbench-landscape-v1` in
   [JSON contracts](docs/json-contracts.md#the-colour-landscape); usage in
   [Sweeps](docs/sweeps.md). Backlog item 19.
+### The permuter scratch is read back before it is searched
+
+- **`permute-doctor` and `permute-sweep` read the scratch's own `compile.sh`**
+  (backlog item 7). Every flag recovered from the build's dry run must appear
+  in it, and a second ISA, ABI, optimization, debug or PIC value beside the
+  build's is refused by name -- the importer's `-mips1` default beside a
+  `-mips2` build had eight of twelve searches reading as hard functions. A
+  family the build leaves to the compiler default is reported, not refused.
+  The doctor's JSON carries it as `compile_script`.
+- **A scratch of a different length is refused** in both commands, with or
+  without `--require-fidelity`. `scratch_fidelity` gains `instruction_delta`,
+  and `differs(...)` names it: one scratch 17 instructions long had reported a
+  base score of 60 against a real residual of 2.
+- The test importer now writes its `compile.sh` from the settings file, as
+  decomp-permuter's does, instead of a flagless stand-in.
+
+### Promotion audit: bare cross-module names and duplicated jump tables
+
+- **New `promotion-audit`** (backlog item 25), beside `reloc-surface`. On one
+  promotion a function scored exact and still broke the image twice: three
+  *data* references spelled with the resident module's own names got linker
+  value lines that redefined those symbols (95 resident bytes moved), and a
+  13-entry switch table left in the object's `.rodata` was linked beside the
+  shipped pool. The audit lists every external reference with its kind,
+  refuses one that names a `--resident` definition, one off the
+  `--surface-pattern` placeholder spelling, and a `--linker-block` line that
+  assigns a resident name; it refuses every jump table in an object whose
+  read-only data the module map does not place, and reads a placed one
+  against the shipped words with `--image`. JSON:
+  `decomp-workbench-promotion-audit-v1`; exit 1 on any refusal.
+
+### A landscape measured against another source is refused
+
+- **Every compile-keyed artefact carries a `source_stamp`, and every reader
+  refuses a mismatch by default** (backlog item 20). Five consecutive lanes
+  on one campaign measured colours against a body that had moved 227 -> 207
+  -> 187 words beneath them; each report still read like a measurement of the
+  function in front of them. `oracle sweep`/`oracle force` stamp the digest
+  they compiled, `sweep.json` stamps its base, and `oracle status`,
+  `oracle export`, `diagnose --force-result` and `sweep ingest` exit 2 with a
+  `STALE:` line when the source has changed since.
+- `--allow-stale-source` reads a stale artefact and keeps saying so;
+  `--stamped-source PATH` checks against the source in another checkout. JSON
+  output carries the verdict as `source_freshness`.
+- Reports written before the stamp are checked through the digest they
+  already recorded. Unstamped and unreadable-source artefacts are warned
+  about, never refused and never passed as fresh.
+
+### The suite is green again
+
+Seven tests failed on `main`; none of them was an assertion that had become
+wrong, and none was loosened.
+
+- **The packaged backlog drifted from `docs/`.** The whale-sprint backlog
+  items were appended to the canonical page without re-running
+  `tools/sync_packaged_docs.py`, so an installed wheel served the older copy.
+  Re-synced.
+- **The profile-composition fixture predated the split-growth hooks.** The
+  globalcolor profile gained anchors in `f_dellivbb`'s callers
+  (`f_addadjacents`, `f_split`, `f_updatelivran`); the uopt test fixture got
+  them and the composition test's copy did not, so composition refused at the
+  first missing anchor. The fixture now carries them, and the composed hook
+  count is asserted as the sum of each profile applied alone (2 + 23) as well
+  as its literal value.
+- **Five header-compile tests failed on a test accessor, not on the header.**
+  The compile prelude's `MEM_U32(address)` discarded its argument, so the
+  seedcand hook's `base` -- a local that only feeds an address -- read as
+  set-but-unused and `-Wall -Werror` refused the header. The recompiled pass's
+  real accessors evaluate the address; the prelude now does too, still
+  reading word 0.
+- `ruff check`/`ruff format --check` findings in three test files are fixed:
+  `test_instrument_uopt.py` gets the same file-level `E501` exemption its
+  sibling fixture file carries, for decompiler-generated C lines.
+  `src/decomp_workbench/instrument_uopt.py` still carries five `E501` lines
+  and one formatter diff from the same split-growth commit; it is left for
+  whoever next edits that generator.
 
 ### Register capability is not per-function ownership
 

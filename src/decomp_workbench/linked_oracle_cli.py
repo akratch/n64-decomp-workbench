@@ -1,4 +1,4 @@
-"""CLI for the linked-image oracle: `reloc-surface` and `linked-compare`.
+"""CLI for the linked-image oracle: `reloc-surface`, `linked-compare` and friends.
 
 Two commands, one loop. `reloc-surface` turns the per-function integration
 ritual an unrelocated module demands -- a hand-derived linker value for every
@@ -33,6 +33,8 @@ from .linked_compare import (
     parse_ranges,
     render,
 )
+from .promotion_audit import load_resident_names, promotion_audit
+from .promotion_audit import render as render_promotion_audit
 from .reloc_surface import (
     ModuleMapError,
     RelocSurface,
@@ -171,6 +173,59 @@ def reloc_surface_command(args: argparse.Namespace) -> int:
     if report is not None:
         return 0 if report.ok else 1
     return 0 if surface.ok else 1
+
+
+_PROMOTION_DESCRIPTION = (
+    "Audit the objects a module link consumes for the two promotion faults "
+    "a byte-exact function can still carry. (1) A reference out of the "
+    "module spelled with the other module's own name -- data included, not "
+    "just calls -- gets a linker value line under that name, which "
+    "redefines the real symbol for every object in the link. (2) A switch's "
+    "jump table left in the object's read-only data is linked beside the "
+    "pool the image already ships, and shifts everything after it. Both are "
+    "refused by name before the link. Exit status is 0 when nothing is "
+    "refused and 1 otherwise."
+)
+
+_PROMOTION_EPILOG = (
+    "example: decomp-workbench promotion-audit build/tu.c.o "
+    "--module-map module.json --resident build/main.elf "
+    "--surface-pattern '_o[0-9]+Reloc$' --linker-block undefined_syms.txt"
+)
+
+
+def promotion_audit_command(args: argparse.Namespace) -> int:
+    try:
+        module = _load_module_map(args.module_map)
+        resident = load_resident_names(args.resident) if args.resident else None
+        block = (
+            Path(args.linker_block).expanduser().read_text(encoding="utf-8")
+            if args.linker_block
+            else None
+        )
+        image = Path(args.image).expanduser().read_bytes() if args.image else None
+        result = promotion_audit(
+            _objects(args.object),
+            module,
+            resident=resident,
+            surface_pattern=args.surface_pattern,
+            linker_block=block,
+            image=image,
+        )
+    except (
+        OSError,
+        ValueError,
+        ElfFormatError,
+        ModuleMapError,
+        json.JSONDecodeError,
+    ) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    else:
+        print("\n".join(render_promotion_audit(result, verbose=args.verbose)))
+    return 0 if result.passed else 1
 
 
 def _audit_lines(surface: RelocSurface, report: Any) -> list[str]:
@@ -388,9 +443,70 @@ def register_linked_oracle_commands(
     proof.add_argument("--json", action="store_true", help="emit JSON")
     proof.set_defaults(handler=relocation_proof_command, report_command="reloc-proof")
 
+    promotion = commands.add_parser(
+        "promotion-audit",
+        help="refuse bare cross-module names and duplicated jump-table pools",
+        description=_PROMOTION_DESCRIPTION,
+        epilog=_PROMOTION_EPILOG,
+    )
+    promotion.add_argument(
+        "object",
+        nargs="+",
+        help=(
+            "the module's objects as the link will consume them, after any "
+            "post-compile rewrite; pass every object of the module"
+        ),
+    )
+    promotion.add_argument(
+        "--module-map",
+        required=True,
+        metavar="FILE",
+        help="the module's section map and per-object placement (JSON)",
+    )
+    promotion.add_argument(
+        "--resident",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "names the other side of the link defines: an ELF (object or "
+            "linked) or a symbol list, one name or `name = value;` per line; "
+            "repeatable"
+        ),
+    )
+    promotion.add_argument(
+        "--surface-pattern",
+        metavar="REGEX",
+        help=(
+            "the spelling the host reserves for placeholders; an external "
+            "reference that does not match it is refused"
+        ),
+    )
+    promotion.add_argument(
+        "--linker-block",
+        metavar="FILE",
+        help=(
+            "the symbol block the link includes; an assignment in it to a "
+            "resident name is refused"
+        ),
+    )
+    promotion.add_argument(
+        "--image",
+        metavar="FILE",
+        help="the target image; reads a placed jump table against the shipped words",
+    )
+    promotion.add_argument(
+        "--verbose", action="store_true", help="also list what passed, and why"
+    )
+    promotion.add_argument("--json", action="store_true", help="emit JSON")
+    promotion.set_defaults(
+        handler=promotion_audit_command, report_command="promotion-audit"
+    )
+
 
 __all__ = [
     "linked_compare_command",
+    "promotion_audit_command",
     "register_linked_oracle_commands",
     "reloc_surface_command",
 ]

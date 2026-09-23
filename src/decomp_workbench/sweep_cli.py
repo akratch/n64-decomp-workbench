@@ -20,10 +20,12 @@ from .cli_options import (
 )
 from .compose import ComposeError, parse_zone
 from .csource import CSourceError
+from .source_stamp import FRESHNESS_KEY, add_source_stamp_arguments, enforce
 from .sweep import (
     GENERATOR_CLASSES,
     SweepError,
     SweepManifest,
+    check_manifest_source,
     read_manifest,
     write_family,
 )
@@ -319,6 +321,13 @@ def sweep_build_command(args: argparse.Namespace) -> int:
 def sweep_ingest_command(args: argparse.Namespace) -> int:
     try:
         manifest = read_manifest(args.manifest)
+        freshness = check_manifest_source(
+            manifest,
+            source=args.stamped_source,
+            allow_stale=args.allow_stale_source,
+        )
+        for line in enforce(freshness):
+            print(line, file=sys.stderr)
         result = ingest_sweep(
             manifest,
             objects=args.objects,
@@ -335,7 +344,8 @@ def sweep_ingest_command(args: argparse.Namespace) -> int:
     except _SWEEP_ERRORS as error:
         return _fail(error)
     if args.json:
-        print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        payload = {**result.as_dict(), FRESHNESS_KEY: freshness.as_dict()}
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     limit = args.limit if args.limit else len(result.results) or 1
     emit_lines(ingest_lines(result, limit=limit), width=args.width, pager=args.pager)
@@ -762,6 +772,7 @@ def register_sweep_commands(commands: argparse._SubParsersAction[Any]) -> None:
         ),
     )
     ingest.add_argument("manifest", help="the sweep directory, or its sweep.json")
+    add_source_stamp_arguments(ingest)
     ingest.add_argument(
         "--objects",
         required=True,

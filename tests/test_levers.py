@@ -49,6 +49,7 @@ from decomp_workbench.levers import (
     tie_groups,
 )
 from decomp_workbench.objdump import parse_disassembly
+from decomp_workbench.source_stamp import STAMP_KEY, stamp_sources
 from decomp_workbench.trace import parse_trace
 from decomp_workbench.view import MechanismView, Web, build_view
 
@@ -1447,6 +1448,54 @@ class PoolRotationCommandTests(unittest.TestCase):
         self.assertEqual(payload["lever_class"], LEVER_POOL_ROTATION)
         self.assertIsNone(payload["reachability"])
         self.assertTrue(any("CDX_LOG=1" in item for item in payload["needs"]))
+
+    def force_run(self, root: Path, *extra: str) -> tuple[int, str]:
+        target, candidate = self.dumps(root)
+        log = root / "cdx.log"
+        log.write_text(P2_LOG, encoding="utf-8")
+        return self.run_cli(
+            [
+                "diagnose-dumps",
+                str(target),
+                str(candidate),
+                "--function",
+                "demo",
+                "--ladder",
+                str(log),
+                "--force-result",
+                str(root / "force.json"),
+                "--lever-proc",
+                "0",
+                "--json",
+                *extra,
+            ]
+        )
+
+    def stamped_force(self, root: Path) -> Path:
+        source = root / "candidate.c"
+        source.write_text("int demo(void) { return 0; }\n", encoding="utf-8")
+        report = {**FORCE_PROVEN, STAMP_KEY: stamp_sources([source]).as_dict()}
+        (root / "force.json").write_text(json.dumps(report), encoding="utf-8")
+        return source
+
+    def test_a_force_result_from_an_edited_source_is_refused(self) -> None:
+        """Backlog item 20: a force grid describes one body, not its successor."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.stamped_force(root)
+            fresh, fresh_out = self.force_run(root)
+            source.write_text("int demo(void) { return 1; }\n", encoding="utf-8")
+            stale, stale_out = self.force_run(root)
+            allowed, allowed_out = self.force_run(root, "--allow-stale-source")
+        self.assertEqual(fresh, 0)
+        self.assertEqual(json.loads(fresh_out)["source_freshness"]["status"], "fresh")
+        self.assertEqual(stale, 2)
+        self.assertIn("STALE:", json.loads(stale_out)["error"]["message"])
+        self.assertEqual(allowed, 0)
+        payload = json.loads(allowed_out)
+        self.assertEqual(payload["source_freshness"]["status"], "stale")
+        self.assertEqual(payload["lever"]["reachability"], "proven")
 
     def test_the_capture_and_the_force_reach_the_payload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

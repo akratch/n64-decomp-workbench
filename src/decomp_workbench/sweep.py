@@ -38,6 +38,14 @@ from pathlib import Path
 from typing import Any
 
 from .coverage import SweepCoverage
+from .source_stamp import (
+    STAMP_KEY,
+    SourceFreshness,
+    SourceStamp,
+    StampedSource,
+    check_source_stamp,
+    read_source_stamp,
+)
 
 __all__ = [
     "GENERATOR_CLASSES",
@@ -225,8 +233,19 @@ class SweepManifest:
     directory: str = ""
     context: str = ""
     limits: tuple[str, ...] = ()
+    #: The base as it was measured, with its path resolved where the family
+    #: was written -- so `sweep-ingest` run from another directory still
+    #: finds it. Set by :func:`write_family`; `base_sha256` alone is the
+    #: fallback for a manifest written before the stamp existed.
+    source_stamp: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        payload = self._payload()
+        if self.source_stamp is not None:
+            payload[STAMP_KEY] = self.source_stamp
+        return payload
+
+    def _payload(self) -> dict[str, Any]:
         return {
             "schema": SWEEP_SCHEMA,
             "generator": self.generator,
@@ -354,12 +373,24 @@ def write_family(
         directory=str(target),
         context=manifest.context,
         limits=manifest.limits,
+        source_stamp=_base_stamp(manifest),
     )
     (target / "sweep.json").write_text(
         json.dumps(placed.as_dict(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return placed
+
+
+def _base_stamp(manifest: SweepManifest) -> dict[str, Any] | None:
+    if manifest.source_stamp is not None:
+        return manifest.source_stamp
+    if not manifest.base or not manifest.base_sha256:
+        return None
+    resolved = str(Path(manifest.base).expanduser().resolve())
+    return SourceStamp(
+        sources=(StampedSource(path=resolved, sha256=manifest.base_sha256),)
+    ).as_dict()
 
 
 def read_manifest(path: str | Path) -> SweepManifest:
@@ -413,4 +444,34 @@ def read_manifest(path: str | Path) -> SweepManifest:
         directory=str(payload.get("directory", str(location.parent))),
         context=str(payload.get("context", "")),
         limits=tuple(payload.get("limits", [])),
+        source_stamp=(
+            payload[STAMP_KEY] if isinstance(payload.get(STAMP_KEY), dict) else None
+        ),
+    )
+
+
+def check_manifest_source(
+    manifest: SweepManifest,
+    *,
+    source: str | Path | None = None,
+    allow_stale: bool = False,
+) -> SourceFreshness:
+    """Whether a sweep family still describes the base it was cut from.
+
+    Every variant is an edit of the base, and every price in the ingest table
+    is a difference against it. Read against a base that has since moved,
+    the table prices constructs on a function that no longer exists -- the
+    measurement item 20 of the backlog makes a refusal.
+    """
+
+    stamp = read_source_stamp(
+        {STAMP_KEY: manifest.source_stamp} if manifest.source_stamp else {},
+        legacy=[(manifest.base, manifest.base_sha256)],
+    )
+    label = manifest.directory or "sweep"
+    return check_source_stamp(
+        stamp,
+        artefact=f"sweep {label}",
+        source=source,
+        allow_stale=allow_stale,
     )

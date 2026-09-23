@@ -337,6 +337,23 @@ is not scoring the function under test at all — it would report an instant
 differing scratch is a warning here rather than a refusal, unless
 `--require-fidelity` is passed.
 
+Two health checks refuse outright, in the doctor and in `permute-sweep` before
+any window is spent:
+
+- **The scratch's own `compile.sh` is read back.** The settings file carries
+  the recovered flags, but what the search runs is the script the importer
+  wrote from it. Every recovered codegen flag must appear in it, and no
+  one-value family — ISA, ABI, optimization level, debug level, PIC — may carry
+  a second member beside the build's: an importer's `-mips1` default next to
+  the build's `-mips2` is the fault that had eight of twelve searches "find
+  nothing instantly". A family the build leaves to the compiler default is
+  reported, not refused. JSON carries the reading as `compile_script`.
+- **A scratch whose function is a different length is a different function.**
+  `scratch_fidelity.instruction_delta` is the scratch's instruction count minus
+  the real object's; nonzero is refused with the count, even without
+  `--require-fidelity`. One scratch 17 instructions long reported a base score
+  of 60 against a real residual of 2.
+
 ### When no scratch score can be right
 
 `--target-object build/target.o` adds a fifth question, and it is the one no

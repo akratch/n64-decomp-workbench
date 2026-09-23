@@ -1,5 +1,9 @@
 """Tests for guarded, profiled uopt instrumentation."""
 
+# The C fixtures deliberately preserve decompiler-generated one-line signatures
+# and driver lines; wrapping them would test a source nobody generates.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import os
@@ -108,12 +112,16 @@ t8 = MEM_U32(sp + 220);
 # The emulated-memory accessors and a driver, so the injected header can be
 # compiled on its own. Building the whole recompiled pass needs the external
 # research toolchain; this proves the generated C at least compiles cleanly.
+# Every access reads word 0, but the address is still *evaluated*, as the
+# recompiled pass's own accessors evaluate it: an accessor that discarded its
+# argument made a header local that only feeds an address (`base` in the
+# seedcand hook) look set-but-unused, and `-Wall -Werror` refused the header.
 COMPILE_PRELUDE = """\
 #include <stdint.h>
 static uint8_t dkwb_test_memory[64];
-#define MEM_U32(address) (*(uint32_t *)dkwb_test_memory)
-#define MEM_U16(address) (*(uint16_t *)dkwb_test_memory)
-#define MEM_U8(address) (*(uint8_t *)dkwb_test_memory)
+#define MEM_U32(address) (*(uint32_t *)(dkwb_test_memory + ((address) & 0u)))
+#define MEM_U16(address) (*(uint16_t *)(dkwb_test_memory + ((address) & 0u)))
+#define MEM_U8(address) (*(uint8_t *)(dkwb_test_memory + ((address) & 0u)))
 """
 
 # The same accessors, honouring the address: the block-set driver lays a live
@@ -314,7 +322,10 @@ class UoptInstrumentationTests(unittest.TestCase):
         self.assertIn("[CDX] livbb", result.source)
         self.assertIn("[CDX] grow", result.source)
         self.assertIn("[CDX] growv", result.source)
-        self.assertIn("dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4)", result.source)
+        self.assertIn(
+            "dkwb_cdx_log_grow(mem, s2, MEM_U32(s1 + 0), (int)s6, (int)s4)",
+            result.source,
+        )
         self.assertEqual(result.trace_points, 23)
         self.assertIn('strcmp(value, "all")', result.source)
         self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)

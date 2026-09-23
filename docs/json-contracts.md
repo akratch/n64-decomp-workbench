@@ -18,6 +18,7 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-oracle-sweep-v1`
 - `decomp-workbench-trace-source-v1`
 - `decomp-workbench-relocation-proof-v1`
+- `decomp-workbench-promotion-audit-v1`
 - `decomp-workbench-target-readiness-v1`
 
 ### Hash-bound promotion and campaign state
@@ -122,7 +123,13 @@ rather than certifying a build nobody checked. `compare`, `compare-dumps`,
 `variables` seen, and the `claim` an exact result supports (`match` only for a
 stock build; `reachability-proof`, `unverified` or `no-claim` otherwise) with
 its `claim_lines`. A consumer deciding whether a result is a match reads
-`claim`, never `exact` alone. Switch on
+`claim`, never `exact` alone. A reader of a compile-keyed
+artefact (`oracle status`/`export`, `diagnose --force-result`,
+`sweep ingest`) adds `source_freshness`: `status` (`fresh`, `unstamped`,
+`unknown`, `stale`), `refused`, `allowed_stale`, one row per stamped source,
+and `stamp_schema` (`decomp-workbench-source-stamp-v1`) inside the block. The
+artefacts themselves carry the stamp as `source_stamp`, versioned the same
+way. Switch on
 `schema` to know what you are holding, and on the presence of the prefixed
 keys to know which optional blocks came with it.
 

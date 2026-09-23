@@ -64,6 +64,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
         ("linked-compare", "classify a built image against the target, per range"),
         ("reloc-surface", "synthesize a module's placeholder values from the image"),
         ("reloc-proof", "bind static relocation identities to exact linked bytes"),
+        ("promotion-audit", "refuse bare cross-module names and duplicate pools"),
     ),
     "scratch": (
         ("fetch", "download one decomp.me export into the standard layout"),
@@ -253,6 +254,7 @@ GROUP_ALIASES: dict[tuple[str, str], str] = {
     ("object", "linked-compare"): "linked-compare",
     ("object", "reloc-surface"): "reloc-surface",
     ("object", "reloc-proof"): "reloc-proof",
+    ("object", "promotion-audit"): "promotion-audit",
     ("scratch", "fetch"): "fetch-scratch",
     ("scratch", "public-match-check"): "public-match-check",
     ("scratch", "check"): "check-scratch",

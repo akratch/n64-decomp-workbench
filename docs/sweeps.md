@@ -291,6 +291,16 @@ reason; and the last line is the coverage sentence, which says whether a
 negative result from this family is a proof about the space or evidence about a
 sample.
 
+**A family cut from a base that has since moved is refused.** `sweep.json`
+carries a `source_stamp`: the base's SHA-256, with its path resolved where the
+family was written. Every price in the table is a difference against that base,
+so read against an edited one it prices constructs on a function that no longer
+exists. `sweep ingest` exits 2 with a `STALE:` line; `--allow-stale-source`
+reads it anyway and keeps saying so, and `--stamped-source PATH` checks the
+stamp against the base in another checkout. A manifest written before the stamp
+is checked through its `base_sha256`. The verdict rides in `--json` as
+`source_freshness`.
+
 ## `sweep landscape` — the colour axis at any order
 
 The other sweeps vary the *source*. This one holds the source still and varies

@@ -31,7 +31,17 @@ from .globalcolor import parse_globalcolor_trace
 from .html_report import document_shell
 from .instrument_uopt import parse_force_specification
 from .objdump import discover_objdump
-from .oracle import oracle_diff, oracle_plan, run_oracle_campaign
+from .oracle import (
+    oracle_diff,
+    oracle_plan,
+    oracle_report_freshness,
+    run_oracle_campaign,
+)
+from .source_stamp import (
+    STAMP_KEY,
+    add_source_stamp_arguments,
+    stamp_sources,
+)
 from .terminal import warn_to_stderr
 from .toolchain import toolchain_status
 from .trace import read_trace_text
@@ -308,6 +318,9 @@ def _load_state_report(selector: str | None, *, state_dir: str) -> dict[str, Any
         "decomp-workbench-oracle-sweep-v1"
     ):
         raise ValueError(f"not a decomp-workbench oracle sweep report: {path}")
+    value.setdefault("state", {})
+    if isinstance(value["state"], dict):
+        value["state"].setdefault("report", str(path))
     return value
 
 
@@ -329,6 +342,25 @@ def _load_plan(path: str) -> dict[str, Any]:
     for row in value.get("forces", []):
         parse_force_specification(str(row.get("force", "")))
     return value
+
+
+def _checked_state_report(args: argparse.Namespace) -> dict[str, Any]:
+    report = _load_state_report(args.oracle_state, state_dir=args.state_dir)
+    state = report.get("state")
+    label = (
+        str(state.get("report"))
+        if isinstance(state, dict) and state.get("report")
+        else "oracle report"
+    )
+    report, warnings = oracle_report_freshness(
+        report,
+        artefact=f"oracle report {label}",
+        source=getattr(args, "stamped_source", None),
+        allow_stale=bool(getattr(args, "allow_stale_source", False)),
+    )
+    for line in warnings:
+        print(line, file=sys.stderr)
+    return report
 
 
 def _plan_for_compile(args: argparse.Namespace) -> dict[str, Any]:
@@ -490,8 +522,13 @@ def oracle_sweep_command(args: argparse.Namespace) -> int:
             stream_limit=args.stream_limit,
             artifact_dir=args.artifact_dir,
         )
+        source_record = state.identity["source"]
         report = {
             **report,
+            STAMP_KEY: stamp_sources(
+                [source_record["path"]],
+                digests={source_record["path"]: source_record["sha256"]},
+            ).as_dict(),
             "inputs": state.identity,
             "state": {
                 "directory": str(state.root),
@@ -523,7 +560,7 @@ def oracle_sweep_command(args: argparse.Namespace) -> int:
 
 def oracle_status_command(args: argparse.Namespace) -> int:
     try:
-        report = _load_state_report(args.oracle_state, state_dir=args.state_dir)
+        report = _checked_state_report(args)
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -580,7 +617,7 @@ signature: <strong>{html.escape(str(report.get("signature") or "none"))}</strong
 
 def oracle_export_command(args: argparse.Namespace) -> int:
     try:
-        report = _load_state_report(args.oracle_state, state_dir=args.state_dir)
+        report = _checked_state_report(args)
         output = Path(args.output).expanduser().resolve()
         if output.exists():
             raise FileExistsError(f"refusing to overwrite oracle export: {output}")
@@ -760,6 +797,7 @@ def register_oracle_commands(
     status.add_argument("--state-dir", default=".decomp-workbench")
     status.add_argument("--limit", type=int, default=20)
     status.add_argument("--json", action="store_true", help="emit JSON")
+    add_source_stamp_arguments(status)
     status.set_defaults(handler=oracle_status_command, report_command="oracle-status")
 
     export = operations.add_parser(
@@ -771,4 +809,5 @@ def register_oracle_commands(
     export.add_argument("--output", required=True)
     export.add_argument("--format", choices=("html", "json"), default="html")
     export.add_argument("--json", action="store_true", help="emit result JSON")
+    add_source_stamp_arguments(export)
     export.set_defaults(handler=oracle_export_command, report_command="oracle-export")

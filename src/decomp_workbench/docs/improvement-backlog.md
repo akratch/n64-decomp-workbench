@@ -481,6 +481,28 @@ evidence about one function with no controlled comparison behind them.
 - **Payoff.** Kills the most expensive false-floor class: a permuter quietly
   searching the wrong target for hours.
 
+**Status (landed).** `permute-doctor` is the preflight this item asked for,
+and the parts of it that were still trust rather than measurement are now
+measured. The flags were already recovered from the build's own `make -n`
+(source touched first, continuations joined) and a fallback was already a
+problem; the base already had to compile to a finite score above zero. What
+was missing is the step between: the settings file carried the right flags,
+but nobody read back the `compile.sh` the importer *wrote* from it, and that
+script is what the search runs. `check_compile_script` now does -- every
+recovered codegen flag must appear in it, and no one-value family (ISA, ABI,
+optimization, debug, PIC) may carry a member the build does not, so an
+importer's `-mips1` beside the build's `-mips2` is refused by name. The same
+reading runs inside `permute-sweep` before any window is spent. A scratch
+whose function compiles to a different instruction count than the project's
+object is refused too, in both places, even without `--require-fidelity`:
+that is the "different function" item below, and a word-level difference
+stays the warning it was.
+
+**Deliberately out:** the importer is not patched and its script is not
+rewritten. A corrected script the workbench produced would hide the importer
+behaviour this check exists to report, and the fix belongs where the flags are
+supplied -- the settings file -- which is already the recovered line.
+
 ### 8. `diagnose` verdicts must defer to the permuter, never read as walls
 - **Symptom.** "interference-forbidden colour" and "list-scheduler slot-fill — no
   source lever" verdicts were taken as proof of un-matchability; the permuter then
@@ -1515,6 +1537,13 @@ size mismatch should refuse rather than warn. Until then, a standing
 "permuter-target" routing on a function is not actionable without checking the
 scratch first.
 
+**Status (landed with item 7).** `scratch_fidelity` now records
+`instruction_delta`, and a nonzero one refuses the function in
+`permute-doctor` and in `permute-sweep` before the window starts, with the
+count in the message. It is a refusal whatever `--require-fidelity` says,
+because a different length is not a spelling residue a project could know
+about -- it is a different subject.
+
 ## From the Mickey whale sprint (2026-09-14..16): `func_overlay_058_F000138C_18B0574`, 187 -> 0 over ten lanes
 
 Each item: symptom seen in the sprint, proposed change, payoff. Evidence is in the
@@ -1560,6 +1589,35 @@ ranking's `source_context_sha256` and exits nonzero with `STALE:`. Change: every
 workbench artefact keyed to a compile (landscape, lattice, census, allocator log)
 carries the source digest, and every reader refuses a mismatch by default. Payoff:
 the most expensive class of wasted lane in the sprint becomes an error line.
+
+**Status (landed).** `source_stamp.py` is the one stamp and the one check.
+Writers record the SHA-256 of every source they compiled under `source_stamp`:
+`oracle sweep`/`oracle force` (the colour landscape and force grid) stamp the
+digest their identity block took *before* compiling, and a sweep family's
+`sweep.json` stamps its base with the path resolved where it was written.
+Readers check it and **refuse a mismatch by default** with a `STALE:` line and
+exit 2 -- `oracle status`, `oracle export`, `diagnose --force-result` and
+`sweep ingest`. `--allow-stale-source` reads it anyway and keeps printing the
+mismatch; `--stamped-source PATH` checks against the source in another
+checkout; every reader's JSON carries the verdict as `source_freshness`.
+Artefacts written before the stamp are checked through the digest they already
+recorded (`inputs.source`, `base_sha256`), so the reports on disk today are
+checked too, not waved through as unstamped.
+
+The digest is of content, never of mtime: a checkout or a rebase moves every
+mtime without changing what was measured, and a check that fired on those
+would be learned to be ignored within a day.
+
+**Deliberately out:** only a *contradiction* refuses. `unstamped` (nothing to
+compare) and `unknown` (the stamped path cannot be read from here) are loud
+warnings, because neither shows the source moved and refusing them would
+refuse every host-written report and every report read from a second
+checkout. Allocator and CDX *logs* are not stamped: the instrumented compiler
+writes them, and a stamp the workbench added afterwards would certify a file
+it did not produce; they reach a verdict through the stamped oracle report or
+through `diagnose --trace` scoping. No `source-stamp` command either -- the
+library functions (`stamp_sources`, `check_source_stamp`, `enforce`) are the
+host-facing half, the way `staleness.staleness_report` is item 1's.
 
 ### 21. P1 — Split-growth trace and per-web block sets as a standard profile
 Symptom: `webdetail` carried `bb=-1`, so the block set of an address-constant web
@@ -1661,6 +1719,33 @@ the promotion preflight must list every bare `func_8…`/`D_8…` reference in t
 (data included) and every switch's jump table, and require the rebind/externalize
 form before link. Payoff: the two most expensive post-match cycles of the sprint
 become a refusal with a filename.
+
+**Status (landed).** `decomp-workbench promotion-audit` reads the objects a
+module link consumes -- the same objects and module map `reloc-surface` takes
+-- and refuses both faults by object and name before anything links. Every
+reference out of the module is listed with its kind (`call`, `data`,
+`call+data`), and one naming a symbol the other side of the link defines
+(`--resident`: an ELF or a symbol list) is refused as `resident-override`,
+data exactly like calls; `--surface-pattern` refuses any external name off the
+host's placeholder spelling, and `--linker-block` refuses the assignment line
+that *is* the override. Every switch table in an object's read-only data --
+a run of `R_MIPS_32` words aimed at `.text` labels -- is refused as
+`duplicates-shipped-pool` unless the module map places that section, and with
+`--image` a placed table is read entry by entry against the shipped words.
+Each table names the function whose `%hi`/`%lo` pair loads it. The fixtures
+are synthetic ELFs built in the test.
+
+Generalized as asked: "resident" means whatever the other side of the link
+defines, and the placeholder spelling is the host's regular expression, so no
+`func_8`/`D_8` prefix or `_oNNReloc` suffix is built in.
+
+**Deliberately out:** no rewriting. The rebind and externalize forms are
+post-compile steps in the host's build, and a workbench that performed them
+would be guessing a build it does not own; the audit names what needs one and
+checks the object after it. A pool the host has *externalized* (its
+`.rel.rodata` dropped) is no longer a jump table this reader can see; its
+bytes, if any remain in an unplaced section, are reported as unplaced
+read-only data.
 
 ### 26. P2 — Bounded-lane protocol as a workbench campaign shape
 Symptom: ten Fable lanes at ~20 measured cycles each, with an uncounted cycle 0 for
