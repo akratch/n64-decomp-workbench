@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess  # nosec B404 - argv-only, never through a shell
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -661,6 +662,10 @@ class ScratchFidelity:
 
     status: str = FIDELITY_UNCHECKED
     differing_words: int | None = None
+    #: Scratch instruction count minus the real object's, for this function.
+    #: Nonzero is not a wobble but a different function: see
+    #: `size_mismatch_problem`.
+    instruction_delta: int | None = None
     mode: str | None = None
     reason: str | None = None
     object: str | None = None
@@ -678,13 +683,19 @@ class ScratchFidelity:
 
         if self.status == FIDELITY_DIFFERS and self.differing_words is not None:
             plural = "" if self.differing_words == 1 else "s"
-            return f"differs({self.differing_words} word{plural})"
+            size = (
+                f", {self.instruction_delta:+d} instructions"
+                if self.instruction_delta
+                else ""
+            )
+            return f"differs({self.differing_words} word{plural}{size})"
         return self.status
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "differing_words": self.differing_words,
+            "instruction_delta": self.instruction_delta,
             "mode": self.mode,
             "reason": self.reason,
             "object": self.object,
@@ -735,6 +746,145 @@ def fidelity_warning(fidelity: ScratchFidelity, function: str) -> str | None:
             f": {fidelity.reason}" if fidelity.reason else ""
         )
     return None
+
+
+def size_mismatch_problem(fidelity: ScratchFidelity, function: str) -> str | None:
+    """The refusal a scratch whose function is a different length earns.
+
+    A scratch that differs by a few words may be a macro wobble a project
+    knows about, and stays a warning. One whose instruction *count* differs is
+    not scoring a worse version of the function; it is scoring a different
+    function. One campaign's scratch was 17 instructions longer than the real
+    object and reported a base score of 60 against a real count of 2, and only
+    a lane that stopped to check noticed.
+    """
+
+    if fidelity.status != FIDELITY_DIFFERS or not fidelity.instruction_delta:
+        return None
+    return (
+        f"the scratch compiles {function} to {fidelity.instruction_delta:+d} "
+        "instructions against the project's own object, so it is searching a "
+        "different function, not a worse spelling of this one; fix the scratch "
+        "(flags, macros, post-compile chain) before spending a window on it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The scratch's own compile line
+# ---------------------------------------------------------------------------
+
+#: Codegen choices that are one value per compile. A compile line carrying two
+#: members of a family -- `-mips1` from an importer default beside the
+#: recovered `-mips2` -- compiles for whichever the driver honours, and the
+#: search inherits that silently.
+EXCLUSIVE_FLAG_FAMILIES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("isa", re.compile(r"^-mips[0-9]+$")),
+    ("abi", re.compile(r"^-(?:32|n32|64|o32)$|^-mabi=\S+$")),
+    ("optimization", re.compile(r"^-O[0-9s]?$")),
+    ("debug", re.compile(r"^-g[0-9]?$")),
+    ("pic", re.compile(r"^-(?:KPIC|non_shared|fPIC|fno-pic)$")),
+)
+
+
+@dataclass(frozen=True)
+class CompileScriptCheck:
+    """Does the scratch's `compile.sh` compile with the build's own flags?
+
+    The settings file carries the recovered flags, but what the search runs is
+    the script the importer wrote from it, and only reading that script back
+    says whether the flags survived the trip.
+    """
+
+    path: str
+    missing: tuple[str, ...] = ()
+    conflicts: tuple[str, ...] = ()
+    unmatched: tuple[str, ...] = ()
+    readable: bool = True
+
+    @property
+    def ok(self) -> bool:
+        return self.readable and not self.missing and not self.conflicts
+
+    @property
+    def problems(self) -> list[str]:
+        out = []
+        if not self.readable:
+            out.append(f"the scratch has no readable compile script at {self.path}")
+        if self.missing:
+            out.append(
+                f"{self.path} does not pass the build's codegen flag(s) "
+                + " ".join(self.missing)
+                + "; the search would compile something the build never does"
+            )
+        out.extend(f"{self.path}: {conflict}" for conflict in self.conflicts)
+        return out
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "readable": self.readable,
+            "missing": list(self.missing),
+            "conflicts": list(self.conflicts),
+            "unmatched": list(self.unmatched),
+            "ok": self.ok,
+        }
+
+
+def _script_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        try:
+            tokens.extend(shlex.split(stripped, comments=True))
+        except ValueError:
+            tokens.extend(stripped.split())
+    return tokens
+
+
+def check_compile_script(
+    text: str | None, flags: Sequence[str], *, path: str = "compile.sh"
+) -> CompileScriptCheck:
+    """Compare a scratch compile script with the build's recovered flags.
+
+    ``missing``: a recovered codegen flag the script never passes.
+    ``conflicts``: a one-value family (ISA, ABI, optimization, debug, PIC)
+    where the script passes a member the build does not -- the importer's
+    ``-mips1`` default beside the build's ``-mips2`` is the case this exists
+    for. ``unmatched``: a family member in the script where the build sets no
+    member of that family at all, which is reported but not refused, because
+    the build may be relying on the same compiler default.
+    """
+
+    if text is None:
+        return CompileScriptCheck(path=path, readable=False)
+    tokens = _script_tokens(text)
+    present = set(tokens)
+    wanted = [flag for flag in flags if flag]
+    missing = tuple(flag for flag in wanted if flag not in present)
+    conflicts: list[str] = []
+    unmatched: list[str] = []
+    for family, pattern in EXCLUSIVE_FLAG_FAMILIES:
+        build = {flag for flag in wanted if pattern.match(flag)}
+        script = sorted({token for token in tokens if pattern.match(token)})
+        extra = [token for token in script if token not in build]
+        if not extra:
+            continue
+        if build:
+            conflicts.append(
+                f"{family} flag(s) {' '.join(extra)} beside the build's "
+                f"{' '.join(sorted(build))}: the compile line names two "
+                f"{family} values and the search inherits whichever wins"
+            )
+        else:
+            unmatched.extend(extra)
+    return CompileScriptCheck(
+        path=path,
+        missing=missing,
+        conflicts=tuple(conflicts),
+        unmatched=tuple(unmatched),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1069,6 +1219,7 @@ __all__ = [
     "DEFAULT_PRESERVE_MACRO_MODES",
     "DEFAULT_SKIP_POSTPROCESS",
     "DOCTOR_SCHEMA",
+    "EXCLUSIVE_FLAG_FAMILIES",
     "FIDELITY_DIFFERS",
     "FIDELITY_IDENTICAL",
     "FIDELITY_UNCHECKED",
@@ -1076,6 +1227,7 @@ __all__ = [
     "NO_MACROS",
     "SWEEP_SCHEMA",
     "BuildRecipe",
+    "CompileScriptCheck",
     "FidelityAttempt",
     "PreserveMacroMode",
     "QueueItem",
@@ -1083,6 +1235,7 @@ __all__ = [
     "SweepResult",
     "append_compile_steps",
     "best_output",
+    "check_compile_script",
     "completed_functions",
     "earlier_results",
     "fidelity_warning",
@@ -1109,6 +1262,7 @@ __all__ = [
     "retarget_labels",
     "retarget_objcopy",
     "should_extend",
+    "size_mismatch_problem",
     "sweep_payload",
     "wait_for_headroom",
 ]

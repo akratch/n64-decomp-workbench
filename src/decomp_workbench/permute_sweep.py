@@ -33,6 +33,7 @@ from .permute import (
     FIDELITY_IDENTICAL,
     FIDELITY_UNKNOWN,
     BuildRecipe,
+    CompileScriptCheck,
     FidelityAttempt,
     PreserveMacroMode,
     QueueItem,
@@ -41,6 +42,7 @@ from .permute import (
     SweepResult,
     append_compile_steps,
     best_output,
+    check_compile_script,
     fidelity_warning,
     macro_attributable,
     object_target,
@@ -55,6 +57,7 @@ from .permute import (
     retarget_labels,
     retarget_objcopy,
     should_extend,
+    size_mismatch_problem,
     wait_for_headroom,
 )
 from .project_config import PermuterOptions
@@ -526,6 +529,7 @@ def check_scratch_fidelity(
     return ScratchFidelity(
         status=status,
         differing_words=words,
+        instruction_delta=comparison.instruction_delta,
         mode=mode,
         object=obj,
         preserved_macros=preserved_macros,
@@ -743,6 +747,17 @@ def prepare_scratch(
     )
 
 
+def scratch_script_check(scratch: Path, recipe: BuildRecipe) -> CompileScriptCheck:
+    """Read the scratch's `compile.sh` back against the recovered flags."""
+
+    script = scratch / "compile.sh"
+    try:
+        text: str | None = script.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = None
+    return check_compile_script(text, recipe.flags, path=str(script))
+
+
 # ---------------------------------------------------------------------------
 # Running
 # ---------------------------------------------------------------------------
@@ -831,6 +846,14 @@ def search_function(
         for warning in result.warnings:
             if report is not None:
                 report(f"WARNING [{item.function}] {warning}")
+        script_check = scratch_script_check(scratch, recipe)
+        if not script_check.ok:
+            # The scratch would search a compile the build never runs: the
+            # most expensive false floor there is, and a cheap read to catch.
+            raise PermuterError(f"{item.function}: " + "; ".join(script_check.problems))
+        size_problem = size_mismatch_problem(fidelity, item.function)
+        if size_problem is not None:
+            raise PermuterError(size_problem)
         if plan.require_fidelity and fidelity.status != FIDELITY_IDENTICAL:
             # --require-fidelity is for the runs where a score about the wrong
             # object is worse than no score at all. Refusing here spends the
@@ -970,6 +993,9 @@ class DoctorReport:
     base_compiles: bool | None = None
     base_score: int | None = None
     fidelity: ScratchFidelity = field(default_factory=ScratchFidelity)
+    #: The scratch's `compile.sh` read back against the recovered flags.
+    #: `None` only when the scratch could not be prepared at all.
+    compile_script: CompileScriptCheck | None = None
     #: Whether the target's own call relocations name symbols this scratch
     #: can reproduce. `None` when no target object was supplied to read.
     placeholder: PlaceholderFinding | None = None
@@ -994,6 +1020,9 @@ class DoctorReport:
             "base_compiles": self.base_compiles,
             "base_score": self.base_score,
             "scratch_fidelity": self.fidelity.as_dict(),
+            "compile_script": (
+                None if self.compile_script is None else self.compile_script.as_dict()
+            ),
             "placeholder_calls": (
                 None if self.placeholder is None else self.placeholder.as_dict()
             ),
@@ -1051,6 +1080,17 @@ def doctor(
             problems.append(scratch_note)
         else:
             scratch_warnings.append(scratch_note)
+    script_check = scratch_script_check(scratch, recipe)
+    problems.extend(script_check.problems)
+    if script_check.unmatched:
+        scratch_warnings.append(
+            "the scratch compile line sets "
+            + " ".join(script_check.unmatched)
+            + ", which the build's own line leaves to the compiler default"
+        )
+    size_problem = size_mismatch_problem(fidelity, item.function)
+    if size_problem is not None:
+        problems.append(size_problem)
     if not recipe.from_dry_run:
         problems.append(
             f"codegen flags were not recovered from `{plan.options.make} -n {obj}`; "
@@ -1072,6 +1112,7 @@ def doctor(
         skipped_postprocess=recipe.skipped_postprocess,
         replicated=steps,
         fidelity=fidelity,
+        compile_script=script_check,
         placeholder=finding,
         warnings=recipe.warnings + tuple(scratch_warnings),
     )
@@ -1147,6 +1188,16 @@ def render_doctor(report: DoctorReport) -> list[str]:
     )
     if report.fidelity.reason:
         lines.append(f"    why           {report.fidelity.reason}")
+    if report.compile_script is not None:
+        check = report.compile_script
+        lines.append(
+            "  compile.sh      "
+            + (
+                "passes the build's flags"
+                if check.ok
+                else "DOES NOT MATCH the build's flags"
+            )
+        )
     for attempt in report.fidelity.attempts:
         lines.append(
             f"    mode          {attempt.mode}: {attempt.status}"

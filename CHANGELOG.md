@@ -5,6 +5,22 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### The permuter scratch is read back before it is searched
+
+- **`permute-doctor` and `permute-sweep` read the scratch's own `compile.sh`**
+  (backlog item 7). Every flag recovered from the build's dry run must appear
+  in it, and a second ISA, ABI, optimization, debug or PIC value beside the
+  build's is refused by name -- the importer's `-mips1` default beside a
+  `-mips2` build had eight of twelve searches reading as hard functions. A
+  family the build leaves to the compiler default is reported, not refused.
+  The doctor's JSON carries it as `compile_script`.
+- **A scratch of a different length is refused** in both commands, with or
+  without `--require-fidelity`. `scratch_fidelity` gains `instruction_delta`,
+  and `differs(...)` names it: one scratch 17 instructions long had reported a
+  base score of 60 against a real residual of 2.
+- The test importer now writes its `compile.sh` from the settings file, as
+  decomp-permuter's does, instead of a flagless stand-in.
+
 ### Promotion audit: bare cross-module names and duplicated jump tables
 
 - **New `promotion-audit`** (backlog item 25), beside `reloc-surface`. On one

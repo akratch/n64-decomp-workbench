@@ -481,6 +481,28 @@ evidence about one function with no controlled comparison behind them.
 - **Payoff.** Kills the most expensive false-floor class: a permuter quietly
   searching the wrong target for hours.
 
+**Status (landed).** `permute-doctor` is the preflight this item asked for,
+and the parts of it that were still trust rather than measurement are now
+measured. The flags were already recovered from the build's own `make -n`
+(source touched first, continuations joined) and a fallback was already a
+problem; the base already had to compile to a finite score above zero. What
+was missing is the step between: the settings file carried the right flags,
+but nobody read back the `compile.sh` the importer *wrote* from it, and that
+script is what the search runs. `check_compile_script` now does -- every
+recovered codegen flag must appear in it, and no one-value family (ISA, ABI,
+optimization, debug, PIC) may carry a member the build does not, so an
+importer's `-mips1` beside the build's `-mips2` is refused by name. The same
+reading runs inside `permute-sweep` before any window is spent. A scratch
+whose function compiles to a different instruction count than the project's
+object is refused too, in both places, even without `--require-fidelity`:
+that is the "different function" item below, and a word-level difference
+stays the warning it was.
+
+**Deliberately out:** the importer is not patched and its script is not
+rewritten. A corrected script the workbench produced would hide the importer
+behaviour this check exists to report, and the fix belongs where the flags are
+supplied -- the settings file -- which is already the recovered line.
+
 ### 8. `diagnose` verdicts must defer to the permuter, never read as walls
 - **Symptom.** "interference-forbidden colour" and "list-scheduler slot-fill — no
   source lever" verdicts were taken as proof of un-matchability; the permuter then
@@ -1455,6 +1477,13 @@ object's size against the real per-TU object would catch it in one step, and a
 size mismatch should refuse rather than warn. Until then, a standing
 "permuter-target" routing on a function is not actionable without checking the
 scratch first.
+
+**Status (landed with item 7).** `scratch_fidelity` now records
+`instruction_delta`, and a nonzero one refuses the function in
+`permute-doctor` and in `permute-sweep` before the window starts, with the
+count in the message. It is a refusal whatever `--require-fidelity` says,
+because a different length is not a spelling residue a project could know
+about -- it is a different subject.
 
 ## From the Mickey whale sprint (2026-09-14..16): `func_overlay_058_F000138C_18B0574`, 187 -> 0 over ten lanes
 

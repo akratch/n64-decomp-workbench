@@ -43,6 +43,7 @@ from decomp_workbench.permute import (
     ScratchFidelity,
     SweepResult,
     best_output,
+    check_compile_script,
     completed_functions,
     earlier_results,
     fidelity_warning,
@@ -549,6 +550,12 @@ class FakeProject:
         #: What `import.py` reports having preserved, per call.
         self.preserved_report: str | None = "macros: gDPPipeSync, gSPEndDisplayList"
         self.imports: list[str | None] = []
+        #: Flags the fake importer adds to the compile line on its own, the
+        #: way decomp-permuter's importer defaults an IDO scratch to -mips1.
+        self.importer_flags: tuple[str, ...] = ()
+        #: Replace the compile line entirely, to model an importer that
+        #: dropped the settings' flags.
+        self.compile_line: str | None = None
         (root / "src" / "game").mkdir(parents=True)
         (root / "src" / "game" / "track.c").write_text("int f(void);\n", "utf-8")
         (root / "asm").mkdir()
@@ -603,7 +610,18 @@ class FakeProject:
             self.imports.append(regex)
             scratch = self.root / "nonmatchings" / "f"
             scratch.mkdir(parents=True, exist_ok=True)
-            (scratch / "compile.sh").write_text('#!/bin/sh\ncc "$1"\n', "utf-8")
+            # The importer writes compile.sh from the settings' compile line,
+            # as decomp-permuter's does.
+            settings = Path(argv[argv.index("--settings") + 1]).read_text("utf-8")
+            command = settings.split('compiler_command = """\n', 1)[1].split(
+                '\n"""', 1
+            )[0]
+            if self.compile_line is not None:
+                command = self.compile_line
+            command = " ".join((command, *self.importer_flags))
+            (scratch / "compile.sh").write_text(
+                f'#!/bin/sh\n{command} "$1" -o "$3"\n', "utf-8"
+            )
             (scratch / "base.c").write_text("int f(void) { return 0; }\n", "utf-8")
             preserved = "no macros" if regex == "" else self.preserved_report
             # `None` is an importer whose log never says: a different
@@ -1909,6 +1927,107 @@ class PermuteCliTests(unittest.TestCase):
             )
         self.assertEqual(status, 2)
         self.assertIn("--source is required", stderr)
+
+
+class HealthCheckTests(unittest.TestCase):
+    """Backlog item 7: the scratch compiles with the build's flags, and is the
+    same function, before a window is spent on it."""
+
+    def test_a_script_carrying_the_build_flags_passes(self) -> None:
+        check = check_compile_script(
+            '#!/bin/sh\ncc -c -O2 -mips2 -Wab,-r4300_mul "$1" -o "$3"\n',
+            ("-O2", "-mips2", "-Wab,-r4300_mul"),
+        )
+        self.assertTrue(check.ok)
+        self.assertEqual(check.problems, [])
+
+    def test_an_importer_isa_default_beside_the_build_isa_is_a_conflict(self) -> None:
+        check = check_compile_script(
+            '#!/bin/sh\ncc -c -O2 -mips2 "$1" -o "$3" -mips1\n', ("-O2", "-mips2")
+        )
+        self.assertFalse(check.ok)
+        self.assertEqual(len(check.conflicts), 1)
+        self.assertIn("-mips1", check.conflicts[0])
+        self.assertIn("isa", check.conflicts[0])
+
+    def test_a_dropped_build_flag_is_missing(self) -> None:
+        check = check_compile_script(
+            '#!/bin/sh\ncc -c -O2 "$1"\n', ("-O2", "-mips2", "-Wab,-r4300_mul")
+        )
+        self.assertEqual(check.missing, ("-mips2", "-Wab,-r4300_mul"))
+        self.assertIn("-mips2", check.problems[0])
+
+    def test_a_family_the_build_leaves_alone_is_reported_not_refused(self) -> None:
+        check = check_compile_script('cc -c -O2 -g0 "$1"\n', ("-O2",))
+        self.assertTrue(check.ok)
+        self.assertEqual(check.unmatched, ("-g0",))
+
+    def test_comments_do_not_count_as_flags(self) -> None:
+        check = check_compile_script(
+            '# built with -mips2\ncc -c -O2 "$1"\n', ("-O2", "-mips2")
+        )
+        self.assertEqual(check.missing, ("-mips2",))
+
+    def test_no_script_is_not_a_pass(self) -> None:
+        check = check_compile_script(None, ("-O2",))
+        self.assertFalse(check.ok)
+
+    def test_the_doctor_refuses_an_importer_isa_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.importer_flags = ("-mips1",)
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(plan, project.item, seconds=60, runner=project.run)
+            rendered = "\n".join(render_doctor(report))
+        self.assertFalse(report.ok)
+        self.assertTrue(any("-mips1" in problem for problem in report.problems))
+        self.assertIn("DOES NOT MATCH", rendered)
+        assert report.compile_script is not None
+        self.assertEqual(report.as_dict()["compile_script"]["ok"], False)
+
+    def test_the_sweep_refuses_a_scratch_that_dropped_the_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.compile_line = "tools/ido/cc -c -I include"
+            plan = resolve_plan(project.root, project.options)
+            result = search_function(plan, project.item, runner=project.run)
+            launched = [
+                argv
+                for argv in project.commands
+                if any(part.endswith("permuter.py") for part in argv)
+            ]
+        self.assertFalse(result.ok)
+        self.assertIn("-mips2", result.error or "")
+        self.assertEqual(launched, [])
+
+    def test_a_scratch_of_a_different_length_is_refused_everywhere(self) -> None:
+        """17 extra instructions scored 60 against a real 2: a different function."""
+
+        fidelity = ScratchFidelity(
+            status=FIDELITY_DIFFERS, differing_words=17, instruction_delta=17
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = FakeProject(Path(temporary))
+            project.preserved_report = "no macros"
+            plan = resolve_plan(project.root, project.options)
+            report = doctor(
+                plan,
+                project.item,
+                seconds=60,
+                runner=project.run,
+                fidelity_checker=ScriptedFidelity(fidelity),
+            )
+            result = search_function(
+                plan,
+                project.item,
+                runner=project.run,
+                fidelity_checker=ScriptedFidelity(fidelity),
+            )
+        self.assertFalse(report.ok)
+        self.assertTrue(any("+17 instructions" in item for item in report.problems))
+        self.assertEqual(fidelity.summary, "differs(17 words, +17 instructions)")
+        self.assertFalse(result.ok)
+        self.assertIn("different function", result.error or "")
 
 
 if __name__ == "__main__":
