@@ -1669,3 +1669,106 @@ unbounded passes held flat. Change: `campaigns.md` documents the shape (cycle =
 one hypothesis measured; batched cells are one; the brief outranks the dispatch;
 checkpoint-commit every ~6 cycles; name the next cycle). Payoff: the successor
 lane starts from a sentence, not a re-read.
+
+## From the Mickey 60% plateau wave (2026-09-19..23)
+
+Each item: symptom seen in the wave, proposed change, payoff. Evidence is the
+Mickey tree's `docs/NEXT_CAMPAIGN.md` Track B and the 2026-09-19 plateau
+handoffs for `overlay83BuildBatch`, `func_overlay_066_F0000040_18C64A8`,
+`func_overlay_029_F00005C4_187D874` and `func_overlay_026_F00001A0_187A598`
+under `docs/matching-triage-handoffs/`. At the 60.72% mark, 156 of the 279
+queued functions (238,000 of 352,904 bytes) are size mismatches, and 80 of
+those are only 4, 8 or 12 bytes off.
+
+### 27. P1 — Insertion-pair reader: which IR construct emitted the extra word
+Symptom: every colour instrument in this package (`sweep landscape`, the force
+plan, the draw and ring readers) moves a register and never an instruction,
+so the size-mismatch class -- 64% of the remaining bytes -- was dispatched to
+colour lanes that could not move it. `func_overlay_066_F0000040_18C64A8` is
+delta 0 yet carries five candidate-only and five target-only words that cancel
+in size; its 117-probe landscape floor of 247 of 249 was insertion shadow, and
+the handoff's own next step reads "close the five insertion pairs ... colour
+cannot move them". The Mickey repo is writing a local `tools/insertion_pairs.py`
+for this. Change: an `align pairs` (or `diagnose --pairs`) reader that walks the
+existing shift-tolerant alignment, opens a pair where the two streams stop being
+index-aligned and closes it where they realign, reports each pair's positional
+shadow separately from its aligned residual (the two must sum to the positional
+count, checked), classes each one-sided word by encoding (move, stack load or
+store, load, store, alu, const, branch, call, frame, delay nop) without printing
+it, and names an owner: the source line from the candidate's line table, then
+the ugen construct at that line from `trace-emit` records (`DKWB-EMIT-V1`) with a
+stated basis (own line, prologue, nearest line, as1 nop, or neighbour for a
+target-only word). Refuse `sweep landscape --every-colour` when pairs exist, not
+only on a size delta. Payoff: a ±4/±8/±12 function becomes "this ILOD at line N
+is the extra word" -- a number with a basis, the same shape `sweep landscape`
+gave the colour axis -- and the 80-function, 104,860-byte small-delta class gets
+routed to the lanes that can move it.
+
+### 28. P1 — Small-delta census as a queue view
+Symptom: the ranking labels a row `size-mismatch` from `size_delta != 0` and
+stops there, so a 4-byte function and a 400-byte one look alike, and the wave
+plan had to be recomputed by hand (80 functions within 12 bytes, 104,860 bytes)
+before anyone could say where 65% would come from. Change: a census over a
+ranking plus the pair reader of item 27: per function, the pair offsets, frame
+delta, and whether each one-sided word is a move, a reload, a save or a real
+operation, with a summary that sorts the class by what kind of edit it needs
+(carrier deletion, reload, frame cell, unroll) and never by positional words.
+Emits a tracked-safe summary (classes and counts, no instruction text). Payoff:
+Track B's step 2 becomes a command, and the assignment arithmetic stops
+treating a one-word function as a structural rewrite.
+
+### 29. P1 — Frame-cell planner: net-zero conversions between declared homes
+Symptom: `overlay83BuildBatch` sits at 98 of 168 words with the save set exact
+and one 8-byte home in the wrong place. Across two lanes the operator learned by
+hand that dissolving two function-scope homes shrinks the frame from the top
+and leaves `linkedInit` at +0x50, that a dummy after `linkedInit` grows the
+frame from below and slides it to +0x58, and that doing both nets frame 0x80 --
+twelve spellings measured to find one arithmetic identity the frame ladder
+(`trace frame`, L99, L112, L121) already implies. Change: given the target's
+home offsets (from `slots` or a `-g3` census) and the candidate's frame ladder,
+enumerate the net-zero conversions -- which function-scope cells to dissolve,
+which block-scope cells to add and where -- that land every named home at its
+target offset without moving the frame, and print them as a short ranked list
+with the cell arithmetic behind each. Payoff: the frame axis of a last-mile
+function is solved before a build rather than by twelve.
+
+### 30. P2 — Recipe transfer ledger keyed on the source hash
+Symptom: all four handoffs spend most of their length re-listing named sibling
+recipes as inert on this body -- overlay 34's comma-assign, overlay 22's empty
+`if`, overlay 40's comma condition, the leftover OR-zero, L160, L99, L97 -- and
+each lane re-ran them because nothing recorded that they had been run against
+this exact source. `func_overlay_026_F00001A0_187A598` lists sixteen. Change: a
+`sweep recipes` generator that applies the named recipe catalogue to a base as
+one wave, classifies each cell by object identity against the base (inert, size
+±N, score), and writes a ledger keyed on the source hash, which `next` and a
+closure stamp consult: a recipe already inert on this hash is skipped and named
+as such. Payoff: the "do not repeat" paragraph of every handoff becomes data,
+and item 17's `closed-by-evidence` gets a machine-readable basis.
+
+### 31. P1 — Prologue save-order reader
+Symptom: `func_overlay_029_F00005C4_187D874` spent two lanes on one word: the
+candidate saved `f20` before `ra` because a conversion landed in the
+callee-saved register, while the target converted into a temp, stored it at
++0xC4 and saved `f20` in the normal sequence. The fix (a leftover OR-zero plus a
+third unused pointer to restore the frame) was found by spelling, and no
+instrument named the web that dragged the save forward. Change: compare the two
+prologues' save order and, where one callee-saved save moves, name the coloured
+web holding that register at its first definition (from the CDX colouring
+records), whether it spans the first call, and the ring-temp alternative the
+target's shape implies. Payoff: an early-save residual reads as "web N is
+coloured f20 across the first call", which points at the carrier (L145, L160)
+rather than at another spelling sweep.
+
+### 32. P2 — Constant CSE against per-iteration rematerialisation
+Symptom: `func_overlay_026_F00001A0_187A598` closed its size and stalled at 455
+masked words, 143 of them naming, on an FP ring that is 68% coherent over 24
+windows: our build commons `0.0f` across the unrolled records and consumes one
+ring slot per record, while the target rematerialises zero on each record and
+takes a non-likely branch with an empty delay slot. The handoff's next step is
+"rematerialise 0.0f per record at zero extra words", with nothing to measure a
+spelling against but the whole score. Change: a reader that, given a constant,
+lists its webs, the blocks each covers and whether uopt merged the occurrences
+into one web (CSE) or left one per block, beside the target's per-block
+materialisations read from the ring census. Payoff: "is this constant commoned
+or rematerialised, and where" becomes one comparison, and the L151
+literal-type lever can be tried against a named web instead of a score.

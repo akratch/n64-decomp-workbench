@@ -5,6 +5,16 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Backlog: six items from the Mickey 60% plateau wave
+
+- Items 27-32 in [the improvement backlog](docs/improvement-backlog.md), from
+  the wave's Track B plan and four 2026-09-19 plateau handoffs: an
+  insertion-pair reader that names the IR construct owning each one-sided word
+  (the generalised form of the host's `tools/insertion_pairs.py`), a
+  small-delta census, a frame-cell planner for net-zero home conversions, a
+  recipe ledger keyed on the source hash, a prologue save-order reader, and a
+  constant-CSE reader. Each states symptom, proposed change and payoff.
+
 ### A forced result can no longer be read as a match
 
 - **`compare`, `compare-dumps`, `score`, `diagnose` and `diagnose-dumps` state
