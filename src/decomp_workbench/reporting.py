@@ -95,6 +95,7 @@ SCHEMAS: dict[str, str] = {
     "relocation-aliases": "decomp-workbench-relocation-aliases-v1",
     "reloc-surface": "decomp-workbench-reloc-surface-v1",
     "reloc-proof": "decomp-workbench-relocation-proof-v1",
+    "promotion-audit": "decomp-workbench-promotion-audit-v1",
     "permute-sweep": "decomp-workbench-permute-sweep-v1",
     "ranking-stamp": "decomp-workbench-ranking-stamp-v1",
     "ranking-check": "decomp-workbench-ranking-stamp-v1",

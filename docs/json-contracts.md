@@ -18,6 +18,7 @@ Schemas name the user-visible report, for example:
 - `decomp-workbench-oracle-sweep-v1`
 - `decomp-workbench-trace-source-v1`
 - `decomp-workbench-relocation-proof-v1`
+- `decomp-workbench-promotion-audit-v1`
 - `decomp-workbench-target-readiness-v1`
 
 ### Hash-bound promotion and campaign state

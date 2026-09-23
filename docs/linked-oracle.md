@@ -21,6 +21,7 @@ Three commands answer the two halves and bind the promotion claim:
 | `reloc-surface` | what value must each placeholder carry for the link to reproduce the shipped words? |
 | `linked-compare` | given the image that link produced, is this function's range the target's bytes? |
 | `reloc-proof` | are both reports current, identity-complete, and about the same target and candidate? |
+| `promotion-audit` | before the link: does any object name another module's own symbol, or carry a jump table the image already ships? |
 
 Neither builds anything. The [host-side loop](#the-host-side-loop) is the
 project's, because only the project knows how it builds.
@@ -260,6 +261,60 @@ decomp-workbench reloc-proof --verify relocation-proof.json --json
 ```
 
 Content is identity; timestamp-only changes do not invalidate the proof.
+
+## `promotion-audit` — the two faults a byte-exact function still carries
+
+A function can score exact in its own object and still break the final image.
+Both of these did, on one promotion, with the function itself exact:
+
+- **A bare cross-module name.** Every reference out of an unrelocated module
+  stores an addend, so it must be spelled with a placeholder. A reference
+  spelled with the other module's *own* name gets a value line under that
+  name, and a linker assignment is global: it redefines the real symbol for
+  every object in the link. The function's calls had been rebound; three of
+  its *data* references had not, and 95 resident bytes moved.
+- **A jump-table pool the image already ships.** A `switch` leaves its table in
+  the object's `.rodata`. Unless the host places that section at the shipped
+  range or externalizes it, the link emits a second copy, and everything after
+  it shifts — a 13-entry table did that to every later module.
+
+```sh
+decomp-workbench promotion-audit build/tu.c.o \
+  --module-map module.json \
+  --resident build/main.elf --resident symbol_addrs.txt \
+  --surface-pattern '_o[0-9]+Reloc$' \
+  --linker-block undefined_syms.txt --image target.z64
+```
+
+Pass the objects **as the link will consume them**, after any post-compile
+rewrite, and every object of the module. What it reads:
+
+| Input | What it decides |
+|---|---|
+| `--resident FILE` (repeatable) | the names the other side of the link defines: an ELF, or a symbol list with one name or `name = value;` per line. A referenced name in it is refused as `resident-override`, call or data alike |
+| `--surface-pattern REGEX` | the host's placeholder spelling. An external reference that does not match is refused as `bare` |
+| `--linker-block FILE` | the symbol block the link includes. An assignment in it to a resident name is refused — that line *is* the override |
+| module map `text_placement` | a `.rodata` placement for the object means the host has made that section the shipped pool; without one, every jump table in it is refused as `duplicates-shipped-pool` |
+| `--image FILE` | reads a placed table against the shipped words: each entry must be its case's module address at the synthetic VMA, or the table is refused as `placed-disagrees` |
+
+A jump table is a run of consecutive `R_MIPS_32` words in a read-only data
+section whose targets are `.text` labels or the `.text` section symbol, split
+wherever a `%hi`/`%lo` pair in `.text` loads an offset -- two switches' tables
+sit back to back, and contiguity alone would read them as one. The report names
+the function whose pair loads each table, or its text offset when a static
+function has no symbol. Words naming a
+*function* are a pointer table, not a switch, and are reported with any other
+unplaced read-only bytes as a warning: if the image already ships those
+constants the link duplicates them too.
+
+Exit status is 0 when nothing is refused and 1 otherwise; `--json` emits
+`decomp-workbench-promotion-audit-v1`. With neither `--resident` nor
+`--surface-pattern`, every external reference is listed as `unclassified` and
+the run says it judged none of them.
+
+**Deliberately out:** the audit does not rewrite anything. The rebind and
+externalize forms are the host's post-compile steps, spelled in the host's
+build; the audit names what needs one and checks the result.
 
 ## The host-side loop
 

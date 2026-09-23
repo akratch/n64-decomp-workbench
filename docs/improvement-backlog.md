@@ -1568,6 +1568,33 @@ the promotion preflight must list every bare `func_8…`/`D_8…` reference in t
 form before link. Payoff: the two most expensive post-match cycles of the sprint
 become a refusal with a filename.
 
+**Status (landed).** `decomp-workbench promotion-audit` reads the objects a
+module link consumes -- the same objects and module map `reloc-surface` takes
+-- and refuses both faults by object and name before anything links. Every
+reference out of the module is listed with its kind (`call`, `data`,
+`call+data`), and one naming a symbol the other side of the link defines
+(`--resident`: an ELF or a symbol list) is refused as `resident-override`,
+data exactly like calls; `--surface-pattern` refuses any external name off the
+host's placeholder spelling, and `--linker-block` refuses the assignment line
+that *is* the override. Every switch table in an object's read-only data --
+a run of `R_MIPS_32` words aimed at `.text` labels -- is refused as
+`duplicates-shipped-pool` unless the module map places that section, and with
+`--image` a placed table is read entry by entry against the shipped words.
+Each table names the function whose `%hi`/`%lo` pair loads it. The fixtures
+are synthetic ELFs built in the test.
+
+Generalized as asked: "resident" means whatever the other side of the link
+defines, and the placeholder spelling is the host's regular expression, so no
+`func_8`/`D_8` prefix or `_oNNReloc` suffix is built in.
+
+**Deliberately out:** no rewriting. The rebind and externalize forms are
+post-compile steps in the host's build, and a workbench that performed them
+would be guessing a build it does not own; the audit names what needs one and
+checks the object after it. A pool the host has *externalized* (its
+`.rel.rodata` dropped) is no longer a jump table this reader can see; its
+bytes, if any remain in an unplaced section, are reported as unplaced
+read-only data.
+
 ### 26. P2 — Bounded-lane protocol as a workbench campaign shape
 Symptom: ten Fable lanes at ~20 measured cycles each, with an uncounted cycle 0 for
 instruments/banking and a mandatory "cycle 21" line, took 187 -> 0 after six

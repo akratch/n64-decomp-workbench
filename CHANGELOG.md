@@ -5,6 +5,21 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Promotion audit: bare cross-module names and duplicated jump tables
+
+- **New `promotion-audit`** (backlog item 25), beside `reloc-surface`. On one
+  promotion a function scored exact and still broke the image twice: three
+  *data* references spelled with the resident module's own names got linker
+  value lines that redefined those symbols (95 resident bytes moved), and a
+  13-entry switch table left in the object's `.rodata` was linked beside the
+  shipped pool. The audit lists every external reference with its kind,
+  refuses one that names a `--resident` definition, one off the
+  `--surface-pattern` placeholder spelling, and a `--linker-block` line that
+  assigns a resident name; it refuses every jump table in an object whose
+  read-only data the module map does not place, and reads a placed one
+  against the shipped words with `--image`. JSON:
+  `decomp-workbench-promotion-audit-v1`; exit 1 on any refusal.
+
 ### A landscape measured against another source is refused
 
 - **Every compile-keyed artefact carries a `source_stamp`, and every reader
