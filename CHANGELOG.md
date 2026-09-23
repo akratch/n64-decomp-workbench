@@ -5,6 +5,17 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Laws L155-L160 from the Mickey landscape work
+
+- **L155** (a positional score counts insertion shadow, which no colour
+  moves), **L156** (disjoint blast radii predict additivity), **L157** (a web's
+  forceable colours are its `p1cost` table, not its availability mask),
+  **L158** (a hand-picked lattice is a sample, not a floor), **L159** (the best
+  force set is a packing over radii, one colour per web) and **L160** (a
+  declared carrier can hide the web the target needs) are banked on the IDO 5.3
+  page with receipts. The Mickey's Speedway USA brief has cited them by these
+  numbers since 2026-09-12; they are the laws `sweep landscape` implements.
+
 ### The colour landscape at any order
 
 - **`sweep landscape`** (flat `sweep-landscape`) probes every coloured

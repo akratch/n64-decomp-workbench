@@ -2904,6 +2904,8 @@ concluded from it.
 | The callee-save toll is a constant — a save/restore instruction price | corrected by [L56](#l56-the-callee-save-toll-is-a-saturating-size-term) | it is `clamp(nBB/4, 4, 60)`, a size term that saturates; every large procedure sees 60 |
 | A declined web is re-offered once another web opens the callee bank | retired by [L56](#l56-the-callee-save-toll-is-a-saturating-size-term) | 249 `p1dec` records, zero `p2dec`; a declined web splits and its fragments are new webs |
 | A plain local is memory-resident because its web loses the cost contest | corrected by [L55](#l55-the-eligibility-gate-save--0-is-struck-before-colouring-begins) | `save <= 0` strikes it before the contest; it emits no candidate record at all |
+| A force lattice's floor is the colour floor | corrected by [L155](#l155-a-positional-score-counts-the-shadow-of-an-insertion-and-no-colour-can-move-it) and [L158](#l158-nominating-a-handful-of-webs-out-of-every-coloured-web-is-a-sample-not-a-floor) | 81 of 227 positional words were insertion shadow, and five webs of 139 were a sample |
+| The best force set is the best-scoring force per web | corrected by [L159](#l159-the-best-set-of-forces-is-a-packing-over-blast-radii-not-the-top-of-the-winners-list) | the c20 set measured 192 where the worse-scoring c14 set measured 185 |
 | A copy relation can hand a web a forbidden colour (an `available0` bypass) | corrected by [L57](#l57-the-copy-relation-channel-available0-is-an-argmin-not-a-complement) | `available0` is the argmin of `f_cupcosts` over the **non-forbidden** colours |
 | The declaration list states the local supply; *N* locals is the ceiling at this frame size | falsified twice by [L54](#l54-an-arrays-unaddressed-interior-is-spendable-frame) | an array whose base alone is addressed carries spendable bytes in its tail |
 | `a && b` as a value is expensive in every respelling | falsified by [L51](#l51-cfes-own--as-a-value-expansion-is-a-spelling-you-can-write) | cfe's own expansion, written out, is byte-identical at every site; the other spellings cost 264–860 rows |
@@ -5796,3 +5798,148 @@ problem." The colouring follows the numbering, the numbering follows the type,
 and the type follows the source's choice of induction variable.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L155. A positional score counts the shadow of an insertion, and no colour can move it
+
+One extra or missing word makes every following word mismatch **by position**
+while aligning perfectly, so a positional count charges the whole span after
+the insertion to whatever window it falls in. That span is not a colour
+question at all, and a force lattice whose floor is read off the positional
+score reports a floor that is partly unreachable by any colour.
+
+**So rank a window by its aligned rows, never by the positional count, and read
+the candidate-only and target-only offsets first.** They are the source-shape
+questions, and they are usually a different lane's work from the colour
+questions. The same holds for a function whose sizes agree: insertion pairs
+that cancel in size still shadow everything between them.
+
+**Receipt — T2, a positional against aligned census** (Mickey,
+`func_overlay_058_F000138C_18B0574`, 2026-09-12). **81 of 227** positional
+words sat in two windows bracketed by one-word insertions; their aligned
+residual was **22 rows**. A five-force lattice reported a floor of 185 from
+the positional score, of which the 81 were shadow that no force touched.
+
+**Falsifies.** "The lattice's floor is the colour floor." It is the floor of
+the positional count, which includes words no colour can move.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L156. Disjoint blast radii predict additivity, so n measurements replace 2^n
+
+A force's **blast radius** is the signed per-window change in residual between
+its object and the unforced one. Where two forces' radii share no window, the
+pair is additive; where they collide, measure the pair. **The width is the
+whole reading**: at `0x80` every pair of the first lattice read disjoint and
+measured additive, while at `0x200` the two forces nearest the entry shared a
+window and read as contending though their scores did not. A collision at a
+coarse width is a question for a narrower one, not a verdict. A radius that is
+a subset of another force's is a **rival** — two webs competing for one slot —
+not an addition.
+
+**Receipt — T2, measured pairs on two lattices** (Mickey,
+`func_overlay_058_F000138C_18B0574`, 2026-09-12). Five forces, all ten pairs:
+every pair disjoint at `0x80`, every interaction exactly zero. Seven forces,
+21 pairs, 11 measured: nine read disjoint and measured zero, and the only two
+that read as contending were the only two antagonistic pairs (`+43`, colliding
+in three windows; `+10`, colliding in four). **11 of 11 predicted from 7
+single measurements**, in both directions.
+
+**Falsifies.** "Additivity has to be measured pair by pair." It has to be
+measured where radii collide, and nowhere else.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L157. The colours a web can be forced to are its own `p1cost` table, not its `available0/1` mask
+
+The availability mask is the state at the moment the web was decided; a force
+overrides the decision, so the mask **under-reports** what a force can reach.
+The web's cost table lists every colour it was priced against, including its
+own final colour, and its `kind=` field separates caller- from callee-save.
+**Screen a nominated force against the cost table, and prefer the web's own
+kind**: probing across the kind boundary rewrites the prologue, moves the size,
+and throws the cell away (L155).
+
+**Receipt — T1, instrumented decision records** (Mickey,
+`func_overlay_058_F000138C_18B0574`, 2026-09-12). All **139** coloured webs of
+the procedure list their own final colour in their `p1cost` table, while the
+availability mask called **three of the five** colours a lane had
+successfully forced illegal.
+
+**Falsifies.** "A colour outside `available0/1` cannot be forced."
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L158. Nominating a handful of webs out of every coloured web is a sample, not a floor
+
+A force lattice over hand-picked webs bounds the questions it asked. Before
+believing its floor, **ask what fraction of the coloured webs it sampled and
+which windows it never moved.** Score-level additivity also hides a force that
+saves words in one window while adding them in another; only a per-window
+footprint shows it. Probing every coloured web once and inverting the result
+into a window-to-webs table is the step that was missing.
+
+**Receipt — T2** (Mickey, `func_overlay_058_F000138C_18B0574`, 2026-09-12).
+431 p1 decisions and 139 `p1color` rows; a lane hand-picked five webs, swept
+all 31 subsets and reported "diagnostic floor 185". The five moved 10 of 22
+windows, left the two largest naming blocks untouched (11 and 12 aligned
+naming rows), and one of them added three naming rows at one window while
+saving ten overall.
+
+**Falsifies.** "Diagnostic floor 185" — a floor over five questions of 139.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
+### L159. The best set of forces is a packing over blast radii, not the top of the winners list
+
+Two constraints make the set correct: radii must not overlap, and **at most one
+colour per web**. Greedy by single score breaks the first — a better force can
+duplicate another member's radius and abandon a region only a worse colour
+reaches — and a packing without the second proposes two colours for one web
+and predicts a score no compile can produce. A set of forces with identical
+radii is **one question with several handles**; nominating two of them pays for
+both and gets neither. `sweep landscape` computes the packing and states
+rivals.
+
+**Receipt — T1, a complete single-force landscape** (Mickey,
+`func_overlay_058_F000138C_18B0574`, 2026-09-12). 1,875 probes. `w225=c20`
+scores 217 alone and `w225=c14` scores 220, yet the five-force set holding c14
+measures **185** and the one holding c20 measures **192**: c20 shares its
+radius byte for byte with `w379=c20`, and only c14 reaches a separate region.
+The packing returned exactly the five forces a lane had found by hand, and its
+predicted 185 was the measured value. Held as the premise of a **second-order**
+landscape (2026-09-14), the packing at 116 predicted 90 from twelve new
+winners and measured 90; the third-order landscape at 90, 906 probes, found no
+winner.
+
+**Falsifies.** "Take the best-scoring force for each web." A better single
+force can be a worse member of a set.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12 and 2026-09-14.
+
+### L160. A declared carrier can hide the web the target needs; delete the declaration and let IDO generate the value
+
+When the decision records say a web took the lowest free colour and the target
+took a different one, the usual cause is that the source **declares** a cursor
+or an intermediate the target's source does not. Writing the access as an
+indexed subscript instead of a walking pointer makes strength reduction create
+the cursor, and the array-base web then survives to take the colour the target
+wants. A named intermediate also changes which of two tied webs comes first in
+the priority order, which is what decides the tie. This is
+[L145](#l145-to-put-a-value-in-a-ring-temp-delete-the-carrier--a-local-is-a-symbol-and-a-symbol-is-never-a-ring-temp)
+generalised off ring temps. **The route**: exhaust the colour axis, get a force
+that scores zero at delta zero, then ask which declaration stands in the way of
+the compiler choosing it alone.
+
+**Receipt — T2, two whole-function matches after T1 forces** (Mickey,
+`overlay1FindType47ByAngle` and `overlay89InitializeEffect`, 2026-09-12). Both
+had first been reduced to a proved zero-scoring force by an exhaustive
+landscape, and both matched in one edit each. On one, the declared scale had
+total save 11 and beat the input angle's 10; removing it left the angle first
+among the tied float webs and both took their wanted colours with no force.
+
+**Falsifies.** "A zero-scoring force is a statement about the allocator only,
+with no source consequence." It names the colour; the carrier is what stands in
+the way.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-09-12.
+
