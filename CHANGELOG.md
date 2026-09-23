@@ -5,6 +5,29 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### The suite is green again
+
+Seven tests failed on `main`; none of them was an assertion that had become
+wrong, and none was loosened.
+
+- **The packaged backlog drifted from `docs/`.** The whale-sprint backlog
+  items were appended to the canonical page without re-running
+  `tools/sync_packaged_docs.py`, so an installed wheel served the older copy.
+  Re-synced.
+- **The profile-composition fixture predated the split-growth hooks.** The
+  globalcolor profile gained anchors in `f_dellivbb`'s callers
+  (`f_addadjacents`, `f_split`, `f_updatelivran`); the uopt test fixture got
+  them and the composition test's copy did not, so composition refused at the
+  first missing anchor. The fixture now carries them, and the composed hook
+  count is asserted as the sum of each profile applied alone (2 + 23) as well
+  as its literal value.
+- **Five header-compile tests failed on a test accessor, not on the header.**
+  The compile prelude's `MEM_U32(address)` discarded its argument, so the
+  seedcand hook's `base` -- a local that only feeds an address -- read as
+  set-but-unused and `-Wall -Werror` refused the header. The recompiled pass's
+  real accessors evaluate the address; the prelude now does too, still
+  reading word 0.
+
 ### Register capability is not per-function ownership
 
 - IDO 5.3 t0–t5 are possible UOPT colors and possible UGEN temporaries.

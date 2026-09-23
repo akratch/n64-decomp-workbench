@@ -35,6 +35,39 @@ L464644:
 L4647b8:
 // bdead 1 ra = MEM_U32(sp + 36);
 }
+static void f_dellivbb(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1) {
+}
+static void f_updatelivran(uint8_t *mem, uint32_t sp, uint32_t a0) {
+uint32_t v0 = 0, s3 = a0, s6 = 1;
+MEM_U8(v0 + 21) = (uint8_t)s6;
+MEM_U8(v0 + 22) = (uint8_t)s6;
+}
+static void f_addadjacents(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+uint32_t s0 = 0, s1 = a0, s2 = a1, s4 = 0, s5 = a2, s6 = 0, at = 0, t2 = 0, t3 = 0, fp = 0;
+a0 = s5 + 0x8;
+a1 = s0;
+f_dellivbb(mem, sp, a0, a1);
+L46e2e0:
+// bdead c1fe0003 gp = MEM_U32(sp + 52);
+at = (int)s6 < (int)s4;
+L46e34c:
+t3 = MEM_U32(fp + 0);
+L46e47c:
+t2 = MEM_U32(sp + 96);
+}
+static void f_split(uint8_t *mem, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+uint32_t s0 = a0, s1 = a1, s2 = a2, t4 = 0, t7 = 0, t9 = 0;
+a3 = s2;
+a0 = a3 + 0x8;
+a1 = s0;
+f_dellivbb(mem, sp, a0, a1);
+L46faac:
+t4 = MEM_U8(s0 + 20);
+L46fb48:
+t9 = MEM_U32(s0 + 0);
+L46fcd4:
+t7 = MEM_U32(s2 + 0);
+}
 static void f_makelivranges(uint8_t *mem, uint32_t sp) {
 L468998:
 //makelivranges:
@@ -81,7 +114,17 @@ class InstrumentProfilesTests(unittest.TestCase):
             allow_unverified_source=True,
         )
         self.assertEqual(result.profiles, ("alias", "globalcolor"))
-        self.assertEqual(result.trace_points, 15)
+        # Alias contributes 2 hooks and globalcolor 23 (13 before the
+        # split-growth records). Composition must neither drop nor double any:
+        # the count is the sum of each profile applied alone.
+        alone = sum(
+            instrument_uopt_profiles(
+                SOURCE, [name], allow_unverified_source=True
+            ).trace_points
+            for name in ("alias", "globalcolor")
+        )
+        self.assertEqual(result.trace_points, alone)
+        self.assertEqual(result.trace_points, 25)
         self.assertIn(ALIAS_MARKER, result.source)
         self.assertIn(GLOBALCOLOR_MARKER, result.source)
 

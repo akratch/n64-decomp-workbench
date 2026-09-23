@@ -1455,3 +1455,94 @@ object's size against the real per-TU object would catch it in one step, and a
 size mismatch should refuse rather than warn. Until then, a standing
 "permuter-target" routing on a function is not actionable without checking the
 scratch first.
+
+## From the Mickey whale sprint (2026-09-14..16): `func_overlay_058_F000138C_18B0574`, 187 -> 0 over ten lanes
+
+Each item: symptom seen in the sprint, proposed change, payoff. Evidence is in the
+Mickey tree under `docs/whale-*.md` and banked under Git's common dir
+`whale-resources/` (never tracked).
+
+### 19. P1 — Second-order colour landscape as a first-class command
+Symptom: every landscape the workbench produces is first-order (each web probed
+against an unforced baseline). Twelve productive forces were invisible until a
+`--hold` option (Mickey `tools/web_footprint.py`) kept a packed force set applied
+while probing the rest; the third-order landscape then proved the colour axis
+closed. Change: `landscape --hold p1:wN=cM ...`, planning the probe set from the
+*held* baseline's own trace (held colours change what the other webs are offered),
+refusing `--trace` alongside. Payoff: the colour axis becomes exhaustible at every
+order in minutes, and "no winner at order 3" is a closure the guide can state.
+
+### 20. P0 — Landscape freshness stamp is now load-bearing; make it default
+Symptom: five consecutive lanes measured colours against a body that had moved
+227 -> 207 -> 187 underneath them. Mickey's `web_footprint --report` now stamps the
+ranking's `source_context_sha256` and exits nonzero with `STALE:`. Change: every
+workbench artefact keyed to a compile (landscape, lattice, census, allocator log)
+carries the source digest, and every reader refuses a mismatch by default. Payoff:
+the most expensive class of wasted lane in the sprint becomes an error line.
+
+### 21. P1 — Split-growth trace and per-web block sets as a standard profile
+Symptom: `webdetail` carried `bb=-1`, so the block set of an address-constant web
+was unreadable and three lanes reasoned about "numintf >= 25 offers a2" as a
+pressure rule; it was the shadow of the split's growth test. Landed in the
+generator as `webblocks`/`seed`/`seedcand`/`grow`/`growv`/`livbb` (commit d0830b8)
+with `lineage_census.py --web N`, `blocks_of()`, `growth_of()`. Change: promote
+the growth rule to the field guide as a law -- a piece grows BFS from its seed and
+accepts a block iff `new < left_before` and `2*left_after >= numintf + new`; call
+blocks accepted, never expanded (verified on all 477 tests of one body) -- and
+ship `intfdiff.py`-style neighbour diffs as a command. Payoff: "rejects by one" is
+a number, and the margin names the interferer to remove.
+
+### 22. P1 — Carrier-span guidance: the colour follows the symbol
+Symptom: six passes asked which colour a value wanted; the residual was which
+*variable* carried it. Laws to bank: uopt colours a symbol as ONE web function-
+wide, so the set of cases a variable spans fixes its decision order; decision
+order is strictly descending `save` among coloured webs (all inversions are split
+fragments), so every swap is a ratio pair changed by arithmetic; folded loop-index
+resets are dead defs uopt still colours per symbol, so writing them on a local
+that is dead there and already coloured elsewhere makes them inherit that colour
+(closed 7 rows at zero width); a dead-def web's save is n/(((n-2)>>2)+2) and never
+falls below the webs it would need to follow. Change: `diagnose` should report,
+per naming window, the carrier's case-span and `save`, and nominate carriers whose
+span would land the target colour. Payoff: three of the sprint's four largest
+wins were carrier reassignments the tool could have proposed.
+
+### 23. P1 — Operand order of a commutative sum is evaluation order via a local
+Symptom: fourteen plus seven spellings of `saves + index*32` were one object; the
+order was decided below the expression. `(u8 *)saves + i*32` *through a declared
+local* evaluates the base first, `&saves[f()]` the index first -- and matched code
+in the same tree already used the former. Change: a law entry plus a `diagnose`
+hint when a 2-cycle on one `addu` survives every spelling. Payoff: two rows that
+cost two lanes become one hint.
+
+### 24. P1 — uopt pass-order model from mini TUs (the last fact)
+Symptom: the final row needed a def that is redundant *before* copy propagation.
+Six rules read from ~60 two-loop mini TUs (50 ms each): DSE runs first and counts
+only reads surviving the early constant fold (which crosses calls); a read
+followed by a def of the same variable in its block is not folded; the redundant-
+store pass deletes a store only as its block's first reference (same rule blocks a
+store's sink when a read precedes it); the SR init fold uses the block's own def,
+not propagated knowledge; a conditional store of a known value is deleted before
+SR; a self-reading def (`i &= 0`) is not a DSE candidate. Also: a call between a
+reset and its loop kills the cursor-init fold; the `.noalias` fact rides on the
+base being a load-address expression (`islda`), which a pointer variable never
+is. Change: bank as laws; add a `mini` harness command that compiles a two-loop
+probe TU and reports which rule fired. Payoff: pass-order questions become
+50 ms experiments instead of lane-days.
+
+### 25. P0 — Promotion audit: bare resident *data* names and jump-table pools
+Symptom: two promotion faults invisible to the score both broke `verify` with the
+function's bytes exact -- three bare `D_8…` resident data names lacked the
+`_oNNReloc` alias and moved 95 resident bytes; the object's 13-entry `.rodata`
+jump table duplicated the shipped pool and shifted every later overlay. Change:
+the promotion preflight must list every bare `func_8…`/`D_8…` reference in the TU
+(data included) and every switch's jump table, and require the rebind/externalize
+form before link. Payoff: the two most expensive post-match cycles of the sprint
+become a refusal with a filename.
+
+### 26. P2 — Bounded-lane protocol as a workbench campaign shape
+Symptom: ten Fable lanes at ~20 measured cycles each, with an uncounted cycle 0 for
+instruments/banking and a mandatory "cycle 21" line, took 187 -> 0 after six
+unbounded passes held flat. Change: `campaigns.md` documents the shape (cycle =
+one hypothesis measured; batched cells are one; the brief outranks the dispatch;
+checkpoint-commit every ~6 cycles; name the next cycle). Payoff: the successor
+lane starts from a sentence, not a re-read.
