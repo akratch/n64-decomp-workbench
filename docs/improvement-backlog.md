@@ -2102,3 +2102,29 @@ ahead of the target's occupant by priority, print `priority-inversion`
 with both webs, their priorities and the statement that creates the short
 range; suggest merging the carrier. Payoff: this replaced a colour landscape
 on three functions today.
+
+### 45. P1 — L110 needs qualifying: a global's address is shared across region boundaries and split only by a call
+Symptom: `wakeUpdate` (Mickey, 2026-09-23) closed its size only when a
+global's second access was spelled as a subscript so uopt would not share
+the address the target computes twice. Standalone probes then showed uopt
+shares a global's address between a read and a store across a label,
+`if (1)`, a `switch` and `do {} while (0)`; only a call between the two
+accesses stops the sharing. The brief's L110 (region boundaries as address
+carriers) is therefore stated too broadly. Change: bank the measured rule
+(address CSE for globals survives every region form; a call kills it; a
+subscripted access through a different base does not share) as a law with
+the probe sources under tests/fixtures, and have the reader label a
+one-sided `lui`/address materialisation whose sibling access sits across a
+call as `address-shared-across-call`. Payoff: two lanes spent cycles on
+region boundaries that cannot separate an address.
+
+### 46. P2 — Save ties are decided by web number; name the tie
+Symptom: `fxSPDPRipple` is two words short because three webs tie at save
+2.75 and the lowest-numbered wins `s8`; forcing the two losers to split
+closes the size. `wakeUpdate` and three track.c functions stop on the same
+shape (a web outranking the target's occupant by a tie or a small margin).
+Change: when two or more webs tie at the decisive save within the records'
+precision, the verdict should print `save-tie` with the webs, their numbers
+and the L154 numbering rule (type first, first use second), and the source
+statement that would renumber them. Payoff: a tie is a numbering problem, and
+numbering is a declaration-order lever, not a colour force.
