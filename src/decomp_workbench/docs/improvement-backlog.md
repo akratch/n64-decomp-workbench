@@ -1856,3 +1856,17 @@ into one web (CSE) or left one per block, beside the target's per-block
 materialisations read from the ring census. Payoff: "is this constant commoned
 or rematerialised, and where" becomes one comparison, and the L151
 literal-type lever can be tried against a named web instead of a score.
+
+### 33. P1 — A one-sided nop between an FP compare and its branch is an ISA signal
+Symptom: `func_overlay_020_F0001148_1877720` (Mickey, 2026-09-23) carried four
+target-only nops that the insertion-pair reader classed as as1 fills owned by
+spill lines, and the census labelled the function spill/reload. Laid side by
+side, every one sat between a `c.cond.s` and its `bc1`: the MIPS I/II
+compare-to-branch hazard slot, which as1 drops at `-mips3` and above. The lever
+was the TU's ISA flag (`-mips3` to `-mips2`), and it turned the whole delta on
+its head (−8 to +8) before any source change; the function matched in 13
+cycles from there. Change: in the object comparison and the insertion-pair
+reader, classify a one-sided nop whose neighbours are an FP compare and a
+`bc1` as `isa-hazard`, name the flag to test, and never attribute it to a
+source line. Payoff: a flag test costs one compile; a spelling search for a
+nop the compiler cannot emit at the current ISA costs a lane.
