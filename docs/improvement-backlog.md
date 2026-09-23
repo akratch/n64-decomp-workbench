@@ -820,6 +820,25 @@ the wrong sites; the table is an input, and a run without one says so.
 - **Blocked on nothing.** The inputs are the ones `diagnose --ladder
   --force-result` already takes.
 
+**Status (landed).** `decomp-workbench oracle force-plan CAPTURE` is the
+planner: substitutions from `--substitute CANDIDATE=TARGET` or a `diagnose
+--json` lever (`--from-diagnosis`), holders read from the capture's colouring
+records, colours in a holder's `forbidden0/1` mask declined with the reason
+before any build, and cells ordered singletons first, full set last.
+`--write` saves a `decomp-workbench-force-plan-v1` document whose embedded
+oracle plan `oracle sweep --plan` (or `oracle force --plan`) runs with its
+unforced control, and that sweep's JSON is what `diagnose --force-result`
+already reads. The diagnose `needs` line for reachability now names both
+commands. Documented in [the oracle page](oracle.md) and
+[JSON contracts](json-contracts.md#the-force-plan).
+
+**Deliberately out:** choosing among holders. A register two coloured webs
+hold is planned as two singletons and the full set is withheld, because
+picking one would be the guess this item forbids. The same for a ring temp and
+an uncoloured target register: named with a reason, never widened into a
+colour universe. The plan is also never reported as a match; its `proof` and
+the oracle's rule that a forced object is not source evidence both still hold.
+
 ### 17. Stopping evidence: read the attempt *series*, not one comparison
 
 - **Symptom.** Every workbench verdict describes a single comparison. Nothing

@@ -5,6 +5,22 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Plan the force experiment from the residual
+
+- **`oracle force-plan`** turns a register residual's substitutions
+  (`--substitute CANDIDATE=TARGET`, or `--from-diagnosis` reading a
+  `diagnose --json` lever) and a CDX capture into the minimal force cells: each
+  web holding the candidate register paired with the target register's colour,
+  colours in the web's forbidden mask declined before a build, singletons
+  first and the full set last. Ring temps, uncoloured targets and registers two
+  webs hold are named, and the full set is withheld rather than guessed.
+  Contract `decomp-workbench-force-plan-v1`.
+- **`oracle sweep --plan` / `oracle force --plan`** run a saved oracle plan or
+  force plan with its unforced control, so the planned cells are exactly the
+  ones compiled; `--trace` is required only when planning from a trace. The
+  `diagnose` lever's reachability `needs` line names the two commands. Backlog
+  item 16.
+
 ### uopt's pass order from mini TUs: laws L162-L167 and `pass order`
 
 - **Six pass-order laws banked on the IDO 5.3 page**, from about sixty two-loop

@@ -701,9 +701,10 @@ CAPTURE_CDX = (
 CAPTURE_FORCE = (
     "reachability: pin the residual's webs with "
     "CDX_FORCE=p1:w<web>=c<colour> (comma-separated for a set) over the same "
-    "compile, compare with the project's own comparison, and pass the "
-    "resulting oracle sweep JSON as --force-result. words=0 proves every "
-    "colour in the residual is legal in this web graph"
+    "compile -- `oracle force-plan <capture> --from-diagnosis <this JSON> "
+    "--write plan.json` derives the cells and `oracle sweep --plan plan.json` "
+    "runs them -- and pass the resulting oracle sweep JSON as --force-result. "
+    "words=0 proves every colour in the residual is legal in this web graph"
 )
 CONFIRM_CAPTURE = (
     "a CONFIRMING second capture after the edit: re-run CDX_LOG=1 and check "

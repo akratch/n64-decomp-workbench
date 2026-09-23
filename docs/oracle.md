@@ -194,6 +194,38 @@ includes source/target hashes, wrapper and objdump identities, working
 directory, explicit environment, toolchain-manifest hash, symbol/section, and
 the force plan.
 
+### Plan the force set from the residual
+
+The interaction above is derivable before the first build. The residual names
+the substituted registers, the colour table names their colours, and the CDX
+capture names the webs holding them — so `oracle force-plan` writes the cells
+instead of leaving them to be typed:
+
+```sh
+decomp-workbench oracle force-plan examples/traces/force-plan.log --substitute s1=s3 --substitute s3=s1
+```
+
+```text
+1. p1:w12=c17
+2. p1:w19=c15
+3. p1:w12=c17,p1:w19=c15
+```
+
+For each substitution (candidate register first) it pairs every coloured web
+holding the candidate's register with the target register's colour, and drops
+any colour already in that web's forbidden mask, reporting it as declined
+before a build is spent. Cells come singletons first and the full set last, so
+a partial closure is attributed to one force rather than to the set. It widens
+nothing: a register no coloured web holds (a ring temp), a target register with
+no colour, and a register two webs hold are each named, and the full set is
+withheld whenever a substitution has no single eligible force.
+`--from-diagnosis DIAGNOSIS.json` reads the substitutions from a
+`diagnose --json` lever instead of `--substitute`. `--write plan.json` saves the
+plan, and `oracle sweep ... --plan plan.json` runs exactly those cells with the
+unforced control; its JSON is what `diagnose --force-result` reads. On
+`overlay4UpdateObjectMotion` the three forces that closed the object took seven
+hand-typed builds to find.
+
 ## 5. Reopen and share evidence
 
 ```sh

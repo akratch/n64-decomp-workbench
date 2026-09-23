@@ -307,6 +307,22 @@ The CV64 campaign record also uses
 not a schema emitted by a CLI command and not a substitute for a fresh
 comparison.
 
+### The force plan
+
+`oracle force-plan` emits `decomp-workbench-force-plan-v1`. `substitutions`
+holds one entry per substitution: `candidate`, `target`, `target_color`,
+`holders` (the coloured webs holding the candidate register), `forces`,
+`declined` (forces the forbidden mask rules out, with the reason) and `status`,
+exactly one of `planned`, `ambiguous-holder`, `all-forbidden`,
+`no-coloured-holder` and `target-register-uncoloured`, with a `reason` for all
+but the first. `cells` lists the forces in run order, singletons first and the
+full set last; `full_set` is that set or null, and `withheld` says why it is
+null when it is. `complete` is true only when every substitution is `planned`.
+`oracle_plan` is a `decomp-workbench-oracle-plan-v1` document whose `forces`
+are those cells, which `oracle sweep --plan` and `oracle force --plan` accept
+directly (as does the whole force-plan file). `evidence` is
+`diagnostic-force-plan`.
+
 ### uopt pass order
 
 `pass order` emits `decomp-workbench-pass-order-v1`. `statements` holds one row

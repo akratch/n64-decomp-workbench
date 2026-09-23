@@ -218,6 +218,7 @@ COMMAND_MAP: dict[str, tuple[tuple[str, str], ...]] = {
     "oracle": (
         ("plan", "build an honest two-phase allocator force grid"),
         ("diff", "compare compiler decisions by semantic web provenance"),
+        ("force-plan", "turn a residual's substitutions into ordered force cells"),
         ("force", "run a calibrated causal force set plus its baseline"),
         ("sweep", "run the full measured force grid as a cached campaign"),
         ("status", "render the latest durable sweep without recompiling"),

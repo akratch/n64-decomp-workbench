@@ -1,0 +1,8 @@
+# Synthetic globalcolor capture for `oracle force-plan`. Hand-written; the
+# webs, saves and masks are illustrative and no record is copied from a build.
+[CDX] p1dec phase=p1 proc=0 web=12 sym=4 class=1 save=4.500 nocs=2 bestcolor=15 bestreg=s1 forbidden0=0x0 forbidden1=0x0 regsleft=6 numintf=3 decision=color forced=0
+[CDX] p1color phase=p1 proc=0 web=12 sym=4 color=15 reg=s1 forced=0
+[CDX] p1dec phase=p1 proc=0 web=19 sym=7 class=1 save=3.000 nocs=3 bestcolor=17 bestreg=s3 forbidden0=0x0 forbidden1=0x0 regsleft=5 numintf=4 decision=color forced=0
+[CDX] p1color phase=p1 proc=0 web=19 sym=7 color=17 reg=s3 forced=0
+[CDX] p1dec phase=p1 proc=0 web=27 sym=9 class=1 save=2.000 nocs=1 bestcolor=16 bestreg=s2 forbidden0=0x20000 forbidden1=0x0 regsleft=4 numintf=6 decision=color forced=0
+[CDX] p1color phase=p1 proc=0 web=27 sym=9 color=16 reg=s2 forced=0

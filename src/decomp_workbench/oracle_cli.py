@@ -19,8 +19,14 @@ from .campaign import (
     file_sha256,
     render_compile_command,
 )
+from .cascade import CdxLog
 from .cli_options import add_symbol_argument
 from .environment import merge_toolchain_environment, parse_environment
+from .force_plan import (
+    FORCE_PLAN_SCHEMA,
+    plan_force_experiment,
+    substitutions_from_diagnosis,
+)
 from .globalcolor import parse_globalcolor_trace
 from .html_report import document_shell
 from .instrument_uopt import parse_force_specification
@@ -121,6 +127,73 @@ def oracle_diff_command(args: argparse.Namespace) -> int:
             print(f"{row['fingerprint']} changed={','.join(row['changed'])}")
         print(f"proof: {report['proof']}")
     return 0 if report["difference_count"] else 1
+
+
+def _substitution(value: str) -> tuple[str, str]:
+    candidate, separator, target = value.partition("=")
+    if not separator or not candidate.strip() or not target.strip():
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not CANDIDATE=TARGET, e.g. s1=s3"
+        )
+    return candidate.strip().removeprefix("$"), target.strip().removeprefix("$")
+
+
+def oracle_force_plan_command(args: argparse.Namespace) -> int:
+    try:
+        substitutions = dict(args.substitute)
+        if args.from_diagnosis:
+            payload = json.loads(
+                Path(args.from_diagnosis).expanduser().read_text(encoding="utf-8")
+            )
+            for candidate, target in substitutions_from_diagnosis(payload).items():
+                substitutions.setdefault(candidate, target)
+        if not substitutions:
+            raise ValueError(
+                "name the residual's substitutions with --substitute "
+                "CANDIDATE=TARGET or --from-diagnosis DIAGNOSIS.json"
+            )
+        report = plan_force_experiment(
+            CdxLog.read(args.trace), substitutions, proc=args.proc
+        )
+        if args.write:
+            output = Path(args.write).expanduser()
+            if output.exists():
+                raise FileExistsError(f"refusing to overwrite {output}")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with output.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["cells"] else 1
+    print(
+        f"force plan: proc {report['procedure']}, "
+        f"{len(report['substitutions'])} substitution(s), "
+        f"{len(report['cells'])} cell(s)"
+    )
+    for entry in report["substitutions"]:
+        forces = " ".join(row["force"] for row in entry["forces"]) or "-"
+        print(
+            f"  {entry['candidate']} -> {entry['target']}: {entry['status']}  {forces}"
+        )
+        if entry.get("reason"):
+            print(f"    {entry['reason']}")
+        for declined in entry["declined"]:
+            print(f"    declined: {declined['force']} ({declined['reason']})")
+    print("cells, singletons first:")
+    for number, cell in enumerate(report["cells"], 1):
+        print(f"  {number}. {cell}")
+    if report["withheld"]:
+        print(f"note: {report['withheld']}")
+    if args.write:
+        print(
+            f"run it: decomp-workbench oracle sweep SOURCE --plan {args.write} "
+            "--target TARGET.o --toolchain TOOLCHAIN --compile-command ..."
+        )
+    print(f"proof: {report['proof']}")
+    return 0 if report["cells"] else 1
 
 
 @dataclass(frozen=True)
@@ -238,7 +311,33 @@ def _load_state_report(selector: str | None, *, state_dir: str) -> dict[str, Any
     return value
 
 
+def _load_plan(path: str) -> dict[str, Any]:
+    """Read a saved oracle plan, or the oracle plan inside a force plan."""
+
+    value = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if isinstance(value, dict) and value.get("schema") == FORCE_PLAN_SCHEMA:
+        value = value.get("oracle_plan")
+    if not isinstance(value, dict) or value.get("schema") != (
+        "decomp-workbench-oracle-plan-v1"
+    ):
+        raise ValueError(
+            f"{path} is neither an oracle plan nor a force plan "
+            "(decomp-workbench-oracle-plan-v1 / decomp-workbench-force-plan-v1)"
+        )
+    if value.get("procedure") is None:
+        raise ValueError(f"{path} names no procedure; CDX_FORCE needs one")
+    for row in value.get("forces", []):
+        parse_force_specification(str(row.get("force", "")))
+    return value
+
+
 def _plan_for_compile(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "plan", None):
+        if getattr(args, "force", None):
+            raise ValueError("--plan and --force are two plans; pass one")
+        return _load_plan(args.plan)
+    if not args.trace:
+        raise ValueError("--trace is required unless --plan names a saved plan")
     overrides = {
         phase: values
         for phase, values in (
@@ -510,7 +609,16 @@ def oracle_export_command(args: argparse.Namespace) -> int:
 
 def _add_compile_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source")
-    parser.add_argument("--trace", required=True)
+    parser.add_argument(
+        "--trace", help="the CDX capture to plan from; not needed with --plan"
+    )
+    parser.add_argument(
+        "--plan",
+        help=(
+            "run a saved plan instead of planning from --trace: an oracle plan, "
+            "or the force plan `oracle force-plan` writes"
+        ),
+    )
     parser.add_argument("--target", required=True)
     parser.add_argument("--toolchain", required=True)
     parser.add_argument("--compile-command", required=True)
@@ -584,6 +692,43 @@ def register_oracle_commands(
     diff.add_argument("--limit", type=int, default=50)
     diff.add_argument("--json", action="store_true", help="emit JSON")
     diff.set_defaults(handler=oracle_diff_command, report_command="oracle-diff")
+
+    force_plan = operations.add_parser(
+        "force-plan",
+        help="turn a residual's register substitutions into force cells",
+        description=(
+            "For each substitution the residual shows (candidate register -> "
+            "target register), pair the coloured webs holding the candidate's "
+            "register with the target register's colour, drop colours in a "
+            "web's forbidden mask, and emit the singletons then the full set. "
+            "--write saves a plan `oracle sweep --plan` runs."
+        ),
+        epilog=(
+            "example: decomp-workbench oracle force-plan "
+            "examples/traces/force-plan.log --substitute s1=s3 --substitute "
+            "s3=s1"
+        ),
+    )
+    force_plan.add_argument("trace", help="CDX capture of the candidate build")
+    force_plan.add_argument(
+        "--substitute",
+        type=_substitution,
+        action="append",
+        default=[],
+        metavar="CANDIDATE=TARGET",
+        help="one register substitution, candidate register first; repeatable",
+    )
+    force_plan.add_argument(
+        "--from-diagnosis",
+        metavar="FILE",
+        help="read the substitutions from a `diagnose --json` report's lever",
+    )
+    force_plan.add_argument("--proc", type=int)
+    force_plan.add_argument("--write", metavar="FILE", help="save the plan")
+    force_plan.add_argument("--json", action="store_true", help="emit JSON")
+    force_plan.set_defaults(
+        handler=oracle_force_plan_command, report_command="oracle-force-plan"
+    )
 
     sweep = operations.add_parser(
         "sweep",
