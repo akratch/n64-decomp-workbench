@@ -969,10 +969,9 @@ never counts as residual progress either. Documented in
 
 **Deliberately out:** inspecting the object for evidence of forcing. Nothing
 in a forced object says it was forced, and a heuristic that sometimes guessed
-would be worse than the declaration. `rank` and campaign ledgers are also not
-yet covered: campaign-built candidates carry their environment in the ledger
-already, and `rank` over hand-built objects is the next place to add the same
-options.
+would be worse than the declaration. `rank` got the same options in the
+follow-up (each result carries its `claim`); campaign ledgers are not covered,
+because campaign-built candidates already carry their environment there.
 
 ## Stage regenerated plateau shards inside the merge transaction
 

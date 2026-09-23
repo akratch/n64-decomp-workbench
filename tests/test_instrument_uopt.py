@@ -327,6 +327,12 @@ class UoptInstrumentationTests(unittest.TestCase):
             result.source,
         )
         self.assertEqual(result.trace_points, 23)
+        self.assertEqual(result.revision, 2)
+        self.assertIn("DKWB_UOPT_GLOBALCOLOR_V2", result.source)
+        with self.assertRaisesRegex(ValueError, "already instrumented"):
+            instrument_uopt_globalcolor(
+                "/* DKWB_UOPT_GLOBALCOLOR_V1 */\n", allow_unverified_source=True
+            )
         self.assertIn('strcmp(value, "all")', result.source)
         self.assertIn("forbidden0=0x%08x forbidden1=0x%08x", result.source)
         self.assertIn("available0=0x%08x available1=0x%08x", result.source)
@@ -426,7 +432,7 @@ class UoptInstrumentationTests(unittest.TestCase):
         source = instrument_uopt_globalcolor(
             SOURCE, allow_unverified_source=True
         ).source
-        start = source.index("/* DKWB_UOPT_GLOBALCOLOR_V1")
+        start = source.index("/* DKWB_UOPT_GLOBALCOLOR_V2")
         end = source.index("static void f_compute_save")
         program = root / "header.c"
         program.write_text(

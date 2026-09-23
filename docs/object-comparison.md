@@ -143,7 +143,7 @@ system remains the thing that knows what is out of date.
 ## Was the object built by the stock compiler?
 
 A forced or traced build scores exactly like a stock one. `compare`,
-`compare-dumps`, `score`, `diagnose` and `diagnose-dumps` therefore state how
+`compare-dumps`, `score`, `rank`, `diagnose` and `diagnose-dumps` therefore state how
 the candidate was built on a `build:` line ahead of the verdict, and in JSON as
 a `build_provenance` block (schema `decomp-workbench-build-provenance-v1`) with
 its `claim`:

@@ -454,7 +454,10 @@ campaign that was 330 of 395 webs, and exactly the webs whose splits made the
 residual. The profile therefore reads the block sets off the live range
 itself, and traces how `split()` grows each piece. These records are part of
 the standard globalcolor profile — nothing extra to apply — and are enabled by
-the same variables as the rest:
+the same variables as the rest. They arrived in profile **revision 2**: the
+generated C carries `DKWB_UOPT_GLOBALCOLOR_V2`, and `instrument-uopt-globalcolor`
+prints the revision it wrote. A compiler built from a revision-1 source emits
+none of them, and `trace growth` then names the missing records.
 
 | Record | Enabled by | Fields |
 |---|---|---|

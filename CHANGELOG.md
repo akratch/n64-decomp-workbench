@@ -5,6 +5,19 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Follow-ups: `rank` provenance, globalcolor profile revision 2
+
+- **`rank` takes `--build-env`/`--build-env-file`** and refuses a forcing or
+  tracing shell with nothing declared, like the other scoring commands; each
+  JSON result carries its `claim`, and the batch a `build_provenance` block.
+- **The globalcolor profile is revision 2** (`DKWB_UOPT_GLOBALCOLOR_V2` in the
+  generated C, `revision` on the result and in `instrument-uopt-globalcolor`'s
+  output), marking the block-set and split-growth records. A V1-instrumented
+  source is still refused as already instrumented. The `profile` field keeps
+  naming the pinned upstream source (`ido-5.3-static-recomp-v12`), which did
+  not change.
+- `instrument_uopt.py` is lint-clean.
+
 ### Backlog: six items from the Mickey 60% plateau wave
 
 - Items 27-32 in [the improvement backlog](docs/improvement-backlog.md), from

@@ -210,3 +210,42 @@ class ComparisonCommandTests(unittest.TestCase):
         block = json.loads(stdout)["build_provenance"]
         self.assertEqual(block["provenance"], "instrumented")
         self.assertEqual(block["basis"], "environment-file")
+
+
+class RankProvenanceTests(unittest.TestCase):
+    def run_cli(
+        self, arguments: list[str], environment: dict[str, str] | None = None
+    ) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.dict(os.environ, environment or {}),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            status = main(arguments)
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_rank_states_each_candidates_claim_and_refuses_a_forcing_shell(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            objdump = Path(temporary) / "objdump"
+            objdump.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "print('00000000 <demo>:')\n"
+                "print('   0: 03e00008  jr $ra')\n"
+                "print('   4: 00000000  nop')\n",
+                encoding="utf-8",
+            )
+            objdump.chmod(0o755)
+            target = Path(temporary) / "t.o"
+            target.write_bytes(b"t")
+            base = ["rank", str(target), str(target), "--objdump", str(objdump)]
+            status, _, stderr = self.run_cli(base, {"CDX_LOG": "1"})
+            self.assertEqual(status, 2)
+            self.assertIn("--build-env", stderr)
+            status, stdout, _ = self.run_cli([*base, "--build-env", "forced", "--json"])
+        payload = json.loads(stdout)
+        self.assertEqual(payload["results"][0]["claim"], "reachability-proof")
+        self.assertEqual(payload["build_provenance"]["provenance"], "forced")

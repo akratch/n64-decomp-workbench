@@ -341,7 +341,8 @@ def rank_command(args: argparse.Namespace) -> int:
     errors: list[dict[str, str]] = []
     try:
         watched = parse_watch_rows(getattr(args, "watch_rows", None))
-    except WatchRowError as error:
+        provenance = guard_build_provenance(args)
+    except (WatchRowError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     for candidate in args.candidates:
@@ -366,6 +367,7 @@ def rank_command(args: argparse.Namespace) -> int:
             payload = item.as_dict()
             if watched:
                 payload.update(_watch_results(item, watched)[0])
+            payload["claim"] = provenance.claim(exact=item.exact).claim
             results.append(payload)
         print(
             json.dumps(
@@ -380,6 +382,9 @@ def rank_command(args: argparse.Namespace) -> int:
                     "mixed_alignment": mixed_alignment,
                     "alignment_ranking_unsafe": alignment_ranking_unsafe,
                     "watch_row_set": [entry.as_dict() for entry in watched],
+                    **build_provenance_payload(
+                        args, exact=any(item.exact for item in limited)
+                    ),
                 },
                 indent=2,
                 sort_keys=True,
@@ -389,6 +394,10 @@ def rank_command(args: argparse.Namespace) -> int:
         painter = Painter(resolve_color(getattr(args, "color", "never")))
         if alignment_ranking_unsafe:
             print(MIXED_ALIGNMENT_CAUTION)
+        for line in build_provenance_lines(
+            args, exact=any(item.exact for item in limited)
+        ):
+            print(line)
         if watched:
             # One header for the batch, then one column string per row: a
             # per-candidate legend would cost more screen than the table.
@@ -524,4 +533,5 @@ def register_rank_command(
     rank.add_argument("--limit", type=int, default=20, help="maximum results to show")
     add_common_compare_arguments(rank)
     add_watch_rows_argument(rank)
+    add_build_provenance_arguments(rank)
     rank.set_defaults(handler=handler)

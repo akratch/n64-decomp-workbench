@@ -1549,6 +1549,7 @@ def instrument_uopt_command(args: argparse.Namespace) -> int:
         return 2
     print(
         f"instrumented {result.trace_points} globalcolor sites "
+        f"(profile revision {result.revision}) "
         f"using {result.profile} -> {output_path}"
     )
     return 0
