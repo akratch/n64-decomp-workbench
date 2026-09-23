@@ -807,7 +807,8 @@ def run_landscape(
             f"refusing --every-colour: the held baseline differs from the "
             f"target in size ({base.instruction_delta:+d} instruction(s)); a "
             "colour landscape on a size mismatch maps insertion shadow, not "
-            "webs. Close the size first"
+            "webs. Close the size first: `decomp-workbench object pairs` "
+            "names the construct that owns each extra word"
         )
     if base.instruction_delta:
         warnings.append(
@@ -820,7 +821,8 @@ def run_landscape(
             f"the held baseline is the target's size but aligns with "
             f"{base.aligned_structural} structural row(s): insertion pairs "
             "that cancel in size. No colour moves them, and a landscape "
-            "floor here is partly unreachable by any force"
+            "floor here is partly unreachable by any force; `decomp-workbench "
+            "object pairs` reads them"
         )
 
     rows: list[dict[str, Any]] = []

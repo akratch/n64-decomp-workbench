@@ -1788,6 +1788,22 @@ is the extra word" -- a number with a basis, the same shape `sweep landscape`
 gave the colour axis -- and the 80-function, 104,860-byte small-delta class gets
 routed to the lanes that can move it.
 
+**Status (landed).** `object pairs` (flat `pairs`) and `object pairs-dumps`
+read two objects or retained dumps and emit
+`decomp-workbench-insertion-pairs-v1`: pairs opened and closed on the same
+`difflib` edit script `align` prints, each pair's shadow reported beside its
+aligned residual with the outside-pair identity checked (`outside_agrees`),
+every one-sided word classed by encoding with no instruction text, owned by
+the candidate's `objdump -l` line table and, with `--trace`, the ugen
+construct under the `DKWB-CALL` stack, each owner stating its basis. A size
+delta of 0 is not refused: cancelling pairs are exactly the case this item
+opened on, so a function with no one-sided words reports `none` instead. The
+`sweep landscape` size refusal and cancelling-pair warning now name the
+command. **Deliberately out:** the trace is not identity-gated here, because
+the workbench does not own the project's compile; the report says
+`not identity-gated` and the page says to trace the scored object. The
+`--every-colour` refusal still keys on the size delta, not on a pair count.
+
 ### 28. P1 — Small-delta census as a queue view
 Symptom: the ranking labels a row `size-mismatch` from `size_delta != 0` and
 stops there, so a 4-byte function and a 400-byte one look alike, and the wave
@@ -1800,6 +1816,17 @@ operation, with a summary that sorts the class by what kind of edit it needs
 Emits a tracked-safe summary (classes and counts, no instruction text). Payoff:
 Track B's step 2 becomes a command, and the assignment arithmetic stops
 treating a one-word function as a structural rewrite.
+
+**Status (landed).** `object pairs-census RANKING` runs the reader over every
+row with 0 < |size_delta| <= `--max-delta` (a row without a delta is
+measured and filtered on the measured one), with per-row `target`,
+`candidate`, `source`, `trace` and `lines` relative to the ranking or shared
+flags. It emits `decomp-workbench-insertion-pairs-census-v1`, groups the class
+by the edit each function needs (compiler flag, declaration, carrier
+deletion, frame cell, lifetime, reload, save, expression, unroll, control
+flow), counts each one-sided word as a move, reload, save, fill or real
+operation, and sorts functions by aligned residual after shadow. `--out`
+writes the tracked-safe Markdown summary and refuses to overwrite.
 
 ### 29. P1 — Frame-cell planner: net-zero conversions between declared homes
 Symptom: `overlay83BuildBatch` sits at 98 of 168 words with the save set exact

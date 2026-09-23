@@ -133,6 +133,7 @@ from .object_cli import (
     register_rank_command,
 )
 from .oracle_cli import register_oracle_commands
+from .pairs_cli import register_pairs_commands
 from .pass_adapter_cli import register_pass_adapter_command
 from .pass_order_cli import register_pass_order_command
 from .pass_replay import ListingEdit, replay_as1
@@ -2224,6 +2225,9 @@ def build_parser() -> argparse.ArgumentParser:
     # before every metric `compare` reports: are these two streams even the
     # same length, and if not, what did the candidate add?
     register_align_commands(commands)
+    # `pairs` reads the edit script `align` prints and asks the question a
+    # nonzero size delta leaves: which word is extra, and what emitted it.
+    register_pairs_commands(commands)
     # `phase` reads the rows `align` paired, and answers the question that
     # follows: of the rows that differ, how many are a ring rotation?
     register_phase_commands(commands)

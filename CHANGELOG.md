@@ -5,6 +5,21 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Which word is extra: the insertion-pair reader and its census
+
+- **`object pairs` / `object pairs-dumps`** name the construct that owns each
+  extra or missing word of a size-mismatch function: pairs of index
+  misalignment from `align`'s edit script, each pair's positional shadow
+  subtracted and the outside-pair identity checked, every one-sided word
+  classed by encoding and owned by the candidate's line table and, with
+  `--trace`, the ugen construct. Contract
+  `decomp-workbench-insertion-pairs-v1`. Backlog item 27, generalised from
+  Mickey's Speedway USA's `tools/insertion_pairs.py`.
+- **`object pairs-census`** runs it over a ranking's small-delta rows and
+  sorts the class by the edit each function needs, never by positional words;
+  `--out` writes a Markdown summary of classes and counts. Contract
+  `decomp-workbench-insertion-pairs-census-v1`. Backlog item 28.
+
 ### Follow-ups: `rank` provenance, globalcolor profile revision 2
 
 - **`rank` takes `--build-env`/`--build-env-file`** and refuses a forcing or

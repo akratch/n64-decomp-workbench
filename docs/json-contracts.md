@@ -10,6 +10,7 @@ mode, so a caller never has to guess whether stdout is parseable.
 Schemas name the user-visible report, for example:
 
 - `decomp-workbench-comparison-v1`
+- `decomp-workbench-insertion-pairs-v1`
 - `decomp-workbench-staleness-v1`
 - `decomp-workbench-diagnosis-v3`
 - `decomp-workbench-lever-v1`
@@ -393,6 +394,39 @@ probes exist and none won, and is scoped to those probes and that source.
 `inputs.source.sha256` is the fingerprint `--report` checks; a mismatch adds
 `freshness` beginning `STALE:` and exits `1`. `evidence` is always
 `diagnostic-colour-landscape`: nothing in this document is a source match.
+
+### Insertion pairs
+
+`object pairs` and `object pairs-dumps` emit
+`decomp-workbench-insertion-pairs-v1`; `evidence` is always
+`diagnostic-insertion-pairs`. `size_delta` is in bytes (candidate minus
+target), `frame_delta` likewise from each side's first `$sp` adjustment.
+`buckets` splits paired rows that differ into `naming`, `immediate` and
+`structural`. `positional` is the positional differing-row count plus the
+length difference; `shadow` is the sum of every pair's shadow and
+`aligned_after_shadow` is `positional - shadow`. `outside_agrees` is the
+check that the aligned and positional counts outside every pair are equal
+(`aligned_outside`, `positional_outside`). `line_table` carries `source`,
+`words` and `bounds`; `trace` carries `status`, `proc` and `note`.
+
+Each entry of `pairs` has `positional_lo`, `positional_hi` (null when the pair
+runs to the end), `closed`, `span_words`, `positional_in`, `aligned_in`,
+`naming_in`, `shadow`, `label` and `edit`, and `words`. A word carries `side`
+(`candidate` or `target`), `offset` (function-relative bytes), `class`,
+`label`, `kind` (`move`, `reload`, `save`, `fill` or `operation`), `via`,
+`check` and `lever` (null unless a specific label's check fired), and `owner`:
+`owned`, `line` (an integer, `file:line` for a header, or null), `construct`,
+`basis` (`line`, `prologue`, `nearest`, `as1`, `isa`, `neighbour` or null) and
+`reason`. The function's `label` is that of the pair with the most shadow
+(`none` when there are no pairs) and `edit` its edit kind; `labels`,
+`classes`, `kinds` and `basis` are counts. No field holds instruction text.
+
+`object pairs-census` emits `decomp-workbench-insertion-pairs-census-v1`:
+`ranking`, `max_delta`, `measured`, `not_measured`, `bytes`, `positional`,
+`shadow`, `aligned_after_shadow`, `kinds`, `by_edit` (per edit kind:
+`functions`, `bytes`, `aligned_after_shadow`, `owned`, `labels`), `results`
+(one summary row per function, sorted by `aligned_after_shadow`, carrying no
+offsets) and `errors`. It exits `1` when nothing was measured.
 
 ## Failure
 

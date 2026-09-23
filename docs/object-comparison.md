@@ -459,6 +459,58 @@ one, positional words ranked two variants identically at 95 words when the
 aligned split (10 structural versus 8) picked the only one that composed with
 the next edit.
 
+## Which word is extra: insertion pairs
+
+`align` says how many words a candidate is away; `object pairs` says which
+ones, and what in the source emitted them. It is the instrument for any
+function whose size is off -- or whose size is right but whose one-sided words
+cancel -- and it runs before any colour work, because no colour instrument
+moves an instruction.
+
+```sh
+decomp-workbench object pairs target.o candidate.o --symbol func \
+  --source func.c --trace ugen.log
+decomp-workbench object pairs-dumps target.dump candidate-l.dump --symbol func
+```
+
+From the same edit script `align` prints, a **pair** opens at the first
+one-sided word after an index-aligned stretch and closes where the running
+shift is back to zero; one that never closes runs to the end, and two shifts
+that touch are two pairs. Each pair's **shadow** is its positional differing
+rows less its aligned disagreement, and `aligned after shadow` -- positional
+less every pair's shadow -- is the number of words a lane really has to
+change. Outside every pair the streams are index-aligned, so the two counts
+must agree there and the report says whether they do. A branch whose offset
+crosses a pair counts as an immediate row until the pair closes.
+
+Each one-sided word gets a **class** from its encoding (move, stack-load,
+stack-store, load, store, alu, const, branch, call, frame, delay-nop, nop,
+other), an **owner** -- the source line from the candidate's `objdump -l`
+line table, then the ugen construct from `DKWB-EMIT-V1` records under their
+`DKWB-CALL` stack when `--trace` is given -- with its `basis` (`line`,
+`prologue`, `nearest`, `as1`, `isa`, or `neighbour` for a target-only word
+placed by the candidate line beside it), and a **label**. Offsets and classes
+only: no instruction text is printed.
+
+The labels are a rule over class and owner: `hoist`, `unrolled-loop`,
+`extra-ILOD`, `extra-ISTR`, `missing-CSE`, `split-not-copy`, `spill/reload`,
+`callee-save`, `control-flow`, `delay-slot`, `other`, `unowned`.
+
+What it cannot do: it reads our compile. The target has no trace and no line
+table, so a target-only word is owned by what our code does beside it, and a
+label names the word and the line, not the spelling that removes it. A trace
+passed with `--trace` is not identity-gated: trace the object you scored.
+
+`object pairs-census ranking.json` runs the reader over every ranking row with
+0 < |size_delta| <= `--max-delta` (12 bytes by default). Rows name `symbol`
+(or `name`) and `target`/`candidate` paths relative to the ranking, or share
+`--target`/`--candidate`; `source`, `trace`, `lines` and `dumps` are optional
+per row. The summary sorts the class by the edit each function needs --
+compiler flag, declaration, carrier deletion, frame cell, lifetime, reload,
+save, expression, unroll, control flow -- and never by positional words, and
+`--out` writes it as Markdown (classes and counts only, safe to track;
+refuses to overwrite).
+
 ## Check what an exact function changed around itself
 
 A selected function can be raw-word and relocation-target exact while its
