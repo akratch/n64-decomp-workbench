@@ -1948,3 +1948,36 @@ with the one check that decides it (the target's opcode at the word; whether
 the line is the prologue; whether the pair brackets a `jal`; whether the
 callee's declaration has a parameter list). Payoff: each of these cost a lane
 three to eight cycles of spelling before the shape was read off the listing.
+
+### 40. P1 — A plain constant passed as a call argument never takes the argument register
+Symptom: `overlay101BuildPresentationA/B` (Mickey, 2026-09-23) sat at Δ +4
+through 180 type/cast cells because a constant colour passed to a call was
+loaded into a scratch register and copied into `a2`: the instrumented
+records show a call's argument registers blocked for every other allocated
+value in its block, with an exemption only for a value that *is* the
+argument, and a plain integer constant never gets the exemption
+(`forbidden0=0x7fc30000`). The assembler usually hides this by renaming the
+load into `a2`; a block boundary between the load and the copy stops the
+rename. The lane closed it with `x * 0 + 0xC0`, an expression the optimizer
+does not fold before allocation, which is a labelled diagnostic and not a
+natural spelling. Change: (1) the verdict should name this shape
+(`const-arg-copy`: a one-sided move into an argument register whose source
+is a constant materialisation in a different block); (2) bank the rule as a
+law with the exemption condition; (3) search for a natural spelling that
+makes the constant an allocated expression (a `static const`, a global read,
+an enum through a volatile?), measured on the two functions, and record it
+in the field guide. Payoff: this pattern is any call taking a literal beside
+a conversion branch, which is common in draw code.
+
+### 41. P1 — L56 block-count pricing can be reached with empty statements; name the natural lever
+Symptom: `overlay89UpdateStateAndParticles` matched only after two empty
+`do { } while (0)` statements added four blocks and no code, so the
+particle-address web's split cost reached its save (10 <= 10) and it left
+`s1`. The lane priced this with a forced split first, which is the right
+order, but the closing spelling is inert scaffolding. Change: when a forced
+split scores 0 and the unforced cost is short by a small number of blocks,
+the verdict should say so (`split-cost-short-by N blocks`) and list the
+natural block sources measured on this corpus (a real conditional, a loop
+guard, a call boundary) beside the scaffolding. Payoff: the cleanup queue
+already holds a dozen `do{}while(0)` and `if (1)` forms; a named lever turns
+"add an empty block" into "which real statement supplies the block".
