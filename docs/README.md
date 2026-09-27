@@ -89,10 +89,11 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 
 ## Compiler internals and traces
 
-Reach for these **last**, and only when the residual is register-only, the
-[field guide](field-guide.md) lever families are exhausted, and your project
-has an instrumented static-recompiled IDO. Stock IDO does not emit these
-traces, and three functions have been matched without ever reading one.
+Use these after classifying the residual and checking the relevant
+[field guide](field-guide.md) levers. Start with a specific missing fact about
+allocation, frame reservation or instruction motion; a larger trace alone is
+not a source fix. Some readers use native IDO diagnostics, while producer hooks
+require a supported static-recompiled compiler and independent stock fidelity.
 
 | Read this if... | Document | You need |
 |---|---|---|
