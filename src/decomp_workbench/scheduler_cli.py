@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .as1_motion import compare_motion_traces, motion_report
 from .as1_reorganize import parse_as1_reorganize_trace, to_dkwb_records
 from .emit_provenance import emit_report, format_emit_report, parse_emit_trace
 from .scheduler import (
@@ -177,9 +178,84 @@ def trace_emit_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def trace_as1_motion_command(args: argparse.Namespace) -> int:
+    try:
+        if args.event is not None and args.event < 0:
+            raise ValueError("--event must be non-negative")
+        if args.line is not None and args.line < 0:
+            raise ValueError("--line must be non-negative")
+        text = read_trace_text(args.trace, warn=warn_to_stderr)
+        if args.against:
+            if (
+                args.event is None
+                or args.against_event is None
+                or args.line is not None
+            ):
+                raise ValueError(
+                    "diff requires --event and --against-event, without --line"
+                )
+            other = read_trace_text(args.against, warn=warn_to_stderr)
+            report = compare_motion_traces(text, other, args.event, args.against_event)
+        else:
+            if args.against_event is not None:
+                raise ValueError("--against-event requires --against")
+            report = motion_report(text, event=args.event, line=args.line)
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.against:
+        print(
+            "native motion diff: "
+            + (", ".join(report["changed"]) or "no changed fields")
+        )
+        print(report["comparison_basis"])
+    else:
+        print(
+            f"native motion: {report['event_count']} accepted records, "
+            f"{len(report['events'])} selected"
+        )
+        for event in report["events"]:
+            src, dst, cost = event["source"], event["destination"], event["cost"]
+            inst = event["moved_instruction"]
+            origin = (
+                f" line={inst['line']} opcode={inst['opcode']}"
+                if inst
+                else " instruction=unavailable"
+            )
+            print(
+                f"event={event['event']} bb={src['block']}:{src['slot']} -> "
+                f"{dst['block']}:{dst['slot']} "
+                f"cost={cost['old_sum']}->{cost['new_sum']}" + origin
+            )
+        print("Run-local blocks; rollback reasons and absent moves remain unknown.")
+    return 0
+
+
 def register_scheduler_commands(
     commands: argparse._SubParsersAction[Any],
 ) -> None:
+    motion = commands.add_parser(
+        "trace-as1-motion",
+        help="read native IDO 5.3 accepted cross-block moves",
+        description=(
+            "Read -Wa,-xbbdbg,8 accepted moves and post-move dumps. "
+            "Check stock fidelity separately."
+        ),
+    )
+    motion.add_argument("trace")
+    motion.add_argument("--event", type=int, help="zero-based accepted event ordinal")
+    motion.add_argument(
+        "--line", type=int, help="filter moved instruction's physical source line"
+    )
+    motion.add_argument(
+        "--against", help="second capture; requires explicit event selection"
+    )
+    motion.add_argument("--against-event", type=int)
+    motion.add_argument("--json", action="store_true")
+    motion.set_defaults(handler=trace_as1_motion_command)
+
     trace = commands.add_parser(
         "trace-scheduler",
         help="read stable named as1 scheduler selection records",

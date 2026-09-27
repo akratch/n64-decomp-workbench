@@ -726,6 +726,14 @@ counter, and the ordinal is what two traces align on.
 no built-in trace, or when a field the built-in trace does not print is needed.
 For IDO 5.3 it is unnecessary.
 
+#### Native cross-block motion
+
+IDO 5.3 also exposes accepted cross-block moves through `-Wa,-xbbdbg,8`.
+`trace-as1-motion` reads their source/destination blocks and scheduling costs,
+with explicit limits on rejected trials and run-local identity. See
+[Native AS1 cross-block motion](as1-motion.md) for producer authentication,
+stock-fidelity controls and the differential command.
+
 #### The stable named schema
 
 The `vsprintf` endgame used an early private pointer dump to reduce the last
