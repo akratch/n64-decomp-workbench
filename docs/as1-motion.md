@@ -93,3 +93,6 @@ trailing instruction was captured. Missing events do not prove rejection,
 immobility, or trace completeness. A strict move/no-move differential still
 needs an independently authenticated value and complete capture, and a C
 change still needs semantic review and untouched-compiler matching proofs.
+
+For source-pinned admission predicates, path definition masks, and actual
+rollback outcomes, see [AS1 motion predicates](as1-motion-predicates.md).

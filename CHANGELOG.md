@@ -5,6 +5,14 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Source-pinned AS1 admission and rollback predicates
+
+- Optional private compiler instrumentation records actual admission branches,
+  path definition masks and trial/accept/rollback outcomes. A strict reader
+  preserves repeated visits and rejects incomplete or conflicting records.
+  Synthetic tests and stock-fidelity controls document the precise remaining
+  UGEN value-ownership join instead of guessing source rewrites.
+
 ### Native AS1 cross-block motion decisions
 
 - `trace-as1-motion` reads IDO 5.3's existing `-xbbdbg` accepted-move
