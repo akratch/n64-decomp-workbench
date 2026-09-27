@@ -613,9 +613,11 @@ class UcodeRecord:
                 f"length={self.words[2]}"
             )
         if self.name in {"lod", "str"}:
+            # CFE load_var and UOPT genrop/spilltemplodstr emit byte length
+            # at record +8, signed displacement/register offset at +12.
             return (
                 f"{MTYPE_NAMES[self.mtype]} block={self.words[1]} "
-                f"offset={_signed(self.words[2], 32)} length={self.words[3]}"
+                f"offset={_signed(self.words[3], 32)} length={self.words[2]}"
             )
         return f"dtype={_dtype_name(self.dtype)}"
 
