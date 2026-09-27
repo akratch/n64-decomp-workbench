@@ -5,6 +5,23 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Source-pinned AS1 admission and rollback predicates
+
+- Optional private compiler instrumentation records actual admission branches,
+  path definition masks and trial/accept/rollback outcomes. A strict reader
+  preserves repeated visits and rejects incomplete or conflicting records.
+  Synthetic tests and stock-fidelity controls document the precise remaining
+  UGEN value-ownership join instead of guessing source rewrites.
+
+### Native AS1 cross-block motion decisions
+
+- `trace-as1-motion` reads IDO 5.3's existing `-xbbdbg` accepted-move
+  records: both blocks/slots, before/after scheduling costs, and optional
+  post-move dumps. Explicit event differentials preserve run-local identity
+  limits; absent events never become invented rejection evidence. Includes
+  synthetic parser tests, an original C control, stock-fidelity measurements,
+  and source-qualified native option/cost-gate documentation.
+
 ### L99 qualified: when an unreferenced local takes a frame cell
 
 - **The IDO 5.3 page's L99 now states the measured condition**: a wholly
