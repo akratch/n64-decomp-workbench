@@ -28,6 +28,52 @@ procedure ordinal to its actual input Uent using the retained input stream.
 Ordinals enumerate `oneproc` calls; they are not source names, global stable IDs,
 or automatically interchangeable with another tracer's ordinals.
 
+## Profile provenance and regeneration
+
+Both accepted hashes originate from
+[`decompals/ido-static-recomp`](https://github.com/decompals/ido-static-recomp),
+tag `v1.2`, commit `9c242adc890beef098020149d9554f48208f699d`.
+The unmodified generated IDO 5.3 `uopt.c` hash is
+`b0058f1559441c1a194d649271eb43b8637ec255682cfdd629031340b915b13f`.
+Generate it locally with that checkout's recompiler and compiler input:
+
+```sh
+build/recomp.elf ido/5.3/usr/lib/uopt > private/uopt.c
+```
+
+The second accepted hash,
+`769684842ada3f88032b89e0c90fb6096f6d9f575b997b1e3c8d2b1e520f0ea1`,
+contains the workbench alias and globalcolor/lineage instrumentation. It is
+not a second upstream compiler. The exact additions are reproducible using
+`instrument_uopt_profiles` from workbench commit
+`ad9874aa344f483ba565bc44019d323db3e8ae38`, followed by the retained legacy
+comment marker and four guard-line formatting differences:
+
+```python
+import hashlib
+from pathlib import Path
+from decomp_workbench.instrument_profiles import instrument_uopt_profiles
+
+source = Path("private/uopt.c").read_text()
+source = instrument_uopt_profiles(source, ["alias", "globalcolor"]).source
+# The reviewed installation retained an older comment marker; its hooks
+# include the newer lineage logging. These changes affect no C operation.
+source = source.replace("/* DKWB_UOPT_GLOBALCOLOR_V2",
+                        "/* DKWB_UOPT_GLOBALCOLOR_V1", 1)
+source = source.replace(
+    "if (!dkwb_cdx_emulated_pointer(piece) ||\n"
+    "            !dkwb_cdx_emulated_pointer(",
+    "if (!dkwb_cdx_emulated_pointer(piece) || !dkwb_cdx_emulated_pointer(")
+assert hashlib.sha256(source.encode()).hexdigest() == (
+    "769684842ada3f88032b89e0c90fb6096f6d9f575b997b1e3c8d2b1e520f0ea1")
+Path("private/uopt-reviewed.c").write_text(source)
+```
+
+This regeneration was checked byte-for-byte. Keep any pre-existing CDX force
+controls unset; a source hash alone does not attest environment or object
+fidelity. Compiler support-library modifications are outside these generated
+source hashes and must be covered by the actual stock/OFF/ON object controls.
+
 ## Events and authenticated meanings
 
 - `request`: the size requested by `spilltemps` or `gettemp`, the current
@@ -54,7 +100,9 @@ or automatically interchangeable with another tracer's ordinals.
   reported separately from the allocation reserve.
 
 The parser rejects malformed recognized records, duplicate fields/procedures,
-missing request/choice pairs, inconsistent sizes/reserve, impossible reuse
+nonpositive request IDs, impossible register-home opcodes or memory types,
+events returning to an earlier procedure, missing request/choice pairs,
+inconsistent sizes/reserve, impossible reuse
 with region growth, and incomplete procedure/local-definition traces. It can
 ignore unrelated compiler diagnostics. Successful parsing is not a match proof
 or a general completeness claim about every allocator path.

@@ -266,6 +266,7 @@ def parse_slot_trace(text: str) -> dict[str, object]:
     pending: dict[tuple[int, int], dict[str, int | str]] = {}
     completed: set[tuple[int, int]] = set()
     defined: set[int] = set()
+    current_proc = -1
     for line_number, line in enumerate(text.splitlines(), 1):
         if not line.startswith(PREFIX):
             continue
@@ -286,10 +287,19 @@ def parse_slot_trace(text: str) -> dict[str, object]:
                 if proc in procedures or proc != len(procedures):
                     raise ValueError("duplicate or noncontiguous procedure")
                 procedures.add(proc)
+                current_proc = proc
             elif proc not in procedures:
                 raise ValueError("event precedes procedure")
+            elif proc != current_proc:
+                raise ValueError("event belongs to an earlier procedure")
+            if kind == "home" and (
+                event["opcode"] not in {109, 112} or int(event["mtype"]) not in range(8)
+            ):
+                raise ValueError("invalid register-home opcode or memory type")
             if kind in {"request", "candidate", "chosen"}:
                 key_pair = (proc, int(event["request"]))
+                if key_pair[1] <= 0:
+                    raise ValueError("allocation request ID must be positive")
                 if kind == "request":
                     if key_pair in pending or key_pair in completed:
                         raise ValueError("duplicate allocation request")
