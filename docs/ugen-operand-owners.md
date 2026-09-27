@@ -137,3 +137,10 @@ no semantically supported source lever was established and no game C was edited.
 The remaining source question would require independent evidence that changes
 the already-authenticated UOPT lifetime/interference, not another emission
 counter or arbitrary color force.
+
+The input binding reports `retained_operand_verification` separately from the
+READ-to-INPUT snapshot comparison: `full` for authenticated serialized `rlda`
+records, `prefix-only` for other retained records, `not-supplied` without a
+retained stream, or `unresolved` when no unchanged input can be bound. Snapshot
+union padding is not treated as serialized Ucode. A destination or emission
+using a pending input before its tree-copy event is rejected.

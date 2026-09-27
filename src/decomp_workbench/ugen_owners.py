@@ -195,6 +195,12 @@ def owner_report(
         owner = owners.get(row["node"])
         if owner is None or owner["id"] != row["id"]:
             raise ValueError("owner node lacks current allocation identity")
+        if (
+            kind in {"DEST", "EMIT"}
+            and owner["input"] is not None
+            and owner["build"] is None
+        ):
+            raise ValueError("owner used before pending tree copy completed")
         if kind == "INPUT":
             if owner["input"] is not None:
                 raise ValueError("duplicate node input")
@@ -239,6 +245,15 @@ def owner_report(
                 "status": incoming["status"]
                 if incoming
                 else "unresolved-no-build-u-origin",
+                "retained_operand_verification": (
+                    "not-supplied"
+                    if records is None
+                    else "unresolved"
+                    if record is None
+                    else "full"
+                    if record.name == "rlda"
+                    else "prefix-only"
+                ),
                 "read_index": index,
                 "read_serial": read["serial"] if read else None,
                 "ucode_word_offset": record.word_offset if record else None,

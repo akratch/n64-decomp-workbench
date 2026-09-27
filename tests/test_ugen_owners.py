@@ -80,6 +80,7 @@ class OwnerReaderTests(unittest.TestCase):
         self.assertEqual(row["input"]["read_index"], 0)
         self.assertEqual(row["input"]["ucode_word_offset"], 0)
         self.assertEqual(row["input"]["opcode"], "rlda")
+        self.assertEqual(row["input"]["retained_operand_verification"], "full")
         self.assertEqual(row["generation"], 2)
         self.assertEqual(row["input_assigned_register"], 16)
         self.assertEqual(row["get_dest"]["hint"], 16)
@@ -140,6 +141,34 @@ class OwnerReaderTests(unittest.TestCase):
         ]:
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 owner_report(trace(), **kwargs)
+
+    def test_use_before_pending_build_refuses_even_with_later_build(self) -> None:
+        for position in (5, 6):
+            rows = trace().splitlines()
+            build = rows.pop(4)
+            rows.insert(position, build)
+            import re
+
+            rows = [rows[0]] + [
+                re.sub(r"serial=\d+", f"serial={i}", row)
+                for i, row in enumerate(rows[1:], 1)
+            ]
+            with self.assertRaisesRegex(ValueError, "before pending tree copy"):
+                owner_report("\n".join(rows) + "\n")
+
+    def test_retained_addend_tampering_refuses(self) -> None:
+        with self.assertRaisesRegex(ValueError, "retained rlda operands"):
+            owner_report(trace(), ucode=ucode()[:-4] + struct.pack(">I", 4))
+
+    def test_retained_operand_verification_is_explicit(self) -> None:
+        row = owner_report(trace())["emissions"][0]
+        self.assertEqual(row["input"]["retained_operand_verification"], "not-supplied")
+        # An ordinary address record has no authenticated full serialization join here.
+        value = trace().replace("w0=1803550720", "w0=1199570944")
+        row = owner_report(value, ucode=struct.pack(">6I", 0x47800000, 1, 16, 0, 0, 0))[
+            "emissions"
+        ][0]
+        self.assertEqual(row["input"]["retained_operand_verification"], "prefix-only")
 
     def test_output_boundary_required_when_binasm_is_supplied(self) -> None:
         value = "\n".join(trace().splitlines()[:-1]) + "\n"
