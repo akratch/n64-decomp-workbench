@@ -60,6 +60,14 @@ not claims that every frontend construct is covered. Synthetic tests exercise
 missing/duplicate anchors, malformed and truncated traces, nesting, stream
 length, shadow-name separation and boundary rejection.
 
+The product profile also passed a configured full-translation-unit control on
+Mickey's `func_overlay_014_F000013C_186FA14`: trace-off and trace-on both preserve
+stock text, data, rodata, relocations and symbols. The captured frontend stream
+joins 73 operations, including six named uses of the local involved in the
+reservation experiment. That authenticates frontend emission ownership. The
+later register-home change is supported by a controlled declaration-order
+experiment, not by a claim that frontend identities survive every optimizer pass.
+
 The next useful consumer is an authenticated optimizer allocation trace.
 Carry explicit producer identities through splits/merges where available;
 report missing joins instead of treating frontend displacement as final layout.
