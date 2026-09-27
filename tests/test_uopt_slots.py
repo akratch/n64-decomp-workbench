@@ -125,6 +125,34 @@ class UoptSlotParserTests(unittest.TestCase):
             with self.subTest(trace=bad), self.assertRaises(ValueError):
                 parse_slot_trace(bad)
 
+    def test_impossible_home_opcode_and_memory_type_refuse(self) -> None:
+        for bad in (
+            TRACE.replace("opcode=112", "opcode=0"),
+            TRACE.replace("mtype=1", "mtype=-1"),
+            TRACE.replace("mtype=1", "mtype=8"),
+        ):
+            with (
+                self.subTest(trace=bad),
+                self.assertRaisesRegex(ValueError, "register-home"),
+            ):
+                parse_slot_trace(bad)
+
+    def test_nonpositive_request_ids_refuse(self) -> None:
+        for value in ("0", "-1"):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(ValueError, "positive"),
+            ):
+                parse_slot_trace(TRACE.replace("request=1", "request=" + value))
+
+    def test_return_to_prior_procedure_refuses(self) -> None:
+        with self.assertRaisesRegex(ValueError, "earlier procedure"):
+            parse_slot_trace(
+                TRACE + "DKWB-SLOT event=procedure proc=1\n"
+                "DKWB-SLOT event=udef proc=0 block=3 size=16\n"
+                "DKWB-SLOT event=udef proc=1 block=4 size=0\n"
+            )
+
     def test_rlda_layout_is_not_home_length(self) -> None:
         event = (
             "DKWB-SLOT event=rlda proc=0 mtype=2 block=9 color_offset=16 "
