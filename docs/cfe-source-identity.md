@@ -5,7 +5,7 @@ and joins named source operations to their actual emitted Ucode intervals.
 This answers which frontend operation emitted a record. It does not identify
 an optimizer spill, final stack home, or register allocation owner.
 
-The profile is for `n64decomp/ido-static-recomp` commit
+The profile is for `decompals/ido-static-recomp` commit
 `9c242adc890beef098020149d9554f48208f699d`, generated `build/5.3/cfe.c` SHA-256
 `06f1d133e72f667ceed7de3d07511154467e32d71ee9aa9aaa773328a1b730f5`.
 Unknown source hashes are rejected; there is no command-line bypass. Keep
