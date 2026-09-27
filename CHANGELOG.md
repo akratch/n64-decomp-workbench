@@ -5,6 +5,16 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Frontend source operations and Ucode memory details
+
+- A source-pinned CFE side channel joins named load, store and address
+  operations to exact emitted Ucode intervals under ordinary optimized flags.
+  It preserves nested events and distinguishes frontend identity from final
+  stack ownership. Synthetic buffering/shadowing controls and stock fidelity
+  cover the initial profile; use `python -m decomp_workbench.cfe_source`.
+- Corrected swapped length/displacement labels for Ucode load/store details,
+  with signed-displacement regression controls and producer-site evidence.
+
 ### Source-pinned AS1 admission and rollback predicates
 
 - Optional private compiler instrumentation records actual admission branches,
