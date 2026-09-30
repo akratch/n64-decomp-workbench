@@ -34,6 +34,7 @@ FIELDS = {
     },
 }
 SIGNED = {"proc", "offset", "virtual", "result", "displacement"}
+U8 = {"enabled", "mode"}
 
 
 def parse_home_trace(text: str) -> list[tuple[str, dict[str, int]]]:
@@ -51,6 +52,8 @@ def parse_home_trace(text: str) -> list[tuple[str, dict[str, int]]]:
             if not sep or key in row or not value or not value.lstrip("-").isdecimal():
                 raise ValueError("malformed home field")
             number = int(value)
+            if key in U8 and number > 0xFF:
+                raise ValueError("home byte field exceeds producer width")
             if not (
                 -(1 << 31) <= number < (1 << 31)
                 if key in SIGNED
@@ -60,6 +63,8 @@ def parse_home_trace(text: str) -> list[tuple[str, dict[str, int]]]:
             row[key] = number
         if kind not in FIELDS or row.keys() != FIELDS[kind]:
             raise ValueError("unknown home record or fields")
+        if kind == "SPILL" and row["enabled"] and row["proc"] < 0:
+            raise ValueError("enabled spill has no procedure identity")
         rows.append((kind, row))
     return rows
 
@@ -74,6 +79,22 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
     owner_report(text, ucode=ucode, binasm=binasm)
     owner_rows = parse_owner_trace(text)
     home_rows = parse_home_trace(text)
+    lines = text.splitlines()
+    home_event_positions = []
+    latest_owner_serial = 0
+    owner_positions: dict[int, int] = {}
+    for position, line in enumerate(lines):
+        if line.startswith("DKWB-OWNER-") and " serial=" in line:
+            serial = int(line.split(" serial=", 1)[1].split(" ", 1)[0])
+            latest_owner_serial = serial
+            owner_positions[serial] = position
+        elif line.startswith(("DKWB-HOME-FRAME ", "DKWB-HOME-MEM ")):
+            fields = dict(token.partition("=")[::2] for token in line.split()[1:])
+            if int(fields["owner_serial"]) != latest_owner_serial:
+                raise ValueError("home event owner is not latest preceding owner")
+            home_event_positions.append(position)
+        elif line.startswith("DKWB-HOME-"):
+            home_event_positions.append(position)
     records = parse_ucode(ucode)
     writes = [r for k, r in home_rows if k == "WRITE"]
     if len(writes) != len(records):
@@ -81,11 +102,15 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
     record_procs = []
     current_proc = -1
     write_positions = {}
+    spill_positions = {}
     read_positions: dict[int, int] = {}
     for position, line in enumerate(text.splitlines()):
         if line.startswith("DKWB-HOME-WRITE "):
             fields = dict(token.partition("=")[::2] for token in line.split()[1:])
             write_positions[int(fields["write"])] = position
+        elif line.startswith("DKWB-HOME-SPILL "):
+            fields = dict(token.partition("=")[::2] for token in line.split()[1:])
+            spill_positions[int(fields["write"])] = position
         elif line.startswith("DKWB-OWNER-READ "):
             read_positions[len(read_positions)] = position
     for index, (row, rec) in enumerate(zip(writes, records, strict=True)):
@@ -101,7 +126,9 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         ):
             raise ValueError("Ucode reader precedes matching writer event")
     spills = {}
-    for kind, row in home_rows:
+    for _event_position, (kind, row) in zip(
+        home_event_positions, home_rows, strict=True
+    ):
         if kind != "SPILL" or not row["enabled"]:
             continue
         index = row["write"]
@@ -110,6 +137,8 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         rec = records[index]
         if row["proc"] != writes[index]["proc"] or row["proc"] != record_procs[index]:
             raise ValueError("spill and writer procedure identity differs")
+        if spill_positions[index] >= write_positions[index]:
+            raise ValueError("spill follows matching writer event")
         if rec.name not in {"lod", "str"} or len(rec.words) != 4:
             raise ValueError("spill is not supported direct memory record")
         if (
@@ -126,6 +155,7 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
     nodes: dict[int, dict[str, Any]] = {}
     latest_read: dict[int, dict[str, int]] = {}
     outputs = []
+    output_positions = {}
     for kind, row in owner_rows:
         if kind == "READ":
             latest_read[row["ptr"]] = row
@@ -146,6 +176,9 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
             nodes[row["node"]]["built"] = True
         elif kind == "OUTPUT":
             outputs.append(row)
+            if row["epoch"] in output_positions:
+                raise ValueError("duplicate output epoch")
+            output_positions[row["epoch"]] = owner_positions[row["serial"]]
         snapshots[row["serial"]] = {n: dict(v) for n, v in nodes.items()}
     if not outputs:
         raise ValueError("missing output batches")
@@ -157,14 +190,35 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
     if base * 16 != len(binasm):
         raise ValueError("output batch extent differs")
     frames = {}
+    frame_positions = {}
     chains = []
     unresolved = []
     emitted = set()
-    for kind, row in home_rows:
+    concat_positions = [
+        owner_positions[row["serial"]] for kind, row in owner_rows if kind == "CONCAT"
+    ]
+    if len(concat_positions) != 1:
+        raise ValueError("missing or duplicate final CONCAT")
+    final_concat_position = concat_positions[0]
+    for event_position, (kind, row) in zip(
+        home_event_positions, home_rows, strict=True
+    ):
         if kind == "FRAME":
-            frames[(row["owner_serial"], row["node"])] = row
+            key = row["owner_serial"], row["node"]
+            if key in frames:
+                raise ValueError("duplicate frame identity")
+            frames[key] = row
+            frame_positions[key] = event_position
         if kind != "MEM":
             continue
+        key = row["owner_serial"], row["node"]
+        if key not in frames or frame_positions[key] >= event_position:
+            raise ValueError("memory event precedes matching frame")
+        if event_position >= final_concat_position:
+            raise ValueError("memory event follows final CONCAT")
+        output_position = output_positions.get(row["epoch"])
+        if output_position is None or event_position >= output_position:
+            raise ValueError("memory event follows matching output")
         epoch = epochs.get(row["epoch"])
         if not epoch or not 1 <= row["emit"] <= epoch[1]:
             raise ValueError("memory emitter outside output batch")
@@ -182,7 +236,6 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         )
         if actual != expected:
             raise ValueError("concrete memory emitter differs from retained binASM")
-        key = row["owner_serial"], row["node"]
         state = snapshots.get(key[0], {}).get(key[1])
         frame = frames.get(key)
         if state and not state.get("built"):
