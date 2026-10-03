@@ -83,5 +83,5 @@ strict = true
 # Ucode load opcode and "Valu" its constant union, both spelled as the
 # compiler's own source spells them; "secondY" is a decompiled variable name
 # in an L63 receipt, cited as the source spells it.
-ignore-words-list = "disjointness,dout,pavin,tne,nd,statics,sucessors,lod,valu,secondy"
+ignore-words-list = "fpr,disjointness,dout,pavin,tne,nd,statics,sucessors,lod,valu,secondy"
 skip = "./research-archive"
