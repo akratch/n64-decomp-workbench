@@ -5,6 +5,10 @@ from __future__ import annotations
 import struct
 import unittest
 
+from decomp_workbench.instrument_stack_homes import (
+    _observe_pseudo_conversions,
+    _observe_rollback,
+)
 from decomp_workbench.instrument_ugen_owners import UGEN_SHA256
 from decomp_workbench.stack_homes import parse_home_trace, stack_home_report
 from decomp_workbench.ucode import OPCODE_NAMES
@@ -153,10 +157,190 @@ def fixture(*, reuse: bool = False) -> tuple[str, bytes, bytes]:
     owner("CONCAT", {})
     # The output bytes are synthetic and encode exactly the event above.
     binasm = struct.pack(">4I", 0, 0x170000 | (42 << 1), (3 << 25) | (29 << 18), 84)
-    return "\n".join([*rows, *owner_rows]) + "\n", ucode, binasm
+    return (
+        "DKWB-HOME-CAPABILITY version=2 conversions=1 rollback=1\n"
+        + "\n".join([*rows, *owner_rows])
+        + "\n",
+        ucode,
+        binasm,
+    )
+
+
+def pseudo_fixture(
+    kind: str = "rstr", *, reuse: bool = False
+) -> tuple[str, bytes, bytes]:
+    text, ucode, binasm = fixture(reuse=reuse)
+    words = list(struct.unpack(">" + "I" * (len(ucode) // 4), ucode))
+    original = words[4]
+    words[4] = (OPCODE_NAMES.index(kind) << 24) | (1 << 21) | 6
+    text = "\n".join(
+        line.replace(f"w0={original}", f"w0={words[4]}")
+        if "w3=4294967060" in line
+        else line
+        for line in text.splitlines()
+    )
+    text = (
+        "\n".join(
+            line for line in text.splitlines() if not line.startswith("DKWB-HOME-SPILL")
+        )
+        + "\n"
+    )
+    converted = [
+        ((0x52 if kind == "rlod" else 0x7B) << 24) | (1 << 21),
+        4,
+        4,
+        (-236) & 0xFFFFFFFF,
+        0,
+        0,
+        0,
+        0,
+    ]
+    receipt = "DKWB-HOME-CONVERT owner_serial=5 node=8192 generation=3 read_index=1 "
+    receipt += " ".join(f"w{i}={word}" for i, word in enumerate(converted))
+    text = text.replace("DKWB-HOME-FRAME", receipt + "\nDKWB-HOME-FRAME", 1)
+    return text, struct.pack(">" + "I" * len(words), *words), binasm
 
 
 class StackHomeTests(unittest.TestCase):
+    def test_known_pseudo_conversions(self) -> None:
+        for kind in ("rstr", "rlod"):
+            text, ucode, binasm = pseudo_fixture(kind, reuse=True)
+            report = stack_home_report(text, ucode=ucode, binasm=binasm)
+            self.assertEqual(len(report["chains"]), 1)
+            self.assertEqual(report["chains"][0]["node_generation"], 3)
+            self.assertIsNotNone(report["chains"][0]["conversion"])
+
+    def test_missing_conversion_stays_unresolved(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        text = "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.startswith("DKWB-HOME-CONVERT")
+        )
+        report = stack_home_report(text, ucode=ucode, binasm=binasm)
+        self.assertFalse(report["chains"])
+        self.assertEqual(report["unresolved"][0]["reason"], "missing pseudo conversion")
+
+    def test_forged_conversion_rejects(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        receipt = next(line for line in text.splitlines() if "HOME-CONVERT" in line)
+        for old, new in (
+            ("generation=3", "generation=7"),
+            ("read_index=1", "read_index=0"),
+            ("w2=4", "w2=8"),
+            ("w1=4", "w1=5"),
+            ("w3=4294967060", "w3=4294967064"),
+        ):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                stack_home_report(
+                    text.replace(receipt, receipt.replace(old, new)),
+                    ucode=ucode,
+                    binasm=binasm,
+                )
+        with self.assertRaisesRegex(ValueError, "generation"):
+            stack_home_report(
+                text.replace(receipt, receipt + "\n" + receipt),
+                ucode=ucode,
+                binasm=binasm,
+            )
+
+    def test_conversion_anchor_uniqueness(self) -> None:
+        # Handcrafted minimal anchor context; no generated compiler body.
+        tails = ("a0 = v0;\nt9 = t9;", "//nop;\ns0 = v0;\na0 = 0x7b;")
+        anchors = ["MEM_U16(v0 + 34) = (uint16_t)zero;\n" + t for t in tails]
+        body = "\n".join(anchors)
+        self.assertEqual(_observe_pseudo_conversions(body).count("HOME-CONVERT"), 2)
+        for anchor in anchors:
+            for malformed in (body.replace(anchor, ""), body + "\n" + anchor):
+                with self.assertRaisesRegex(ValueError, "missing or duplicated"):
+                    _observe_pseudo_conversions(malformed)
+
+    def test_conversion_after_frame_rejects(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        lines = text.splitlines()
+        receipt = next(line for line in lines if "HOME-CONVERT" in line)
+        lines.remove(receipt)
+        frame = next(i for i, line in enumerate(lines) if "HOME-FRAME" in line)
+        lines.insert(frame + 1, receipt)
+        with self.assertRaisesRegex(ValueError, "conversion follows frame"):
+            stack_home_report("\n".join(lines), ucode=ucode, binasm=binasm)
+
+    def test_direct_origin_cannot_forge_pseudo_conversion(self) -> None:
+        text, ucode, binasm = fixture()
+        receipt = next(
+            line for line in pseudo_fixture()[0].splitlines() if "HOME-CONVERT" in line
+        )
+        text = text.replace("DKWB-HOME-FRAME", receipt + "\nDKWB-HOME-FRAME", 1)
+        with self.assertRaisesRegex(ValueError, "known pseudo"):
+            stack_home_report(text, ucode=ucode, binasm=binasm)
+
+    def test_pseudo_slot_claim_remains_unsupported(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        text = (
+            "DKWB-HOME-SPILL write=1 proc=0 slot=4096 index=1 "
+            "offset=-236 size=4 enabled=1\n" + text
+        )
+        with self.assertRaisesRegex(ValueError, "supported direct memory"):
+            stack_home_report(text, ucode=ucode, binasm=binasm)
+
+    def test_final_memory_adjustment_is_not_normalized(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        words = list(struct.unpack(">4I", binasm))
+        words[3] += 16
+        with self.assertRaisesRegex(ValueError, "differs from retained binASM"):
+            stack_home_report(text, ucode=ucode, binasm=struct.pack(">4I", *words))
+
+    def test_any_rollback_refuses_even_equal_retained_emission(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        # Retained bytes still exactly equal the trial MEM event.
+        text += "DKWB-HOME-ROLLBACK owner_serial=7 epoch=1 forward=1 backward=0\n"
+        with self.assertRaisesRegex(ValueError, "observed output rollback"):
+            stack_home_report(text, ucode=ucode, binasm=binasm)
+
+    def test_conversion_requires_rollback_capable_producer(self) -> None:
+        text, ucode, binasm = pseudo_fixture()
+        text = "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.startswith("DKWB-HOME-CAPABILITY")
+        )
+        with self.assertRaisesRegex(ValueError, "lacks rollback observation"):
+            stack_home_report(text, ucode=ucode, binasm=binasm)
+
+    def test_legacy_direct_report_requires_rollback_observation(self) -> None:
+        text, ucode, binasm = fixture()
+        text = "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.startswith("DKWB-HOME-CAPABILITY")
+        )
+        with self.assertRaisesRegex(ValueError, "producer lacks rollback observation"):
+            stack_home_report(text, ucode=ucode, binasm=binasm)
+
+    def test_duplicate_or_disabled_capability_rejects(self) -> None:
+        text, ucode, binasm = fixture()
+        marker = text.splitlines()[0]
+        for malformed in (
+            marker + "\n" + text,
+            text.replace("rollback=1", "rollback=0"),
+        ):
+            with self.assertRaisesRegex(ValueError, "capability"):
+                stack_home_report(malformed, ucode=ucode, binasm=binasm)
+
+    def test_rollback_anchor_uniqueness(self) -> None:
+        body = "MEM_U32(at + 0) = t7;\nreturn;"
+        self.assertEqual(_observe_rollback(body).count("HOME-ROLLBACK"), 1)
+        for malformed in ("return;", body + "\n" + body):
+            with self.assertRaisesRegex(ValueError, "missing or duplicated"):
+                _observe_rollback(malformed)
+
+    def test_capability_cannot_follow_reader(self) -> None:
+        text, ucode, binasm = fixture()
+        lines = text.splitlines()
+        marker = lines.pop(0)
+        with self.assertRaisesRegex(ValueError, "capability follows reader"):
+            stack_home_report("\n".join([*lines, marker]), ucode=ucode, binasm=binasm)
+
     def test_exact_store_chain_survives_pointer_reuse(self) -> None:
         text, ucode, binasm = fixture(reuse=True)
         report = stack_home_report(text, ucode=ucode, binasm=binasm)

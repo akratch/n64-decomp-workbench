@@ -61,6 +61,37 @@ MEM_U32(a2+8), MEM_U8(0x10022710));
     )
 
 
+def _observe_pseudo_conversions(body: str) -> str:
+    conversion = r"""if (dkwb_home_on() && dkwb_owner_on() &&
+    dkwb_home_fresh_node == v0 && dkwb_home_reads) {
+    unsigned i;
+    fprintf(stderr, "DKWB-HOME-CONVERT owner_serial=%lu node=%u "
+    "generation=%lu read_index=%lu",
+    dkwb_owner_serial, v0, dkwb_home_generation, dkwb_home_reads-1);
+    for (i=0; i<8; ++i) fprintf(stderr, " w%u=%u", i, MEM_U32(v0+32+i*4));
+    fprintf(stderr, "\n");
+    }
+    """
+    for tail in ("a0 = v0;\nt9 = t9;", "//nop;\ns0 = v0;\na0 = 0x7b;"):
+        anchor = "MEM_U16(v0 + 34) = (uint16_t)zero;\n" + tail
+        body = _replace(
+            body, anchor, "MEM_U16(v0 + 34) = (uint16_t)zero;\n" + conversion + tail
+        )
+    return body
+
+
+def _observe_rollback(body: str) -> str:
+    rollback = r"""if (dkwb_home_on() && dkwb_owner_on()) fprintf(stderr,
+    "DKWB-HOME-ROLLBACK owner_serial=%lu epoch=%u forward=%u backward=%u\n",
+    dkwb_owner_serial, dkwb_owner_epoch, MEM_U32(0x10018e70), MEM_U32(0x10018e78));
+    """
+    return _replace(
+        body,
+        "MEM_U32(at + 0) = t7;\nreturn;",
+        "MEM_U32(at + 0) = t7;\n" + rollback + "return;",
+    )
+
+
 def instrument_ugen(source: str) -> str:
     result = instrument_ugen_owners(source)
     result = _replace(result, '#include "header.h"\n', '#include "header.h"\n' + HEADER)
@@ -76,6 +107,38 @@ dkwb_owner_record(mem, "BUILD", v0 + 32, v0);
         return _replace(body, "return v0;", hook + "return v0;")
 
     result = _edit(result, "f_build_u1", build_u1)
+    counters = """
+static unsigned long dkwb_home_reads, dkwb_home_generation;
+static unsigned dkwb_home_fresh_node;
+"""
+    result = _replace(
+        result, '#include "header.h"\n', '#include "header.h"\n' + counters
+    )
+    result = _edit(
+        result,
+        "f_readuinstr",
+        lambda b: _replace(
+            b,
+            'dkwb_owner_record(mem, "READ", dkwb_input, 0);\n',
+            "if (!dkwb_home_reads && dkwb_home_on() && dkwb_owner_on())\n"
+            'fprintf(stderr, "DKWB-HOME-CAPABILITY version=2 '
+            'conversions=1 rollback=1\\n");\n'
+            'dkwb_owner_record(mem, "READ", dkwb_input, 0);\n++dkwb_home_reads;\n',
+        ),
+    )
+    result = _edit(
+        result,
+        "f_new_tree",
+        lambda b: _replace(
+            b,
+            "return v0;",
+            "dkwb_home_fresh_node = v0;\n"
+            "dkwb_home_generation = dkwb_owner_serial;\nreturn v0;",
+        ),
+    )
+
+    result = _edit(result, "f_build_tree", _observe_pseudo_conversions)
+    result = _edit(result, "f_restore_i_ptrs", _observe_rollback)
 
     def frame(body: str) -> str:
         if body.count("return v0;") != 3:

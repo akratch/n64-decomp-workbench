@@ -18,6 +18,10 @@ from .ucode import parse_ucode
 from .ugen_owners import owner_report, parse_owner_trace
 
 FIELDS = {
+    "CAPABILITY": {"version", "conversions", "rollback"},
+    "ROLLBACK": {"owner_serial", "epoch", "forward", "backward"},
+    "CONVERT": {"owner_serial", "node", "generation", "read_index"}
+    | {f"w{i}" for i in range(8)},
     "WRITE": {"write", "proc"} | {f"w{i}" for i in range(8)},
     "SPILL": {"write", "proc", "slot", "index", "offset", "size", "enabled"},
     "FRAME": {"owner_serial", "node", "virtual", "frame", "mode", "result"},
@@ -76,9 +80,28 @@ def _words(row: dict[str, int]) -> list[int]:
 def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, Any]:
     # Reuse strict owner lifetime/output checks; own memory operands below
     # require complete four-word verification rather than prefix-only matching.
+    home_rows = parse_home_trace(text)
+    capabilities = [r for k, r in home_rows if k == "CAPABILITY"]
+    if capabilities and capabilities != [
+        {"version": 2, "conversions": 1, "rollback": 1}
+    ]:
+        raise ValueError("unsupported or duplicate home producer capability")
+    if any(k == "ROLLBACK" for k, _ in home_rows):
+        raise ValueError("observed output rollback is unsupported")
+    if not capabilities:
+        raise ValueError("producer lacks rollback observation")
+    capability_position = next(
+        i
+        for i, line in enumerate(text.splitlines())
+        if line.startswith("DKWB-HOME-CAPABILITY ")
+    )
+    if any(
+        line.startswith("DKWB-OWNER-READ ")
+        for line in text.splitlines()[:capability_position]
+    ):
+        raise ValueError("producer capability follows reader observation")
     owner_report(text, ucode=ucode, binasm=binasm)
     owner_rows = parse_owner_trace(text)
-    home_rows = parse_home_trace(text)
     lines = text.splitlines()
     home_event_positions = []
     latest_owner_serial = 0
@@ -88,7 +111,9 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
             serial = int(line.split(" serial=", 1)[1].split(" ", 1)[0])
             latest_owner_serial = serial
             owner_positions[serial] = position
-        elif line.startswith(("DKWB-HOME-FRAME ", "DKWB-HOME-MEM ")):
+        elif line.startswith(
+            ("DKWB-HOME-FRAME ", "DKWB-HOME-MEM ", "DKWB-HOME-CONVERT ")
+        ):
             fields = dict(token.partition("=")[::2] for token in line.split()[1:])
             if int(fields["owner_serial"]) != latest_owner_serial:
                 raise ValueError("home event owner is not latest preceding owner")
@@ -149,6 +174,7 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         ):
             raise ValueError("spill slot and emitted operand differ")
         spills[index] = row
+    owner_kinds = {r["serial"]: k for k, r in owner_rows if "serial" in r}
     reads = [r for k, r in owner_rows if k == "READ"]
     read_indices = {r["serial"]: i for i, r in enumerate(reads)}
     snapshots: dict[int, dict[int, dict[str, Any]]] = {}
@@ -174,6 +200,7 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
             nodes[row["node"]]["read"] = read if exact else None
         elif kind == "BUILD":
             nodes[row["node"]]["built"] = True
+            nodes[row["node"]]["built_words"] = _words(row)
         elif kind == "OUTPUT":
             outputs.append(row)
             if row["epoch"] in output_positions:
@@ -189,6 +216,7 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         base += output["forward"] + output["backward"]
     if base * 16 != len(binasm):
         raise ValueError("output batch extent differs")
+    conversions = {}
     frames = {}
     frame_positions = {}
     chains = []
@@ -203,6 +231,44 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
     for event_position, (kind, row) in zip(
         home_event_positions, home_rows, strict=True
     ):
+        if kind == "CONVERT":
+            state = snapshots.get(row["owner_serial"], {}).get(row["node"])
+            if not state or not state.get("built") or not state.get("read"):
+                raise ValueError("conversion lacks completed retained node origin")
+            index = read_indices[state["read"]["serial"]]
+            record = records[index]
+            identity = row["node"], state["generation"]
+            if (
+                row["generation"] != state["generation"]
+                or row["read_index"] != index
+                or identity in conversions
+                or owner_kinds[row["owner_serial"]] != "BUILD"
+                or state["generation"]
+                != max(n["generation"] for n in snapshots[row["owner_serial"]].values())
+                or index
+                != max(
+                    i
+                    for i, read_row in enumerate(reads)
+                    if read_row["serial"] <= row["owner_serial"]
+                )
+            ):
+                raise ValueError("conversion generation or retained ordinal differs")
+            if (
+                record.name not in {"rlod", "rstr"}
+                or len(record.words) != 4
+                or record.mtype not in {1, 2}
+            ):
+                raise ValueError("conversion is not a known pseudo memory origin")
+            expected_words = list(state["built_words"])
+            expected_words[0] = (expected_words[0] & 0x00FF0000) | (
+                0x52 if record.name == "rlod" else 0x7B
+            ) << 24
+            expected_words[4] = 0
+            if _words(row) != expected_words or not record.words[2]:
+                raise ValueError("conversion changes payload or width")
+            if (row["owner_serial"], row["node"]) in frames:
+                raise ValueError("conversion follows frame use")
+            conversions[identity] = (event_position, row)
         if kind == "FRAME":
             key = row["owner_serial"], row["node"]
             if key in frames:
@@ -246,7 +312,14 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
         read = state["read"]
         index = read_indices[read["serial"]]
         record = records[index]
-        if record.name not in {"lod", "str"} or len(record.words) != 4:
+        conversion = conversions.get((row["node"], state["generation"]))
+        if record.name in {"rlod", "rstr"}:
+            if conversion is None:
+                unresolved.append({"reason": "missing pseudo conversion", **row})
+                continue
+            if conversion[0] >= frame_positions[key]:
+                raise ValueError("conversion follows frame use")
+        elif record.name not in {"lod", "str"} or len(record.words) != 4:
             unresolved.append({"reason": "non-direct memory origin", **row})
             continue
         if list(record.words) != _words(read)[:4]:
@@ -264,6 +337,7 @@ def stack_home_report(text: str, *, ucode: bytes, binasm: bytes) -> dict[str, An
                 "node_generation": state["generation"],
                 "binASM_index": output_index,
                 "slot": spills.get(index),
+                "conversion": conversion[1] if conversion else None,
                 "frame": frame,
                 "emission": row,
             }
