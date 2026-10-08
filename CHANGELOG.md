@@ -5,6 +5,30 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Per-web allocator report, the lever sweep, and an evidence index
+
+- `trace web-report` (also `web-report`) reads a CDX log carrying the
+  campaign-local `CDX_WEBREPORT` records and reports, per decision of one
+  procedure: the web's value over the procedure's own names, its save broken
+  down per reference block and checked against `totalsave`, the forbidden seed
+  with the precoloured value behind each bit, and every split-growth test
+  re-checked against L161 with the first refused block named. A log without
+  those records is refused by name. Synthetic trace and source fixtures.
+- `sweep levers` (also `lever-sweep`) applies a catalogue of zero-emission
+  source levers (assigned dead read, `|= 0` keep-alive, no-op redefinition,
+  narrower type, scaled subscript, masked dead local, empty `if (v) {}`
+  boundary, global store-then-reread, def between loops, local split/merge,
+  reorder, loop moves) at every applicable statement position of one function,
+  compiles each cell through a user argument vector (never a shell), ranks by
+  aligned residual, and checks from the cell's own unforced records whether it
+  reproduced a `CDX_FORCE` (or `CDX_BIAS`) oracle. Forced webs are re-found by
+  expression and source lines, never by web number; ties that disagree read
+  `ambiguous`. Tested end to end against a stand-in compiler.
+- `docs/compiler-laws/ido-5.3-evidence.md` lists thirty IDO 5.3 claims the
+  Mickey's Speedway USA wave-A lanes measured, each with who measured it, its
+  evidence class and whether a synthetic reproduction exists. Two original-C
+  reproductions ship in `tests/fixtures/wave_a/`.
+
 ### Frontend source operations and Ucode memory details
 
 - A source-pinned CFE side channel joins named load, store and address

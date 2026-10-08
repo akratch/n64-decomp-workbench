@@ -9,3 +9,4 @@ recursive-include src/decomp_workbench/docs *.md
 recursive-include src/decomp_workbench/patches *.md *.patch
 recursive-include src/decomp_workbench/skills *.md *.yaml
 recursive-include tests *.py
+recursive-include tests/fixtures *.c *.objdump

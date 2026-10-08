@@ -493,6 +493,11 @@ decomp-workbench trace growth examples/traces/split-growth.log \
 decomp-workbench trace blocks examples/traces/split-growth.log --web 202
 ```
 
+A log that also carries the campaign-local `CDX_WEBREPORT` records (`bbline`,
+`saveocc`, `savedetail`, `webexpr`, `forbidseed`, ...) can be read per web, all
+four questions at once -- identity, reference breakdown, forbidden seed and
+split growth -- with [`trace web-report`](web-report.md).
+
 `--web` prints the decided piece's span, pass-through and reference blocks, its
 seed, and each growth test with `headroom` (`left_before - new`, first clause
 holds above 0) and `margin` (`2*left_after - numintf - new`, second clause

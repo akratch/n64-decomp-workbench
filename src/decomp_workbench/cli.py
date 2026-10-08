@@ -116,6 +116,7 @@ from .instrument_profiles import (
 )
 from .instrument_uopt import instrument_uopt_globalcolor
 from .landscape_cli import register_landscape_command
+from .lever_sweep_cli import register_lever_sweep_command
 from .line_probe_cli import register_line_probe_command
 from .linked_oracle_cli import register_linked_oracle_commands
 from .matrix_cli import register_matrix_command
@@ -194,6 +195,7 @@ from .view_cli import (
     render_view,
     resolve_color,
 )
+from .web_report_cli import register_web_report_command
 
 # Ranking metrics kept in `campaign --json-summary`: no compiler streams, no
 # instruction-level evidence.
@@ -2294,6 +2296,8 @@ def build_parser() -> argparse.ArgumentParser:
     register_sweep_commands(commands)
     register_landscape_command(commands)
     register_growth_command(commands)
+    register_web_report_command(commands)
+    register_lever_sweep_command(commands)
     register_pass_order_command(commands)
     register_stall_command(commands)
     register_staleness_command(commands)

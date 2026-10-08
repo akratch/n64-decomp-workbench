@@ -1,0 +1,50 @@
+# Synthetic CDX_WEBREPORT capture for `trace web-report`, written by hand for
+# examples/fixtures/web-report-mini.c. Block numbers, weights, saves and masks
+# are illustrative; no record is copied from a build. The bb5 growth verdict
+# deliberately contradicts the L161 rule so the reader's check has something
+# to flag.
+[CDX] globalcolor proc=0
+[CDX] bbline proc=0 bb=1 weight=1 entry=11 lines=11,12,13 mask1=0x0 mask2=0x0
+[CDX] bbline proc=0 bb=2 weight=5 entry=14 lines=14 mask1=0x0 mask2=0x0
+[CDX] bbline proc=0 bb=3 weight=5 entry=15 lines=15,16 mask1=0x0 mask2=0x0
+[CDX] bbline proc=0 bb=4 weight=1 entry=18 lines=18 mask1=0x40000000 mask2=0x0
+[CDX] bbline proc=0 bb=5 weight=1 entry=19 lines=19 mask1=0x0 mask2=0x0
+[CDX] bbpin proc=0 bb=4 web=9 color=1 expr=var:2:3:4
+[CDX] rangepin proc=0 bb=4 mask0=0x10000000 expr=var:-28:1:4
+[CDX] saveocc proc=0 lr=L1 bb=3 weight=5 uses=1 defs=0 term=500
+[CDX] saveocc proc=0 lr=L1 bb=4 weight=1 uses=1 defs=0 term=100
+[CDX] savedetail proc=0 lr=L1 gross=600 chargeA=0 chargeB=0 net=600 nocs=2 save=300
+[CDX] saveocc proc=0 lr=L2 bb=1 weight=1 uses=0 defs=1 term=100
+[CDX] saveocc proc=0 lr=L2 bb=3 weight=5 uses=1 defs=1 term=200 nl=1
+[CDX] savedetail proc=0 lr=L2 gross=300 chargeA=0 chargeB=0 net=300 nocs=3 save=100
+[CDX] saveocc proc=0 lr=L4 bb=3 weight=5 uses=1 defs=1 term=250
+[CDX] savedetail proc=0 lr=L4 gross=250 chargeA=10 chargeB=0 net=240 nocs=2 save=120
+[CDX] forbidseed proc=0 lr=L1 bb=1 own=14 mask0=0x04000000
+[CDX] forbidseed proc=0 lr=L1 bb=3 own=14 mask0=0x00020000
+[CDX] forbidseed proc=0 lr=L1 bb=4 own=14 mask0=0x50000000
+[CDX] p1dec phase=p1 proc=0 web=3 sym=11 class=1 save=300.000 nocs=2 totalsave=600 bestcost=0 bestcolor=14 bestreg=s0 forbidden0=0x54010000 forbidden1=0x0 regsleft=12 numintf=4 decision=color forced=-2
+[CDX] webexpr proc=0 phase=p1 web=3 lr=L1 kind=4 expr=op4(var:-28:1:4,const:7)
+[CDX] webblocks phase=p1 proc=0 role=target web=3 sym=11 lr=L1 bbs=1,2,3,4 aux=-
+[CDX] p1color phase=p1 proc=0 web=3 sym=11 color=14 reg=s0 forced=-2
+[CDX] p1dec phase=p1 proc=0 web=7 sym=13 class=1 save=120.000 nocs=2 totalsave=240 bestcost=0 bestcolor=15 bestreg=s1 forbidden0=0x0 forbidden1=0x0 regsleft=11 numintf=3 decision=color forced=-2
+[CDX] webexpr proc=0 phase=p1 web=7 lr=L4 kind=3 expr=var:-36:1:4
+[CDX] p1color phase=p1 proc=0 web=7 sym=13 color=15 reg=s1 forced=-2
+[CDX] p1dec phase=p1 proc=0 web=5 sym=12 class=1 save=100.000 nocs=3 totalsave=300 bestcost=310 bestcolor=16 bestreg=s2 forbidden0=0x0 forbidden1=0x0 regsleft=10 numintf=5 decision=split forced=-2
+[CDX] webexpr proc=0 phase=p1 web=5 lr=L2 kind=3 expr=var:-32:1:4
+[CDX] seed proc=0 lr=L3 bb=1
+[CDX] grow proc=0 lr=L3 bb=2 new=1 left_before=4 left_after=3 numintf=2 strict=1
+[CDX] growv proc=0 lr=L3 bb=2 accepted=1
+[CDX] grow proc=0 lr=L3 bb=3 new=2 left_before=3 left_after=1 numintf=3 strict=1
+[CDX] growv proc=0 lr=L3 bb=3 accepted=0
+[CDX] grow proc=0 lr=L3 bb=5 new=0 left_before=3 left_after=3 numintf=3 strict=1
+[CDX] growv proc=0 lr=L3 bb=5 accepted=0
+[CDX] p1dec phase=p1 proc=0 web=5 sym=12 class=1 save=100.000 nocs=1 totalsave=100 bestcost=0 bestcolor=4 bestreg=a1 forbidden0=0x0 forbidden1=0x0 regsleft=9 numintf=2 decision=color forced=-2
+[CDX] webexpr proc=0 phase=p1 web=5 lr=L3 kind=3 expr=var:-32:1:4
+[CDX] p1color phase=p1 proc=0 web=5 sym=12 color=4 reg=a1 forced=-2
+[CDX] p2dec phase=p2 proc=0 web=2 sym=4 class=1 save=50.000 nocs=1 totalsave=50 bestcost=0 bestcolor=16 bestreg=s2 forbidden0=0x0 forbidden1=0x0 regsleft=8 numintf=1 decision=color forced=-2
+[CDX] webexpr proc=0 phase=p2 web=2 lr=L5 kind=3 expr=op54(var:0:2:4,@12)
+[CDX] p2color phase=p2 proc=0 web=2 sym=4 color=16 reg=s2 forced=-2
+[CDX] globalcolor proc=1
+[CDX] bbline proc=1 bb=1 weight=1 entry=23 lines=23 mask1=0x0 mask2=0x0
+[CDX] p1dec phase=p1 proc=1 web=1 sym=2 class=1 save=1.000 nocs=1 totalsave=1 bestcost=0 bestcolor=1 bestreg=v0 forbidden0=0x0 forbidden1=0x0 regsleft=14 numintf=0 decision=color forced=-2
+[CDX] p1color phase=p1 proc=1 web=1 sym=2 color=1 reg=v0 forced=-2

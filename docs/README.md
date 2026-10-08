@@ -56,6 +56,8 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You keep hand-rolling the same byte-scoring loop, or a flag sweep might be lying to you | [score and matrix](score-and-matrix.md) | A candidate object; a ROM or target object |
 | A `schedule` verdict survives `-g0` and every compiler you own, or you know line assignment owns it and need to know which line a statement wants (`--tie`) | [Line-assignment probe](line-assignment-probe.md) | A preprocessed `.i` and your compile command |
 | You need a calibrated allocator force probe | [Allocator oracle](oracle.md) | Ready external toolchain and focused trace |
+| A force already prices the target and you need the source edit that reaches the same state unforced | [Zero-emission levers](lever-sweep.md) — `sweep levers` | The C source, a compile recipe, a gated instrumented uopt |
+| You want, per web, the references behind its save, the registers it was denied, and where its split stopped | [Per-web report](web-report.md) — `trace web-report` | A CDX log with the campaign-local `CDX_WEBREPORT` records |
 | You are wiring an external compiler tree safely | [Toolchain calibration](toolchain-calibration.md) | User-supplied toolchain and fidelity cells |
 | You need to know which source lines own the differing rows | [Region attribution](region-attribution.md) | The candidate's C source |
 | Several people or agents append findings to one shared log, or keep filing different findings under the same number | [Shared notes](shared-notes.md) | A findings file anyone may rewrite |
@@ -77,6 +79,7 @@ in it runs against shipped fixtures — no ROM, no compiler, no toolchain.
 | You want the longer reasoning behind a difficult finish | [Final-function campaign lessons](final-function-campaigns.md) |
 | The project compiler provably cannot emit what the target does | [Alternate authentic frontends](alternate-frontends.md) |
 | You need to know which IDO 5.3 and 7.1 workflows are validated | [IDO version support](ido-support.md) |
+| You want to know how far to trust a recently measured IDO 5.3 claim, and whether it reproduces outside its project | [IDO 5.3 evidence index](compiler-laws/ido-5.3-evidence.md) |
 | You want Codex or Claude Code to run the loop for you | [Agent skill](agent-skill.md) |
 | You want what the compiler *does*, with the evidence and the claims it corrected | [Compiler laws: IDO 5.3](compiler-laws/ido-5.3.md) — L83-L86 are the newest four, from one pool-rotation lane of three overlay functions; L72-L82 before them come from a cohort of 22 measured targets; `guide laws ido-5.3 L80` prints one |
 | Two objects differ in length, or a "huge" mismatch might be one inserted instruction, and you need the row-pairing story behind `align` and `phase` | [Shift and phase](shift-and-phase.md) |

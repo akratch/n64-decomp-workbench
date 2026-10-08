@@ -139,6 +139,8 @@ SCHEMAS: dict[str, str] = {
     "sweep-hoist": "decomp-workbench-sweep-v1",
     "sweep-ingest": "decomp-workbench-sweep-ingest-v1",
     "sweep-landscape": "decomp-workbench-landscape-v1",
+    "lever-sweep": "decomp-workbench-lever-sweep-v1",
+    "web-report": "decomp-workbench-web-report-v1",
     "sweep-regress": "decomp-workbench-sweep-v1",
     "instrument-drop-in": "decomp-workbench-drop-in-plan-v1",
     "check-drop-in": "decomp-workbench-drop-in-audit-v1",

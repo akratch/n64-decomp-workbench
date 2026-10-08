@@ -378,6 +378,29 @@ emitted under that line's `.loc` and `observed` the fate it shows for `def`,
 `1`. `observed` at the top level says whether a listing was read at all;
 `rules` maps each rule identifier to its law.
 
+### The per-web report and the lever sweep
+
+`trace web-report` emits `decomp-workbench-web-report-v1`: `proc`,
+`decision_count`, `missing_records` (the `CDX_WEBREPORT` record kinds absent
+for that procedure), `block` (null without `--block`) and `decisions`. Each
+decision carries `web`, `phase`, `order`, `live_range`, `expression` and
+`rendered`, `kind`, the decision's numbers, `colour`/`register` from the colour
+record, `forced_decision` and `forced_colour`; `references` (null without a
+`savedetail`) with per-block `rows` and the three booleans
+`terms_sum_to_gross`, `net_is_gross_minus_charges` and `net_is_totalsave`;
+`forbidden` with `seed`, `at_decision`, `neighbours_add` and per-colour
+`sources`; and `growth` (null unless the web split) with `pieces`, each test's
+`accepted` and `rule_agrees`, and `first_refused`.
+
+`sweep levers` emits `decomp-workbench-lever-sweep-v1`: `base` and `forced`
+scores (`residual` is the aligned rows-away, `delta` the byte difference from
+the target, `positional` the position-indexed count), `targets` (the oracle
+rows, lines as sorted lists), `generated_by_lever`, and `cells`, ranked. A cell
+carries `lever`, `line`, `edit`, `semantics` and one of `error`, `skipped`, or
+`score` plus `oracle` (`yes`, `no`, `k/n`, `ambiguous`, `gate` or `err`),
+`oracle_detail`, `equals_forced` and, when it changed nothing, `inert`.
+`summary` (absent under `--dry-run`) counts them and names `best`.
+
 ### The colour landscape
 
 `sweep landscape` emits `decomp-workbench-landscape-v1`, both when it compiles
