@@ -6274,3 +6274,31 @@ provably own a slot.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
 
+### L173. A uopt spill slot goes to every code-motion temporary read from another block, never to a home, and a substituted symbol owns nothing
+
+`f_spilltemps` hands a slot to every member of `coloreditems`, which
+`getexpsources` fills per block (`source ∩= region; region ∪= sink;
+coloreditems ∪= region`): an expression temporary is a slot owner exactly
+when some block other than the one computing it reads it from the temp.
+Being coloured, or being recomputed by one instruction (`addiu reg,base,24`),
+does not exempt it. Slot numbering starts at the end of the homes and grows
+downward; a request may reuse an earlier *slot* that never shares a block
+region with it, never a home. A symbol whose every use was forward
+substituted loses its store and becomes no owner at all, so a store that is
+written once and never read, at an offset inside the home range, is a kept
+home store of a non-register-candidate local (L170), not a temporary.
+
+**Receipt — T1, Mickey `func_80054B3C` (agent trace points in a rebuilt
+uopt, 2026-10-14).** The two position-pointer webs, coloured `v0`/`a0` and
+re-inserted by code motion in the quadA block, each took a slot because the
+coordinate block read them across the block cut; moving the cut past the
+last use dropped one request without changing the emitted recompute.
+Removing `&twoZ2` deleted its home store and added no owner. With the
+target's data at offsets inside the home range, this fixed its frame as
+35 homes plus one unused slot, and retired the 31-homes reading.
+
+**Falsifies.** "A spilled temporary is one the allocator could not colour."
+The slot is a property of the temp's block set, decided before colouring.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
