@@ -85,6 +85,7 @@ not of one game function; its absence says nothing either way.
 | W37 | A target that stores expression values (4a, b², 2a, y2+y2) in the homes of the variables they were assigned to, while the candidate copy-propagates the assignments away into fresh uopt slots, is a kept-assignment difference, not a slot-allocation one; `mpy_operand_op` refuses the copy when the use is a multiply with an expression operand. | Mickey, `muse-54b3c`, subst_report + web_report | T2 | none | L104, L170 |
 | W38 | Four "variable homes" in the slot map were uopt slots for inline CSE temporaries; writing the quadratic block inline (no assignments) took the candidate from masked 204 to 83 and matched the call shadow exactly. | Mickey, `muse-54b3c` | T2 | none | L131, L170, L172 |
 | W39 | A coloured, one-instruction-recomputed pointer web still takes a uopt slot when read across a block cut; slots never reuse homes; a substituted symbol owns no slot. | Mickey, `muse-54b3c`, traced uopt (`getexpsources`/`f_spilltemps`) | T1 | none | L168, L172, L173 |
+| W40 | The quadA-block pointer recomputes are Morel-Renvoise insertions (`insert` on the join, `delete` on the coordinate block); only a missing partial availability or a broken anticipation removes them, and each change refolds the distance loads. | Mickey, `muse-54b3c`, traced uopt `printcm` sets | T1 | none | L168, L173, L174 |
 
 ## The synthetic reproductions
 

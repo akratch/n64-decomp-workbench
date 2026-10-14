@@ -6302,3 +6302,36 @@ The slot is a property of the temp's block set, decided before colouring.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
 
+### L174. Code motion is Morel-Renvoise placement; a join block receives an insertion only when every predecessor is placement-possible or available
+
+`f_codemotion` solves the Morel-Renvoise sets per block (`antlocs`,
+`avlocs`, `alters`, `delete`, `insert`, `ppin`/`ppout`; the names are
+uopt's own `printcm` strings). An expression computed in a conditional
+block and again after the join is inserted at the end of the join block
+(`insert`) and deleted from the later block (`delete`) **only when the join
+block is placement-possible**, which needs partial availability at the
+later block's entry and `ppout` on the join. Two things, and only two,
+defeat it for a given item: the conditional block must not compute the same
+item (so nothing is partially available), or anticipation must break between
+the join and the use (an exit branch in between). Cheapness of the
+expression, rematerialisation, equal colouring in both blocks, the use being
+the first statement of its block, and a single-predecessor fall-through are
+not tested anywhere in the routine. The same sets drive slot ownership
+(L173): `sink = delete - subdelete`, `source = (avlocs ∩ (alters ∪ ¬delete))
+∪ insert`, and `region` is solved backwards over successors, so an inserted
+item read in the next block is a slot owner by construction.
+
+**Receipt — T1, Mickey `func_80054B3C` (traced uopt, 2026-10-14).** The
+two position-pointer items (`arg + 24`) show `insert = {18, 28}` on the
+join block and `delete = {18, 28}` on the coordinate block; `ppin` is false
+on the join because its other predecessor has neither `ppout` nor `avout`.
+Joining the blocks differently left every predecessor placement-possible;
+an early return between the join and the use, or reading the distance block
+through the struct (which folds the loads), were the only spellings that
+removed the items, and both changed the emitted code.
+
+**Falsifies.** "A cheap address recompute is rematerialisation." It is a PRE
+insertion, and it carries a slot with it.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
