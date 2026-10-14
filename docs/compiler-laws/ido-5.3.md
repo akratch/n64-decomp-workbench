@@ -6245,3 +6245,32 @@ instead.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
 
+### L172. A value saved around a call into a slot that sits among the declared locals' homes can be a CSE temporary, not a variable
+
+uopt hands spill slots to expression webs from the same descending run that
+holds the declared locals' homes, so a `swc1` into an offset that the
+declaration-order slot map labels `z1` is not evidence that the source
+assigned `z1`. A repeated subexpression (`4.0f * quadA`, `quadB * quadB`,
+`2.0f * quadA`, `-quadB`) written inline at every use is one web per
+expression (L131); where it crosses the call it is saved into a uopt slot
+and reloaded, and where it does not it is recomputed or carried. Spelling
+the same values as assignments to declared locals turns each into a symbol
+web that copy propagation deletes (fresh slot, +4 each), keeps only through
+`mpy_operand_op` (L170, W37) or, if kept, prices against the N/4
+callee-saved cost (L171) -- none of which reproduces the inline form's
+save-and-reload. Read a "variable home" below the last provably declared
+local as a candidate uopt slot first.
+
+**Receipt — T2, Mickey `func_80054B3C` (2026-10-14).** Five lanes carried
+`z1 = 4.0f * quadA; z2 = quadB * quadB; x1 = 2.0f * quadA; twoZ1 = -quadB`
+from the m2c shape because the saves land in the slots the layout named
+z1/z2/x1/twoZ1. Writing the quadratic block inline moved the shape from 365
+to 367 of 370 words and the masked count from 204 to 83 in one step, with
+the call shadow, the post-call reloads and the second-root block all exact.
+
+**Falsifies.** "A store into a declared local's home is an assignment to that
+local in the source." The home map is only as deep as the locals that
+provably own a slot.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
