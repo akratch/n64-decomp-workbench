@@ -6335,3 +6335,28 @@ insertion, and it carries a slot with it.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
 
+### L175. Reading a field through a pointer local taken to that field makes a different code-motion item than reading it through the struct pointer
+
+`p = &s->z;` in an earlier block and `v = *p;` later spells the read as
+`ILOD(item)` where the item is the address `(s + 24) + 8`, while
+`v = s->z` folds the constant into the load and spells `ILOD((s+24)+8)`
+with the offset inside the load. The two are different items to
+`f_codemotion`, so an earlier conditional `s->z` read no longer makes the
+later one partially redundant (L168, L174), and no temp or slot is created;
+ugen folds the address item back into `8(reg)` addressing, so the emitted
+load is the same instruction. The pointer local costs one home and emits
+nothing when its only use is the read.
+
+**Receipt — T2, Mickey `func_80054B3C` (decomp-permuter find, 2026-10-14).**
+Two lanes and eight agent sweeps could not stop the hoist of the z2 read
+with any spelling of the two read sites or of the blocks between them; the
+permuter's `new_var = &secondPoint->z; z2 = *new_var;` removed the hoisted
+web and took the candidate from masked 334 to 70 with the instruction
+stream identical to the target.
+
+**Falsifies.** "Two reads of the same field through the same pointer are
+always one expression." They are one expression only when both are spelled
+as field reads.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+

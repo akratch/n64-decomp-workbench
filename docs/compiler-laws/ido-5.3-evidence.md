@@ -86,6 +86,7 @@ not of one game function; its absence says nothing either way.
 | W38 | Four "variable homes" in the slot map were uopt slots for inline CSE temporaries; writing the quadratic block inline (no assignments) took the candidate from masked 204 to 83 and matched the call shadow exactly. | Mickey, `muse-54b3c` | T2 | none | L131, L170, L172 |
 | W39 | A coloured, one-instruction-recomputed pointer web still takes a uopt slot when read across a block cut; slots never reuse homes; a substituted symbol owns no slot. | Mickey, `muse-54b3c`, traced uopt (`getexpsources`/`f_spilltemps`) | T1 | none | L168, L172, L173 |
 | W40 | The quadA-block pointer recomputes are Morel-Renvoise insertions (`insert` on the join, `delete` on the coordinate block); only a missing partial availability or a broken anticipation removes them, and each change refolds the distance loads. | Mickey, `muse-54b3c`, traced uopt `printcm` sets | T1 | none | L168, L173, L174 |
+| W41 | A pointer local taken to the field (`p = &s->z; v = *p;`) stops the partial-redundancy hoist of that read while emitting the same `8(reg)` load; found by the permuter after every hand spelling failed. | Mickey, `muse-54b3c`, permuter output then harness | T2 | none | L168, L174, L175 |
 
 ## The synthetic reproductions
 
