@@ -6139,3 +6139,109 @@ function promoted.
 lever." It was the last one.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-09-16.
+
+### L168. Code motion hoists a partially redundant load into the join block unless an address-taken local is stored first
+
+`f_oneproc` runs `f_copypropagate` and then `f_codemotion`. After propagation a
+field read through a pointer local is keyed on the propagated tree
+(`*((arg3 + 24) + 8)`), so the same read in an earlier *conditional* block and
+in a later straight-line block is one expression. Code motion treats the
+conditional occurrence as partial availability and **inserts the load at the
+end of the join block**, deleting it from the later block; the inserted value
+is a two-reference expression web (`save 1.0` against `bestcost 8.0`) that
+globalcolor sends to memory, so the function gains one uopt slot and every FP
+web in the join block gains one interference. The hoist is refused when a
+store to an **address-taken** local precedes the read in its block, or follows
+the first occurrence on the conditional path; a store to a plain symbol
+(even one globalcolor later keeps in memory) is not a kill. Only the first
+read of a straight-line block is exposed: later reads sit behind the kept
+stores of the block's own address-taken locals.
+
+**Receipt — T2, Mickey `func_80054B3C` (lane muse-54b3c, 2026-10-14).** With
+the distance block reading `secondPoint->z` and the coordinate block reading
+it again, `web_report` shows exactly one extra web (`w292`, def in the
+step/quadA block, use in the coordinate block, `split -> none (memory)`);
+frame 0xE8 against 0xE0. Removing the distance read, reading either site
+through a different base, `&dz` (kills the conditional occurrence),
+`twoY1 = 0.0f` at the join, `&quadA`, and moving the read into the join
+block all drop the slot; forced block cuts at every line between the two
+reads do not. The only one of these the target's bytes allow is a store
+before the read that emits no extra code, which has not been found.
+
+**Falsifies.** "A load that is not available on all paths is left alone."
+uopt's code motion is a partial-redundancy pass, and the join block pays for
+it.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
+### L169. Redefining a pointer local to its own value cannot kill an expression keyed on the propagated tree
+
+Because copy propagation precedes code motion (L168), reads through a pointer
+local no longer mention the local by the time kills are computed. A second
+`p = &s->field;` after the first use is therefore inert at every placement:
+behind the first use in the same block it is kept (L164) but kills nothing;
+elsewhere it is deleted as redundant. Placed in the use's block **ahead of the
+first use** it survives and does separate the trees, but then the reads are
+substituted locally and the constant offsets fold (`24/28/32(base)` instead of
+`0/4/8(p)`), so the addressing changes. The recompute of a propagated pointer
+in a later block (`addiu a0,a3,0x18` again) is the expression web's second
+definition, not evidence of a second assignment in the source.
+
+**Receipt — T3, Mickey `func_80054B3C`.** Nine placements of the
+redefinition (after each distance read, at the end of the flags block, before
+the step loads; one or both pointers, either order) scored identically to the
+base; the in-block-before-use form reached the target's frame but folded the
+distance loads (masked 354 against 334).
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
+### L170. Store-then-reload of a field-loaded local is pressure; store-then-reload of its double needs the local to be non-vreg
+
+Under FP pressure (six step values and a callee-saved radius fill the even
+registers) globalcolor sends the coordinate symbols to memory, which
+produces the `lwc1 field; swc1 home; lwc1 home; add.s` cadence with no help
+from the source. The *double* of such a symbol (`t = c + c`) does not inherit
+it: `readnxtinst` forward-substitutes the single-use definition into the
+later expression (`single_use_no_ilod`, then `shared_expr`) and deletes the
+store, so `t` never reaches globalcolor. The store survives only when the
+local is not a register candidate (`single_use_not_vreg_local`: address
+taken, array, struct member), and then it is also an alias kill for L168.
+Liveness, block cuts, no-op redefinitions, scopes, `register`, `volatile`,
+struct-sourced operands and twelve spellings of the doubling leave it
+substituted. The subset matters: taking the addresses of exactly the five
+doubles that the target reloads, and not the field-loaded locals, moved a
+370-word function from 344 to 363 shape-equal words and closed its size.
+
+**Receipt — T2, Mickey `func_80054B3C`, 2^10 address-subset sweep (1,024
+compiles) plus `subst_report` and `web_report` on the extremes.**
+
+**Falsifies.** "A kept store means the local is spilled." It can mean the
+local was never a register candidate, which is decided before colouring.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
+### L171. A callee-saved colour costs N/4, N the procedure's block count, and a web takes memory when its save is below that
+
+When every caller-saved colour a web could take is held by a neighbour, the
+alternative is a callee-saved register whose cost is **N/4** with N uopt's
+block count for the procedure (`uopt.c` near line 158430: 32 blocks cost 8,
+one more `if` costs 8.5, ten `do {} while (0)` cost 13). A web splits
+(L139, W15) only when its `totalsave` is at or below that cost; above it,
+the web is given the callee-saved register and the prologue grows a save.
+So which webs reach `f22`+ and which fall to memory is decided by the
+procedure's block count as much as by the web, and padding the procedure
+with empty blocks moves the boundary without touching the web.
+
+**Receipt — T1, Mickey `func_80054B3C` (agent sweep, 2026-10-14), from the
+decision records.** `radiusSq` (totalsave 10) holds `f20` because 10 > 8;
+forced-kept `z1`/`z2`/`x1` (totalsave 10/12/9 across coordinate and
+quadratic blocks) take `f22`/`f24`/`f26`; dropping the carrier so `z1`
+totals exactly 8 makes it split, and the split piece then finds `c24`/`c25`
+held and goes to memory with its store at the definition.
+
+**Falsifies.** "A web that crosses a call and cannot find a caller-saved
+colour is spilled." Above N/4 it is promoted to a callee-saved register
+instead.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+
