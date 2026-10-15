@@ -6360,3 +6360,29 @@ as field reads.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
 
+### L176. A file-scope or extern scalar whose address is never taken is carried in a register for the whole procedure; a function-scope static is not
+
+uopt treats a global scalar that nothing in the procedure address-takes as a
+register candidate across the procedure: it loads it once and keeps the value
+in a register, reloading it after every call that may clobber that register
+(the reloads appear at the join after each call-containing loop). Taking its
+address anywhere (a cast view `*(signed char *)&g`, `&g` passed on) switches
+that off and the global is read from memory at each use. A `static` declared
+inside the function is not treated that way: it is read from memory where it
+is used, with no register copy and no post-call reloads, and its toggle
+(`s ^= 1; if (s)`) compiles to a load, xor, store and test with the loaded
+value in a scratch register.
+
+**Receipt — T2, Mickey overlay64GenerateTexture (2026-10-16).** The selector
+byte read as a plain extern added two reloads after the noise loops (+8
+bytes) in every spelling; a `signed char` view removed them only by taking
+the address. Declaring the selector and the init flag as function-scope
+statics made the toggle block exact with plain C and took the function from
+175 to 129 masked words, producing the same 16-byte `.data` layout as the
+file that previously defined them.
+
+**Falsifies.** "A global read is a global read." Where the variable is
+declared decides whether uopt carries it in a register.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-16.
+
