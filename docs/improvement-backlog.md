@@ -2157,3 +2157,26 @@ Change: resolve each home row to its symbol (the web report already has the
 mapping) and print `home <symbol> offset`. Payoff: W35-style accounting in one
 command.
 
+### 50. P0 — The permuter scratch drops block-scope prototypes, so a search can run on the wrong code
+Symptom: Mickey `func_800517E0` (2026-10-15). decomp-permuter's import
+flattens a translation unit by replacing earlier function bodies with
+prototypes, which discards a block-scope `void f(u8 x);` declared inside one
+of those bodies; IDO keeps such a declaration in force for the rest of the
+file. The scratch then called `f` unprototyped, scored 1,371 at -4 bytes
+against the tree's 1,063 at 0, and a three-hour run optimised that wrong
+context; its best output (944 at size 0 in scratch) did not transfer (1,082
+in the real TU). Change: after import, compile the scratch base and compare
+its function object to the real TU object; refuse to start (or warn loudly)
+unless they are identical, and hoist block-scope function declarations from
+dropped bodies to file scope in the importer. Payoff: every permuter hour is
+spent on the real search space.
+
+### 51. P1 — Plateau shards need a size-aware split before the clean-room limit
+Symptom: `docs/matching-triage-handoffs/func_800517E0.md` reached 261,840
+bytes, 304 under the 262,144-byte clean-room oversize limit; the next dated
+note will fail the gate and no tool splits a shard. Change: a
+`finalize_plateau.py --split` that archives dated sections older than the
+last N into `<symbol>.archive-<n>.md` with a link from the live shard, and
+teach the shard audit to read the archive. Payoff: long-running functions
+keep their history without tripping the oversize rule.
+
