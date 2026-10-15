@@ -28,7 +28,7 @@ class EvidenceIndexTests(unittest.TestCase):
     def test_rows_are_numbered_contiguously(self) -> None:
         numbers = sorted(int(name[1:]) for name in self.rows)
         self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
-        self.assertEqual(len(numbers), 42)
+        self.assertEqual(len(numbers), 43)
 
     def test_every_row_records_origin_class_and_reproduction(self) -> None:
         for name, cells in self.rows.items():

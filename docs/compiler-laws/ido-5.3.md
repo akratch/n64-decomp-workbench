@@ -6386,3 +6386,30 @@ declared decides whether uopt carries it in a register.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-16.
 
+### L177. Bit positions (value numbers) are handed out in four passes; a copy-propagated expression is numbered after every unroll copy
+
+`newbit` hands out every bit position the slot allocator later orders by
+(spill requests are served lowest position first, each taking the lowest
+free slot). An expression gets its position the first time it is hashed;
+reusing a hash entry reuses the position. The passes run in this order:
+(1) reading, in source order (`isearchloop`, `trep_image`, `searchstore`),
+where a `for` loop's increment is numbered where it is emitted, after the
+body; (2) `loopunroll`, which numbers its new copies only after every
+original block has been read; (3) `copypropagate`, for the expressions it
+rewrites; (4) `makelivranges`, for anything still unnumbered. So an
+expression that exists only after copy propagation (written through a
+local assigned in an earlier block, `i = width; ... (i << 1)`) is numbered
+after the unroller's copies, while the same expression written directly is
+numbered at reading, before them. A copy in the same block does not work:
+reading propagates it locally and it is numbered at reading. The local must
+not be written between the copy and the use, or propagation stops.
+
+**Receipt — T1, Mickey overlay64GenerateTexture (instrumented `newbit`,
+2026-10-16).** `width << 1` was numbered 245, between the even-row loop's
+increment `j + 1` (240) and the unroller's `j + 2` (274), so it took the
+spill slot the target gives `(height - 6) * width`; routing it through
+`i = width` before the row loop renumbered it 298, it shared the slot with
+`width >> 1` as shipped, and the function went from 6 to 4 masked words.
+
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-16.
+
