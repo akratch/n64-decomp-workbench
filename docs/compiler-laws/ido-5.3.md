@@ -6416,4 +6416,3 @@ spill slot the target gives `(height - 6) * width`; routing it through
 `width >> 1` as shipped, and the function went from 6 to 4 masked words.
 
 **Provenance:** Mickey's Speedway USA decomp, 2026-10-16.
-
