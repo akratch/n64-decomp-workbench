@@ -177,10 +177,8 @@ class CommandTests(unittest.TestCase):
                 "7-20",
                 "--source",
                 str(SOURCE),
-                "--local",
-                "-28=col",
-                "--local",
-                "-32=index",
+                "--local=-28=col",
+                "--local=-32=index",
                 "--param",
                 "0=grid",
             ]

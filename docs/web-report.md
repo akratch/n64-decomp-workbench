@@ -12,7 +12,7 @@ It reads a log. It never compiles.
 ```sh
 decomp-workbench trace web-report examples/traces/web-report.log --lines 7-20 \
   --source examples/fixtures/web-report-mini.c \
-  --local -28=col --local -32=index --param 0=grid --web 3
+  --local=-28=col --local=-32=index --param 0=grid --web 3
 ```
 
 ```text

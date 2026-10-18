@@ -123,7 +123,7 @@ def register_web_report_command(commands: argparse._SubParsersAction[Any]) -> No
         ),
         epilog=(
             "example: decomp-workbench trace web-report "
-            "examples/traces/web-report.log --local -28=col --param 0=grid"
+            "examples/traces/web-report.log --local=-28=col --param 0=grid"
         ),
     )
     parser.add_argument("log", help="CDX log with CDX_WEBREPORT records")
