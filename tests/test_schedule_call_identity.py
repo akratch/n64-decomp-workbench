@@ -61,12 +61,21 @@ class ScheduleCallIdentityTests(unittest.TestCase):
         self.assertGreater(view.counts["schedule"], 0)
         self.assertEqual(view.counts["structural"], 0)
 
-    def test_call_addend_change_is_not_a_move(self) -> None:
+    def test_same_site_addend_bits_keep_relocation_only_classification(self) -> None:
+        # No dump provenance distinguishes linked bits from a REL addend.
         target = [call(0, "alpha"), nop(4)]
         candidate = [call(0, "alpha", addend=1), nop(4)]
         view = build_view(target, candidate, target_name="t", candidate_name="c")
         self.assertEqual(view.counts["schedule"], 0)
-        self.assertEqual(view.counts["structural"], 1)
+        self.assertEqual(view.counts["structural"], 0)
+        self.assertEqual(view.counts["relocation"], 1)
+
+    def test_displaced_call_with_different_addend_cannot_prove_a_move(self) -> None:
+        load = Instruction(0, "8C820000", "lw v0,0(a0)")
+        target = [load, call(4, "alpha"), nop(8)]
+        candidate = [call(0, "alpha", addend=1), replace(load, address=4), nop(8)]
+        view = build_view(target, candidate, target_name="t", candidate_name="c")
+        self.assertGreater(view.counts["structural"], 0)
 
     def test_missing_call_identity_cannot_authenticate_a_move(self) -> None:
         load = Instruction(0, "8C820000", "lw v0,0(a0)")

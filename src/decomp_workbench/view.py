@@ -2482,7 +2482,15 @@ def _call_identity_barriers(
             _call_relocation_signature(candidate[right]) if right is not None else None
         )
         if expected is not None and actual is not None and expected != actual:
-            barriers.add(row)
+            identities_differ = tuple(item[:2] for item in expected) != tuple(
+                item[:2] for item in actual
+            )
+            displaced = left != right
+            if identities_differ or displaced or labels[row] not in (MATCH, RELOCATION):
+                barriers.add(row)
+            # A same-site dump may compare linked address bits to REL addends.
+            # Without provenance, retain its relocation-only classification;
+            # the stricter signature still prevents claiming a displaced move.
         elif (labels[row] != MATCH or left != right) and any(
             signature is not None and any(not name for _, name, _ in signature)
             for signature in (expected, actual)

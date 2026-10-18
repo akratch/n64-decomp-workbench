@@ -507,3 +507,10 @@ Include:
 
 Do not attach ROMs, proprietary compiler binaries, extracted target objects,
 or third-party source you cannot redistribute.
+
+A same-site call whose symbol and relocation layout agree retains the existing
+relocation-only classification when only encoded target bits differ: a dump
+may contain linked address bits rather than REL addends. Without provenance,
+that classification does not prove effective target equivalence. Displaced
+calls with different encoded addends cannot authenticate a scheduling move;
+use the project's linked-address and relocation-identity proof to settle them.
