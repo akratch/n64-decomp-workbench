@@ -135,3 +135,7 @@ Reporting commands expose JSON wherever it is useful for scripts and CI.
 
 The [allocator saving sensitivity report](allocator-priority.md) explains
 IDO 5.3 numerator/divisor boundaries without claiming allocation proof.
+
+The [W47 fidelity record](history/w47-uopt-classification-handoff.md) explains
+why configured-driver controls and an input-to-UOPT decision join are separate
+obligations. Its final ownership proof remains incomplete.

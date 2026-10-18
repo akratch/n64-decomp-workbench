@@ -41,6 +41,16 @@ in [design notes](docs/history/design-notes.md).
   evidence class and whether a synthetic reproduction exists. Two original-C
   reproductions ship in `tests/fixtures/wave_a/`.
 
+### Authenticated unchanged input-LDA construction
+
+- Added the source-pinned CFE occurrence and UOPT unchanged-LDA observer,
+  including payload pairing, pass/record boundaries and pointer-recycling
+  validation. Fresh synthetic and configured-TU stock/pristine/OFF/ON native
+  controls pass; unsupported origins remain unresolved and PRE/final-home
+  proof remains false. Generated compiler/game payloads are not distributed.
+- Retained the bounded W47 configured-driver fidelity report, including its
+  explicitly missing UOPT decision-to-emission join.
+
 ### Frontend source operations and Ucode memory details
 
 - A source-pinned CFE side channel joins named load, store and address

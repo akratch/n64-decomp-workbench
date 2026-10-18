@@ -102,11 +102,69 @@ def _instrument(source: str) -> str:
     return result[:start] + body + result[end:]
 
 
-def instrument(source: str) -> str:
+OCCURRENCE_HEADER = r"""
+/* Read-only AST construction and code-generation invocation receipts. */
+static unsigned long long dkwb_cfe_node_seq, dkwb_cfe_occ_seq;
+static int dkwb_cfe_occ_cap;
+static void dkwb_cfe_node(uint8_t *mem,uint32_t p) {
+ if (!dkwb_cfe_on()) return;
+ if (!dkwb_cfe_occ_cap) {
+  fprintf(stderr,"DKWB-CFE-OCC capability=1\n"); dkwb_cfe_occ_cap=1;
+ }
+ fprintf(stderr,"DKWB-CFE-OCC node=%llu ptr=%u node_id=%u tag=%u\n",
+  ++dkwb_cfe_node_seq,p,MEM_U32(p),MEM_U32(p+4));
+}
+static unsigned long long dkwb_cfe_occ_begin(uint8_t *mem,uint32_t p) {
+ unsigned long long n=++dkwb_cfe_occ_seq;
+ if(dkwb_cfe_on()) fprintf(stderr,
+  "DKWB-CFE-OCC begin=%llu ptr=%u node_id=%u offset=%llu\n",
+  n,p,p ? MEM_U32(p) : 0,dkwb_cfe_cursor(mem));
+ return n;
+}
+static void dkwb_cfe_output(uint8_t *mem,uint32_t p,uint32_t n) {
+ uint32_t i;
+ if(!dkwb_cfe_on()) return;
+ fprintf(stderr,"DKWB-CFE-OCC output=%llu datahex=",dkwb_cfe_written-n);
+ for(i=0;i<n;i++) fprintf(stderr,"%02x",(unsigned)MEM_U8(p+i));
+ fprintf(stderr,"\n");
+}
+static void dkwb_cfe_occ_end(uint8_t *mem,unsigned long long n) {
+ if(dkwb_cfe_on()) fprintf(stderr,"DKWB-CFE-OCC end=%llu offset=%llu\n",
+  n,dkwb_cfe_cursor(mem));
+}
+"""
+
+
+def _instrument_occurrences(source: str) -> str:
+    result = _instrument(source)
+    result = result.replace(HEADER, HEADER + OCCURRENCE_HEADER, 1)
+    start, end = _body(result, "UWRITE")
+    body = result[start:end]
+    anchor = "dkwb_cfe_write(v0);"
+    if body.count(anchor) != 1:
+        raise ValueError("expected unique output observer")
+    body = body.replace(anchor, anchor + "\ndkwb_cfe_output(mem,MEM_U32(sp+32),v0);", 1)
+    result = result[:start] + body + result[end:]
+    start, end = _body(result, "make")
+    body = result[start:end]
+    if body.count("return v0;") != 1:
+        raise ValueError("expected one make return anchor")
+    body = body.replace("return v0;", "dkwb_cfe_node(mem,v0);\nreturn v0;", 1)
+    result = result[:start] + body + result[end:]
+    start, end = _body(result, "expr_cg")
+    body = result[start:end]
+    if body.count("\nreturn;") != 1:
+        raise ValueError("expected one expr_cg return anchor")
+    body = "unsigned long long dkwb_occ=dkwb_cfe_occ_begin(mem,a0);\n" + body
+    body = body.replace("\nreturn;", "\ndkwb_cfe_occ_end(mem,dkwb_occ);\nreturn;", 1)
+    return result[:start] + body + result[end:]
+
+
+def instrument(source: str, *, occurrences: bool = False) -> str:
     """Refuse all but the authenticated generated-source profile."""
     if hashlib.sha256(source.encode()).hexdigest() != SOURCE_SHA256:
         raise ValueError("CFE generated-source SHA-256 does not match pinned profile")
-    return _instrument(source)
+    return _instrument_occurrences(source) if occurrences else _instrument(source)
 
 
 def join_trace(trace: str, ucode: bytes) -> dict[str, Any]:
@@ -215,24 +273,174 @@ def join_trace(trace: str, ucode: bytes) -> dict[str, Any]:
     }
 
 
+def join_occurrences(trace: str, ucode: bytes) -> dict[str, Any]:
+    """Join actual AST creation/occurrence intervals; no expression semantics."""
+    report = join_trace(trace, ucode)
+    records = parse_ucode(ucode)
+    boundaries = {r.word_offset * 4 for r in records} | {len(ucode)}
+    nodes: dict[int, tuple[int, int, int]] = {}
+    node_ids: set[int] = set()
+    stack: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    occurrences: list[dict[str, Any]] = []
+    source_parents: dict[int, int | None] = {}
+    capability = False
+    node_sequence = 0
+    output = bytearray()
+    written_cursor = 0
+    for line in trace.splitlines():
+        if line.startswith("DKWB-CFE written="):
+            written_cursor = int(line.split()[1].split("=")[1])
+        if line.startswith("DKWB-CFE begin="):
+            source_parents[int(line.split()[1].split("=")[1])] = (
+                stack[-1]["id"] if stack else None
+            )
+        if not line.startswith("DKWB-CFE-OCC "):
+            continue
+        if line.startswith("DKWB-CFE-OCC output="):
+            tokens = line.split()
+            if (
+                not capability
+                or len(tokens) != 3
+                or not tokens[2].startswith("datahex=")
+            ):
+                raise ValueError("malformed output receipt")
+            offset = int(tokens[1].split("=")[1])
+            data = bytes.fromhex(tokens[2].split("=")[1])
+            if (
+                offset != len(output)
+                or not data
+                or offset + len(data) != written_cursor
+            ):
+                raise ValueError("invalid actual output interval")
+            output.extend(data)
+            continue
+        fields: dict[str, int] = {}
+        for token in line.split()[1:]:
+            k, sep, v = token.partition("=")
+            if not sep or k in fields:
+                raise ValueError("malformed occurrence record")
+            fields[k] = int(v)
+        if "capability" in fields:
+            if capability or fields != {"capability": 1}:
+                raise ValueError("invalid occurrence capability")
+            capability = True
+            continue
+        if not capability:
+            raise ValueError("producer lacks occurrence observation")
+        if "node" in fields:
+            if set(fields) != {"node", "ptr", "node_id", "tag"}:
+                raise ValueError("malformed node creation")
+            if (
+                fields["node"] != node_sequence + 1
+                or not 0 < fields["ptr"] <= 0xFFFFFFFF
+            ):
+                raise ValueError("invalid node generation")
+            if not 0 < fields["node_id"] <= 0xFFFFFFFF or fields["node_id"] in node_ids:
+                raise ValueError("reused compiler node identity")
+            node_sequence = fields["node"]
+            node_ids.add(fields["node_id"])
+            nodes[fields["ptr"]] = (fields["node_id"], node_sequence, fields["tag"])
+        elif "begin" in fields:
+            if set(fields) != {"begin", "ptr", "node_id", "offset"}:
+                raise ValueError("malformed occurrence begin")
+            node = nodes.get(fields["ptr"])
+            if fields["ptr"] == 0 and fields["node_id"] == 0:
+                node = (0, 0, 0)
+            elif node is None or node[0] != fields["node_id"]:
+                raise ValueError("missing or stale node generation")
+            if (
+                fields["begin"] <= 0
+                or fields["begin"] in seen
+                or fields["offset"] not in boundaries
+            ):
+                raise ValueError("invalid occurrence identity or boundary")
+            seen.add(fields["begin"])
+            stack.append(
+                {
+                    "id": fields["begin"],
+                    "node_token": fields["ptr"],
+                    "node_id": node[0],
+                    "generation": node[1],
+                    "raw_tag": node[2],
+                    "begin": fields["offset"],
+                    "parent": stack[-1]["id"] if stack else None,
+                }
+            )
+        elif "end" in fields:
+            if (
+                set(fields) != {"end", "offset"}
+                or not stack
+                or stack[-1]["id"] != fields["end"]
+            ):
+                raise ValueError("unbalanced occurrence interval")
+            event = stack.pop()
+            if fields["offset"] not in boundaries or fields["offset"] < event["begin"]:
+                raise ValueError("invalid occurrence interval")
+            event["end"] = fields["offset"]
+            event["record_indices"] = [
+                r.index
+                for r in records
+                if event["begin"] <= r.word_offset * 4 < event["end"]
+            ]
+            occurrences.append(event)
+        else:
+            raise ValueError("unknown occurrence event")
+    if not capability or stack or bytes(output) != ucode:
+        raise ValueError("incomplete occurrence observation or CFE output mismatch")
+    occurrence_map = {e["id"]: e for e in occurrences}
+    for occurrence in occurrences:
+        parent = occurrence_map.get(occurrence["parent"])
+        if (
+            parent
+            and not parent["begin"]
+            <= occurrence["begin"]
+            <= occurrence["end"]
+            <= parent["end"]
+        ):
+            raise ValueError("occurrence interval escapes parent")
+    for event in report["events"]:
+        event["occurrence"] = source_parents[event["id"]]
+        parent = occurrence_map.get(event["occurrence"])
+        if (
+            parent
+            and not parent["begin"] <= event["begin"] <= event["end"] <= parent["end"]
+        ):
+            raise ValueError("source interval escapes occurrence")
+    report.update(
+        occurrences=sorted(occurrences, key=lambda e: e["id"]),
+        source_expression_semantics=False,
+        actual_output_identity_proof=True,
+        optimized_ownership_proof=False,
+    )
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     patch = sub.add_parser("instrument")
     patch.add_argument("source", type=Path)
     patch.add_argument("output", type=Path)
+    patch.add_argument("--occurrences", action="store_true")
     join = sub.add_parser("join")
     join.add_argument("trace", type=Path)
     join.add_argument("ucode", type=Path)
+    join.add_argument("--occurrences", action="store_true")
     args = parser.parse_args()
     if args.command == "instrument":
         if args.source.resolve() == args.output.resolve():
             parser.error("output must not replace the original compiler source")
-        args.output.write_text(instrument(args.source.read_text()))
+        args.output.write_text(
+            instrument(args.source.read_text(), occurrences=args.occurrences)
+        )
     else:
         print(
             json.dumps(
-                join_trace(args.trace.read_text(), args.ucode.read_bytes()), indent=2
+                (join_occurrences if args.occurrences else join_trace)(
+                    args.trace.read_text(), args.ucode.read_bytes()
+                ),
+                indent=2,
             )
         )
 
