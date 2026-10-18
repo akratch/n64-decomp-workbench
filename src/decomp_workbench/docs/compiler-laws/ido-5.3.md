@@ -6292,23 +6292,30 @@ Being coloured, or being recomputed by one instruction (`addiu reg,base,24`),
 does not exempt it. Slot numbering starts at the end of the homes and grows
 downward; a request may reuse an earlier *slot* that never shares a block
 region with it, never a home. A symbol whose every use was forward
-substituted loses its store and becomes no owner at all, so a store that is
-written once and never read, at an offset inside the home range, is a kept
-home store of a non-register-candidate local (L170), not a temporary.
+substituted loses its symbol store. These optimizer ownership events do not
+make emitted store-only traffic a source-origin test: a later arithmetic-CSE
+control produced a real temporary spill with a store but no early stack reload.
+The value can remain register-live. Neither that cadence nor overlap with a
+candidate's declared-home offsets proves that the original source had a
+named local there; distinguish fixed reserve, spill requests and emitted
+high-water with separate phase evidence.
 
 **Receipt — T1, Mickey `func_80054B3C` (agent trace points in a rebuilt
 uopt, 2026-10-14).** The two position-pointer webs, coloured `v0`/`a0` and
 re-inserted by code motion in the quadA block, each took a slot because the
 coordinate block read them across the block cut; moving the cut past the
 last use dropped one request without changing the emitted recompute.
-Removing `&twoZ2` deleted its home store and added no owner. With the
-target's data at offsets inside the home range, this fixed its frame as
-35 homes plus one unused slot, and retired the 31-homes reading.
+Removing `&twoZ2` deleted its home store and added no owner. Those native
+events remain useful, but the historical inference of 35 homes plus one
+unused slot was not a proven source layout or frame lower bound. The later
+store-only arithmetic-CSE witness invalidates deriving that count from stack
+offsets and access cadence alone; it does not establish an alternative layout.
 
 **Falsifies.** "A spilled temporary is one the allocator could not colour."
 The slot is a property of the temp's block set, decided before colouring.
 
-**Provenance:** Mickey's Speedway USA decomp, 2026-10-14.
+**Provenance:** Mickey's Speedway USA decomp, 2026-10-14; source-origin
+qualification from controlled storage experiments, 2026-10-18.
 
 ### L174. Code motion is Morel-Renvoise placement; a join block receives an insertion only when every predecessor is placement-possible or available
 
