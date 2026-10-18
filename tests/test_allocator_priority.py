@@ -23,6 +23,9 @@ from decomp_workbench.allocator_priority import (
 def row(identifier: str, order: int, net: int, raw: int) -> dict[str, Any]:
     return {
         "id": identifier,
+        "register_class": "gpr",
+        "procedure": 7,
+        "snapshot": "synthetic-fixed-eligibility",
         "order": order,
         "phase": "p1",
         "gross": net + 3,
@@ -75,6 +78,9 @@ class PriorityTests(unittest.TestCase):
         self.assertEqual((a["units"], a["raw_additions_to_next_unit"]), (7, 1))
         self.assertEqual(result["p1_priority_groups"], [["a"], ["b"]])
         self.assertFalse(result["allocation_proof"])
+        self.assertEqual(a["occurrences"], 1)
+        self.assertEqual(len(a["auxiliary_blocks"]), 21)
+        self.assertEqual(a["raw_delta"], 3)
         changed = priority_report([row("a", 1, 100, 22)], {"a": {"raw_delta": 4}})
         self.assertEqual(changed["rows"][0]["units"], 8)
 
@@ -101,6 +107,7 @@ class PriorityTests(unittest.TestCase):
         rows[1]["bestcost"] = 10
         result = priority_report(rows)
         self.assertEqual(result["p1_priority_groups"], [["a", "b"]])
+        self.assertEqual(result["rows"][0]["bestcost"], "10")
         self.assertEqual(
             [r["net_vs_bestcost"] for r in result["rows"]], ["equal", "greater"]
         )
@@ -153,6 +160,19 @@ class PriorityTests(unittest.TestCase):
             priority_report([row("a", 1, 5, 2), row("b", 1, 3, 2)])
         with self.assertRaises(PriorityError):
             priority_report([row("a", 1, 5, 0)])
+
+    def test_comparison_context_cannot_mix_classes_or_eligibility_states(self) -> None:
+        for change in [
+            {"register_class": "fpr"},
+            {"snapshot": "other-state"},
+            {"procedure": 8},
+        ]:
+            with self.subTest(change=change), self.assertRaises(PriorityError):
+                priority_report([row("a", 1, 4, 2), row("b", 2, 5, 2) | change])
+        missing = row("a", 1, 4, 2)
+        del missing["snapshot"]
+        with self.assertRaises(PriorityError):
+            priority_report([missing])
 
     def test_module_cli_uses_json_and_refuses_bad_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

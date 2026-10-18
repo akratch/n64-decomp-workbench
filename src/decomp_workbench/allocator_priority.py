@@ -67,19 +67,36 @@ def priority_report(
     """Recompute every supplied role under fixed phase, graph and register costs.
 
     Required fields: id, phase, order, gross, charge_a, charge_b, occurrences,
-    auxiliary_blocks. Changes admit only net_delta/raw_delta. Native observed
+    auxiliary_blocks, register_class, snapshot. One authenticated comparison
+    context is required; classes or eligibility snapshots cannot mix.
+    Changes admit only net_delta/raw_delta. Native observed
     order is retained separately; equal mathematical priorities stay unordered.
     """
     changes = changes or {}
     ids: set[str] = set()
     orders: set[int] = set()
     rows: list[dict[str, Any]] = []
+    contexts: set[tuple[str, str, int]] = set()
     priorities: dict[str, Fraction] = {}
     for decision in decisions:
         identifier = decision.get("id")
         if not isinstance(identifier, str) or not identifier or identifier in ids:
             raise PriorityError("decision ids must be nonempty and unique")
         ids.add(identifier)
+        register_class = decision.get("register_class")
+        snapshot = decision.get("snapshot")
+        if register_class not in ("gpr", "fpr"):
+            raise PriorityError("register_class must be gpr or fpr")
+        if not isinstance(snapshot, str) or not snapshot.strip():
+            raise PriorityError(
+                "snapshot must name one authenticated eligibility state"
+            )
+        procedure = _integer(decision.get("procedure"), "procedure")
+        contexts.add((register_class, snapshot, procedure))
+        if len(contexts) > 1:
+            raise PriorityError(
+                "cannot mix register classes, procedures or eligibility snapshots"
+            )
         phase = decision.get("phase")
         if phase not in ("p1", "p2"):
             raise PriorityError("phase must be p1 or p2")
@@ -118,6 +135,9 @@ def priority_report(
             "charge_b": str(charge_b),
             "net_delta": str(delta),
             "net": str(net),
+            "occurrences": occurrences,
+            "auxiliary_blocks": blocks,
+            "raw_delta": raw_delta,
             "raw_units": raw,
             "units": units,
             "raw_unit_band": list(band),
@@ -129,6 +149,7 @@ def priority_report(
             priorities[identifier] = net / units
         if "bestcost" in decision:
             cost = _number(decision["bestcost"], "bestcost")
+            row["bestcost"] = str(cost)
             row["net_vs_bestcost"] = (
                 "greater" if net > cost else "equal" if net == cost else "less"
             )
@@ -142,6 +163,15 @@ def priority_report(
     levels = sorted({priorities[row["id"]] for row in p1}, reverse=True)
     return {
         "schema": "decomp-workbench-allocator-priority-v1",
+        "comparison_context": (
+            {
+                "register_class": next(iter(contexts))[0],
+                "snapshot": next(iter(contexts))[1],
+                "procedure": next(iter(contexts))[2],
+            }
+            if contexts
+            else None
+        ),
         "rows": rows,
         "p1_priority_groups": [
             [row["id"] for row in p1 if priorities[row["id"]] == level]

@@ -22,7 +22,12 @@ Overlapping occurrence and auxiliary blocks are still counted according to
 these two separate native containers; do not union them.
 
 Supply the complete affected set of decisions, with run-local labels of your
-choice. Obtain occurrence and auxiliary membership from authenticated native
+choice. Every row must name `register_class` (`gpr` or `fpr`) `procedure` (a nonnegative native ordinal), and `snapshot`.
+The report refuses mixed classes, procedures or snapshots. The snapshot is your
+independently authenticated fixed eligibility state, not merely a common
+procedure name: values observed at different native decisions are not
+simultaneously competing just because they share a trace. Do not combine
+them without establishing that comparison context. Obtain occurrence and auxiliary membership from authenticated native
 records; source lines and block intersection alone are insufficient.
 This synthetic input changes two numerators together:
 
@@ -30,9 +35,11 @@ This synthetic input changes two numerators together:
 {
   "decisions": [
     {"id": "left", "phase": "p1", "order": 1, "gross": 8,
+     "register_class": "gpr", "procedure": 7, "snapshot": "fixed-pool-before-selection",
      "charge_a": 0, "charge_b": 0, "occurrences": 1,
      "auxiliary_blocks": [4]},
     {"id": "right", "phase": "p1", "order": 2, "gross": 10,
+     "register_class": "gpr", "procedure": 7, "snapshot": "fixed-pool-before-selection",
      "charge_a": 0, "charge_b": 0, "occurrences": 1,
      "auxiliary_blocks": [4]}
   ],
@@ -40,8 +47,8 @@ This synthetic input changes two numerators together:
 }
 ```
 
-`raw_delta` is also accepted. It describes a hypothetical change to native
-units, not a claim that a particular C edit produces that change. Each output
+`raw_delta` is also accepted. It describes a hypothetical change to the raw
+count, not a claim that a particular C edit produces that change. Each output
 row keeps gross, both penalties, net and divisor separate, and reports the
 raw interval that retains the divisor and the distance to each boundary.
 An optional `bestcost` reports only whether **total net** is greater, equal or
