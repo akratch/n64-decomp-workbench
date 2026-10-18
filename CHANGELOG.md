@@ -1270,7 +1270,7 @@ records that.
 - Dated campaign records moved to `docs/history/`; the docs index gained a
   History table; `product-status`, `ido-support`, and the quality checklist
   carry as-of dates.
-- `docs/tooling-roadmap.md` retired to history; its open items live on the
+- The [tooling roadmap](docs/history/tooling-roadmap.md) retired to history; its open items live on the
   roadmap.
 - Superseded drafts deleted: the elite product review, the skill feed, and the
   endgame walkthrough page (its example now lives in `campaigns.md`).

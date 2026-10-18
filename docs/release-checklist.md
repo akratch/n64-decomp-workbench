@@ -24,16 +24,17 @@ workbench; compiler and game inputs have separate fidelity gates.
    mirror-equality tests are what keep the two honest. Then confirm each
    pinned external provenance link, which remains a network check.
 
-   Twenty `missing-path-reference` errors are expected and are not broken
+   Twenty-one `missing-path-reference` errors are expected and are not broken
    links. Each is a backtick-quoted citation of a document in a campaign
-   dossier outside this repository — `ref10-rom0j/*`, `hosted-fix/*`, and two
+   dossier outside this repository — `ref10-rom0j/*`, `hosted-fix/*`, Mickey campaign
+   shard and planning references, and historical
    dated field-note filenames in `docs/history/` — and the auditor reads any
    path-shaped token as a reference to resolve. They are provenance, not
    navigation: there is no local file to link and the dossiers are not
    redistributable, so the remedies the audit offers do not apply. Do not
    silence them with `--exclude`, which would stop auditing the pages that
    carry them, and do not respell a citation to hide it. Confirm the count is
-   still twenty and that every one names an external dossier; a
+   still twenty-one and that every one names an external dossier; a
    `missing-path-reference` under any other path is a real broken link.
 3. Check the source tree for ROMs, objects, compiler binaries, credentials,
    absolute user paths, and generated build products.
