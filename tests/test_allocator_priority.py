@@ -162,11 +162,12 @@ class PriorityTests(unittest.TestCase):
             priority_report([row("a", 1, 5, 0)])
 
     def test_comparison_context_cannot_mix_classes_or_eligibility_states(self) -> None:
-        for change in [
+        mixed_contexts: list[dict[str, Any]] = [
             {"register_class": "fpr"},
             {"snapshot": "other-state"},
             {"procedure": 8},
-        ]:
+        ]
+        for change in mixed_contexts:
             with self.subTest(change=change), self.assertRaises(PriorityError):
                 priority_report([row("a", 1, 4, 2), row("b", 2, 5, 2) | change])
         missing = row("a", 1, 4, 2)
