@@ -174,6 +174,19 @@ remain unchanged: a relocated target versus a relocation-free candidate still
 has a relocation-layout difference and is not object-exact. Project-specific
 linked-byte and relocation-identity checks remain necessary for promotion.
 
+## A call-target change is not a scheduling lever
+
+Call and tail-call scheduling identities retain relocation symbols, REL
+addends, and tuple counts. Two aligned calls that change targets remain a
+structural/identity diagnostic even when the whole function has the same
+multiset of callees: swapping callees between switch cases is not proof of a
+late-scheduler decision. A displaced call with the same known identity can
+still be classified as scheduling. Unknown identities do not prove a move.
+
+This changes diagnostic routing, not the object comparator's exactness
+contract. Relocation target differences remain separate reported evidence;
+project-linked identity and byte checks are still required.
+
 ## An unknown relocation prevents `exact=true`
 
 The comparator refuses to guess which instruction bits an unfamiliar

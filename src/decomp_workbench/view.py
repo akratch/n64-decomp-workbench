@@ -2438,7 +2438,57 @@ def _schedule_identity(instruction: Instruction, normalized: str) -> str:
         return f"{instruction.word}:{normalized}"
     kept_word = instruction.word_value & (~mask & 0xFFFFFFFF)
     kinds = ",".join(_relocation_kind_signature(instruction))
+    call = _call_relocation_signature(instruction)
+    if call is not None:
+        # A call to another symbol is not the same instruction moved by the
+        # scheduler. Keep the REL addend and every tuple, but not its site:
+        # the same recorded symbol/addend may still move to another row.
+        return f"{kept_word:08x}:{call!r}"
     return f"{kept_word:08x}:{kinds}"
+
+
+def _call_relocation_signature(
+    instruction: Instruction,
+) -> tuple[tuple[str, str | None, int], ...] | None:
+    """Return static call/tail-call identities, without guessing symbol aliases."""
+    if not instruction.relocations or instruction.opcode not in (
+        JUMP_OPCODES | {"bal", "bgezal", "bgezall", "bltzal", "bltzall"}
+    ):
+        return None
+    mask, unknown = relocation_field_mask(instruction)
+    addend = instruction.word_value if unknown else instruction.word_value & mask
+    return tuple((item.kind, item.symbol, addend) for item in instruction.relocations)
+
+
+def _call_identity_barriers(
+    labels: Sequence[str],
+    skeleton: Sequence[tuple[str, int | None, int | None]],
+    target: Sequence[Instruction],
+    candidate: Sequence[Instruction],
+) -> set[int]:
+    """Keep aligned call substitutions out of whole-function reorder heuristics.
+
+    Swapping two callees between switch cases preserves the function's call
+    multiset but changes control-flow identity, not late scheduling. A genuine
+    displaced same-identity call remains eligible; missing identities do not
+    establish such a move. Raw comparison/exactness is unaffected.
+    """
+    barriers = set()
+    for row, (_, left, right) in enumerate(skeleton):
+        expected = (
+            _call_relocation_signature(target[left]) if left is not None else None
+        )
+        actual = (
+            _call_relocation_signature(candidate[right]) if right is not None else None
+        )
+        if expected is not None and actual is not None and expected != actual:
+            barriers.add(row)
+        elif (labels[row] != MATCH or left != right) and any(
+            signature is not None and any(not name for _, name, _ in signature)
+            for signature in (expected, actual)
+        ):
+            barriers.add(row)
+    return barriers
 
 
 def _unknown_relocations(*streams: Sequence[Instruction]) -> list[str]:
@@ -2571,12 +2621,17 @@ def build_view(
             )
         else:
             labels.append(STRUCTURAL)
+    call_identity_barriers = _call_identity_barriers(
+        labels, skeleton, target, candidate
+    )
     _relabel_reorderings(
         labels,
         skeleton,
         target_schedule_keys,
         candidate_schedule_keys,
     )
+    for row in call_identity_barriers:
+        labels[row] = STRUCTURAL
     pool = _relabel_pool_rows(
         labels, skeleton, target, candidate, target_text, candidate_text
     )
