@@ -5,6 +5,18 @@ in [design notes](docs/history/design-notes.md).
 
 ## Unreleased
 
+### Campaign priority arithmetic and call scheduling identity
+
+- Added a report-only IDO 5.3 saving sensitivity module with explicit raw-unit
+  compression, numerator penalties, boundary distances and strict priority
+  windows. It keeps phase-two order, leaves ties unordered and never claims
+  allocation proof. Corrected the older block-count shorthand in law L147.
+- Call scheduling diagnosis now preserves callee identities, REL addends and
+  relocation multiplicity. Swapped callees remain structural differences;
+  genuine same-identity displacement remains scheduling evidence.
+- Synchronized the packaged improvement backlog with its canonical copy.
+
+
 ### Per-web allocator report, the lever sweep, and an evidence index
 
 - `trace web-report` (also `web-report`) reads a CDX log carrying the

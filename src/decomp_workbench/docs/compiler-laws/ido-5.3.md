@@ -5495,33 +5495,37 @@ edit lands, because the sweep that closed it no longer applies.
 
 ### L147. `nocs` counts basic blocks, not occurrences — so merging two references into one block raises a save at zero width
 
-[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width) gives a web's save as `totalsave / nocs`. The denominator is
-**the number of basic blocks the web is referenced in**, not the number of
-references. Two occurrences in one block count once; the same two occurrences
-split across two blocks count twice.
+[L100](#l100-a-webs-save-is-totalsavenocs-and-a-symbol-boundary-moves-both-terms-at-zero-width) gives a web's save as `totalsave / nocs`. The title is a
+historical shorthand, not the complete counting rule. Native `compute_save`
+first counts occurrence-list entries **plus auxiliary live-block bits**, then
+compresses that raw count: unchanged below three, otherwise
+`2 + floor((raw - 2) / 4)`. It does not count every reference separately, nor
+only the blocks containing real references. Raw 21 to 22 raises the divisor
+from six to seven; raw 22 to 25 leaves it seven. The two containers remain
+separate even when they name the same block.
 
-**That makes the denominator a source-controlled lever, and a cheap one.**
-Moving a statement so that two references share a block halves nothing and adds
-no instruction — it merges the occurrences into one `nocs` and the save rises
-directly. Measured: moving one store a single line earlier merged a literal's
-occurrences, taking its save from 0.5 to 1.0 at delta 0.
+Moving a statement can merge reference blocks or alter auxiliary liveness at
+zero emitted width. Whether that changes `nocs` depends on the compression
+boundary; it need not halve the divisor. The historical control below raised
+a literal's saving from 0.5 to 1.0, but that result is not a general factor-of-two
+rule. Conversely, adding a loop-weighted reference can raise the numerator
+while a new boundary also raises a neighboring web's divisor. Price both
+changes and recheck all affected roles.
 
-**Reading `nocs` as an occurrence count predicts the wrong edit.** It suggests
-deleting a reference, which usually costs an instruction, when the reachable
-move is to *relocate* one. Two functions were moved on this in one pass, and it
-is the transferable half of that lane's result.
+The 2026-10-18 ray investigation confirmed this qualification against native
+`compute_save` and complete decision traces. A GP counterfactual replay first
+reproduced every native degree and color, then explained coupled priority
+repairs; the same block-intersection construction failed the FP baseline and
+was not treated as a faithful allocator. Phase-two founding order and total
+saving versus caller/callee register costs remain distinct from phase-one
+priority. None of these priority calculations proves split acceptance.
+[Saving sensitivity](../allocator-priority.md) provides a report-only arithmetic
+helper with synthetic boundary and phase controls. It does not prove that a
+source spelling preserves graph, phases, costs or emitted instructions.
 
-**The numerator has its own lever, and it composes.** An
-[L109](#l109-a-discarded-expression-probes-weight-is-its-loop-depth-so-save-is-tunable-from-source-at-zero-instruction-cost) or-with-zero probe on a loop index raised `totalsave` from 31
-to 51 at unchanged `nocs`. The confirmation method is worth copying: **the
-probed object came back byte-identical to the object produced by forcing the
-colour directly**, which proves the probe moved the decision rather than merely
-moving the score.
-
-**Falsifies.** "`nocs` counts the web's references, so raising its save means
-adding or removing one." It counts *blocks*. That misreading points at deleting
-a reference, which usually costs an instruction, and hides the edit that is
-actually free: moving one reference so two share a block.
+**Falsifies.** "`nocs` is simply the number of references or real-reference
+blocks." Both omit the auxiliary set and compression, and can predict the
+wrong zero-width edit.
 
 **Receipt — T1, decision records with forced controls** (Mickey,
 `overlay34CreateRecord` and siblings, 2026-09-12). That function went **24

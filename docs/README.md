@@ -132,3 +132,6 @@ Every command has `--help`. `decomp-workbench --explain-keys` prints the one
 registry of printed labels, JSON keys, and their meanings; reporting commands
 that use those metrics accept the same option after the command name.
 Reporting commands expose JSON wherever it is useful for scripts and CI.
+
+The [allocator saving sensitivity report](allocator-priority.md) explains
+IDO 5.3 numerator/divisor boundaries without claiming allocation proof.

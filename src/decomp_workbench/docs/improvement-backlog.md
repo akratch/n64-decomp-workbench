@@ -2128,3 +2128,54 @@ precision, the verdict should print `save-tie` with the webs, their numbers
 and the L154 numbering rule (type first, first use second), and the source
 statement that would renumber them. Payoff: a tie is a numbering problem, and
 numbering is a declaration-order lever, not a colour force.
+
+### 47. P1 — Name a code-motion hoist in the verdict
+Symptom: `func_80054B3C` (Mickey, 2026-10-14) carried a +8 frame for four
+lanes before `web_report` showed the only extra web was a field read hoisted
+by `f_codemotion` into the join block (L168). Nothing in the verdict said
+"this web is an inserted partial-redundancy temp". Change: when a memory
+expression web has one def in a block that is not the use's block and the
+same expression occurs in an earlier conditional block, print
+`code-motion-hoist` with the two source lines, the join block, and the three
+kills measured (address-taken store before the read, kill on the conditional
+path, read moved into the join block). Payoff: the frame delta becomes a
+one-line diagnosis instead of a slot hunt.
+
+### 48. P1 — Substitution class in the web report
+Symptom: the coordinate doubles of `func_80054B3C` never appear in
+`web_report` because `readnxtinst` substituted them away; three lanes read
+their absence as a colouring question. Change: for every declared local that
+has no web, print the `subst_report` reason for each of its definitions
+(`single_use_no_ilod`, `shared_expr`, `single_use_not_vreg_local`...) next to
+the declaration, and mark address-taken locals. Payoff: "the local is not a
+register candidate" is visible without a second instrument (L170).
+
+### 49. P2 — Name slot owners in `slot_trace` home rows
+Symptom: `slot_trace --raw` prints home rows as `offset=-68 mtype=1` with no
+symbol, so attributing a frame delta needs `web_report` plus the object.
+Change: resolve each home row to its symbol (the web report already has the
+mapping) and print `home <symbol> offset`. Payoff: W35-style accounting in one
+command.
+
+### 50. P0 — The permuter scratch drops block-scope prototypes, so a search can run on the wrong code
+Symptom: Mickey `func_800517E0` (2026-10-15). decomp-permuter's import
+flattens a translation unit by replacing earlier function bodies with
+prototypes, which discards a block-scope `void f(u8 x);` declared inside one
+of those bodies; IDO keeps such a declaration in force for the rest of the
+file. The scratch then called `f` unprototyped, scored 1,371 at -4 bytes
+against the tree's 1,063 at 0, and a three-hour run optimised that wrong
+context; its best output (944 at size 0 in scratch) did not transfer (1,082
+in the real TU). Change: after import, compile the scratch base and compare
+its function object to the real TU object; refuse to start (or warn loudly)
+unless they are identical, and hoist block-scope function declarations from
+dropped bodies to file scope in the importer. Payoff: every permuter hour is
+spent on the real search space.
+
+### 51. P1 — Plateau shards need a size-aware split before the clean-room limit
+Symptom: `docs/matching-triage-handoffs/func_800517E0.md` reached 261,840
+bytes, 304 under the 262,144-byte clean-room oversize limit; the next dated
+note will fail the gate and no tool splits a shard. Change: a
+`finalize_plateau.py --split` that archives dated sections older than the
+last N into `<symbol>.archive-<n>.md` with a link from the live shard, and
+teach the shard audit to read the archive. Payoff: long-running functions
+keep their history without tripping the oversize rule.

@@ -2179,4 +2179,3 @@ note will fail the gate and no tool splits a shard. Change: a
 last N into `<symbol>.archive-<n>.md` with a link from the live shard, and
 teach the shard audit to read the archive. Payoff: long-running functions
 keep their history without tripping the oversize rule.
-

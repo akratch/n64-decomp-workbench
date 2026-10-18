@@ -56,6 +56,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 decomp_workbench = [
     "docs/compiler-laws/*.md",
+    "docs/allocator-priority.md",
     "docs/field-guide.md",
     "fingerprints/*.c",
     "patches/*.md",
