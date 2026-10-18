@@ -3680,23 +3680,27 @@ search.
 
 ### L100. A web's save is `totalsave/nocs`, and a symbol boundary moves both terms at zero width
 
-globalcolor ranks webs by `save = totalsave / nocs` and colours them in
-descending order, so the question "which web takes the low colour" is decided
-by a ratio.
+In the applicable phase-one selection, globalcolor ranks eligible webs by
+`save = totalsave / nocs` in descending order. This ratio does not determine
+phase-two order or, by itself, whether a piece receives a register.
 
-**Both terms are now priced exactly (2026-09-11).** `nocs` is the **number of
-definitions**, and `totalsave` sums **10^(loop depth)** over every reference
-*including the defining one*. That makes the two terms behave very differently
-as levers: the total is fixed by where the value is used, but **the divisor is
-movable at zero size delta — a second definition halves a web's rank for
-free**. Fitted on one function against a positive control that reproduced the
-ROM's assignment at the required rank.
+**Counting qualification (2026-10-18).** The early interpretation below was
+fitted to one positive control; `nocs` is not generally the number of
+definitions. Native `compute_save` counts occurrence-list entries plus auxiliary
+live-block bits, then compresses raw counts of at least three to
+`2 + floor((raw - 2) / 4)`. The numerator weights surviving uses and definitions
+by block frequency, with caller/callee-related penalties applied separately.
+A second definition can change both terms and graph membership; it does not
+universally halve rank or remain zero width. The historical receipt measured
+a zero-width rank change on that particular source, not a general definition
+count law. See [L147](#l147-nocs-counts-basic-blocks-not-occurrences--so-merging-two-references-into-one-block-raises-a-save-at-zero-width)
+and the [saving sensitivity report](../allocator-priority.md).
 
-**That lever reaches declared variables only (2026-09-11).** For a *compiler
-temp* the two terms are not independently movable from source: a second
-definition is not something the source can give a value cfe invented. On the
-function that established this the temp had to be **removed**, not demoted. So
-establish what the contested web actually is before reaching for the divisor.
+Declared variables and compiler-created expression owners also have different
+source controls. A source name does not prove which owner survived, and a
+source edit cannot arbitrarily give a CFE-created value another definition.
+Establish actual owner, phase, raw units, numerator and total-saving-versus-cost
+gate before predicting a rank or split change.
 
 > **Scope, corrected the same day it was written (2026-09-10): this describes
 > phase one only, and phase one does not always run.** p1 is a repeated
